@@ -1,0 +1,126 @@
+cmake_minimum_required(VERSION 3.25)
+project(blokkily VERSION 0.1.0 LANGUAGES C CXX)
+
+add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
+pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(BLOKKILY_BUILD_TESTS "Build unit tests" ON)
+option(BLOKKILY_BUILD_GUI "Build the Qt Quick prototype" ON)
+
+add_library(blokkily_core
+    src/model/pattern.cpp
+    src/model/song.cpp
+    src/project/project.cpp
+    src/plugins/clap_catalog.cpp
+    src/plugins/clap_instance.cpp
+    src/instruments/soundfont_catalog.cpp
+    src/instruments/soundfont_synth.cpp
+    src/audio/playback.cpp
+    src/audio/event_timeline.cpp
+    src/audio/mixer.cpp
+    src/audio/song_engine.cpp
+    src/audio/wave_file.cpp
+    src/audio/bounce.cpp
+    src/plugins/vst3_instance.cpp
+    src/sequencer/scheduler.cpp
+)
+target_include_directories(blokkily_core PUBLIC include PRIVATE third_party/clap/include)
+target_link_libraries(blokkily_core PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(blokkily_core PUBLIC PkgConfig::FLUIDSYNTH)
+target_link_libraries(blokkily_core PUBLIC PkgConfig::RTAUDIO)
+target_link_libraries(blokkily_core PRIVATE juce::juce_audio_processors_headless)
+target_compile_definitions(blokkily_core PRIVATE
+    JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LV2=0
+    JUCE_PLUGINHOST_VST=0 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_compile_options(blokkily_core PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
+)
+
+add_executable(blokkily_cli src/app/main.cpp)
+target_link_libraries(blokkily_cli PRIVATE blokkily_core)
+
+if(BLOKKILY_BUILD_GUI)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2)
+    qt_standard_project_setup(REQUIRES 6.5)
+    qt_policy(SET QTP0004 NEW)
+    qt_add_executable(blokkily
+        src/app/gui_main.cpp
+        src/app/pattern_model.cpp
+        src/app/pattern_model.hpp
+        src/app/song_model.cpp
+        src/app/song_model.hpp
+    )
+    qt_add_qml_module(blokkily
+        URI Blokkily
+        VERSION 1.0
+        QML_FILES ui/Main.qml
+    )
+    target_link_libraries(blokkily PRIVATE blokkily_core
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+endif()
+
+if(BLOKKILY_BUILD_TESTS)
+    enable_testing()
+    add_library(blokkily_test_clap MODULE tests/fixtures/test_clap.cpp)
+    target_include_directories(blokkily_test_clap PRIVATE third_party/clap/include)
+    set_target_properties(blokkily_test_clap PROPERTIES
+        PREFIX "" SUFFIX ".clap" OUTPUT_NAME "blokkily-test"
+    )
+    juce_add_plugin(blokkily_test_vst3
+        COMPANY_NAME Blokkily
+        PLUGIN_MANUFACTURER_CODE Blok
+        PLUGIN_CODE Btst
+        FORMATS VST3
+        PRODUCT_NAME "Blokkily Test VST3"
+        IS_SYNTH TRUE
+        NEEDS_MIDI_INPUT TRUE
+        VST3_CATEGORIES Instrument Synth)
+    target_sources(blokkily_test_vst3 PRIVATE tests/fixtures/test_vst3.cpp)
+    target_compile_definitions(blokkily_test_vst3 PRIVATE JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_link_libraries(blokkily_test_vst3 PRIVATE
+        juce::juce_audio_utils juce::juce_recommended_config_flags)
+    add_executable(blokkily_tests tests/core_tests.cpp)
+    target_link_libraries(blokkily_tests PRIVATE blokkily_core)
+    target_compile_definitions(blokkily_tests PRIVATE
+        BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
+        BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
+        BLOKKILY_TEST_ARTIFACTS="${CMAKE_BINARY_DIR}/artifacts"
+    )
+    add_dependencies(blokkily_tests blokkily_test_clap blokkily_test_vst3_VST3)
+    add_test(NAME blokkily_core COMMAND blokkily_tests)
+    set_tests_properties(blokkily_core PROPERTIES
+        LABELS "unit;integration;soundfont;clap;vst3;audio;realtime;project;parameters;mixer;song;export"
+        ENVIRONMENT "ALSA_CONFIG_PATH=/dev/null")
+
+    if(BLOKKILY_BUILD_GUI)
+        find_file(BLOKKILY_TEST_SF2
+            NAMES basic.sf2 TimGM6mb.sf2 FluidR3_GM.sf2
+            PATHS /usr/share/fweelin /usr/share/sounds/sf2 /usr/share/soundfonts
+            NO_DEFAULT_PATH)
+        if(NOT BLOKKILY_TEST_SF2)
+            message(FATAL_ERROR "BDD integration requires a test SoundFont; set BLOKKILY_TEST_SF2")
+        endif()
+        target_compile_definitions(blokkily_tests PRIVATE
+            BLOKKILY_TEST_SF2_PATH="${BLOKKILY_TEST_SF2}")
+        add_dependencies(blokkily blokkily_test_clap blokkily_test_vst3_VST3)
+        add_test(NAME bdd_edit_once_see_everywhere
+            COMMAND blokkily --verify
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --project ${CMAKE_BINARY_DIR}/artifacts/verification.blok
+                --export ${CMAKE_BINARY_DIR}/artifacts/arrangement-bounce.wav
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/edit-once-see-everywhere.png)
+        set_tests_properties(bdd_edit_once_see_everywhere PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;clap;vst3;soundfont;project;parameters;mixer;song;export"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            TIMEOUT 20)
+    endif()
+endif()

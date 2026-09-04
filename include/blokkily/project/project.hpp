@@ -1,0 +1,47 @@
+#pragma once
+
+#include "blokkily/model/song.hpp"
+
+#include <cstddef>
+#include <filesystem>
+#include <optional>
+#include <string>
+
+namespace blokkily {
+
+// A session: the arrangement plus the tempo it plays at. Everything musical
+// lives in the song, so saving a project and saving a song are the same act.
+struct Project {
+    std::string name = "Untitled";
+    double tempo = 120.0;
+    Song song;
+
+    [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return song.pattern(index); }
+    [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {
+        return song.pattern(index);
+    }
+};
+
+// A versioned, line-oriented, deterministic project file. Saving the same
+// project twice produces byte-identical output, so projects diff cleanly and
+// round-trip exactly.
+class ProjectFile {
+public:
+    // 2 added the parameter index and automation/modulation kind to locks.
+    // 3 replaced the single pattern and flat instrument list with a song:
+    // named patterns, mixer tracks that own their instrument, and clips.
+    static constexpr int format_version = 3;
+
+    [[nodiscard]] static bool save(const Project& project,
+                                   const std::filesystem::path& file,
+                                   std::string* error = nullptr);
+    [[nodiscard]] static std::optional<Project> load(const std::filesystem::path& file,
+                                                     std::string* error = nullptr);
+
+    // Exposed so that the round-trip can be tested without touching a disk.
+    [[nodiscard]] static std::string serialize(const Project& project);
+    [[nodiscard]] static std::optional<Project> parse(const std::string& text,
+                                                      std::string* error = nullptr);
+};
+
+} // namespace blokkily
