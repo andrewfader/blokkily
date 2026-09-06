@@ -164,6 +164,20 @@ std::string ProjectFile::serialize(const Project& project) {
     out << "name " << escape(project.name) << '\n';
     out << "tempo " << number(project.tempo) << '\n';
     out << "master " << number(project.song.master_gain_db) << '\n';
+    // The tuning travels in full rather than by name, so a session written in a
+    // scale this build has never heard of still reloads as itself.
+    out << "tuning " << escape(project.song.tuning.name) << ' '
+        << number(project.song.tuning.period_cents) << ' '
+        << project.song.tuning.anchor_key << ' '
+        << project.song.tuning.degrees.size();
+    for (const double cents : project.song.tuning.degrees) out << ' ' << number(cents);
+    out << '\n';
+    out << "scale " << escape(project.song.scale.name) << ' '
+        << project.song.scale.cents.size();
+    for (const double cents : project.song.scale.cents) out << ' ' << number(cents);
+    out << '\n';
+    out << "harmony " << project.song.root_degree << ' '
+        << (project.song.auto_scale ? 1 : 0) << '\n';
     for (std::size_t index = 0; index < project.song.patterns.size(); ++index) {
         const auto& slot = project.song.patterns[index];
         out << "pattern " << escape(slot.name) << ' ' << slot.pattern.length() << ' '
@@ -176,12 +190,16 @@ std::string ProjectFile::serialize(const Project& project) {
                 << static_cast<unsigned>(trigger.play_on_loop);
             if (const auto* note = std::get_if<Note>(&trigger.musical_data)) {
                 out << " note " << note->key << ' ' << number(note->velocity) << ' '
-                    << number(note->release_velocity);
+                    << number(note->release_velocity) << ' ' << number(note->cents);
             } else {
                 const auto& chord = std::get<Chord>(trigger.musical_data);
                 out << " chord " << chord.root << ' ' << static_cast<int>(chord.inversion) << ' '
                     << chord.strum << ' ' << chord.intervals.size();
                 for (const auto interval : chord.intervals) out << ' ' << interval;
+                // One retune per interval, always written, so a chord reads
+                // back in the tuning it was played in.
+                for (std::size_t voice = 0; voice < chord.intervals.size(); ++voice)
+                    out << ' ' << number(voice < chord.cents.size() ? chord.cents[voice] : 0.0);
             }
             out << '\n';
             for (const auto& lock : trigger.locks)
@@ -267,6 +285,49 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
                 (void)fail(error, "malformed master record"); return std::nullopt;
             }
             project.song.master_gain_db = *value;
+        } else if (record == "tuning") {
+            const auto name = fields.text(1);
+            const auto period = fields.real(2);
+            const auto anchor = fields.integer(3);
+            const auto count = fields.integer(4);
+            if (!name || !period || !anchor || !count || *period <= 0.0 || *count <= 0 ||
+                !fields.count(static_cast<std::size_t>(5 + *count))) {
+                (void)fail(error, "malformed tuning record"); return std::nullopt;
+            }
+            Tuning tuning;
+            tuning.name = *name;
+            tuning.period_cents = *period;
+            tuning.anchor_key = static_cast<int>(*anchor);
+            tuning.degrees.clear();
+            for (int degree = 0; degree < *count; ++degree) {
+                const auto cents = fields.real(static_cast<std::size_t>(5 + degree));
+                if (!cents) { (void)fail(error, "malformed tuning record"); return std::nullopt; }
+                tuning.degrees.push_back(*cents);
+            }
+            project.song.tuning = std::move(tuning);
+        } else if (record == "scale") {
+            const auto name = fields.text(1);
+            const auto count = fields.integer(2);
+            if (!name || !count || *count < 0 ||
+                !fields.count(static_cast<std::size_t>(3 + *count))) {
+                (void)fail(error, "malformed scale record"); return std::nullopt;
+            }
+            Scale scale;
+            scale.name = *name;
+            for (int degree = 0; degree < *count; ++degree) {
+                const auto cents = fields.real(static_cast<std::size_t>(3 + degree));
+                if (!cents) { (void)fail(error, "malformed scale record"); return std::nullopt; }
+                scale.cents.push_back(*cents);
+            }
+            project.song.scale = std::move(scale);
+        } else if (record == "harmony") {
+            const auto root = fields.integer(1);
+            const auto automatic = fields.integer(2);
+            if (!fields.count(3) || !root || !automatic) {
+                (void)fail(error, "malformed harmony record"); return std::nullopt;
+            }
+            project.song.root_degree = static_cast<int>(*root);
+            project.song.auto_scale = *automatic != 0;
         } else if (record == "pattern") {
             const auto name = fields.text(1);
             const auto length = fields.integer(2);
@@ -304,19 +365,20 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
                 const auto key = fields.integer(10);
                 const auto velocity = fields.real(11);
                 const auto release = fields.real(12);
-                if (!fields.count(13) || !key || !velocity || !release) {
+                const auto cents = fields.real(13);
+                if (!fields.count(14) || !key || !velocity || !release || !cents) {
                     (void)fail(error, "malformed note payload"); return std::nullopt;
                 }
                 trigger.musical_data = Note{static_cast<std::int16_t>(*key),
                                             static_cast<float>(*velocity),
-                                            static_cast<float>(*release)};
+                                            static_cast<float>(*release), *cents};
             } else if (fields.tokens[9] == "chord") {
                 const auto root = fields.integer(10);
                 const auto inversion = fields.integer(11);
                 const auto strum = fields.integer(12);
                 const auto count = fields.integer(13);
                 if (!root || !inversion || !strum || !count || *count < 0 ||
-                    !fields.count(14 + static_cast<std::size_t>(*count))) {
+                    !fields.count(14 + 2 * static_cast<std::size_t>(*count))) {
                     (void)fail(error, "malformed chord payload"); return std::nullopt;
                 }
                 Chord chord;
@@ -328,6 +390,13 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
                     const auto interval = fields.integer(14 + static_cast<std::size_t>(index));
                     if (!interval) { (void)fail(error, "malformed chord interval"); return std::nullopt; }
                     chord.intervals.push_back(static_cast<std::int16_t>(*interval));
+                }
+                chord.cents.clear();
+                for (long long index = 0; index < *count; ++index) {
+                    const auto retune =
+                        fields.real(14 + static_cast<std::size_t>(*count + index));
+                    if (!retune) { (void)fail(error, "malformed chord retune"); return std::nullopt; }
+                    chord.cents.push_back(*retune);
                 }
                 trigger.musical_data = chord;
             } else {

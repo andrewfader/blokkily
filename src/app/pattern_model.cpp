@@ -6,10 +6,17 @@
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 #include <QString>
 #include <QVariantMap>
 #include <QUrl>
+
+#include <cstring>
+#include <system_error>
 
 #include <QtGlobal>
 
@@ -35,12 +42,6 @@ QString local_path(const QString& value) {
     return url.isLocalFile() ? url.toLocalFile() : value;
 }
 
-QString note_name(int key) {
-    static constexpr const char* names[] = {"C", "C#", "D", "D#", "E", "F",
-                                             "F#", "G", "G#", "A", "A#", "B"};
-    return QString("%1%2").arg(names[key % 12]).arg(key / 12 - 1);
-}
-
 QString hex2(int value) {
     return QString("%1").arg(qBound(0, value, 255), 2, 16, QChar('0')).toUpper();
 }
@@ -49,6 +50,37 @@ QString hex2(int value) {
 // it in one place keeps the tracker and the inspector from disagreeing.
 int velocity_units(float velocity) {
     return qBound(0, qRound(static_cast<double>(velocity) * 127.0), 127);
+}
+
+// The pitch a step carries, said in the song's tuning. A chord is one event
+// rather than a stack of notes, so it is named by its lowest voice and how many
+// voices stand on it; every editor asks here so none of them can disagree.
+QString pitch_label(const SongModel* song, const blokkily::Trigger& trigger) {
+    if (song == nullptr) return QStringLiteral("---");
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data))
+        return song->pitchName(note->key, note->cents);
+    const auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    const double root_cents = chord.cents.empty() ? 0.0 : chord.cents.front();
+    return QString("%1+%2").arg(song->pitchName(chord.root, root_cents))
+                           .arg(chord.intervals.size() > 1 ? chord.intervals.size() - 1 : 0);
+}
+
+// The key an instrument is told for the step's lowest voice, and how many
+// voices it holds.
+int pitch_key(const blokkily::Trigger& trigger) {
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) return note->key;
+    return std::get<blokkily::Chord>(trigger.musical_data).root;
+}
+
+double pitch_cents(const blokkily::Trigger& trigger) {
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) return note->cents;
+    const auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    return chord.cents.empty() ? 0.0 : chord.cents.front();
+}
+
+int pitch_voices(const blokkily::Trigger& trigger) {
+    if (std::holds_alternative<blokkily::Note>(trigger.musical_data)) return 1;
+    return static_cast<int>(std::get<blokkily::Chord>(trigger.musical_data).intervals.size());
 }
 
 QString lock_text(const blokkily::Trigger& trigger) {
@@ -78,6 +110,7 @@ void PatternModel::refresh() {
     beginResetModel();
     endResetModel();
     emit patternChanged();
+    emit selectionChanged();
 }
 
 int PatternModel::rowCount(const QModelIndex& parent) const {
@@ -88,12 +121,11 @@ QVariant PatternModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) return {};
     const auto& event = pattern().events()[static_cast<std::size_t>(index.row())];
     const auto* note = std::get_if<blokkily::Note>(&event.musical_data);
-    const int key = note == nullptr ? 60 : note->key;
     switch (role) {
     case IdRole: return QVariant::fromValue<qulonglong>(event.id);
     case StepRole: return static_cast<int>(event.start / ticks_per_step);
-    case KeyRole: return key;
-    case NameRole: return note_name(key);
+    case KeyRole: return pitch_key(event);
+    case NameRole: return pitch_label(song_, event);
     case DurationRole: return static_cast<int>(event.duration);
     case VelocityRole: return hex2(velocity_units(note == nullptr ? 0.8F : note->velocity));
     case LockRole: return lock_text(event);
@@ -131,17 +163,21 @@ QVariantList PatternModel::steps() const {
             row["velocityUnits"] = 0;
             row["hasLock"] = false;
             row["key"] = 0;
+            row["cents"] = 0.0;
+            row["voices"] = 0;
             row["ratchets"] = 0;
         } else {
             const auto* note = std::get_if<blokkily::Note>(&trigger->musical_data);
             const float velocity = note == nullptr ? 0.8F : note->velocity;
-            row["noteName"] = note_name(note == nullptr ? 60 : note->key);
+            row["noteName"] = pitch_label(song_, *trigger);
             row["velocityHex"] = hex2(velocity_units(velocity));
             row["velocityUnits"] = velocity_units(velocity);
             row["lockText"] = lock_text(*trigger);
             row["velocity"] = static_cast<double>(velocity);
             row["hasLock"] = !trigger->locks.empty();
-            row["key"] = note == nullptr ? 60 : note->key;
+            row["key"] = pitch_key(*trigger);
+            row["cents"] = pitch_cents(*trigger);
+            row["voices"] = pitch_voices(*trigger);
             row["ratchets"] = static_cast<int>(trigger->ratchets);
         }
         rows.push_back(row);
@@ -156,8 +192,10 @@ QVariantMap PatternModel::selected() const {
     detail["exists"] = trigger != nullptr;
     if (trigger == nullptr) return detail;
     const auto* note = std::get_if<blokkily::Note>(&trigger->musical_data);
-    detail["key"] = note == nullptr ? 60 : note->key;
-    detail["noteName"] = note_name(note == nullptr ? 60 : note->key);
+    detail["key"] = pitch_key(*trigger);
+    detail["noteName"] = pitch_label(song_, *trigger);
+    detail["cents"] = pitch_cents(*trigger);
+    detail["voices"] = pitch_voices(*trigger);
     detail["velocity"] = note == nullptr ? 0.8 : static_cast<double>(note->velocity);
     detail["velocityUnits"] = velocity_units(note == nullptr ? 0.8F : note->velocity);
     detail["probability"] = static_cast<double>(trigger->probability);
@@ -215,8 +253,10 @@ int PatternModel::highKey() const {
 bool PatternModel::hasStep(int step) const { return triggerAt(step) != nullptr; }
 
 void PatternModel::selectStep(int step) {
+    // Selection is not an edit: the arrangement still plays what it played, so
+    // nothing here may reach the engine and interrupt it.
     selected_step_ = qBound(-1, step, step_count - 1);
-    emit patternChanged();
+    emit selectionChanged();
 }
 
 void PatternModel::toggleStep(int step, int key) {
@@ -227,6 +267,8 @@ void PatternModel::toggleStep(int step, int key) {
         endResetModel();
         selected_step_ = step;
         emit patternChanged();
+        emit contentChanged();
+        emit selectionChanged();
         return;
     }
     blokkily::Trigger trigger;
@@ -238,6 +280,106 @@ void PatternModel::toggleStep(int step, int key) {
     endResetModel();
     selected_step_ = step;
     emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+}
+
+// Writing a pitch onto a step is the same edit whichever editor asks for it,
+// so the tracker's note column and the piano roll's lanes both come through
+// here rather than each growing an editing path of its own.
+void PatternModel::setStepKey(int step, int key) {
+    if (step < 0 || step >= step_count) return;
+    const int bounded = qBound(0, key, 127);
+    // A pitch written in the roll or the tracker is a twelve-tone key, which in
+    // a tuning that is not twelve-tone still means the key the instrument is
+    // told. The retune the step already carried is kept, so re-pitching a
+    // microtonal step does not quietly straighten it back onto equal semitones.
+    const auto* existing = triggerAt(step);
+    const double cents = existing == nullptr ? 0.0 : pitch_cents(*existing);
+    const float velocity = existing == nullptr
+                               ? 0.9F
+                               : (std::holds_alternative<blokkily::Note>(existing->musical_data)
+                                      ? std::get<blokkily::Note>(existing->musical_data).velocity
+                                      : 0.9F);
+    placeNote(step, blokkily::Note{static_cast<std::int16_t>(bounded), velocity, 0.0F, cents});
+}
+
+void PatternModel::clearStep(int step) {
+    const auto* existing = triggerAt(step);
+    if (existing == nullptr) return;
+    const auto id = existing->id;
+    beginResetModel();
+    (void)pattern().remove(id);
+    endResetModel();
+    selected_step_ = step;
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+}
+
+std::vector<blokkily::TunedPitch> PatternModel::pitchesAt(int step) const {
+    const auto* trigger = triggerAt(step);
+    if (trigger == nullptr) return {};
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger->musical_data))
+        return {{note->key, note->cents}};
+    const auto& chord = std::get<blokkily::Chord>(trigger->musical_data);
+    std::vector<blokkily::TunedPitch> pitches;
+    pitches.reserve(chord.intervals.size());
+    for (std::size_t voice = 0; voice < chord.intervals.size(); ++voice)
+        pitches.push_back({static_cast<std::int16_t>(chord.root + chord.intervals[voice]),
+                           voice < chord.cents.size() ? chord.cents[voice] : 0.0});
+    return pitches;
+}
+
+namespace {
+// A step written by a playable surface. Everything but the pitch is the same
+// for a note and for a chord, so both go on through one place.
+blokkily::Trigger played_trigger(int step, blokkily::Tick ticks_per_step) {
+    blokkily::Trigger trigger;
+    trigger.start = step * ticks_per_step;
+    trigger.duration = 96;
+    return trigger;
+}
+} // namespace
+
+void PatternModel::placeNote(int step, const blokkily::Note& note) {
+    if (step < 0 || step >= step_count) return;
+    auto trigger = played_trigger(step, ticks_per_step);
+    trigger.musical_data = note;
+    beginResetModel();
+    if (const auto* existing = triggerAt(step)) {
+        // Playing over a step replaces its pitch and keeps everything else the
+        // producer set on it: its locks, its ratchets, its microtiming.
+        auto replacement = *existing;
+        replacement.musical_data = note;
+        (void)pattern().update(replacement.id, replacement);
+    } else {
+        (void)pattern().add(trigger);
+    }
+    endResetModel();
+    selected_step_ = step;
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+}
+
+void PatternModel::placeChord(int step, const blokkily::Chord& chord) {
+    if (step < 0 || step >= step_count) return;
+    auto trigger = played_trigger(step, ticks_per_step);
+    trigger.musical_data = chord;
+    beginResetModel();
+    if (const auto* existing = triggerAt(step)) {
+        auto replacement = *existing;
+        replacement.musical_data = chord;
+        (void)pattern().update(replacement.id, replacement);
+    } else {
+        (void)pattern().add(trigger);
+    }
+    endResetModel();
+    selected_step_ = step;
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
 }
 
 void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)>& edit) {
@@ -249,12 +391,20 @@ void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)
     (void)pattern().update(replacement.id, replacement);
     endResetModel();
     emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
 }
 
 void PatternModel::transposeSelected(int semitones) {
     mutate(selected_step_, [semitones](blokkily::Trigger& trigger) {
-        if (auto* note = std::get_if<blokkily::Note>(&trigger.musical_data))
+        if (auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
             note->key = static_cast<std::int16_t>(qBound(0, note->key + semitones, 127));
+            return;
+        }
+        // A chord moves as a whole: its voices are intervals above its root, so
+        // transposing the root carries the harmony with it.
+        auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+        chord.root = static_cast<std::int16_t>(qBound(0, chord.root + semitones, 127));
     });
 }
 
@@ -306,6 +456,8 @@ void PatternModel::replace(blokkily::Pattern replacement) {
     pattern() = std::move(replacement);
     endResetModel();
     emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
 }
 
 Transport::Transport(QObject* parent) : QObject(parent) {
@@ -385,22 +537,99 @@ void Transport::tick() {
 AppController::AppController(SongModel* song, PatternModel* pattern, Transport* transport,
                              QObject* parent)
     : QObject(parent), song_(song), pattern_(pattern), transport_(transport) {
+    // What the browser lists follows both what the scan found and what the
+    // producer has typed, so a plugin arriving mid-scan reaches a filtered
+    // browser too.
+    QObject::connect(this, &AppController::pluginsChanged,
+                     this, &AppController::browserChanged);
     if (pattern_ != nullptr)
-        QObject::connect(pattern_, &PatternModel::patternChanged, this, [this] {
-            // Editing a step changes what the arrangement plays, so the engine
-            // recompiles; the transport keeps running while it does.
-            if (engine_) (void)rebuildEngine();
+        QObject::connect(pattern_, &PatternModel::contentChanged, this, [this] {
+            // Editing a step changes what the arrangement plays, not what plays
+            // it, so the recompiled timeline is handed to the running engine.
+            // The song keeps going from where it was, on the instruments it
+            // already has, and the next block plays the edit.
+            if (engine_ && !refreshArrangement()) (void)rebuildEngine();
         });
     if (song_ != nullptr) {
         QObject::connect(song_, &SongModel::structureChanged, this, [this] {
-            if (engine_) (void)rebuildEngine();
+            // A clip moved on the timeline is the same kind of change as a
+            // step edit. A track added or an instrument swapped is not: that
+            // needs a graph the running engine does not have.
+            if (engine_ && refreshArrangement()) return;
+            // A track that has just been given an instrument needs an engine
+            // even if none existed: a keyboard must sound before playback.
+            if (engine_ || !instruments().empty()) (void)rebuildEngine();
         });
         // A fader move only changes gains, so it reaches the running engine
         // without rebuilding the graph or interrupting playback.
         QObject::connect(song_, &SongModel::mixChanged, this, &AppController::applyMix);
     }
+    // A held note is let go on a timer rather than on a second press, so a
+    // keyboard cannot leave a voice sounding after the finger has left it.
+    audition_timer_.setSingleShot(true);
+    audition_timer_.setInterval(450);
+    QObject::connect(&audition_timer_, &QTimer::timeout, this,
+                     &AppController::releaseSoundingNotes);
     meter_timer_.setInterval(33);
     QObject::connect(&meter_timer_, &QTimer::timeout, this, &AppController::pollMeters);
+    // A candidate that stops answering is given up on rather than waited for.
+    scan_deadline_.setSingleShot(true);
+    QObject::connect(&scan_deadline_, &QTimer::timeout, this, [this] {
+        if (!scanner_) return;
+        scan_expired_ = true;
+        scanner_->kill();
+    });
+}
+
+AppController::~AppController() {
+    if (scanner_) {
+        scanner_->kill();
+        scanner_->waitForFinished(1000);
+    }
+}
+
+// Nothing is left holding a note across a rebuild: the engine that was told to
+// sound it no longer exists, so the release would land on an instrument that
+// never heard the press.
+void AppController::forgetSoundingNotes() {
+    sounding_.clear();
+    audition_timer_.stop();
+}
+
+// Lets go of every note the keyboard is holding, on the track that was told to
+// sound it rather than on whichever one happens to be selected now.
+void AppController::releaseSoundingNotes() {
+    if (engine_ != nullptr)
+        for (const auto& held : sounding_)
+            (void)engine_->play_live(static_cast<std::size_t>(audition_track_),
+                                     {blokkily::PluginEvent::Type::note_off, 0, held.key,
+                                      0.0, held.cents});
+    sounding_.clear();
+}
+
+bool AppController::auditionPitches(const std::vector<blokkily::TunedPitch>& pitches,
+                                    double velocity) {
+    if (song_ == nullptr) return false;
+    // A press while an engine exists is heard immediately; without one there is
+    // nothing to sound through, and the surface still writes what was played.
+    if (!engine_ && !instruments().empty()) (void)rebuildEngine();
+    if (!engine_) return false;
+    // Whatever was still sounding is let go first, so a run of presses does not
+    // pile voices up on the instrument. It is released on the track that was
+    // told to sound it: a producer who changes track mid-press would otherwise
+    // leave a voice held on the instrument they just left.
+    releaseSoundingNotes();
+    const auto track = static_cast<std::size_t>(song_->selectedTrack());
+    if (track >= engine_->track_count() || !engine_->has_instrument(track)) return false;
+    audition_track_ = song_->selectedTrack();
+    for (const auto& pitch : pitches) {
+        if (!engine_->play_live(track, {blokkily::PluginEvent::Type::note_on, 0, pitch.key,
+                                        velocity, pitch.cents}))
+            break;
+        sounding_.push_back(pitch);
+    }
+    audition_timer_.start();
+    return !sounding_.empty();
 }
 
 QString AppController::activeInstrument() const {
@@ -425,9 +654,223 @@ std::vector<blokkily::InstrumentSlot> AppController::instruments() const {
 }
 
 void AppController::scanPlugins() {
-    scanPluginPaths(blokkily::ClapCatalog::system_paths(),
-                    blokkily::Vst3PluginInstance::system_paths(),
-                    blokkily::SoundFontCatalog::system_paths());
+    beginScan(blokkily::ClapCatalog::system_paths(),
+              blokkily::Vst3PluginInstance::system_paths(),
+              blokkily::SoundFontCatalog::system_paths());
+}
+
+void AppController::rescanPlugins() {
+    beginScan(blokkily::ClapCatalog::system_paths(),
+              blokkily::Vst3PluginInstance::system_paths(),
+              blokkily::SoundFontCatalog::system_paths(), true);
+}
+
+QString AppController::scanHelperPath() const {
+    if (const auto override_path = qEnvironmentVariable("BLOKKILY_SCAN_HELPER");
+        !override_path.isEmpty())
+        return override_path;
+    return QCoreApplication::applicationDirPath() + "/blokkily_scan";
+}
+
+QString AppController::scanCachePath() const {
+    if (const auto override_path = qEnvironmentVariable("BLOKKILY_SCAN_CACHE");
+        !override_path.isEmpty())
+        return override_path;
+    return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) +
+           "/plugin-scan-cache.txt";
+}
+
+void AppController::loadScanCache() {
+    if (scan_cache_loaded_) return;
+    scan_cache_loaded_ = true;
+    QFile file(scanCachePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    const auto text = file.readAll();
+    scan_cache_ = blokkily::read_scan_cache(std::string_view(text.constData(),
+                                                             static_cast<std::size_t>(text.size())));
+}
+
+void AppController::saveScanCache() const {
+    const QString path = scanCachePath();
+    QDir{}.mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return;
+    const auto text = blokkily::write_scan_cache(scan_cache_);
+    file.write(text.data(), static_cast<qint64>(text.size()));
+}
+
+blokkily::ScanCacheEntry* AppController::cachedScan(const blokkily::ScanCandidate& candidate) {
+    for (auto& entry : scan_cache_) {
+        if (entry.candidate.format != candidate.format ||
+            entry.candidate.path != candidate.path)
+            continue;
+        // A plugin replaced since it was scanned is described again: the cache
+        // remembers a file, not a name.
+        if (entry.stamp != blokkily::scan_stamp(candidate.path) ||
+            entry.size != blokkily::scan_size(candidate.path))
+            return nullptr;
+        return &entry;
+    }
+    return nullptr;
+}
+
+void AppController::beginScan(const std::vector<std::filesystem::path>& clap_paths,
+                              const std::vector<std::filesystem::path>& vst3_paths,
+                              const std::vector<std::filesystem::path>& soundfont_paths,
+                              bool forget_cache) {
+    if (scanning_) return;
+    loadScanCache();
+    if (forget_cache) scan_cache_.clear();
+
+    // SoundFonts are files the host reads itself, so they are listed up front;
+    // only formats that mean loading someone else's code go through a helper.
+    const auto soundfonts = blokkily::SoundFontCatalog::scan_paths(soundfont_paths);
+    plugins_.clear();
+    scan_failures_ = 0;
+    scan_index_ = 0;
+    scan_queue_ = blokkily::enumerate_scan_candidates(clap_paths, vst3_paths);
+    scanning_ = true;
+    emit scanningChanged();
+
+    soundfont_status_ = QString("%1 installed SoundFont%2")
+                            .arg(soundfonts.size()).arg(soundfonts.size() == 1 ? "" : "s");
+    emit soundfontStatusChanged();
+    for (const auto& soundfont : soundfonts)
+        plugins_.push_back(plugin_entry("SF", soundfont.stem().string(),
+                                        soundfont.parent_path().string(), soundfont.string()));
+    emit pluginsChanged();
+    reportScanProgress();
+    // Always through the event loop, even when every candidate is already
+    // cached: a caller that connects to `scanFinished` after asking for the
+    // scan must not miss it.
+    QTimer::singleShot(0, this, &AppController::scanNext);
+}
+
+void AppController::appendRecords(const std::vector<blokkily::ScanRecord>& records) {
+    if (records.empty()) return;
+    for (const auto& record : records)
+        plugins_.push_back(plugin_entry(QString::fromStdString(record.format), record.name,
+                                        record.vendor, record.path, record.identifier,
+                                        record.index));
+    emit pluginsChanged();
+}
+
+void AppController::reportScanProgress() {
+    status_ = QString("Scanning %1/%2 — %3 found, %4 failure%5")
+                  .arg(scan_index_).arg(scan_queue_.size())
+                  .arg(plugins_.size()).arg(scan_failures_)
+                  .arg(scan_failures_ == 1 ? "" : "s");
+    emit statusChanged();
+}
+
+void AppController::scanNext() {
+    const QString helper = scanHelperPath();
+    while (scan_index_ < scan_queue_.size()) {
+        const auto& candidate = scan_queue_[scan_index_];
+        if (const auto* cached = cachedScan(candidate)) {
+            // Already described, or already known to be unscannable: either way
+            // the plugin is not loaded again.
+            if (cached->ok) appendRecords(cached->records);
+            else ++scan_failures_;
+            ++scan_index_;
+            continue;
+        }
+        if (!QFileInfo(helper).isExecutable()) {
+            status_ = QString("Plugin scan helper not found at %1").arg(helper);
+            emit statusChanged();
+            scan_index_ = scan_queue_.size();
+            break;
+        }
+        startScanner(candidate);
+        return;
+    }
+    finishScan();
+}
+
+void AppController::startScanner(const blokkily::ScanCandidate& candidate) {
+    scan_expired_ = false;
+    scanner_ = std::make_unique<QProcess>();
+    scanner_->setProgram(scanHelperPath());
+    scanner_->setArguments({QString::fromStdString(candidate.format),
+                            QString::fromStdString(candidate.path.string())});
+    QObject::connect(scanner_.get(), &QProcess::errorOccurred, this,
+                     [this](QProcess::ProcessError error) {
+                         if (error != QProcess::FailedToStart) return;
+                         completeCandidate(false, "scan helper could not be started", {});
+                     });
+    QObject::connect(scanner_.get(), &QProcess::finished, this,
+                     [this](int code, QProcess::ExitStatus exit_status) {
+                         if (scan_expired_)
+                             return completeCandidate(false, "scan timed out", {});
+                         if (exit_status != QProcess::NormalExit)
+                             return completeCandidate(false, "scan crashed", {});
+                         const auto output = scanner_->readAllStandardOutput();
+                         if (code != 0)
+                             return completeCandidate(
+                                 false, QString::fromUtf8(scanner_->readAllStandardError()).trimmed(),
+                                 {});
+                         completeCandidate(true, {},
+                             blokkily::read_scan_records(std::string_view(
+                                 output.constData(), static_cast<std::size_t>(output.size()))));
+                     });
+    scan_deadline_.start(qEnvironmentVariableIntValue("BLOKKILY_SCAN_TIMEOUT_MS") > 0
+                             ? qEnvironmentVariableIntValue("BLOKKILY_SCAN_TIMEOUT_MS")
+                             : 15000);
+    scanner_->start();
+}
+
+void AppController::completeCandidate(bool ok, const QString& failure,
+                                      std::vector<blokkily::ScanRecord> records) {
+    scan_deadline_.stop();
+    if (scanner_) {
+        scanner_->disconnect(this);
+        scanner_.release()->deleteLater();
+    }
+    if (scan_index_ >= scan_queue_.size()) return;
+
+    blokkily::ScanCacheEntry entry;
+    entry.candidate = scan_queue_[scan_index_];
+    entry.stamp = blokkily::scan_stamp(entry.candidate.path);
+    entry.size = blokkily::scan_size(entry.candidate.path);
+    entry.ok = ok;
+    entry.failure = failure.toStdString();
+    entry.records = records;
+    std::erase_if(scan_cache_, [&entry](const blokkily::ScanCacheEntry& existing) {
+        return existing.candidate.format == entry.candidate.format &&
+               existing.candidate.path == entry.candidate.path;
+    });
+    scan_cache_.push_back(std::move(entry));
+
+    if (ok) appendRecords(records);
+    else ++scan_failures_;
+    ++scan_index_;
+    reportScanProgress();
+    // Written as the scan goes, so a session closed halfway through does not
+    // throw away what has already been learned.
+    saveScanCache();
+    // Back to the event loop between candidates, so the interface keeps
+    // answering while a long scan works through the queue.
+    QTimer::singleShot(0, this, &AppController::scanNext);
+}
+
+void AppController::finishScan() {
+    scanning_ = false;
+    saveScanCache();
+    int clap = 0;
+    int vst3 = 0;
+    int soundfonts = 0;
+    for (const auto& entry : plugins_) {
+        const auto format = entry.toMap().value("format").toString();
+        if (format == "CLAP") ++clap;
+        else if (format == "VST3") ++vst3;
+        else ++soundfonts;
+    }
+    status_ = QString("Scan: %1 CLAP, %2 VST3, %3 SoundFont, %4 failure%5")
+                  .arg(clap).arg(vst3).arg(soundfonts).arg(scan_failures_)
+                  .arg(scan_failures_ == 1 ? "" : "s");
+    emit statusChanged();
+    emit scanningChanged();
+    emit scanFinished();
 }
 
 void AppController::scanPluginPaths(
@@ -496,6 +939,127 @@ void AppController::pollMeters() {
     song_->setMeters(peaks, engine_->master_peak());
 }
 
+// An instrument is the same instrument when it is the same file loaded through
+// the same format under the same identifier. What it holds inside changes as it
+// is played, and that is not a reason to build the graph again.
+namespace {
+bool same_instrument(const blokkily::InstrumentSlot& left,
+                     const blokkily::InstrumentSlot& right) {
+    return left.format == right.format && left.path == right.path &&
+           left.identifier == right.identifier;
+}
+} // namespace
+
+bool AppController::builtFromCurrentInstruments() const {
+    if (song_ == nullptr) return false;
+    const auto& tracks = song_->song().tracks;
+    if (tracks.size() != engine_slots_.size()) return false;
+    for (std::size_t index = 0; index < tracks.size(); ++index)
+        if (!same_instrument(tracks[index].instrument, engine_slots_[index])) return false;
+    return true;
+}
+
+bool AppController::refreshArrangement() {
+    if (!engine_ || song_ == nullptr || transport_ == nullptr) return false;
+    if (!builtFromCurrentInstruments()) return false;
+    std::string error;
+    if (!engine_->recompile(song_->song(), transport_->bpm(), 0, &error)) return false;
+    transport_->setSongBars(song_->bars());
+    return true;
+}
+
+bool AppController::auditionStep(int step) {
+    if (pattern_ == nullptr) return false;
+    const auto pitches = pattern_->pitchesAt(step);
+    if (pitches.empty()) return false;
+    return auditionPitches(pitches, 0.9);
+}
+
+// Banks that are General MIDI and are the ones a Linux, macOS, or Windows host
+// is most likely to already have. The list is a preference, not a requirement:
+// when none of them is installed the first SoundFont on the machine is used.
+namespace {
+constexpr const char* preferred_banks[] = {
+    "FluidR3_GM.sf2",   "FluidR3_GM.sf3",   "GeneralUser.sf2",
+    "GeneralUser GS.sf2", "default-GM.sf2", "default.sf2",
+    "TimGM6mb.sf2",     "FatBoy.sf2",       "SGM-V2.01.sf2",
+    "Arachno.sf2",      "gm.sf2",           "freepats-general-midi.sf2",
+};
+
+// What a track should be set to when nothing has said otherwise. A drum track
+// wants the percussion bank rather than a grand piano, which is the difference
+// between the opening song sounding like music and sounding like two pianos.
+struct DefaultPreset {
+    int bank = 0;
+    int program = 0;
+};
+
+DefaultPreset preset_for_track(const std::string& name) {
+    QString label = QString::fromStdString(name).toUpper();
+    if (label.contains("DRUM") || label.contains("PERC") || label.contains("KIT"))
+        return {128, 0};                      // the General MIDI percussion bank
+    if (label.contains("BASS")) return {0, 33};   // electric bass, fingered
+    if (label.contains("PAD") || label.contains("STRING")) return {0, 48};
+    if (label.contains("LEAD") || label.contains("SYNTH")) return {0, 81};
+    return {0, 0};                            // acoustic grand
+}
+} // namespace
+
+bool AppController::loadDefaultInstrument() {
+    return loadDefaultInstrument(blokkily::SoundFontCatalog::system_paths());
+}
+
+bool AppController::loadDefaultInstrument(const std::vector<std::filesystem::path>& roots) {
+    if (song_ == nullptr) return false;
+    auto& song = song_->song();
+    const bool anything_loaded =
+        std::any_of(song.tracks.begin(), song.tracks.end(),
+                    [](const blokkily::Track& track) { return !track.instrument.format.empty(); });
+    if (anything_loaded) return false;
+
+    std::filesystem::path bank;
+    for (const char* wanted : preferred_banks) {
+        for (const auto& root : roots) {
+            std::error_code ignored;
+            const auto candidate = root / wanted;
+            if (std::filesystem::is_regular_file(candidate, ignored)) { bank = candidate; break; }
+        }
+        if (!bank.empty()) break;
+    }
+    // No familiar bank installed, so whatever this machine does have will do.
+    if (bank.empty()) {
+        const auto found = blokkily::SoundFontCatalog::scan_paths(roots);
+        if (found.empty()) {
+            soundfont_status_ = "No SoundFont installed — load a plugin to hear the song";
+            emit soundfontStatusChanged();
+            return false;
+        }
+        bank = found.front();
+    }
+
+    for (std::size_t track = 0; track < song.tracks.size(); ++track) {
+        const auto preset = preset_for_track(song.tracks[track].name);
+        blokkily::InstrumentSlot slot;
+        slot.format = "SoundFont";
+        slot.path = bank.string();
+        // The preset travels as the instrument's own state, which is the same
+        // road a saved project takes, so an opening session and a reloaded one
+        // reach the synth through one path.
+        const std::string state = slot.path + '\n' + std::to_string(preset.bank) + '\n' +
+                                  std::to_string(preset.program);
+        slot.state.resize(state.size());
+        std::memcpy(slot.state.data(), state.data(), state.size());
+        song.tracks[track].instrument = slot;
+    }
+    song_->refreshStructure();
+    soundfont_status_ = QString("%1 · %2 track%3")
+                            .arg(QString::fromStdString(bank.stem().string()))
+                            .arg(song.tracks.size())
+                            .arg(song.tracks.size() == 1 ? "" : "s");
+    emit soundfontStatusChanged();
+    return engine_ != nullptr;
+}
+
 bool AppController::rebuildEngine() {
     if (song_ == nullptr || transport_ == nullptr) return false;
     const bool resume = transport_->playing();
@@ -510,6 +1074,7 @@ bool AppController::rebuildEngine() {
                 if (!state.empty()) song.tracks[track].instrument.state = std::move(state);
             }
     if (audio_output_) audio_output_->stop();
+    forgetSoundingNotes();
     engine_.reset();
 
     auto next = std::make_unique<blokkily::SongEngine>();
@@ -535,6 +1100,9 @@ bool AppController::rebuildEngine() {
         if (!state.empty()) (void)next->load_track_state(track, state);
     }
     engine_ = std::move(next);
+    engine_slots_.clear();
+    engine_slots_.reserve(song.tracks.size());
+    for (const auto& track : song.tracks) engine_slots_.push_back(track.instrument);
     transport_->setSongBars(song_->bars());
 
     // The engine exists even when the machine has no audio device, so a song
@@ -578,6 +1146,51 @@ void AppController::assignInstrument(int track, const blokkily::InstrumentSlot& 
     song_->setInstrument(track, slot);
 }
 
+QVariantList AppController::browserPlugins() const {
+    const auto query = browser_filter_.trimmed().toStdString();
+    // A ranked row and where it came from, kept together so the browser can
+    // load what it lists.
+    struct Ranked {
+        int score;
+        int source;
+    };
+    std::vector<Ranked> ranked;
+    ranked.reserve(static_cast<std::size_t>(plugins_.size()));
+    for (int index = 0; index < plugins_.size(); ++index) {
+        const auto fields = plugins_.at(index).toMap();
+        // Name, maker and format are all searched, so an instrument is found
+        // by who made it or by what kind of plugin it is as readily as by its
+        // own name.
+        const auto haystack = QString("%1 %2 %3")
+                                  .arg(fields.value("name").toString(),
+                                       fields.value("vendor").toString(),
+                                       fields.value("format").toString())
+                                  .toStdString();
+        const int score = blokkily::browser_match_score(query, haystack);
+        if (score >= 0) ranked.push_back({score, index});
+    }
+    // Closest match first; entries the query cannot separate keep the order
+    // the scan found them in, so an unfiltered browser is the plain list.
+    std::stable_sort(ranked.begin(), ranked.end(),
+                     [](const Ranked& left, const Ranked& right) {
+                         return left.score > right.score;
+                     });
+    QVariantList listed;
+    listed.reserve(static_cast<qsizetype>(ranked.size()));
+    for (const auto& entry : ranked) {
+        auto fields = plugins_.at(entry.source).toMap();
+        fields.insert("source", entry.source);
+        listed.push_back(fields);
+    }
+    return listed;
+}
+
+void AppController::setBrowserFilter(const QString& query) {
+    if (browser_filter_ == query) return;
+    browser_filter_ = query;
+    emit browserChanged();
+}
+
 bool AppController::selectInstrument(int index) {
     if (song_ == nullptr || index < 0 || index >= plugins_.size()) return false;
     const auto entry = plugins_.at(index).toMap();
@@ -591,8 +1204,12 @@ bool AppController::selectInstrument(int index) {
 }
 
 void AppController::togglePlayback() {
+    // Pressing Play is a request to hear the song. A session that has not been
+    // given an instrument yet gets the default bank here rather than being told
+    // to go and find one.
+    if (!engine_ && transport_ != nullptr) (void)loadDefaultInstrument();
     if (!engine_ || !transport_) {
-        status_ = "Load an instrument onto a track before pressing Play";
+        status_ = "No instrument could be loaded — pick one from the plugin browser";
         emit statusChanged();
         return;
     }
@@ -620,7 +1237,10 @@ void AppController::togglePlayback() {
 void AppController::setTempo(double bpm) {
     if (!transport_) return;
     transport_->setBpm(bpm);
-    if (engine_) (void)rebuildEngine();
+    // The tempo readout is dragged, so this arrives once per pointer move. A
+    // tempo change is a change to when the arrangement's events fall, not to
+    // the instruments playing them, so it goes to the running engine.
+    if (engine_ && !refreshArrangement()) (void)rebuildEngine();
 }
 
 bool AppController::exportAudioFile(const QString& path, const QString& depth) {
@@ -918,6 +1538,7 @@ bool AppController::loadProject(const QString& path) {
         return false;
     }
     if (audio_output_) audio_output_->stop();
+    forgetSoundingNotes();
     engine_.reset();
     if (transport_ != nullptr) transport_->setBpm(project->tempo);
     const auto tracks = project->song.tracks.size();

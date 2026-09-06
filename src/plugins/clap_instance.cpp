@@ -46,6 +46,7 @@ void CLAP_ABI host_callback(const clap_host_t*) {}
 
 union EventStorage {
     clap_event_note_t note;
+    clap_event_note_expression_t expression;
     clap_event_param_value_t value;
     clap_event_param_mod_t modulation;
 };
@@ -160,26 +161,37 @@ bool ClapPluginInstance::activate(double sample_rate, std::uint32_t min_frames,
 void ClapPluginInstance::process(StereoBlock audio,
                                  std::span<const PluginEvent> events) noexcept {
     if (!impl_ || !impl_->processing || audio.left.size() != audio.right.size()) return;
-    constexpr std::size_t maximum_events = 256;
+    // A retuned note is two events, so the buffer holds room for both.
+    constexpr std::size_t maximum_events = 512;
     std::array<EventStorage, maximum_events> converted{};
-    const auto count = std::min(events.size(), maximum_events);
-    for (std::size_t index = 0; index < count; ++index) {
-        const auto& source = events[index];
+    std::size_t count = 0;
+    for (const auto& source : events) {
+        if (count == maximum_events) break;
         clap_event_header_t header{0, source.sample_offset, CLAP_CORE_EVENT_SPACE_ID, 0, 0};
         if (source.type == PluginEvent::Type::note_on || source.type == PluginEvent::Type::note_off) {
             header.size = sizeof(clap_event_note_t);
             header.type = source.type == PluginEvent::Type::note_on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF;
-            converted[index].note = {header, -1, 0, 0,
+            converted[count++].note = {header, -1, 0, 0,
                 static_cast<std::int16_t>(source.key_or_parameter), source.value};
+            // CLAP tuning is said in semitones and belongs to the note it
+            // retunes, so it follows the note-on at the same sample.
+            if (source.type == PluginEvent::Type::note_on && source.cents != 0.0 &&
+                count < maximum_events) {
+                clap_event_header_t tuning{sizeof(clap_event_note_expression_t),
+                                           source.sample_offset, CLAP_CORE_EVENT_SPACE_ID,
+                                           CLAP_EVENT_NOTE_EXPRESSION, 0};
+                converted[count++].expression = {tuning, CLAP_NOTE_EXPRESSION_TUNING, -1, 0, 0,
+                    static_cast<std::int16_t>(source.key_or_parameter), source.cents / 100.0};
+            }
         } else if (source.type == PluginEvent::Type::parameter_value) {
             header.size = sizeof(clap_event_param_value_t);
             header.type = CLAP_EVENT_PARAM_VALUE;
-            converted[index].value = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
+            converted[count++].value = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
                                       -1, -1, -1, -1, source.value};
         } else {
             header.size = sizeof(clap_event_param_mod_t);
             header.type = CLAP_EVENT_PARAM_MOD;
-            converted[index].modulation = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
+            converted[count++].modulation = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
                                            -1, -1, -1, -1, source.value};
         }
     }

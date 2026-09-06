@@ -3,6 +3,8 @@
 #include <juce_audio_processors_headless/juce_audio_processors_headless.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <system_error>
 
@@ -32,6 +34,11 @@ struct Vst3PluginInstance::Impl {
     std::vector<float> automation;
     std::vector<float> modulation;
     juce::MidiBuffer midi; // reused so processing never allocates
+    // A retuned note is sent on a channel of its own and bent into place, the
+    // way MPE hosts do it, because pitch bend belongs to a channel. Notes in
+    // twelve-tone tuning stay on channel one, exactly as before.
+    std::array<int, 16> channel_key{};
+    bool announce_bend_range = true;
 
     void apply(int index) const noexcept {
         const auto& parameters = plugin->getParameters();
@@ -134,6 +141,8 @@ bool Vst3PluginInstance::activate(double sample_rate, std::uint32_t,
         impl_->automation[index] = impl_->plugin->getParameters()[static_cast<int>(index)]->getValue();
     impl_->midi.ensureSize(static_cast<std::size_t>(impl_->maximum_block_size) * 4);
     impl_->midi.clear();
+    impl_->channel_key.fill(-1);
+    impl_->announce_bend_range = true;
     return true;
 }
 
@@ -181,17 +190,53 @@ void Vst3PluginInstance::process(StereoBlock audio,
         }
 
         impl_->midi.clear();
+        if (impl_->announce_bend_range) {
+            // Every voice channel is told that its bend wheel spans two
+            // semitones, so a retune offset means the same to the plugin as it
+            // does here. Sent once, with the first audio the plugin sees.
+            for (int channel = 2; channel <= 16; ++channel) {
+                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 101, 0), 0);
+                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 100, 0), 0);
+                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 6, 2), 0);
+                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 38, 0), 0);
+            }
+            impl_->announce_bend_range = false;
+        }
         for (const auto& event : events) {
             if (is_parameter(event)) continue;
             const auto offset = offset_of(event);
             if (offset < rendered || offset >= boundary) continue;
             const auto position = static_cast<int>(offset - rendered);
-            if (event.type == PluginEvent::Type::note_on)
-                impl_->midi.addEvent(juce::MidiMessage::noteOn(1, event.key_or_parameter,
+            if (event.type == PluginEvent::Type::note_on) {
+                int channel = 1;
+                if (event.cents != 0.0) {
+                    channel = 2;
+                    for (int candidate = 2; candidate <= 16; ++candidate)
+                        if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] < 0) {
+                            channel = candidate;
+                            break;
+                        }
+                    impl_->channel_key[static_cast<std::size_t>(channel) - 1] =
+                        event.key_or_parameter;
+                    const int bend = std::clamp(
+                        8192 + static_cast<int>(std::lround(event.cents / 200.0 * 8192.0)),
+                        0, 16383);
+                    impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
+                }
+                impl_->midi.addEvent(juce::MidiMessage::noteOn(channel, event.key_or_parameter,
                                      static_cast<float>(event.value)), position);
-            else if (event.type == PluginEvent::Type::note_off)
-                impl_->midi.addEvent(juce::MidiMessage::noteOff(1, event.key_or_parameter,
+            } else if (event.type == PluginEvent::Type::note_off) {
+                int channel = 1;
+                for (int candidate = 2; candidate <= 16; ++candidate)
+                    if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] ==
+                        event.key_or_parameter) {
+                        channel = candidate;
+                        impl_->channel_key[static_cast<std::size_t>(candidate) - 1] = -1;
+                        break;
+                    }
+                impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, event.key_or_parameter,
                                      static_cast<float>(event.value)), position);
+            }
         }
 
         float* channels[]{audio.left.data() + rendered, audio.right.data() + rendered};

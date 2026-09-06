@@ -17,9 +17,13 @@ option(BLOKKILY_BUILD_GUI "Build the Qt Quick prototype" ON)
 add_library(blokkily_core
     src/model/pattern.cpp
     src/model/song.cpp
+    src/model/tuning.cpp
+    src/model/scale.cpp
+    src/model/keyboard.cpp
     src/project/project.cpp
     src/plugins/clap_catalog.cpp
     src/plugins/clap_instance.cpp
+    src/plugins/plugin_scan.cpp
     src/instruments/soundfont_catalog.cpp
     src/instruments/soundfont_synth.cpp
     src/audio/playback.cpp
@@ -46,6 +50,11 @@ target_compile_options(blokkily_core PRIVATE
 add_executable(blokkily_cli src/app/main.cpp)
 target_link_libraries(blokkily_cli PRIVATE blokkily_core)
 
+# Describing a plugin means running its code, so the application never does it
+# itself: this helper scans one plugin per process, under the host's deadline.
+add_executable(blokkily_scan src/app/scan_main.cpp)
+target_link_libraries(blokkily_scan PRIVATE blokkily_core)
+
 if(BLOKKILY_BUILD_GUI)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2)
     qt_standard_project_setup(REQUIRES 6.5)
@@ -56,6 +65,8 @@ if(BLOKKILY_BUILD_GUI)
         src/app/pattern_model.hpp
         src/app/song_model.cpp
         src/app/song_model.hpp
+        src/app/keyboard_model.cpp
+        src/app/keyboard_model.hpp
     )
     qt_add_qml_module(blokkily
         URI Blokkily
@@ -64,14 +75,28 @@ if(BLOKKILY_BUILD_GUI)
     )
     target_link_libraries(blokkily PRIVATE blokkily_core
         Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+    # The application looks for the scan helper beside itself.
+    add_dependencies(blokkily blokkily_scan)
 endif()
 
 if(BLOKKILY_BUILD_TESTS)
     enable_testing()
+    # Both CLAP fixtures share one directory so that a scan of it meets a
+    # working plugin and a hanging one, the way an installation directory does.
+    set(BLOKKILY_CLAP_FIXTURE_DIR "${CMAKE_BINARY_DIR}/clap-fixtures")
     add_library(blokkily_test_clap MODULE tests/fixtures/test_clap.cpp)
     target_include_directories(blokkily_test_clap PRIVATE third_party/clap/include)
     set_target_properties(blokkily_test_clap PROPERTIES
         PREFIX "" SUFFIX ".clap" OUTPUT_NAME "blokkily-test"
+        LIBRARY_OUTPUT_DIRECTORY "${BLOKKILY_CLAP_FIXTURE_DIR}"
+    )
+    # A plugin whose entry point never returns, standing in for the bridged
+    # plugins that leave a host waiting on a handshake that never completes.
+    add_library(blokkily_hang_clap MODULE tests/fixtures/hang_clap.cpp)
+    target_include_directories(blokkily_hang_clap PRIVATE third_party/clap/include)
+    set_target_properties(blokkily_hang_clap PROPERTIES
+        PREFIX "" SUFFIX ".clap" OUTPUT_NAME "blokkily-hang"
+        LIBRARY_OUTPUT_DIRECTORY "${BLOKKILY_CLAP_FIXTURE_DIR}"
     )
     juce_add_plugin(blokkily_test_vst3
         COMPANY_NAME Blokkily
@@ -109,7 +134,7 @@ if(BLOKKILY_BUILD_TESTS)
         endif()
         target_compile_definitions(blokkily_tests PRIVATE
             BLOKKILY_TEST_SF2_PATH="${BLOKKILY_TEST_SF2}")
-        add_dependencies(blokkily blokkily_test_clap blokkily_test_vst3_VST3)
+        add_dependencies(blokkily blokkily_test_clap blokkily_hang_clap blokkily_test_vst3_VST3)
         add_test(NAME bdd_edit_once_see_everywhere
             COMMAND blokkily --verify
                 --clap-fixture $<TARGET_FILE:blokkily_test_clap>
@@ -122,5 +147,46 @@ if(BLOKKILY_BUILD_TESTS)
             LABELS "bdd;e2e;integration;screenshot;clap;vst3;soundfont;project;parameters;mixer;song;export"
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
             TIMEOUT 20)
+
+        # The playable surfaces, in a tuning that is not twelve tones and on the
+        # chord pads, so the screenshot shows what the scenarios claim.
+        add_test(NAME bdd_playable_keyboards
+            COMMAND blokkily --verify
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --project ${CMAKE_BINARY_DIR}/artifacts/keyboard-verification.blok
+                --view KEYS --tuning "19-EDO" --scale Major --surface GRID
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/playable-keyboards.png)
+        set_tests_properties(bdd_playable_keyboards PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            TIMEOUT 30)
+
+        add_test(NAME bdd_chord_pads
+            COMMAND blokkily --verify
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --project ${CMAKE_BINARY_DIR}/artifacts/chord-verification.blok
+                --view KEYS --tuning "24-EDO quarter tones" --scale "Maqam Rast"
+                --surface CHORDS
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/chord-pads.png)
+        set_tests_properties(bdd_chord_pads PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            TIMEOUT 30)
+
+        add_test(NAME bdd_plugin_scan_survives_hang
+            COMMAND blokkily --verify
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --project ${CMAKE_BINARY_DIR}/artifacts/scan-verification.blok
+                --scan-fixture ${BLOKKILY_CLAP_FIXTURE_DIR})
+        set_tests_properties(bdd_plugin_scan_survives_hang PROPERTIES
+            LABELS "bdd;e2e;integration;clap;plugins;project;scan"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null;BLOKKILY_SCAN_TIMEOUT_MS=1500;BLOKKILY_SCAN_CACHE=${CMAKE_BINARY_DIR}/artifacts/scan-cache.txt"
+            TIMEOUT 40)
     endif()
 endif()

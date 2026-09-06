@@ -4,6 +4,7 @@
 
 #include <fluidsynth/types.h>
 
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -32,11 +33,25 @@ private:
     using SettingsPtr = std::unique_ptr<fluid_settings_t, void (*)(fluid_settings_t*)>;
     using SynthPtr = std::unique_ptr<fluid_synth_t, void (*)(fluid_synth_t*)>;
     bool rebuild(double sample_rate);
+    // A retuned note needs a channel of its own, because pitch bend belongs to
+    // a channel and two notes of a microtonal chord are bent differently. Notes
+    // in twelve-tone tuning keep the shared channel they always used.
+    int claim_channel(int key) noexcept;
+    int release_channel(int key) noexcept;
+
+    static constexpr int shared_channel = 0;
+    static constexpr int first_retuned_channel = 1;
+    static constexpr int channels = 16;
+    // The key each retuned channel is holding, or -1 when it is free.
+    std::array<int, channels> channel_key_{};
 
     SettingsPtr settings_;
     SynthPtr synth_;
     std::filesystem::path path_;
     double sample_rate_ = 48000.0;
+    // Whether the synth has been through activate() at `sample_rate_`. A second
+    // activation at the same rate has nothing to do.
+    bool activated_ = false;
     int bank_ = 0;
     int program_ = 0;
 };

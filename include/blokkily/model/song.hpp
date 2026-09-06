@@ -1,6 +1,8 @@
 #pragma once
 
 #include "blokkily/model/pattern.hpp"
+#include "blokkily/model/scale.hpp"
+#include "blokkily/model/tuning.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +59,15 @@ struct Song {
     std::vector<Track> tracks{Track{}};
     std::vector<Clip> clips{Clip{}};
     double master_gain_db = 0.0;
+    // The tuning and scale the song is written in. Editors, keyboards, and the
+    // engine all read these, so nothing can be in a different key from the
+    // notes it is editing.
+    Tuning tuning{};
+    Scale scale{};
+    int root_degree = 60;
+    // With auto-scale on, a note written anywhere lands on the nearest degree
+    // of the scale rather than between its notes.
+    bool auto_scale = false;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return patterns.at(index).pattern; }
     [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {

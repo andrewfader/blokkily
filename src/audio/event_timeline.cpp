@@ -23,9 +23,10 @@ std::vector<TimedPluginEvent> compile_timeline(
     }
     for (const auto& note : scheduled.notes) {
         timeline.push_back({at(note.start), 1,
-                            {PluginEvent::Type::note_on, 0, note.key, note.velocity}});
+                            {PluginEvent::Type::note_on, 0, note.key, note.velocity,
+                             note.cents}});
         timeline.push_back({at(note.start + note.duration), 1,
-                            {PluginEvent::Type::note_off, 0, note.key, 0.0}});
+                            {PluginEvent::Type::note_off, 0, note.key, 0.0, note.cents}});
     }
     std::stable_sort(timeline.begin(), timeline.end(),
         [](const TimedPluginEvent& a, const TimedPluginEvent& b) {

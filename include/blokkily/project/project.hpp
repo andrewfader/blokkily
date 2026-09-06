@@ -30,7 +30,9 @@ public:
     // 2 added the parameter index and automation/modulation kind to locks.
     // 3 replaced the single pattern and flat instrument list with a song:
     // named patterns, mixer tracks that own their instrument, and clips.
-    static constexpr int format_version = 3;
+    // 4 added the song's tuning and scale, and the retune each note and each
+    // chord voice carries away from its twelve-tone key.
+    static constexpr int format_version = 4;
 
     [[nodiscard]] static bool save(const Project& project,
                                    const std::filesystem::path& file,

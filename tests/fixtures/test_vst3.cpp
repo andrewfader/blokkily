@@ -5,10 +5,15 @@ public:
     TestVst3Processor()
         : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
         addParameter(level_ = new juce::AudioParameterFloat({"level", 1}, "Level", 0.0F, 1.0F, 0.25F));
+        // At rest the fixture holds a steady level, which is what the timing
+        // and mixer gates measure. Asked for a tone it becomes a real
+        // oscillator at the pitch it was played at, bend included, so a
+        // retuned note can be proved from the audio itself.
+        addParameter(tone_ = new juce::AudioParameterFloat({"tone", 1}, "Tone", 0.0F, 1.0F, 0.0F));
     }
 
     const juce::String getName() const override { return "Blokkily Test VST3"; }
-    void prepareToPlay(double, int) override {}
+    void prepareToPlay(double sample_rate, int) override { sample_rate_ = sample_rate; }
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override {
         return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
@@ -17,14 +22,36 @@ public:
         audio.clear();
         int cursor = 0;
         const auto render = [&](int end) {
-            for (; cursor < end; ++cursor)
+            for (; cursor < end; ++cursor) {
+                float sample = 0.0F;
+                if (sounding_ && tone_->get() >= 0.5F) {
+                    const double frequency = 440.0 * std::pow(
+                        2.0, (key_ - 69 + bend_semitones_) / 12.0);
+                    sample = static_cast<float>(level_->get() * std::sin(phase_));
+                    phase_ += juce::MathConstants<double>::twoPi * frequency / sample_rate_;
+                    if (phase_ > juce::MathConstants<double>::twoPi)
+                        phase_ -= juce::MathConstants<double>::twoPi;
+                } else if (sounding_) {
+                    sample = level_->get();
+                }
                 for (int channel = 0; channel < audio.getNumChannels(); ++channel)
-                    audio.setSample(channel, cursor, sounding_ ? level_->get() : 0.0F);
+                    audio.setSample(channel, cursor, sample);
+            }
         };
         for (const auto metadata : midi) {
             render(metadata.samplePosition);
-            if (metadata.getMessage().isNoteOn()) sounding_ = true;
-            if (metadata.getMessage().isNoteOff()) sounding_ = false;
+            const auto message = metadata.getMessage();
+            if (message.isPitchWheel()) {
+                // The host announces a two-semitone bend range on every voice
+                // channel, so that is what a wheel value means here.
+                bend_semitones_ = (message.getPitchWheelValue() - 8192) / 8192.0 * 2.0;
+            }
+            if (message.isNoteOn()) {
+                sounding_ = true;
+                key_ = message.getNoteNumber();
+                phase_ = 0.0;
+            }
+            if (message.isNoteOff()) sounding_ = false;
         }
         render(audio.getNumSamples());
     }
@@ -53,7 +80,12 @@ public:
 
 private:
     bool sounding_ = false;
+    int key_ = 60;
+    double bend_semitones_ = 0.0;
+    double phase_ = 0.0;
+    double sample_rate_ = 48000.0;
     juce::AudioParameterFloat* level_ = nullptr;
+    juce::AudioParameterFloat* tone_ = nullptr;
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new TestVst3Processor(); }

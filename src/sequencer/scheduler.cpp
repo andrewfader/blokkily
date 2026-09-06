@@ -19,7 +19,7 @@ void emit_note(std::vector<ScheduledNote>& output, const Trigger& event,
     const Tick slice = std::max<Tick>(1, event.duration / ratchets);
     for (Tick ratchet = 0; ratchet < ratchets; ++ratchet) {
         output.push_back({event.id, base_start + ratchet * slice, slice,
-                          note.key, note.velocity});
+                          note.key, note.velocity, note.cents});
     }
 }
 
@@ -60,8 +60,11 @@ ScheduledEvents Scheduler::render(
         for (std::int32_t voice = 0; voice < size; ++voice) {
             const auto source = (voice + chord.inversion % size + size) % size;
             const auto octave = (voice + chord.inversion) >= size ? 12 : 0;
+            const double retune = static_cast<std::size_t>(source) < chord.cents.size()
+                                      ? chord.cents[static_cast<std::size_t>(source)]
+                                      : 0.0;
             Note note{static_cast<std::int16_t>(chord.root + chord.intervals[source] + octave),
-                      0.8F, 0.0F};
+                      0.8F, 0.0F, retune};
             emit_note(output, event, note, start + voice * chord.strum);
         }
     }

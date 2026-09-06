@@ -28,7 +28,25 @@ ApplicationWindow {
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
 
+    // Which octave the tracker's note keys write in. A tracker is played from
+    // the letter keys, and the letter keys only span two octaves, so the octave
+    // they land in has to be something the producer can move.
+    property int entryOctave: 3
+    readonly property int entryBase: (entryOctave + 1) * 12
+
     function fmt2(n) { return n.toString().padStart(2, "0") }
+    function keyName(key) {
+        var names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        return names[((key % 12) + 12) % 12] + (Math.floor(key / 12) - 1)
+    }
+
+    // Writes a pitch onto a step of the canonical pattern and sounds it. Every
+    // editor that takes note input calls this, so the tracker, the piano roll
+    // and the step grid cannot disagree about what an entered note does.
+    function writeNote(step, key) {
+        patternModel.setStepKey(step, key)
+        appController.auditionStep(step)
+    }
 
     FileDialog {
         id: openProjectDialog
@@ -61,6 +79,9 @@ ApplicationWindow {
     Shortcut { sequence: StandardKey.Open; onActivated: openProjectDialog.open() }
     Shortcut { sequence: StandardKey.Save; onActivated: saveProjectDialog.open() }
     Shortcut { sequence: "Ctrl+E"; onActivated: exportDialog.open() }
+    // Finding an instrument is a search, so it answers to the search key.
+    Shortcut { sequence: StandardKey.Find
+               onActivated: { pluginFilter.forceActiveFocus(); pluginFilter.selectAll() } }
     Shortcut { sequence: "Return"; onActivated: transport.rewind() }
     Shortcut { sequence: "Left"
         onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
@@ -70,6 +91,13 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; onActivated: patternModel.transposeSelected(-1) }
     Shortcut { sequence: "Ctrl+Up"; onActivated: patternModel.transposeSelected(12) }
     Shortcut { sequence: "Ctrl+Down"; onActivated: patternModel.transposeSelected(-12) }
+    // The tracker's own octave, moved without leaving the letter keys.
+    Shortcut { sequence: "Ctrl+Left"
+        onActivated: root.entryOctave = Math.max(0, root.entryOctave - 1) }
+    Shortcut { sequence: "Ctrl+Right"
+        onActivated: root.entryOctave = Math.min(8, root.entryOctave + 1) }
+    Shortcut { sequence: "Backspace"
+        onActivated: patternModel.clearStep(patternModel.selectedStep) }
     Shortcut { sequence: "Delete"
         onActivated: { if (patternModel.selected.exists)
                            patternModel.toggleStep(patternModel.selectedStep, 60) } }
@@ -96,6 +124,52 @@ ApplicationWindow {
             id: chipMouse; anchors.fill: parent; hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: parent.clicked()
+        }
+    }
+
+    // One value out of a named list. The lists behind the tuning, the scale and
+    // the keyboard layouts are long enough that cycling through them would be a
+    // chore, so the current value opens the rest.
+    component Picker: Rectangle {
+        id: pickerRoot
+        property var choices: []
+        property string value: ""
+        signal picked(string name)
+        implicitWidth: pickerText.implicitWidth + 30; implicitHeight: 26
+        radius: 4
+        color: pickerMouse.containsMouse ? raised : "transparent"
+        border.color: line
+        Label {
+            id: pickerText
+            anchors.left: parent.left; anchors.leftMargin: 9
+            anchors.verticalCenter: parent.verticalCenter
+            text: pickerRoot.value; color: ink; font.pixelSize: 11; font.bold: true
+        }
+        Label {
+            anchors.right: parent.right; anchors.rightMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            text: "\u25be"; color: muted; font.pixelSize: 10
+        }
+        MouseArea {
+            id: pickerMouse; anchors.fill: parent; hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: pickerMenu.popup()
+        }
+        Menu {
+            id: pickerMenu
+            // Named after its picker, so a gate can prove the list is really
+            // populated rather than an empty dropdown.
+            objectName: pickerRoot.objectName + "Menu"
+            Instantiator {
+                model: pickerRoot.choices
+                delegate: MenuItem {
+                    required property var modelData
+                    text: modelData
+                    onTriggered: pickerRoot.picked(modelData)
+                }
+                onObjectAdded: (index, object) => pickerMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => pickerMenu.removeItem(object)
+            }
         }
     }
 
@@ -223,7 +297,7 @@ ApplicationWindow {
                 objectName: "viewSwitcher"
                 spacing: 4
                 Repeater {
-                    model: ["ALL", "STEP", "TRACKER", "PIANO"]
+                    model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS"]
                     Chip {
                         required property var modelData
                         objectName: "view" + modelData
@@ -237,7 +311,52 @@ ApplicationWindow {
             Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: line }
 
             Label { text: patternModel.eventCount + " EVENTS"; color: muted; font.pixelSize: 11 }
-            Chip { text: "RESCAN PLUGINS"; onClicked: appController.scanPlugins() }
+            Chip { text: appController.scanning ? "SCANNING…" : "RESCAN PLUGINS"
+                   onClicked: appController.rescanPlugins() }
+        }
+    }
+
+    // Note entry from the computer keyboard, laid out the way a tracker has
+    // always laid it out: the bottom two rows are one octave, the top two are
+    // the octave above it. A key writes onto the row the cursor is on and steps
+    // the cursor down, so a phrase is typed rather than clicked. It writes to
+    // the same canonical pattern every editor projects.
+    Item {
+        id: noteEntry
+        objectName: "noteEntry"
+        anchors.fill: parent
+        z: -1
+        focus: true
+
+        // Semitone above the entry octave for each key of the two rows.
+        readonly property var lowerRow: ({
+            "Z": 0, "S": 1, "X": 2, "D": 3, "C": 4, "V": 5, "G": 6,
+            "B": 7, "H": 8, "N": 9, "J": 10, "M": 11
+        })
+        readonly property var upperRow: ({
+            "Q": 12, "2": 13, "W": 14, "3": 15, "E": 16, "R": 17, "5": 18,
+            "T": 19, "6": 20, "Y": 21, "7": 22, "U": 23, "I": 24
+        })
+
+        function semitoneFor(text) {
+            var glyph = text.toUpperCase()
+            if (lowerRow[glyph] !== undefined) return lowerRow[glyph]
+            if (upperRow[glyph] !== undefined) return upperRow[glyph]
+            return -1
+        }
+
+        Keys.onPressed: function(event) {
+            if (event.isAutoRepeat || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier)))
+                return
+            var step = patternModel.selectedStep
+            if (step < 0) return
+            var semitone = semitoneFor(event.text)
+            if (semitone < 0) return
+            root.writeNote(step, root.entryBase + semitone)
+            // A tracker advances after a note is typed, which is what makes it
+            // faster to write a phrase in than to click one.
+            patternModel.selectStep((step + 1) % 16)
+            event.accepted = true
         }
     }
 
@@ -290,19 +409,129 @@ ApplicationWindow {
                 }
 
                 SectionLabel { text: "PLUGINS" }
+
+                // An installation holds hundreds of instruments, so the browser
+                // is searched by typing a few letters of one rather than by
+                // scrolling past the rest. The letters need only appear in
+                // order — "fbs" reaches "Fat Bass" — and the arrow keys and
+                // Return move and load without leaving the field.
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 28; radius: 4
+                    color: raised
+                    border.color: pluginFilter.activeFocus ? acid : line
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 6
+                        Label {
+                            text: "⌕"; color: pluginFilter.activeFocus ? acid : muted
+                            font.pixelSize: 12
+                        }
+                        TextField {
+                            id: pluginFilter
+                            objectName: "pluginFilter"
+                            Layout.fillWidth: true
+                            padding: 0
+                            placeholderText: "Find instrument"
+                            placeholderTextColor: muted
+                            color: ink; font.pixelSize: 11
+                            selectByMouse: true
+                            background: Item {}
+                            // The list is the filter's own answer, so it is
+                            // rebuilt as the letters arrive and the cursor goes
+                            // back to the closest match.
+                            onTextChanged: {
+                                appController.browserFilter = text
+                                pluginBrowser.currentIndex = pluginBrowser.count > 0 ? 0 : -1
+                            }
+                            Keys.onDownPressed: pluginBrowser.step(1)
+                            Keys.onUpPressed: pluginBrowser.step(-1)
+                            Keys.onPressed: function(event) {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    pluginBrowser.load(pluginBrowser.currentIndex)
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Escape) {
+                                    // A cleared field hands the keyboard back to
+                                    // the tracker, so note entry resumes without
+                                    // a click.
+                                    if (text === "") noteEntry.forceActiveFocus()
+                                    text = ""
+                                    event.accepted = true
+                                }
+                            }
+                        }
+                        // How much of the installation is on screen, so a filter
+                        // that hides everything says so rather than looking like
+                        // an empty scan.
+                        Label {
+                            objectName: "pluginBrowserCount"
+                            text: pluginFilter.text === ""
+                                  ? appController.plugins.length
+                                  : appController.browserPlugins.length + "/"
+                                    + appController.plugins.length
+                            color: muted; font.pixelSize: 10; font.family: "monospace"
+                        }
+                    }
+                }
+
                 ListView {
+                    id: pluginBrowser
                     objectName: "pluginBrowser"
                     Layout.fillWidth: true; Layout.fillHeight: true
                     clip: true; spacing: 4
-                    model: appController.plugins
+                    model: appController.browserPlugins
+                    currentIndex: 0
+                    highlightMoveDuration: 90
+                    // Keeps the row the arrow keys landed on in view, which is
+                    // what makes a long list navigable from the keyboard.
+                    highlightRangeMode: ListView.ApplyRange
+                    preferredHighlightBegin: 0
+                    preferredHighlightEnd: Math.max(0, height - 44)
+                    // Loads the instrument on a row of the *filtered* list: the
+                    // entry carries where it sits in the full list, so what was
+                    // pointed at is what is loaded.
+                    function load(row) {
+                        if (row < 0 || row >= count) return
+                        appController.selectInstrument(model[row].source)
+                    }
+                    function step(delta) {
+                        if (count === 0) return
+                        currentIndex = Math.max(0, Math.min(count - 1, currentIndex + delta))
+                    }
+
+                    ScrollBar.vertical: ScrollBar {
+                        objectName: "pluginScrollBar"
+                        policy: ScrollBar.AsNeeded
+                        contentItem: Rectangle {
+                            implicitWidth: 5; radius: 2
+                            color: parent.pressed ? acid : line
+                        }
+                    }
+
+                    // A filter nothing answers is a fact about the query, not
+                    // about the installation.
+                    Label {
+                        anchors.centerIn: parent
+                        width: parent.width - 16
+                        visible: pluginBrowser.count === 0 && appController.plugins.length > 0
+                        text: "No instrument matches “" + pluginFilter.text + "”"
+                        color: muted; font.pixelSize: 11
+                        horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
+                    }
+
                     delegate: Rectangle {
                         required property var modelData
                         required property int index
                         width: ListView.view.width; height: 40; radius: 5
-                        color: panel; border.color: line
+                        color: ListView.isCurrentItem || rowMouse.containsMouse ? raised : panel
+                        border.color: ListView.isCurrentItem ? acid : line
                         MouseArea {
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: appController.selectInstrument(index)
+                            id: rowMouse
+                            anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                pluginBrowser.currentIndex = index
+                                appController.selectInstrument(modelData.source)
+                            }
                         }
                         RowLayout {
                             anchors.fill: parent
@@ -320,7 +549,7 @@ ApplicationWindow {
                                 Label { Layout.fillWidth: true; text: modelData.name; color: ink
                                     font.pixelSize: 12; elide: Text.ElideRight }
                                 Label { Layout.fillWidth: true; text: modelData.vendor; color: muted
-                                    font.pixelSize: 10; elide: Text.ElideRight }
+                                    font.pixelSize: 10; elide: Text.ElideMiddle }
                             }
                         }
                     }
@@ -647,8 +876,10 @@ ApplicationWindow {
 
                 // -------------------------------------------- tracker + piano roll
                 SplitView {
+                    // Enough height that sixteen tracker rows are readable rather
+                    // than sixteen slivers.
                     Layout.fillWidth: true; Layout.fillHeight: true
-                    Layout.minimumHeight: 190
+                    Layout.minimumHeight: 250
                     orientation: Qt.Horizontal
                     visible: root.showTracker || root.showRoll
 
@@ -662,11 +893,27 @@ ApplicationWindow {
                         ColumnLayout {
                             anchors.fill: parent; anchors.margins: 10; spacing: 6
                             RowLayout {
-                                Layout.fillWidth: true
+                                Layout.fillWidth: true; spacing: 6
                                 Label { text: "TRACKER"; color: ink; font.bold: true
                                     font.pixelSize: 12; font.letterSpacing: 1 }
                                 Item { Layout.fillWidth: true }
-                                Label { text: "16 ROWS"; color: muted; font.pixelSize: 9 }
+                                // The letter keys write in this octave. Without
+                                // it a typed note is a guess about where it lands.
+                                Chip {
+                                    objectName: "octaveDown"; text: "OCT-"
+                                    onClicked: root.entryOctave = Math.max(0, root.entryOctave - 1)
+                                }
+                                Label {
+                                    objectName: "octaveReadout"
+                                    text: "O" + root.entryOctave; color: amber
+                                    font.family: "monospace"; font.pixelSize: 11; font.bold: true
+                                }
+                                Chip {
+                                    objectName: "octaveUp"; text: "OCT+"
+                                    onClicked: root.entryOctave = Math.min(8, root.entryOctave + 1)
+                                }
+                                Label { text: "TYPE ZSXDCVGBHNJM"; color: muted
+                                    font.pixelSize: 9; font.family: "monospace" }
                             }
                             Rectangle {
                                 Layout.fillWidth: true; implicitHeight: 22; radius: 3
@@ -696,7 +943,15 @@ ApplicationWindow {
                                         required property int index
                                         readonly property var row: patternModel.steps[index]
                                         readonly property bool playhead: transport.step === index
+                                        // Sixteen rows have to fit whatever height
+                                        // the panel was given, and a row that spills
+                                        // into the one below it is not a tracker
+                                        // anybody can read. The text follows the row
+                                        // rather than the row being assumed.
+                                        readonly property int rowFont:
+                                            Math.max(7, Math.min(13, Math.floor(height) - 2))
                                         objectName: "trackerRow" + index
+                                        clip: true
                                         Layout.fillWidth: true; Layout.fillHeight: true
                                         color: playhead ? "#33383f"
                                                : (row && row.selected ? "#2b2f38"
@@ -714,33 +969,78 @@ ApplicationWindow {
                                                 Layout.preferredWidth: 34
                                                 text: trackRow.index.toString(16).toUpperCase().padStart(2, "0")
                                                 color: trackRow.index % 4 === 0 ? ink : muted
-                                                font.family: "monospace"; font.pixelSize: 12
+                                                font.family: "monospace"
+                                                font.pixelSize: trackRow.rowFont
                                             }
-                                            Label {
+                                            // The note column is where a tracker
+                                            // is written, so it takes input: a
+                                            // click puts the entry octave's root
+                                            // on the row, a drag moves the pitch
+                                            // by semitones, and a right-click
+                                            // empties the row.
+                                            Item {
+                                                objectName: "trackerNote" + trackRow.index
                                                 Layout.preferredWidth: 62
-                                                text: trackRow.row ? trackRow.row.noteName : "---"
-                                                color: trackRow.row && trackRow.row.active ? acid : "#3d434e"
-                                                font.family: "monospace"; font.pixelSize: 12
-                                                font.bold: trackRow.row && trackRow.row.active
+                                                Layout.fillHeight: true
+                                                Label {
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: trackRow.row ? trackRow.row.noteName : "---"
+                                                    color: trackRow.row && trackRow.row.active ? acid : "#3d434e"
+                                                    font.family: "monospace"
+                                                    font.pixelSize: trackRow.rowFont
+                                                    font.bold: trackRow.row && trackRow.row.active
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    property real anchorY: 0
+                                                    property int anchorKey: 60
+                                                    onPressed: function(mouse) {
+                                                        noteEntry.forceActiveFocus()
+                                                        patternModel.selectStep(trackRow.index)
+                                                        if (mouse.button === Qt.RightButton) {
+                                                            patternModel.clearStep(trackRow.index)
+                                                            return
+                                                        }
+                                                        anchorY = mouse.y
+                                                        anchorKey = trackRow.row && trackRow.row.active
+                                                                    ? trackRow.row.key : root.entryBase
+                                                        root.writeNote(trackRow.index, anchorKey)
+                                                    }
+                                                    onPositionChanged: function(mouse) {
+                                                        if (!pressed || mouse.buttons !== Qt.LeftButton)
+                                                            return
+                                                        var moved = Math.round((anchorY - mouse.y) / 6)
+                                                        patternModel.setStepKey(trackRow.index,
+                                                                                anchorKey + moved)
+                                                    }
+                                                }
                                             }
                                             Label {
                                                 Layout.preferredWidth: 44
                                                 text: trackRow.row ? trackRow.row.velocityHex : "--"
                                                 color: trackRow.row && trackRow.row.active ? ink : "#3d434e"
-                                                font.family: "monospace"; font.pixelSize: 12
+                                                font.family: "monospace"
+                                                font.pixelSize: trackRow.rowFont
                                             }
                                             Label {
                                                 Layout.fillWidth: true
                                                 text: trackRow.row ? trackRow.row.lockText : "---"
                                                 color: trackRow.row && trackRow.row.hasLock ? amber : "#3d434e"
-                                                font.family: "monospace"; font.pixelSize: 12
+                                                font.family: "monospace"
+                                                font.pixelSize: trackRow.rowFont
                                                 font.bold: trackRow.row && trackRow.row.hasLock
                                             }
                                         }
                                         MouseArea {
                                             anchors.fill: parent
+                                            z: -1
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: patternModel.selectStep(trackRow.index)
+                                            onClicked: {
+                                                noteEntry.forceActiveFocus()
+                                                patternModel.selectStep(trackRow.index)
+                                            }
                                         }
                                     }
                                 }
@@ -760,6 +1060,8 @@ ApplicationWindow {
                                 Label { text: "PIANO ROLL"; color: ink; font.bold: true
                                     font.pixelSize: 12; font.letterSpacing: 1 }
                                 Item { Layout.fillWidth: true }
+                                Label { text: "drag draws  |  right-click erases"; color: muted
+                                    font.pixelSize: 9 }
                                 Label {
                                     text: patternModel.lowKey + "-" + patternModel.highKey + " KEYS"
                                     color: muted; font.pixelSize: 9; font.family: "monospace"
@@ -843,6 +1145,7 @@ ApplicationWindow {
                                         required property int key
                                         required property int duration
                                         required property string velocityHex
+                                        objectName: "rollNote" + step
                                         x: rollArea.gutter + step * rollArea.laneWidth + 1
                                         y: rollArea.laneY(key)
                                         width: Math.max(6, duration / 120 * rollArea.laneWidth - 2)
@@ -857,6 +1160,255 @@ ApplicationWindow {
                                     x: rollArea.gutter + transport.stepFraction * rollArea.laneWidth
                                     y: 0; width: 2; height: rollArea.height
                                     color: ink; opacity: 0.85
+                                }
+
+                                // The roll is an editor, not a picture of one.
+                                // A press writes the lane it landed on onto the
+                                // step it landed on, dragging keeps writing as
+                                // the pointer moves, and the right button
+                                // erases. Everything goes through the canonical
+                                // pattern, so the grid, the tracker and the
+                                // inspector follow the same stroke.
+                                MouseArea {
+                                    id: rollInput
+                                    objectName: "rollInput"
+                                    x: rollArea.gutter; y: 0
+                                    width: rollArea.width - rollArea.gutter
+                                    height: rollArea.height
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    hoverEnabled: true
+                                    cursorShape: Qt.CrossCursor
+                                    property int lastStep: -1
+                                    property int lastKey: -1
+                                    // The lane the pointer is over, so the roll
+                                    // can show which pitch a press would write.
+                                    property int hoverKey: keyAt(mouseY)
+
+                                    function stepAt(px) {
+                                        return Math.max(0, Math.min(15,
+                                            Math.floor(px / rollArea.laneWidth)))
+                                    }
+                                    function keyAt(py) {
+                                        return Math.max(0, Math.min(127, patternModel.highKey -
+                                            Math.floor(py / rollArea.laneHeight)))
+                                    }
+                                    function paint(mouse) {
+                                        var step = stepAt(mouse.x)
+                                        var key = keyAt(mouse.y)
+                                        if (step === lastStep && key === lastKey) return
+                                        lastStep = step
+                                        lastKey = key
+                                        if (mouse.buttons & Qt.RightButton)
+                                            patternModel.clearStep(step)
+                                        else
+                                            root.writeNote(step, key)
+                                    }
+                                    onPressed: function(mouse) {
+                                        noteEntry.forceActiveFocus()
+                                        lastStep = -1
+                                        lastKey = -1
+                                        paint(mouse)
+                                    }
+                                    onPositionChanged: function(mouse) {
+                                        if (pressed) paint(mouse)
+                                    }
+                                    onReleased: { lastStep = -1; lastKey = -1 }
+                                }
+
+                                // Where a press would land, so the pitch under
+                                // the pointer is known before it is written.
+                                Rectangle {
+                                    visible: rollInput.containsMouse
+                                    x: rollArea.gutter
+                                    y: rollArea.laneY(rollInput.hoverKey)
+                                    width: rollArea.width - rollArea.gutter
+                                    height: rollArea.laneHeight
+                                    color: amber; opacity: 0.10
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------- keyboards
+                // One playable surface over the song's own tuning and scale.
+                // Every surface produces the same kind of cell, so the piano,
+                // the isomorphic grid, the fretboard and the chord pads are one
+                // renderer laid out four ways rather than four editors.
+                Rectangle {
+                    objectName: "keyboardPanel"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: root.view === "KEYS"
+                    Layout.preferredHeight: 168
+                    Layout.maximumHeight: root.view === "KEYS" ? 100000 : 168
+                    Layout.minimumHeight: 140
+                    visible: root.view === "ALL" || root.view === "KEYS"
+                    radius: 6; color: panel; border.color: line; clip: true
+
+                    ColumnLayout {
+                        anchors.fill: parent; anchors.margins: 10; spacing: 7
+
+                        // The song's tuning, its scale, and the key it is in.
+                        // These belong to the session, not to the keyboard, so
+                        // changing one re-reads every editor at once.
+                        RowLayout {
+                            objectName: "tuningBar"
+                            Layout.fillWidth: true; spacing: 6
+                            SectionLabel { text: "TUNING" }
+                            Picker {
+                                objectName: "tuningPicker"
+                                choices: songModel.tuningNames
+                                value: songModel.tuningName
+                                onPicked: name => songModel.setTuning(name)
+                            }
+                            Label { objectName: "divisionReadout"
+                                text: songModel.divisions + " STEPS"; color: muted
+                                font.pixelSize: 10; font.family: "monospace" }
+                            SectionLabel { text: "SCALE" }
+                            Picker {
+                                objectName: "scalePicker"
+                                choices: songModel.scaleNames
+                                value: songModel.scaleName
+                                onPicked: name => songModel.setScale(name)
+                            }
+                            SectionLabel { text: "ROOT" }
+                            Chip {
+                                objectName: "rootDown"; text: "<"
+                                onClicked: songModel.setRootDegree(songModel.rootDegree - 1)
+                            }
+                            Label { objectName: "rootReadout"; text: songModel.rootName
+                                color: acid; font.pixelSize: 11; font.bold: true
+                                font.family: "monospace" }
+                            Chip {
+                                objectName: "rootUp"; text: ">"
+                                onClicked: songModel.setRootDegree(songModel.rootDegree + 1)
+                            }
+                            Chip {
+                                objectName: "autoScaleChip"; text: "AUTO-SCALE"; accent: blue
+                                on: songModel.autoScale
+                                onClicked: songModel.toggleAutoScale()
+                            }
+                            Item { Layout.fillWidth: true }
+                            Label { objectName: "lastPlayed"
+                                text: "PLAYED " + keyboardModel.lastPlayed
+                                color: ink; font.pixelSize: 11; font.family: "monospace" }
+                        }
+
+                        // Which surface is under the hands, and the one setting
+                        // that surface has of its own.
+                        RowLayout {
+                            objectName: "surfaceBar"
+                            Layout.fillWidth: true; spacing: 6
+                            SectionLabel { text: "SURFACE" }
+                            Repeater {
+                                model: keyboardModel.surfaces
+                                Chip {
+                                    required property var modelData
+                                    objectName: "surface" + modelData
+                                    text: modelData
+                                    on: keyboardModel.surface === modelData
+                                    onClicked: keyboardModel.setSurface(modelData)
+                                }
+                            }
+                            Picker {
+                                objectName: "layoutPicker"
+                                visible: keyboardModel.surface === "GRID"
+                                choices: keyboardModel.layoutNames
+                                value: keyboardModel.layoutName
+                                onPicked: name => keyboardModel.setLayout(name)
+                            }
+                            Picker {
+                                objectName: "stringPicker"
+                                visible: keyboardModel.surface === "FRETS"
+                                choices: keyboardModel.stringTuningNames
+                                value: keyboardModel.stringTuningName
+                                onPicked: name => keyboardModel.setStringTuning(name)
+                            }
+                            Picker {
+                                objectName: "registerPicker"
+                                visible: keyboardModel.surface === "PIANO"
+                                           || keyboardModel.surface === "GRID"
+                                choices: keyboardModel.registerNames
+                                value: keyboardModel.registerName
+                                onPicked: name => keyboardModel.setRegister(name)
+                            }
+                            Item { Layout.fillWidth: true }
+                            Chip {
+                                objectName: "keyboardRecord"
+                                text: keyboardModel.recording ? "WRITING STEP " +
+                                          root.fmt2(patternModel.selectedStep + 1) : "AUDITION ONLY"
+                                accent: amber
+                                on: keyboardModel.recording
+                                onClicked: keyboardModel.toggleRecording()
+                            }
+                        }
+
+                        // The cells themselves. Row and column come from the
+                        // model, so nothing here has to know which surface it
+                        // is drawing.
+                        Item {
+                            id: keyboardSurface
+                            objectName: "keyboardSurface"
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            readonly property int columns: Math.max(1, keyboardModel.columns)
+                            readonly property int rowCount: Math.max(1, keyboardModel.rows)
+                            readonly property real cellWidth: width / columns
+                            readonly property real cellHeight: height / rowCount
+
+                            Repeater {
+                                model: keyboardModel.cells
+                                Rectangle {
+                                    required property var modelData
+                                    objectName: "keyboardCell" + modelData.index
+                                    x: modelData.column * keyboardSurface.cellWidth
+                                    y: modelData.row * keyboardSurface.cellHeight
+                                    width: keyboardSurface.cellWidth - 2
+                                    height: keyboardSurface.cellHeight - 2
+                                    radius: 3
+                                    // A key says three things at once: whether
+                                    // it is raised, whether the scale holds it,
+                                    // and whether it is the root of that scale.
+                                    color: modelData.root ? acid
+                                           : (modelData.accidental ? "#101218"
+                                              : (modelData.inScale ? "#2d323d" : raised))
+                                    border.width: modelData.inScale ? 1 : 0
+                                    border.color: modelData.root ? acid : "#3a4150"
+                                    opacity: modelData.inScale || modelData.accidental ? 1.0 : 0.55
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 0
+                                        Label {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            // A wide surface names every cell;
+                                            // a keyboard packed with keys names
+                                            // the roots, which is what a player
+                                            // needs to find their place.
+                                            visible: keyboardSurface.cellWidth >= 20
+                                                     || modelData.root
+                                            text: modelData.label
+                                            color: modelData.root ? "#0e0f12"
+                                                   : (modelData.accidental ? muted : ink)
+                                            font.pixelSize: 9; font.family: "monospace"
+                                            font.bold: modelData.root
+                                        }
+                                        // The retune is the whole point in a
+                                        // tuning that is not twelve tones: it
+                                        // is what the instrument is told.
+                                        Label {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            visible: modelData.retune !== ""
+                                            text: modelData.retune
+                                            color: modelData.root ? "#0e0f12" : blue
+                                            font.pixelSize: 8; font.family: "monospace"
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: keyboardModel.press(modelData.index)
+                                    }
                                 }
                             }
                         }

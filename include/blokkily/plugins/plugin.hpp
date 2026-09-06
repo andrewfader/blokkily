@@ -18,6 +18,10 @@ struct PluginEvent {
     std::uint32_t sample_offset;
     std::int32_t key_or_parameter;
     double value;
+    // How far from the twelve-tone key the note is actually tuned. Every format
+    // speaks semitones, so a microtonal pitch travels as the nearest key plus
+    // this offset and each adapter says it in its own dialect.
+    double cents = 0.0;
 };
 
 class PluginInstance {

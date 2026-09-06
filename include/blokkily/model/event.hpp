@@ -15,6 +15,9 @@ struct Note {
     std::int16_t key = 60;
     float velocity = 0.8F;
     float release_velocity = 0.0F;
+    // Retune from that key, so a note of a nineteen-tone scale is still one
+    // note rather than an approximation of one.
+    double cents = 0.0;
 };
 
 struct Chord {
@@ -22,6 +25,10 @@ struct Chord {
     std::vector<std::int16_t> intervals{0, 4, 7};
     std::int8_t inversion = 0;
     Tick strum = 0;
+    // Retune per interval, so a chord of a nineteen-tone scale sounds the
+    // chord it is rather than the nearest twelve-tone approximation of it.
+    // Empty means every voice sits on its key, as twelve tones do.
+    std::vector<double> cents;
 };
 
 // A per-step parameter change. Automation and modulation stay distinct all the
@@ -53,6 +60,7 @@ struct ScheduledNote {
     Tick duration;
     std::int16_t key;
     float velocity;
+    double cents = 0.0;
 };
 
 struct ScheduledParameter {
