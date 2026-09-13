@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -56,12 +57,17 @@ public:
     // or not the transport is playing, so a keyboard works on a stopped song.
     bool play_live(std::size_t track, const PluginEvent& event) noexcept;
 
-    void set_playing(bool playing) noexcept { playing_.store(playing, std::memory_order_release); }
+    void set_playing(bool playing) noexcept {
+        if (!playing) stop_requested_.store(true, std::memory_order_release);
+        playing_.store(playing, std::memory_order_release);
+    }
     [[nodiscard]] bool is_playing() const noexcept {
         return playing_.load(std::memory_order_acquire);
     }
-    void rewind() noexcept { sample_position_ = 0; }
-    void seek(std::uint64_t sample) noexcept { sample_position_ = sample; }
+    void rewind() noexcept { seek(0); }
+    void seek(std::uint64_t sample) noexcept {
+        requested_position_.store(sample, std::memory_order_release);
+    }
     void process(StereoBlock output) noexcept override;
 
     // Live mixer moves. Safe to call from the control thread while audio runs:
@@ -79,7 +85,11 @@ public:
     }
     [[nodiscard]] std::uint32_t maximum_block() const noexcept { return maximum_block_; }
     [[nodiscard]] double sample_rate() const noexcept { return sample_rate_; }
-    [[nodiscard]] std::uint64_t sample_position() const noexcept { return sample_position_; }
+    [[nodiscard]] std::uint64_t sample_position() const noexcept {
+        const auto requested = requested_position_.load(std::memory_order_acquire);
+        return requested == no_seek ? published_position_.load(std::memory_order_acquire)
+                                    : requested;
+    }
     // Peak of the last processed block, per track and for the master bus. Read
     // by meters on the control thread.
     [[nodiscard]] float track_peak(std::size_t track) const;
@@ -157,6 +167,10 @@ private:
     std::uint32_t maximum_block_ = 0;
     double sample_rate_ = 0.0;
     std::uint64_t sample_position_ = 0;
+    static constexpr auto no_seek = std::numeric_limits<std::uint64_t>::max();
+    std::atomic<std::uint64_t> requested_position_{no_seek};
+    std::atomic<std::uint64_t> published_position_{0};
+    std::atomic<bool> stop_requested_{false};
     std::uint64_t continuous_from_ = 0;
     bool cursors_valid_ = false;
     // Set when a new arrangement is installed: what the old one left sounding

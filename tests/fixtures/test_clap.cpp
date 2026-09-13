@@ -7,6 +7,8 @@
 #include <new>
 
 namespace {
+void (*process_observer)(void*) = nullptr;
+void* observer_context = nullptr;
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT,
                                     CLAP_PLUGIN_FEATURE_SYNTHESIZER, nullptr};
 constexpr clap_plugin_descriptor_t descriptor{
@@ -41,6 +43,7 @@ void plugin_stop(const clap_plugin_t*) {}
 void plugin_reset(const clap_plugin_t* plugin) { self(plugin)->sounding = false; }
 
 clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_process_t* process) {
+    if (process_observer) process_observer(observer_context);
     auto* synth = self(plugin);
     if (process->audio_outputs_count != 1 || process->audio_outputs[0].channel_count != 2)
         return CLAP_PROCESS_ERROR;
@@ -137,3 +140,10 @@ const void* get_factory(const char* id) {
 
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry{
     CLAP_VERSION, entry_init, entry_deinit, get_factory};
+
+// Verification observes the real plugin processing boundary while the host
+// exports. It does not replace the instrument or its official CLAP entry point.
+extern "C" CLAP_EXPORT void blokkily_test_observe_process(void (*observer)(void*), void* context) {
+    process_observer = observer;
+    observer_context = context;
+}

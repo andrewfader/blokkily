@@ -535,8 +535,9 @@ void Transport::tick() {
 }
 
 AppController::AppController(SongModel* song, PatternModel* pattern, Transport* transport,
-                             QObject* parent)
-    : QObject(parent), song_(song), pattern_(pattern), transport_(transport) {
+                             QObject* parent, std::unique_ptr<blokkily::RtAudioOutput> output)
+    : QObject(parent), song_(song), pattern_(pattern), transport_(transport),
+      audio_output_(std::move(output)) {
     // What the browser lists follows both what the scan found and what the
     // producer has typed, so a plugin arriving mid-scan reaches a filtered
     // browser too.
@@ -548,14 +549,20 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
             // it, so the recompiled timeline is handed to the running engine.
             // The song keeps going from where it was, on the instruments it
             // already has, and the next block plays the edit.
-            if (engine_ && !refreshArrangement()) (void)rebuildEngine();
+            if (engine_) {
+                if (builtFromCurrentInstruments()) (void)refreshArrangement();
+                else (void)rebuildEngine();
+            }
         });
     if (song_ != nullptr) {
         QObject::connect(song_, &SongModel::structureChanged, this, [this] {
             // A clip moved on the timeline is the same kind of change as a
             // step edit. A track added or an instrument swapped is not: that
             // needs a graph the running engine does not have.
-            if (engine_ && refreshArrangement()) return;
+            if (engine_ && builtFromCurrentInstruments()) {
+                (void)refreshArrangement();
+                return;
+            }
             // A track that has just been given an instrument needs an engine
             // even if none existed: a keyboard must sound before playback.
             if (engine_ || !instruments().empty()) (void)rebuildEngine();
@@ -621,6 +628,13 @@ bool AppController::auditionPitches(const std::vector<blokkily::TunedPitch>& pit
     releaseSoundingNotes();
     const auto track = static_cast<std::size_t>(song_->selectedTrack());
     if (track >= engine_->track_count() || !engine_->has_instrument(track)) return false;
+    std::string error;
+    if (audio_output_ && !audio_output_->start(&error)) {
+        status_ = QString("Audio start failed · %1").arg(QString::fromStdString(error));
+        emit statusChanged();
+        return false;
+    }
+    meter_timer_.start();
     audition_track_ = song_->selectedTrack();
     for (const auto& pitch : pitches) {
         if (!engine_->play_live(track, {blokkily::PluginEvent::Type::note_on, 0, pitch.key,
@@ -963,7 +977,11 @@ bool AppController::refreshArrangement() {
     if (!engine_ || song_ == nullptr || transport_ == nullptr) return false;
     if (!builtFromCurrentInstruments()) return false;
     std::string error;
-    if (!engine_->recompile(song_->song(), transport_->bpm(), 0, &error)) return false;
+    if (!engine_->recompile(song_->song(), transport_->bpm(), 0, &error)) {
+        status_ = QString("Arrangement unchanged · %1").arg(QString::fromStdString(error));
+        emit statusChanged();
+        return false;
+    }
     transport_->setSongBars(song_->bars());
     return true;
 }
@@ -1065,15 +1083,18 @@ bool AppController::rebuildEngine() {
     const bool resume = transport_->playing();
     auto& song = song_->song();
 
+    // State streams belong to the control thread while the processor is idle.
+    if (audio_output_) audio_output_->stop();
+
     // Carry each instrument's own state across the rebuild, so recompiling the
     // arrangement never resets a synth a producer has already dialled in.
     if (engine_)
         for (std::size_t track = 0; track < song.tracks.size(); ++track)
-            if (engine_->has_instrument(track)) {
+            if (engine_->has_instrument(track) && track < engine_slots_.size() &&
+                same_instrument(song.tracks[track].instrument, engine_slots_[track])) {
                 auto state = engine_->save_track_state(track);
                 if (!state.empty()) song.tracks[track].instrument.state = std::move(state);
             }
-    if (audio_output_) audio_output_->stop();
     forgetSoundingNotes();
     engine_.reset();
 
@@ -1107,8 +1128,9 @@ bool AppController::rebuildEngine() {
 
     // The engine exists even when the machine has no audio device, so a song
     // can still be arranged and bounced to a file on a silent host.
-    if (!audio_output_) {
-        auto output = std::make_unique<blokkily::RtAudioOutput>();
+    if (!audio_output_ || !audio_output_->is_open()) {
+        auto output = audio_output_ ? std::move(audio_output_)
+                                   : std::make_unique<blokkily::RtAudioOutput>();
         std::string device_error;
         if (output->open(*engine_, 48000, 512, &device_error)) {
             audio_output_ = std::move(output);
@@ -1215,9 +1237,8 @@ void AppController::togglePlayback() {
     }
     if (transport_->playing()) {
         engine_->set_playing(false);
-        if (audio_output_) audio_output_->stop();
-        meter_timer_.stop();
-        transport_->releaseFollowing();
+        // Keep the callback alive for note-offs, instrument releases, meters,
+        // and the next key played on the stopped transport.
         transport_->stop();
         pollMeters();
         return;
@@ -1231,7 +1252,13 @@ void AppController::togglePlayback() {
         return;
     }
     meter_timer_.start();
+    transport_->followSamples(engine_->sample_position(), engine_->sample_rate());
     transport_->play();
+}
+
+void AppController::rewindPlayback() {
+    if (engine_) engine_->rewind();
+    if (transport_) transport_->rewind();
 }
 
 void AppController::setTempo(double bpm) {
@@ -1240,7 +1267,7 @@ void AppController::setTempo(double bpm) {
     // The tempo readout is dragged, so this arrives once per pointer move. A
     // tempo change is a change to when the arrangement's events fall, not to
     // the instruments playing them, so it goes to the running engine.
-    if (engine_ && !refreshArrangement()) (void)rebuildEngine();
+    if (engine_) (void)refreshArrangement();
 }
 
 bool AppController::exportAudioFile(const QString& path, const QString& depth) {
@@ -1253,9 +1280,21 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth) {
                       : depth == "PCM24"  ? blokkily::WaveFormat::pcm24
                                           : blokkily::WaveFormat::float32;
     std::string error;
+    const bool resume_device = audio_output_ && audio_output_->is_running();
+    if (audio_output_) audio_output_->stop();
+    releaseSoundingNotes();
     // Half a second of tail so the last note's release is part of the file.
     const auto report = bounce_song(*engine_, local_path(path).toStdString(), format,
                                     24000, &error);
+    if (resume_device) {
+        std::string resume_error;
+        if (!audio_output_->start(&resume_error)) {
+            engine_->set_playing(false);
+            if (transport_) transport_->stop();
+            status_ = QString("Audio restart failed · %1").arg(QString::fromStdString(resume_error));
+            emit statusChanged();
+        }
+    }
     if (!report) {
         export_status_ = QString("Export failed · %1").arg(QString::fromStdString(error));
         emit exportStatusChanged();

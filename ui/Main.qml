@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Shapes
 import QtQuick.Layouts
 import QtQuick.Dialogs
 
@@ -245,12 +246,13 @@ ApplicationWindow {
                         onClicked: appController.togglePlayback() }
                 }
                 Rectangle {
+                    objectName: "rewindButton"
                     implicitWidth: 30; implicitHeight: 28; radius: 4
                     color: raised; border.color: line
                     Label { anchors.centerIn: parent; text: "|<"; color: ink
                         font.family: "monospace"; font.pixelSize: 12; font.bold: true }
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: transport.rewind() }
+                        onClicked: appController.rewindPlayback() }
                 }
             }
 
@@ -609,8 +611,20 @@ ApplicationWindow {
         // -------------------------------------------------------------- editors
         Rectangle {
             SplitView.fillWidth: true; color: bg
+            Flickable {
+                id: editorScroll
+                objectName: "editorScroll"
+                anchors.fill: parent; anchors.margins: 14
+                clip: true
+                contentWidth: width
+                contentHeight: Math.max(height, editorColumn.implicitHeight)
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             ColumnLayout {
-                anchors.fill: parent; anchors.margins: 14; spacing: 10
+                id: editorColumn
+                width: editorScroll.width
+                height: editorScroll.contentHeight
+                spacing: 10
 
                 RowLayout {
                     Layout.fillWidth: true; spacing: 10
@@ -1236,11 +1250,25 @@ ApplicationWindow {
                 // the isomorphic grid, the fretboard and the chord pads are one
                 // renderer laid out four ways rather than four editors.
                 Rectangle {
+                    id: keyboardPanel
                     objectName: "keyboardPanel"
+                    // A surface with many rows — a fretboard, or anything
+                    // turned on its side — needs more of the window than a
+                    // single strip of piano keys. The panel asks for what the
+                    // laid-out surface needs, up to a share of the window; past
+                    // that the surface scrolls rather than shrinking its keys
+                    // below the size of a fingertip.
+                    // Piano keys may be narrow; grid and chord cells need room
+                    // for a readable pitch name and a usable pointer target.
+                    // Both orientations scroll once those dimensions are met.
+                    readonly property real keyExtent: keyboardModel.surface === "PIANO" ? 14 : 60
+                    readonly property real wantedSurface:
+                        Math.min(360, keyboardModel.spanY * keyExtent)
+                    readonly property real wantedHeight: Math.max(168, wantedSurface + 104)
                     Layout.fillWidth: true
                     Layout.fillHeight: root.view === "KEYS"
-                    Layout.preferredHeight: 168
-                    Layout.maximumHeight: root.view === "KEYS" ? 100000 : 168
+                    Layout.preferredHeight: wantedHeight
+                    Layout.maximumHeight: root.view === "KEYS" ? 100000 : wantedHeight
                     Layout.minimumHeight: 140
                     visible: root.view === "ALL" || root.view === "KEYS"
                     radius: 6; color: panel; border.color: line; clip: true
@@ -1253,7 +1281,9 @@ ApplicationWindow {
                         // changing one re-reads every editor at once.
                         RowLayout {
                             objectName: "tuningBar"
-                            Layout.fillWidth: true; spacing: 6
+                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                            clip: true
+                            spacing: 6
                             SectionLabel { text: "TUNING" }
                             Picker {
                                 objectName: "tuningPicker"
@@ -1298,7 +1328,12 @@ ApplicationWindow {
                         // that surface has of its own.
                         RowLayout {
                             objectName: "surfaceBar"
-                            Layout.fillWidth: true; spacing: 6
+                            // Its own contents may not set the panel's width:
+                            // a long layout name would otherwise push the
+                            // surface beside it out past the panel's edge.
+                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                            clip: true
+                            spacing: 6
                             SectionLabel { text: "SURFACE" }
                             Repeater {
                                 model: keyboardModel.surfaces
@@ -1332,6 +1367,17 @@ ApplicationWindow {
                                 value: keyboardModel.registerName
                                 onPicked: name => keyboardModel.setRegister(name)
                             }
+                            // One chip rather than two: the bar has to fit
+                            // beside the surface's own setting, and a control
+                            // row that cannot shrink drags the keyboard out
+                            // past the panel that is meant to hold it.
+                            Chip {
+                                objectName: "orientToggle"
+                                text: "RUNS " + keyboardModel.orientation
+                                accent: blue
+                                on: keyboardModel.orientation === "DOWN"
+                                onClicked: keyboardModel.toggleOrientation()
+                            }
                             Item { Layout.fillWidth: true }
                             Chip {
                                 objectName: "keyboardRecord"
@@ -1346,46 +1392,156 @@ ApplicationWindow {
                         // The cells themselves. Row and column come from the
                         // model, so nothing here has to know which surface it
                         // is drawing.
+                        Flickable {
+                            id: keyboardScroll
+                            objectName: "keyboardScroll"
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            clip: true
+                            // Composite the viewport before placing it in the
+                            // window. This also bounds Shape painting on Qt's
+                            // software renderer when the surface scrolls.
+                            layer.enabled: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            // A surface that fits is laid out to fill. One that
+                            // does not scrolls, because a key too small to hit
+                            // is not a key.
+                            contentWidth: Math.max(width, keyboardModel.spanX *
+                                keyboardPanel.keyExtent * keyboardSurface.cellAspect)
+                            contentHeight: Math.max(height,
+                                keyboardModel.spanY * keyboardPanel.keyExtent)
+                            ScrollBar.vertical: ScrollBar {
+                                objectName: "keyboardScrollBar"
+                                policy: ScrollBar.AsNeeded
+                            }
+                            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+
                         Item {
                             id: keyboardSurface
                             objectName: "keyboardSurface"
-                            Layout.fillWidth: true; Layout.fillHeight: true
-                            readonly property int columns: Math.max(1, keyboardModel.columns)
-                            readonly property int rowCount: Math.max(1, keyboardModel.rows)
-                            readonly property real cellWidth: width / columns
-                            readonly property real cellHeight: height / rowCount
+                            width: keyboardScroll.contentWidth
+                            height: keyboardScroll.contentHeight
+                            // The model says how much room the layout needs, in
+                            // cell widths and heights. Staggered rows are half a
+                            // cell wider than their contents and hexagonal rows
+                            // overlap, so this is measured rather than counted.
+                            readonly property real spanX: Math.max(0.001, keyboardModel.spanX)
+                            readonly property real spanY: Math.max(0.001, keyboardModel.spanY)
+                            readonly property bool hex: keyboardModel.cellShape === "HEX"
+                            // A honeycomb turns with the surface: rows of
+                            // pointy-top cells become columns of flat-top ones.
+                            readonly property bool flatTop:
+                                keyboardModel.orientation === "DOWN"
+                            // A hexagon only reads as one, and only tiles as
+                            // one, while it stays close to regular. So a
+                            // honeycomb keeps the width its height asks for and
+                            // sits centred in whatever room is left, where a
+                            // square grid still stretches to fill the way keys
+                            // always have.
+                            readonly property real cellAspect:
+                                !hex ? 1.0 : (flatTop ? 2.0 / Math.sqrt(3.0)
+                                                      : Math.sqrt(3.0) / 2.0)
+                            readonly property real cellHeight:
+                                hex ? Math.min(height / spanY, width / spanX / cellAspect)
+                                    : height / spanY
+                            readonly property real cellWidth:
+                                hex ? cellHeight * cellAspect : width / spanX
+                            readonly property real originX: (width - cellWidth * spanX) / 2
+                            readonly property real originY: (height - cellHeight * spanY) / 2
+
+                            // The six corners of a cell, in its own pixels.
+                            function hexCorners(w, h) {
+                                if (flatTop)
+                                    return [Qt.point(0.25 * w, 0), Qt.point(0.75 * w, 0),
+                                            Qt.point(w, 0.5 * h), Qt.point(0.75 * w, h),
+                                            Qt.point(0.25 * w, h), Qt.point(0, 0.5 * h),
+                                            Qt.point(0.25 * w, 0)]
+                                return [Qt.point(0.5 * w, 0), Qt.point(w, 0.25 * h),
+                                        Qt.point(w, 0.75 * h), Qt.point(0.5 * w, h),
+                                        Qt.point(0, 0.75 * h), Qt.point(0, 0.25 * h),
+                                        Qt.point(0.5 * w, 0)]
+                            }
+
+                            // Hexagons interlock, so their rectangles overlap at
+                            // the corners. A press there belongs to the
+                            // neighbour it is drawn inside, not to whichever
+                            // cell happens to be painted on top.
+                            function insideCell(nx, ny) {
+                                if (!hex) return true
+                                var dx = Math.abs(nx - 0.5), dy = Math.abs(ny - 0.5)
+                                return flatTop ? (2 * dx + dy <= 1) : (2 * dy + dx <= 1)
+                            }
 
                             Repeater {
                                 model: keyboardModel.cells
-                                Rectangle {
+                                Item {
+                                    id: cellItem
                                     required property var modelData
                                     objectName: "keyboardCell" + modelData.index
-                                    x: modelData.column * keyboardSurface.cellWidth
-                                    y: modelData.row * keyboardSurface.cellHeight
+                                    x: keyboardSurface.originX
+                                       + modelData.x * keyboardSurface.cellWidth
+                                    y: keyboardSurface.originY
+                                       + modelData.y * keyboardSurface.cellHeight
                                     width: keyboardSurface.cellWidth - 2
                                     height: keyboardSurface.cellHeight - 2
-                                    radius: 3
                                     // A key says three things at once: whether
                                     // it is raised, whether the scale holds it,
                                     // and whether it is the root of that scale.
-                                    color: modelData.root ? acid
+                                    readonly property color fill: modelData.root ? acid
                                            : (modelData.accidental ? "#101218"
                                               : (modelData.inScale ? "#2d323d" : raised))
-                                    border.width: modelData.inScale ? 1 : 0
-                                    border.color: modelData.root ? acid : "#3a4150"
-                                    opacity: modelData.inScale || modelData.accidental ? 1.0 : 0.55
+                                    readonly property color edge:
+                                        modelData.root ? acid
+                                        : (modelData.inScale ? "#3a4150" : "#333947")
+                                    opacity: modelData.inScale || modelData.accidental
+                                             ? 1.0 : (keyboardSurface.hex ? 0.8 : 0.55)
+
+                                    Rectangle {
+                                        objectName: "rectTile"
+                                        anchors.fill: parent
+                                        visible: !keyboardSurface.hex
+                                        radius: 3
+                                        color: cellItem.fill
+                                        border.width: modelData.inScale ? 1 : 0
+                                        border.color: cellItem.edge
+                                    }
+
+                                    Shape {
+                                        objectName: "hexTile"
+                                        anchors.fill: parent
+                                        visible: keyboardSurface.hex
+                                        ShapePath {
+                                            fillColor: cellItem.fill
+                                            // Every cell of a honeycomb is
+                                            // outlined. One that is not is not
+                                            // a dim key, it is a hole in the
+                                            // tiling, and a player cannot count
+                                            // steps across a hole.
+                                            strokeColor: cellItem.edge
+                                            strokeWidth: 1
+                                            PathPolyline {
+                                                path: keyboardSurface.hexCorners(
+                                                    cellItem.width, cellItem.height)
+                                            }
+                                        }
+                                    }
 
                                     ColumnLayout {
                                         anchors.centerIn: parent
                                         spacing: 0
                                         Label {
+                                            id: cellName
                                             Layout.alignment: Qt.AlignHCenter
-                                            // A wide surface names every cell;
-                                            // a keyboard packed with keys names
-                                            // the roots, which is what a player
-                                            // needs to find their place.
-                                            visible: keyboardSurface.cellWidth >= 20
-                                                     || modelData.root
+                                            // A name that does not fit its key
+                                            // is not a name, it is a smear
+                                            // across its neighbours. A tuning
+                                            // of thirty-one degrees has longer
+                                            // names than one of twelve, so the
+                                            // label measures itself rather than
+                                            // guessing at a cell size.
+                                            visible: implicitWidth
+                                                     <= cellItem.width * 0.9
+                                                     && implicitHeight
+                                                        <= cellItem.height * 0.55
                                             text: modelData.label
                                             color: modelData.root ? "#0e0f12"
                                                    : (modelData.accidental ? muted : ink)
@@ -1398,6 +1554,9 @@ ApplicationWindow {
                                         Label {
                                             Layout.alignment: Qt.AlignHCenter
                                             visible: modelData.retune !== ""
+                                                     && cellName.visible
+                                                     && implicitWidth
+                                                        <= cellItem.width * 0.9
                                             text: modelData.retune
                                             color: modelData.root ? "#0e0f12" : blue
                                             font.pixelSize: 8; font.family: "monospace"
@@ -1407,10 +1566,18 @@ ApplicationWindow {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
+                                        onPressed: mouse => {
+                                            // Outside the drawn cell the press
+                                            // belongs to the neighbour beneath.
+                                            mouse.accepted = keyboardSurface.insideCell(
+                                                mouse.x / Math.max(1, width),
+                                                mouse.y / Math.max(1, height))
+                                        }
                                         onClicked: keyboardModel.press(modelData.index)
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }
@@ -1420,6 +1587,7 @@ ApplicationWindow {
                     objectName: "stepInspector"
                     Layout.fillWidth: true
                     Layout.preferredHeight: 206
+                    Layout.minimumHeight: 206
                     radius: 6; color: panel; border.color: line
 
                     // Nothing selected, or an empty step: say so and say what to do.
@@ -1598,6 +1766,8 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+
         }
 
         // ---------------------------------------------------------------- mixer

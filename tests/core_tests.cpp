@@ -24,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -831,6 +832,43 @@ int main() {
         assert(whole_left == piece_left && whole_right == piece_right);
     }
 
+    // features/song_and_mixer.feature: Stopping releases arrangement notes;
+    // an export tail never starts another pass of the arrangement.
+    {
+        SongEngine checked;
+        auto voice = ClapPluginInstance::create(
+            BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &clap_error);
+        assert(voice);
+        checked.set_instrument(0, std::move(voice));
+        Song one_track = mix_song;
+        one_track.tracks = {Track{"One", {}, {}}};
+        one_track.clips = {{0, 0, 0, 1}};
+        one_track.master_gain_db = 0.0;
+        assert(checked.prepare(one_track, 120.0, 48000.0, 512));
+        checked.set_playing(true);
+        std::vector<float> left(512), right(512);
+        checked.process({left, right});
+        assert(left[0] > 0.1F);
+        const auto stopped_at = checked.sample_position();
+        checked.set_playing(false);
+        checked.process({left, right});
+        const bool released = std::all_of(left.begin(), left.end(),
+                                         [](float value) { return value == 0.0F; });
+        assert(checked.sample_position() == stopped_at);
+        if (!released) std::cerr << "REGRESSION: Stop leaves arrangement notes held\n";
+
+        const auto path = std::filesystem::path(BLOKKILY_TEST_ARTIFACTS) / "tail-regression.wav";
+        assert(bounce_song(checked, path, WaveFormat::float32, 4800));
+        const auto wave = read_wave(path);
+        assert(wave && wave->frames == 100800);
+        assert(wave->interleaved[0] > 0.1F);
+        const bool tail_is_silent = std::all_of(
+            wave->interleaved.begin() + 96000 * 2, wave->interleaved.end(),
+            [](float value) { return value == 0.0F; });
+        if (!tail_is_silent) std::cerr << "REGRESSION: Export tail repeats the song\n";
+        assert(released && tail_is_silent);
+    }
+
     // --- Bouncing the arrangement to a file -------------------------------
     mix_song.tracks[0].mix = {0.0, 0.0, false, false};
     mix_song.tracks[1].mix = {0.0, 0.0, false, false};
@@ -859,9 +897,12 @@ int main() {
     // the same engine again reproduces it sample for sample.
     engine.rewind();
     engine.set_playing(true);
-    for (std::uint64_t frame = 0; frame < report->frames; frame += 512) {
+    for (std::uint64_t frame = 0; frame < report->frames;) {
+        if (frame == engine.song_samples()) engine.set_playing(false);
+        const auto remaining = frame < engine.song_samples()
+            ? engine.song_samples() - frame : report->frames - frame;
         const auto frames = static_cast<std::size_t>(
-            std::min<std::uint64_t>(512, report->frames - frame));
+            std::min<std::uint64_t>(512, remaining));
         const std::span<float> left{bus_left.data(), frames};
         const std::span<float> right{bus_right.data(), frames};
         engine.process({left, right});
@@ -869,6 +910,7 @@ int main() {
             assert(rendered->interleaved[(frame + index) * 2] == left[index]);
             assert(rendered->interleaved[(frame + index) * 2 + 1] == right[index]);
         }
+        frame += frames;
     }
     engine.set_playing(false);
 
@@ -1103,6 +1145,101 @@ int main() {
     };
     assert(nineteen_at(2, 1) - nineteen_at(2, 0) == 3);
     assert(nineteen_at(1, 0) - nineteen_at(2, 0) == 11);
+
+    // ---- how a surface is tiled and which way it runs ---------------------
+    // A honeycomb is not decoration: interlocking rows are what put every
+    // neighbour of a key one interval away. The row and the column still say
+    // which key a cell is; x and y say where it is drawn.
+    grid.tuning = twelve;
+    for (const auto& layout : isomorphic_layouts())
+        if (layout.name == "Wicki-Hayden") grid.isomorphic = layout;
+    assert(grid.isomorphic.shape == CellShape::hexagon);
+    assert(keyboard_shape(grid) == CellShape::hexagon);
+    const auto honeycomb = keyboard_cells(grid);
+    const auto placed = [](const std::vector<KeyboardCell>& list, int row, int column) {
+        for (const auto& cell : list)
+            if (cell.row == row && cell.column == column) return cell;
+        return KeyboardCell{};
+    };
+    // Alternate rows are offset by half a cell, and rows overlap by a quarter
+    // of a cell, which is what makes pointy-top hexagons close.
+    assert(std::abs(placed(honeycomb, 0, 3).x - 3.0) < 1e-9);
+    assert(std::abs(placed(honeycomb, 1, 3).x - 3.5) < 1e-9);
+    assert(std::abs(placed(honeycomb, 1, 0).y - 0.75) < 1e-9);
+    assert(std::abs(placed(honeycomb, 2, 0).y - 1.5) < 1e-9);
+    // The extent is what the surface needs to be drawn in, which is more than
+    // the count of columns once a row has been shifted half a cell.
+    const auto hex_extent = keyboard_extent(honeycomb);
+    assert(std::abs(hex_extent.columns - 6.5) < 1e-9);   // six columns, staggered
+    assert(std::abs(hex_extent.rows - 2.5) < 1e-9);      // three rows, overlapping
+
+    // A layout drawn on a square grid stays on whole rows and columns, and the
+    // intervals under the hands are the layout's business, not the tiling's.
+    auto square = grid;
+    for (const auto& layout : isomorphic_layouts())
+        if (layout.name == "Fourths") square.isomorphic = layout;
+    assert(keyboard_shape(square) == CellShape::rectangle);
+    const auto square_cells = keyboard_cells(square);
+    for (const auto& cell : square_cells) {
+        assert(std::abs(cell.x - cell.column) < 1e-9);
+        assert(std::abs(cell.y - cell.row) < 1e-9);
+    }
+    const auto square_at = [&square_cells, &placed](int row, int column) {
+        return placed(square_cells, row, column).degree;
+    };
+    assert(square_at(2, 1) - square_at(2, 0) == 1);   // a column step is a semitone
+    assert(square_at(1, 0) - square_at(2, 0) == 5);   // a row step is a fourth
+
+    // Turning a surface is a quarter turn counter-clockwise: what ran to the
+    // right runs upward, and nothing about which key is which changes.
+    auto turned = square;
+    turned.orientation = KeyboardOrientation::vertical;
+    const auto turned_cells = keyboard_cells(turned);
+    assert(turned_cells.size() == square_cells.size());
+    for (std::size_t index = 0; index < turned_cells.size(); ++index) {
+        assert(turned_cells[index].degree == square_cells[index].degree);
+        assert(turned_cells[index].pitch.key == square_cells[index].pitch.key);
+        assert(turned_cells[index].row == square_cells[index].row);
+        assert(turned_cells[index].column == square_cells[index].column);
+    }
+    // A column that ascended to the right now ascends upward.
+    assert(placed(turned_cells, 2, 1).y < placed(turned_cells, 2, 0).y);
+    assert(placed(turned_cells, 2, 1).degree > placed(turned_cells, 2, 0).degree);
+    // And the extent it asks for is the one it had, transposed.
+    const auto flat_extent = keyboard_extent(square_cells);
+    const auto turned_extent = keyboard_extent(turned_cells);
+    assert(std::abs(turned_extent.columns - flat_extent.rows) < 1e-9);
+    assert(std::abs(turned_extent.rows - flat_extent.columns) < 1e-9);
+
+    // A piano turned on its side is one column of keys with the lowest at the
+    // bottom, which is how a roll's gutter reads.
+    KeyboardSpec upright;
+    upright.tuning = twelve;
+    upright.scale = major;
+    upright.range = {"Tenor", 40, 25};
+    upright.orientation = KeyboardOrientation::vertical;
+    const auto upright_cells = keyboard_cells(upright);
+    assert(upright_cells.size() == 25);
+    assert(std::abs(keyboard_extent(upright_cells).columns - 1.0) < 1e-9);
+    assert(std::abs(keyboard_extent(upright_cells).rows - 25.0) < 1e-9);
+    assert(upright_cells.front().degree < upright_cells.back().degree);
+    assert(upright_cells.front().y > upright_cells.back().y);   // lowest at the bottom
+
+    // Every named layout is a real one: a step across and a step up are both
+    // intervals the tuning can sound, and no two layouts are the same grid.
+    assert(isomorphic_layouts().size() >= 6);
+    for (const auto& layout : isomorphic_layouts()) {
+        assert(!layout.name.empty());
+        assert(layout.column_cents > 0.0 && layout.row_cents > 0.0);
+        auto named = grid;
+        named.isomorphic = layout;
+        const auto named_cells = keyboard_cells(named);
+        assert(named_cells.size() == static_cast<std::size_t>(named.rows * named.columns));
+        // The layout must actually move: a grid whose steps both round to zero
+        // would draw a wall of one note.
+        assert(placed(named_cells, 2, 1).degree != placed(named_cells, 2, 0).degree);
+        assert(placed(named_cells, 1, 0).degree != placed(named_cells, 2, 0).degree);
+    }
 
     KeyboardSpec fretboard;
     fretboard.kind = KeyboardKind::fretboard;

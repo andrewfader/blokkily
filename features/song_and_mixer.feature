@@ -75,6 +75,30 @@ Feature: Arrange patterns into a song across mixer tracks
     Then no file is written
     And the reason is reported
 
+  Scenario: Stopping releases arrangement notes
+    Given a sustained arrangement note is sounding through the CLAP instrument
+    When the producer stops playback before its note-off
+    Then the next audio callback releases that note without advancing the playhead
+    And playing live notes on the stopped transport still produces audio
+
+  Scenario: An export tail never starts another pass of the arrangement
+    Given an arrangement with a sustained CLAP note from its first tick
+    When the producer exports the song with a release tail
+    Then the written file contains the arrangement once
+    And its tail contains no restarted notes
+
+  Scenario: Rewind moves the sound and the display together
+    Given the song is playing through the production audio callback
+    When the producer clicks the rewind button
+    Then the next callback plays from the beginning of the arrangement
+    And the transport display follows that position
+
+  Scenario: Export borrows the audio device and returns it
+    Given playback is running through the production audio callback
+    When the producer exports the arrangement
+    Then the device is suspended while the export uses the engine
+    And playback resumes at its previous position after success or a write failure
+
   Scenario: The whole session survives being saved and reloaded
     Given a session with two patterns, three tracks, and its clips
     And a track that has been muted and pulled to -7.5 dB

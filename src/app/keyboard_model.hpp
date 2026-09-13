@@ -22,6 +22,16 @@ class KeyboardModel final : public QObject {
     Q_PROPERTY(QVariantList cells READ cells NOTIFY specChanged)
     Q_PROPERTY(int rows READ rows NOTIFY specChanged)
     Q_PROPERTY(int columns READ columns NOTIFY specChanged)
+    // How much room the laid-out surface needs, in cell widths and heights.
+    // Not the same as the row and column counts: staggered rows are half a cell
+    // wider than their contents and hexagonal rows overlap, so what is drawn
+    // is measured rather than counted.
+    Q_PROPERTY(double spanX READ spanX NOTIFY specChanged)
+    Q_PROPERTY(double spanY READ spanY NOTIFY specChanged)
+    // "RECT" or "HEX": the tiling a cell is drawn in.
+    Q_PROPERTY(QString cellShape READ cellShape NOTIFY specChanged)
+    Q_PROPERTY(QString orientation READ orientation NOTIFY specChanged)
+    Q_PROPERTY(QStringList orientations READ orientations CONSTANT)
     Q_PROPERTY(QString layoutName READ layoutName NOTIFY specChanged)
     Q_PROPERTY(QStringList layoutNames READ layoutNames CONSTANT)
     Q_PROPERTY(QString registerName READ registerName NOTIFY specChanged)
@@ -43,6 +53,11 @@ public:
     QVariantList cells() const;
     int rows() const;
     int columns() const;
+    double spanX() const;
+    double spanY() const;
+    QString cellShape() const;
+    QString orientation() const;
+    QStringList orientations() const;
     QString layoutName() const { return QString::fromStdString(spec_.isomorphic.name); }
     QStringList layoutNames() const;
     QString registerName() const { return QString::fromStdString(spec_.range.name); }
@@ -56,6 +71,8 @@ public:
     Q_INVOKABLE void setLayout(const QString& name);
     Q_INVOKABLE void setRegister(const QString& name);
     Q_INVOKABLE void setStringTuning(const QString& name);
+    Q_INVOKABLE void setOrientation(const QString& name);
+    Q_INVOKABLE void toggleOrientation();
     Q_INVOKABLE void toggleRecording();
     // Presses the cell at `index` of `cells`. Sounds it, and — while recording
     // — writes it onto the step the editors have selected.

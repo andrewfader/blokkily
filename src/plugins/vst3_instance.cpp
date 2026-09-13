@@ -139,7 +139,10 @@ bool Vst3PluginInstance::activate(double sample_rate, std::uint32_t,
     impl_->modulation.assign(parameters, 0.0F);
     for (std::size_t index = 0; index < parameters; ++index)
         impl_->automation[index] = impl_->plugin->getParameters()[static_cast<int>(index)]->getValue();
-    impl_->midi.ensureSize(static_cast<std::size_t>(impl_->maximum_block_size) * 4);
+    // Events are bounded independently of audio frames. Even a one-sample
+    // window can contain the entire host event budget plus bend-range setup.
+    impl_->midi.ensureSize(std::max<std::size_t>(
+        static_cast<std::size_t>(impl_->maximum_block_size) * 4, 16384));
     impl_->midi.clear();
     impl_->channel_key.fill(-1);
     impl_->announce_bend_range = true;

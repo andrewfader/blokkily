@@ -162,7 +162,7 @@ void ClapPluginInstance::process(StereoBlock audio,
                                  std::span<const PluginEvent> events) noexcept {
     if (!impl_ || !impl_->processing || audio.left.size() != audio.right.size()) return;
     // A retuned note is two events, so the buffer holds room for both.
-    constexpr std::size_t maximum_events = 512;
+    constexpr std::size_t maximum_events = 1024;
     std::array<EventStorage, maximum_events> converted{};
     std::size_t count = 0;
     for (const auto& source : events) {

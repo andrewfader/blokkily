@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QLibrary>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -43,12 +44,17 @@ int main(int argc, char* argv[]) {
     parser.addOption({"tuning", "Leave the session in this tuning.", "name"});
     parser.addOption({"scale", "Leave the session in this scale.", "name"});
     parser.addOption({"surface", "Leave the keyboard on this playable surface.", "name"});
+    parser.addOption({"layout", "Leave the isomorphic grid on this layout.", "name"});
+    parser.addOption({"orientation", "Leave the surface running ACROSS or DOWN.", "name"});
     parser.process(app);
 
     SongModel song;
     PatternModel pattern(&song);
     Transport transport;
-    AppController controller(&song, &pattern, &transport);
+    auto output = parser.isSet("verify") ? std::make_unique<blokkily::RtAudioOutput>(
+        blokkily::RtAudioOutput::Mode::deterministic) : nullptr;
+    auto* verification_output = output.get();
+    AppController controller(&song, &pattern, &transport, nullptr, std::move(output));
     KeyboardModel keyboard(&song, &pattern, &controller);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
@@ -224,7 +230,9 @@ int main(int argc, char* argv[]) {
                 SongModel fresh_song;
                 PatternModel fresh_pattern(&fresh_song);
                 Transport fresh_transport;
-                AppController fresh(&fresh_song, &fresh_pattern, &fresh_transport);
+                AppController fresh(&fresh_song, &fresh_pattern, &fresh_transport, nullptr,
+                    std::make_unique<blokkily::RtAudioOutput>(
+                        blokkily::RtAudioOutput::Mode::deterministic));
                 const std::filesystem::path fixture =
                     parser.value("soundfont-fixture").toStdString();
                 (void)fresh.loadDefaultInstrument({fixture.parent_path()});
@@ -339,6 +347,68 @@ int main(int argc, char* argv[]) {
                 }
             }
             reached("instrument browser");
+            // features/audio_reliability.feature: Replacing an instrument does
+            // not load the previous format's opaque state into the new one.
+            {
+                SongModel replacement_song;
+                PatternModel replacement_pattern(&replacement_song);
+                Transport replacement_transport;
+                auto replacement_output = std::make_unique<blokkily::RtAudioOutput>(
+                    blokkily::RtAudioOutput::Mode::deterministic);
+                AppController replacement(&replacement_song, &replacement_pattern,
+                    &replacement_transport, nullptr, std::move(replacement_output));
+                blokkily::InstrumentSlot clap_slot;
+                clap_slot.format = "CLAP";
+                clap_slot.path = parser.value("clap-fixture").toStdString();
+                clap_slot.identifier = "dev.blokkily.test";
+                replacement_song.setInstrument(0, clap_slot);
+                replacement_song.setInstrument(1, clap_slot);
+                auto* previous = replacement.engine();
+                bool replaced = previous != nullptr;
+                if (previous) {
+                    std::vector<float> left(128), right(128);
+                    replaced = previous->play_live(0,
+                        {blokkily::PluginEvent::Type::parameter_value, 0, 0, 0.75}) && replaced;
+                    replaced = previous->play_live(1,
+                        {blokkily::PluginEvent::Type::parameter_value, 0, 0, 0.5}) && replaced;
+                    previous->process({left, right});
+                    const auto untouched = previous->save_track_state(1);
+                    blokkily::InstrumentSlot vst_slot;
+                    vst_slot.format = "VST3";
+                    vst_slot.path = parser.value("vst3-fixture").toStdString();
+                    vst_slot.identifier = "0";
+                    replacement_song.setInstrument(0, vst_slot);
+                    auto* current = replacement.engine();
+                    replaced = current && current->has_instrument(0) && replaced;
+                    replaced = replacement_song.song().tracks[0].instrument.state.empty() && replaced;
+                    if (current) {
+                        replacement_song.setTrackPan(0, -1.0);
+                        replaced = current->save_track_state(1) == untouched && replaced;
+                        replaced = current->play_live(0,
+                            {blokkily::PluginEvent::Type::note_on, 0, 60, 1.0}) && replaced;
+                        current->process({left, right});
+                        replaced = std::abs(left[64] - 0.25F) < 0.001F && replaced;
+                        // An invalid edit reports its limit and leaves the
+                        // last playable graph running, ready for correction.
+                        current->set_playing(true);
+                        current->process({left, right});
+                        const auto position = current->sample_position();
+                        blokkily::Pattern excessive;
+                        blokkily::Trigger note;
+                        note.duration = 120;
+                        for (int event = 0; event < 257; ++event) (void)excessive.add(note);
+                        replacement_pattern.replace(std::move(excessive));
+                        const bool preserved = replacement.engine() == current
+                            && replacement.engine()->is_playing()
+                            && replacement.engine()->sample_position() == position;
+                        if (!preserved) std::cerr << "REGRESSION: Rejected edit destroyed the playing graph\n";
+                        valid = preserved && valid;
+                    }
+                }
+                if (!replaced) std::cerr << "REGRESSION: Instrument replacement inherited another plugin's state\n";
+                valid = replaced && valid;
+            }
+            reached("instrument replacement preserves the correct state");
             // Regression: view notifications used to rebuild the graph, so even
             // moving the cursor or a fader reset the song to sample zero.
             const auto uninterrupted = [&] {
@@ -364,6 +434,98 @@ int main(int argc, char* argv[]) {
             };
             valid = uninterrupted() && valid;
             reached("selection and mixer preserve running playback");
+            // features/song_and_mixer.feature: transport and export must work
+            // through the device callback, including its stopped/running state.
+            {
+                std::vector<float> stereo(1024);
+                verification_output->stop();
+                controller.engine()->set_playing(false);
+                const bool auditioned = controller.auditionPitches({{60, 0.0}}, 1.0)
+                    && verification_output->pump(stereo)
+                    && std::any_of(stereo.begin(), stereo.end(),
+                                   [](float v) { return std::abs(v) > 0.001F; });
+                if (!auditioned) std::cerr << "REGRESSION: Stopped audition does not drive the device\n";
+                controller.togglePlayback();
+                const bool started = verification_output->pump(stereo);
+                auto* rewind = named("rewindButton");
+                if (rewind) click_at(rewind, {rewind->width() / 2, rewind->height() / 2},
+                                    Qt::LeftButton);
+                const bool rewound = started && verification_output->pump(stereo)
+                    && controller.engine()->sample_position() == 512;
+                if (!rewound) std::cerr << "REGRESSION: Rewind does not move the audio playhead\n";
+                controller.togglePlayback();
+                // A pause releases held arrangement notes while the device
+                // keeps running for tails and the next audition.
+                const bool stopped_callback = verification_output->pump(stereo);
+                if (!stopped_callback) std::cerr << "REGRESSION: Stop disables live audition and tails\n";
+                valid = auditioned && rewound && stopped_callback && valid;
+            }
+            reached("transport through device callback");
+            if (parser.isSet("export")) {
+                // Observe the loaded CLAP instrument itself: during a bounce
+                // no device may concurrently call that same processor.
+                QLibrary fixture(parser.value("clap-fixture"));
+                using Observe = void (*)(void (*)(void*), void*);
+                auto observe = reinterpret_cast<Observe>(fixture.resolve("blokkily_test_observe_process"));
+                struct Observation {
+                    blokkily::RtAudioOutput* output;
+                    bool processed = false;
+                    bool device_running = false;
+                } observation{verification_output};
+                controller.togglePlayback();
+                const auto position = controller.engine()->sample_position();
+                if (observe) observe([](void* context) {
+                    auto& check = *static_cast<Observation*>(context);
+                    check.processed = true;
+                    check.device_running |= check.output->is_running();
+                }, &observation);
+                const bool exported = controller.exportAudioFile(parser.value("export"));
+                if (observe) observe(nullptr, nullptr);
+                const bool exclusive = observe && exported && observation.processed
+                    && !observation.device_running;
+                if (!exclusive) std::cerr << "REGRESSION: Export processes an instrument while its device is running\n";
+                const bool resumed = verification_output->is_running()
+                    && controller.engine()->is_playing()
+                    && controller.engine()->sample_position() == position;
+                // A directory is not a writable WAVE file; failure must also
+                // return the device to the state in which it was borrowed.
+                const bool refused = !controller.exportAudioFile(
+                    QFileInfo(parser.value("export")).absolutePath());
+                const bool failure_resumed = refused && verification_output->is_running()
+                    && controller.engine()->sample_position() == position;
+                valid = exclusive && resumed && failure_resumed && valid;
+                controller.togglePlayback();
+            }
+            reached("export owns the device while rendering");
+            {
+                auto* inspector = named("stepInspector");
+                auto* scroll = named("editorScroll");
+                // Flush layout polish after the preceding track/model edits,
+                // just as the next rendered frame does before a user scrolls.
+                (void)window->grabWindow();
+                if (scroll) {
+                    scroll->setProperty("contentY", std::max(0.0,
+                        scroll->property("contentHeight").toDouble() - scroll->height()));
+                    QCoreApplication::processEvents();
+                }
+                const auto inspector_image = window->grabWindow();
+                const auto top = inspector ? inspector->mapToScene({0, 0}).y() : -1;
+                const bool reachable = inspector && inspector->height() >= 200
+                    && top >= 0 && top + inspector->height() <= window->height();
+                if (!reachable) std::cerr << "REGRESSION: Step inspector cannot be reached inside the window: top="
+                    << top << " height=" << (inspector ? inspector->height() : 0)
+                    << " content=" << (scroll ? scroll->property("contentHeight").toDouble() : 0)
+                    << " scroll=" << (scroll ? scroll->property("contentY").toDouble() : 0) << '\n';
+                valid = reachable && valid;
+                if (reachable && parser.isSet("screenshot")) {
+                    const auto file = QFileInfo(parser.value("screenshot"));
+                    QDir{}.mkpath(file.absolutePath());
+                    valid = inspector_image.save(file.absolutePath() + "/" +
+                        file.completeBaseName() + "-inspector.png") && valid;
+                }
+                if (scroll) scroll->setProperty("contentY", 0.0);
+            }
+            reached("inspector remains reachable");
             if (parser.isSet("project")) {
                 // Save the session, disturb the live model, then rebuild it
                 // from the file alone: the reload must undo the disturbance.
@@ -709,6 +871,259 @@ int main(int argc, char* argv[]) {
                 }
                 valid = valid && pattern.rowCount() == events_before_surfaces;
 
+                // ---- how the surface is tiled and which way it runs -------
+                // The honeycomb is what makes an isomorphic grid worth having:
+                // interlocking rows put every neighbour of a key one interval
+                // away. Measured off the rendered cells, because a model that
+                // reports a stagger nothing draws is not a honeycomb.
+                keyboard.setSurface("GRID");
+                keyboard.setOrientation("ACROSS");
+                keyboard.setLayout("Wicki-Hayden");
+                valid = valid && keyboard.layoutName() == "Wicki-Hayden";
+                valid = valid && keyboard.cellShape() == "HEX";
+                const auto rendered_cell = [&](int row, int column) -> QQuickItem* {
+                    for (const QVariant& entry : keyboard.cells()) {
+                        const auto map = entry.toMap();
+                        if (map.value("row").toInt() != row) continue;
+                        if (map.value("column").toInt() != column) continue;
+                        return childNamed(item("keyboardSurface"),
+                                          "keyboardCell" +
+                                              QString::number(map.value("index").toInt()));
+                    }
+                    return nullptr;
+                };
+                // Two rows apart is two row pitches, so the gap between cells
+                // cancels and the tiling can be measured exactly.
+                const auto tiling_holds = [&](double stagger, double row_pitch) {
+                    auto* origin = rendered_cell(0, 0);
+                    auto* across = rendered_cell(0, 1);
+                    auto* under = rendered_cell(1, 0);
+                    auto* two_under = rendered_cell(2, 0);
+                    if (origin == nullptr || across == nullptr || under == nullptr ||
+                        two_under == nullptr)
+                        return false;
+                    // Measured between cells, so the gap a cell leaves around
+                    // itself cancels; the cell's own height carries that gap,
+                    // which is why it is added back rather than derived from
+                    // the drop this is checking.
+                    const double cell_width = across->x() - origin->x();
+                    const double cell_height = origin->height() + 2.0;
+                    const double drop = under->y() - origin->y();
+                    const double two_drops = two_under->y() - origin->y();
+                    if (cell_width < 2.0 || cell_height < 4.0 || drop < 1.0) return false;
+                    if (std::abs(2.0 * drop - two_drops) > 0.5) return false;
+                    return std::abs((under->x() - origin->x()) - stagger * cell_width) < 0.5 &&
+                           std::abs(drop - row_pitch * cell_height) < 1.0;
+                };
+                // Alternate rows offset by half a cell, overlapping by a
+                // quarter of one: pointy-top hexagons, closed.
+                valid = valid && tiling_holds(0.5, 0.75);
+                auto* honeycomb_cell = rendered_cell(0, 0);
+                valid = valid && honeycomb_cell != nullptr;
+                if (honeycomb_cell != nullptr) {
+                    auto* hex_tile = childNamed(honeycomb_cell, "hexTile");
+                    auto* rect_tile = childNamed(honeycomb_cell, "rectTile");
+                    valid = valid && hex_tile != nullptr && hex_tile->isVisible()
+                                  && hex_tile->width() > 2.0 && hex_tile->height() > 2.0;
+                    valid = valid && rect_tile != nullptr && !rect_tile->isVisible();
+                }
+
+                // A layout drawn on a square grid stays square, and the
+                // intervals under the hands are the layout's business rather
+                // than the tiling's.
+                keyboard.setLayout("Fourths");
+                valid = valid && keyboard.cellShape() == "RECT";
+                valid = valid && tiling_holds(0.0, 1.0);
+                auto* square_cell = rendered_cell(0, 0);
+                if (square_cell != nullptr) {
+                    auto* hex_tile = childNamed(square_cell, "hexTile");
+                    auto* rect_tile = childNamed(square_cell, "rectTile");
+                    valid = valid && rect_tile != nullptr && rect_tile->isVisible();
+                    valid = valid && hex_tile != nullptr && !hex_tile->isVisible();
+                }
+                const auto grid_degree = [&](int row, int column) {
+                    for (const QVariant& entry : keyboard.cells()) {
+                        const auto map = entry.toMap();
+                        if (map.value("row").toInt() == row &&
+                            map.value("column").toInt() == column)
+                            return map.value("degree").toInt();
+                    }
+                    return -1;
+                };
+                valid = valid && grid_degree(2, 1) - grid_degree(2, 0) == 1;
+                valid = valid && grid_degree(1, 0) - grid_degree(2, 0) == 5;
+
+                // Every named layout is playable: it moves in both directions,
+                // and it fills the grid it is asked for.
+                for (const QString& name : keyboard.layoutNames()) {
+                    keyboard.setLayout(name);
+                    valid = valid && keyboard.layoutName() == name;
+                    valid = valid && keyboard.cells().size() ==
+                                         keyboard.rows() * keyboard.columns();
+                    valid = valid && grid_degree(2, 1) != grid_degree(2, 0);
+                    valid = valid && grid_degree(1, 0) != grid_degree(2, 0);
+                    valid = valid && rendered_cell(1, 1) != nullptr;
+                }
+                keyboard.setLayout("Wicki-Hayden");
+
+                // Hexagons interlock, so their bounding boxes overlap at the
+                // corners. A press there is drawn inside the neighbour, and it
+                // must sound the neighbour rather than whichever cell happens
+                // to be painted over it. Sent as a real click on the rendered
+                // honeycomb, because this is a question about hit-testing.
+                keyboard.setOrientation("ACROSS");
+                valid = valid && window->setProperty("view", "KEYS");
+                (void)window->grabWindow();
+                QCoreApplication::processEvents();
+                {
+                    int heard = -1;
+                    const auto listening = QObject::connect(
+                        &keyboard, &KeyboardModel::played,
+                        [&heard](int degree) { heard = degree; });
+                    keyboard.toggleRecording();              // audition only: a
+                    valid = valid && !keyboard.recording();  // probe writes nothing
+                    auto* upper = rendered_cell(0, 1);
+                    auto* lower = rendered_cell(1, 1);
+                    valid = valid && upper != nullptr && lower != nullptr;
+                    // A cell too small to aim at proves nothing either way, so
+                    // demand one big enough rather than passing by default.
+                    valid = valid && lower != nullptr && lower->width() > 30.0;
+                    if (upper != nullptr && lower != nullptr && lower->width() > 30.0) {
+                        heard = -1;
+                        click_at(lower, {lower->width() * 0.1, lower->height() * 0.1},
+                                 Qt::LeftButton);
+                        valid = valid && heard == grid_degree(0, 1);
+                        // And the middle of a cell is its own.
+                        heard = -1;
+                        click_at(lower, {lower->width() * 0.5, lower->height() * 0.5},
+                                 Qt::LeftButton);
+                        valid = valid && heard == grid_degree(1, 1);
+                    }
+                    QObject::disconnect(listening);
+                    keyboard.toggleRecording();
+                    valid = valid && keyboard.recording();
+                }
+                valid = valid && window->setProperty("view", "ALL");
+
+                // Turning a surface is a quarter turn: what ran to the right
+                // runs upward. It moves keys, so nothing about the song, the
+                // pattern, or the pitch of a cell may move with them.
+                keyboard.setSurface("PIANO");
+                keyboard.setRegister("Treble");
+                const auto surface_degrees = [&] {
+                    std::vector<int> degrees;
+                    for (const QVariant& entry : keyboard.cells())
+                        degrees.push_back(entry.toMap().value("degree").toInt());
+                    return degrees;
+                };
+                const auto across_degrees = surface_degrees();
+                const int events_before_turning = pattern.rowCount();
+                valid = valid && keyboard.orientation() == "ACROSS";
+                valid = valid && std::abs(keyboard.spanX() - 25.0) < 1e-6
+                              && std::abs(keyboard.spanY() - 1.0) < 1e-6;
+                keyboard.setOrientation("DOWN");
+                valid = valid && keyboard.orientation() == "DOWN";
+                valid = valid && std::abs(keyboard.spanX() - 1.0) < 1e-6
+                              && std::abs(keyboard.spanY() - 25.0) < 1e-6;
+                valid = valid && surface_degrees() == across_degrees;
+                valid = valid && pattern.rowCount() == events_before_turning;
+                {
+                    // The lowest key is at the bottom, the way a roll's gutter
+                    // reads, and the keys are still big enough to hit.
+                    auto* lowest = childNamed(item("keyboardSurface"), "keyboardCell0");
+                    auto* highest = childNamed(
+                        item("keyboardSurface"),
+                        "keyboardCell" + QString::number(keyboard.cells().size() - 1));
+                    valid = valid && lowest != nullptr && highest != nullptr;
+                    if (lowest != nullptr && highest != nullptr) {
+                        valid = valid && lowest->y() > highest->y();
+                        valid = valid && lowest->height() >= 12.0 && lowest->width() > 40.0;
+                    }
+                    // Twenty-five keys do not fit the panel at that size, so
+                    // the surface is taller than what shows and scrolls to
+                    // reach the rest rather than squeezing them to nothing.
+                    auto* scroll = item("keyboardScroll");
+                    auto* turned_surface = item("keyboardSurface");
+                    valid = valid && scroll != nullptr && turned_surface != nullptr;
+                    if (scroll != nullptr && turned_surface != nullptr) {
+                        valid = valid && turned_surface->height() >= 25.0 * 12.0;
+                        valid = valid && turned_surface->height() > scroll->height();
+                        valid = valid && scroll->property("contentHeight").toDouble()
+                                             > scroll->height();
+                    }
+                }
+                // A key played on the turned surface is the same key.
+                pattern.selectStep(9);
+                valid = valid && keyboard.pressDegree(67);
+                valid = valid && pattern.selected().value("key").toInt() == 67;
+                valid = valid && rendered_step(9);
+                keyboard.setOrientation("ACROSS");
+                keyboard.setRegister("Full");
+                keyboard.setSurface("PIANO");
+
+                // The chip that turns the surface is a control, not a caption:
+                // clicking the rendered one has to reach the model.
+                {
+                    auto* turn = item("orientToggle");
+                    valid = valid && turn != nullptr;
+                    if (turn != nullptr) {
+                        click_at(turn, {turn->width() / 2, turn->height() / 2},
+                                 Qt::LeftButton);
+                        valid = valid && keyboard.orientation() == "DOWN";
+                        click_at(turn, {turn->width() / 2, turn->height() / 2},
+                                 Qt::LeftButton);
+                        valid = valid && keyboard.orientation() == "ACROSS";
+                    }
+                }
+
+                // Whatever the surface is, and whichever way it runs, it stays
+                // inside the panel that holds it. A control row beside it must
+                // not be able to push it out over its neighbours.
+                for (const QString& shape_surface : {QStringLiteral("PIANO"),
+                                                     QStringLiteral("GRID"),
+                                                     QStringLiteral("FRETS"),
+                                                     QStringLiteral("CHORDS")})
+                    for (const QString& runs : {QStringLiteral("ACROSS"),
+                                                QStringLiteral("DOWN")}) {
+                        keyboard.setSurface(shape_surface);
+                        keyboard.setOrientation(runs);
+                        (void)window->grabWindow();
+                        auto* panel = item("keyboardPanel");
+                        auto* held = item("keyboardScroll");
+                        valid = valid && panel != nullptr && held != nullptr;
+                        if (panel == nullptr || held == nullptr) continue;
+                        const double right = held->mapToItem(panel, {held->width(), 0}).x();
+                        valid = valid && right <= panel->width() + 0.5;
+                        valid = valid && held->width() > 100.0;
+                        if (shape_surface == "GRID") {
+                            auto* cell = childNamed(item("keyboardSurface"), "keyboardCell0");
+                            const bool usable = cell && cell->width() >= 40 && cell->height() >= 40;
+                            if (!usable) std::cerr << "REGRESSION: Grid keys shrink below a usable size in "
+                                                   << runs.toStdString() << '\n';
+                            valid = usable && valid;
+                            // The software renderer must clip the actual
+                            // painted hexagons, not just their QQuickItems.
+                            auto* mixer = item("mixerPanel");
+                            auto* strips = item("mixerStrips");
+                            auto* master = item("masterStrip");
+                            if (mixer && strips && master) {
+                                const auto frame = window->grabWindow();
+                                const auto left = mixer->mapToScene({1, 0}).x();
+                                const auto top = strips->mapToScene({0, strips->height() + 10}).y();
+                                const auto bottom = master->mapToScene({0, -10}).y();
+                                const QColor background = mixer->property("color").value<QColor>();
+                                bool clipped = bottom > top;
+                                for (int y = static_cast<int>(top); y < bottom; ++y)
+                                    for (int x = static_cast<int>(left); x < window->width() - 2; ++x)
+                                        clipped = frame.pixelColor(x, y) == background && clipped;
+                                if (!clipped) std::cerr << "REGRESSION: Keyboard paint escapes into the mixer\n";
+                                valid = clipped && valid;
+                            } else valid = false;
+                        }
+                    }
+                keyboard.setSurface("PIANO");
+                keyboard.setOrientation("ACROSS");
+
                 // The tuning and scale controls are real controls: the list
                 // behind one is populated from the model, and choosing an entry
                 // reaches the session rather than only the chip's own label.
@@ -800,6 +1215,14 @@ int main(int argc, char* argv[]) {
                     keyboard.setSurface(parser.value("surface"));
                     valid = valid && keyboard.surface() == parser.value("surface")
                                   && !keyboard.cells().isEmpty();
+                }
+                if (parser.isSet("layout")) {
+                    keyboard.setLayout(parser.value("layout"));
+                    valid = valid && keyboard.layoutName() == parser.value("layout");
+                }
+                if (parser.isSet("orientation")) {
+                    keyboard.setOrientation(parser.value("orientation"));
+                    valid = valid && keyboard.orientation() == parser.value("orientation");
                 }
                 // The requested view is restored last, because measuring the
                 // keyboard needed the layouts that show it.

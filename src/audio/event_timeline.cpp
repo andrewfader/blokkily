@@ -5,6 +5,26 @@
 
 namespace blokkily {
 
+bool timeline_density_supported(std::span<const TimedPluginEvent> timeline) {
+    std::size_t count = 0;
+    std::uint64_t previous = 0;
+    for (const auto& event : timeline) {
+        count = count != 0 && event.sample == previous ? count + 1 : 1;
+        if (count > timeline_event_budget) return false;
+        previous = event.sample;
+    }
+    return true;
+}
+
+std::size_t timeline_window(std::span<const TimedPluginEvent> timeline,
+                            std::uint64_t position, std::size_t frames) noexcept {
+    const auto first = std::lower_bound(timeline.begin(), timeline.end(), position,
+        [](const TimedPluginEvent& event, std::uint64_t sample) { return event.sample < sample; });
+    if (static_cast<std::size_t>(timeline.end() - first) <= timeline_event_budget) return frames;
+    const auto boundary = (first + timeline_event_budget)->sample;
+    return static_cast<std::size_t>(std::min<std::uint64_t>(frames, boundary - position));
+}
+
 std::vector<TimedPluginEvent> compile_timeline(
     const ScheduledEvents& scheduled, double samples_per_tick, std::uint64_t last_sample) {
     std::vector<TimedPluginEvent> timeline;

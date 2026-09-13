@@ -13,6 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BLOKKILY_BUILD_TESTS "Build unit tests" ON)
 option(BLOKKILY_BUILD_GUI "Build the Qt Quick prototype" ON)
+option(BLOKKILY_COVERAGE "Instrument application sources for gcov coverage" OFF)
 
 add_library(blokkily_core
     src/model/pattern.cpp
@@ -56,7 +57,7 @@ add_executable(blokkily_scan src/app/scan_main.cpp)
 target_link_libraries(blokkily_scan PRIVATE blokkily_core)
 
 if(BLOKKILY_BUILD_GUI)
-    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 QuickShapes)
     qt_standard_project_setup(REQUIRES 6.5)
     qt_policy(SET QTP0004 NEW)
     qt_add_executable(blokkily
@@ -74,9 +75,28 @@ if(BLOKKILY_BUILD_GUI)
         QML_FILES ui/Main.qml
     )
     target_link_libraries(blokkily PRIVATE blokkily_core
-        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2
+        Qt6::QuickShapes)
     # The application looks for the scan helper beside itself.
     add_dependencies(blokkily blokkily_scan)
+endif()
+
+if(BLOKKILY_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "BLOKKILY_COVERAGE requires GCC and gcov")
+    endif()
+    # Measure our sources, excluding vendored frameworks and generated QML.
+    foreach(target blokkily_core blokkily blokkily_scan)
+        if(TARGET ${target})
+            get_target_property(sources ${target} SOURCES)
+            foreach(source IN LISTS sources)
+                if(source MATCHES "^src/.*\\.cpp$")
+                    set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS --coverage)
+                endif()
+            endforeach()
+        endif()
+    endforeach()
+    target_link_options(blokkily_core INTERFACE --coverage)
 endif()
 
 if(BLOKKILY_BUILD_TESTS)
@@ -122,7 +142,36 @@ if(BLOKKILY_BUILD_TESTS)
     add_test(NAME blokkily_core COMMAND blokkily_tests)
     set_tests_properties(blokkily_core PROPERTIES
         LABELS "unit;integration;soundfont;clap;vst3;audio;realtime;project;parameters;mixer;song;export"
-        ENVIRONMENT "ALSA_CONFIG_PATH=/dev/null")
+        ENVIRONMENT "ALSA_CONFIG_PATH=/dev/null" TIMEOUT 60)
+
+    add_executable(blokkily_audio_regressions tests/audio_regressions.cpp)
+    target_link_libraries(blokkily_audio_regressions PRIVATE blokkily_core)
+    target_compile_definitions(blokkily_audio_regressions PRIVATE
+        BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
+        BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..")
+    add_dependencies(blokkily_audio_regressions blokkily_test_clap blokkily_test_vst3_VST3)
+    foreach(regression live_order dense_song dense_preview large_preview invalid_timing density_limit)
+        add_test(NAME audio_${regression} COMMAND blokkily_audio_regressions ${regression})
+        set_tests_properties(audio_${regression} PROPERTIES
+            LABELS "bdd;integration;audio;realtime;regression"
+            ENVIRONMENT "ALSA_CONFIG_PATH=/dev/null" TIMEOUT 30)
+    endforeach()
+
+    # Plays through whatever audio server is actually running — PipeWire, plain
+    # ALSA, PulseAudio, JACK — rather than through the deterministic pump every
+    # other audio test uses. It skips itself where there is no server, so the
+    # suite stays runnable without sound hardware; it does not get
+    # ALSA_CONFIG_PATH=/dev/null, because finding a real device is the point.
+    add_executable(blokkily_audio_device_check tests/audio_device_check.cpp)
+    target_link_libraries(blokkily_audio_device_check PRIVATE blokkily_core)
+    add_dependencies(blokkily_audio_device_check blokkily_test_clap)
+    add_test(NAME audio_device_playback
+        COMMAND blokkily_audio_device_check
+            --clap-fixture $<TARGET_FILE:blokkily_test_clap> --seconds 1.5)
+    set_tests_properties(audio_device_playback PROPERTIES
+        LABELS "audio;device;realtime;clap"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 30)
 
     if(BLOKKILY_BUILD_GUI)
         find_file(BLOKKILY_TEST_SF2
@@ -173,6 +222,22 @@ if(BLOKKILY_BUILD_TESTS)
                 --surface CHORDS
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/chord-pads.png)
         set_tests_properties(bdd_chord_pads PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            TIMEOUT 30)
+
+        # The honeycomb, turned on its side, in a tuning that is not twelve
+        # tones: the layouts the scenarios claim, rendered.
+        add_test(NAME bdd_hex_keyboard
+            COMMAND blokkily --verify
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --project ${CMAKE_BINARY_DIR}/artifacts/hex-verification.blok
+                --view KEYS --tuning "31-EDO" --scale Major --surface GRID
+                --layout "Wicki-Hayden" --orientation DOWN
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/hex-keyboard.png)
+        set_tests_properties(bdd_hex_keyboard PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
             TIMEOUT 30)

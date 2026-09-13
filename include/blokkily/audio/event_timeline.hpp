@@ -24,4 +24,11 @@ struct TimedPluginEvent {
 [[nodiscard]] std::vector<TimedPluginEvent> compile_timeline(
     const ScheduledEvents& scheduled, double samples_per_tick, std::uint64_t last_sample);
 
+// Bound plugin work without discarding events. A render window ends before
+// the next group that would exceed this budget; simultaneous groups must fit.
+inline constexpr std::size_t timeline_event_budget = 256;
+[[nodiscard]] bool timeline_density_supported(std::span<const TimedPluginEvent> timeline);
+[[nodiscard]] std::size_t timeline_window(std::span<const TimedPluginEvent> timeline,
+                                        std::uint64_t position, std::size_t frames) noexcept;
+
 } // namespace blokkily

@@ -56,10 +56,10 @@ note carries the twelve-tone key its instrument is told plus the retune away
 from it, and so does each voice of a chord, which is how a nineteen-tone or
 quarter-tone pattern reaches CLAP, VST3, and the SoundFont synth as the pitch it
 was written at rather than as the nearest approximation. Four playable surfaces
-project the same tuning and scale: a piano keyboard, isomorphic grids
-(Wicki-Hayden, Jankó, harmonic table, fourths), fretboards for nine string
-tunings, and chord pads that name each harmony by its numeral and stack a row
-per inversion. Playing one auditions it through the selected track's instrument
+project the same tuning and scale: a piano keyboard, isomorphic grids in seven
+layouts — hexagonal and square, and each running across the window or down it —
+fretboards for nine string tunings, and chord pads that name each harmony by its
+numeral and stack a row per inversion. Playing one auditions it through the selected track's instrument
 even on a stopped transport, and writes it onto the selected step of the
 canonical pattern, where every editor names it in the song's own tuning.
 
@@ -93,6 +93,14 @@ engine's own position, read in bar.beat.sixteenth across the whole song.
 Below the editors is the keyboard: the session's tuning, scale, and root, a
 switch between the piano, the isomorphic grid, the fretboard and the chord pads,
 and an auto-scale toggle that snaps a played key onto the notes of the scale.
+The isomorphic grid carries seven layouts — Wicki-Hayden, Bosanquet, the
+harmonic table and the B-system accordion on a hexagonal tiling, Jankó, fourths
+and major thirds on a square one. Each is written in cents per step rather than
+in semitones, so the same fingering lands in whatever tuning the song is in.
+Any surface runs across the window or down it: turning one is a quarter turn, so
+pitch that ran to the right runs upward, and it moves keys without touching a
+note or a pitch. A surface that cannot be drawn at a playable key size scrolls
+rather than shrinking its keys past the point of being hit.
 Space plays, the arrow keys move and transpose the step cursor, Ctrl+E bounces
 the arrangement to disk.
 Its plugin browser scans the platform's standard CLAP and VST3 locations and
@@ -109,6 +117,20 @@ rules are in `AGENTS.md`. See `docs/verification.md` for the repeatable BDD,
 integration, end-to-end, and screenshot verification workflow.
 
 ## Architecture
+
+For measured C++ line coverage with GCC, configure a separate build with
+`cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBLOKKILY_COVERAGE=ON`,
+then run `cmake --build build-coverage`,
+`ctest --test-dir build-coverage --output-on-failure`, and
+`python3 scripts/coverage.py build-coverage`.
+The report and uncovered line numbers are written to `build-coverage/artifacts/coverage/`.
+Vendored frameworks, generated code, QML, and the embedded GUI verification
+driver are excluded from the percentage.
+
+Playback splits dense timelines at event boundaries so notes and releases are
+not dropped when the device requests a large buffer. Each track supports up to
+256 simultaneous scheduled events at one sample; an edit exceeding that limit
+reports an error and preserves the last playable arrangement.
 
 - `blokkily_core`: canonical project/event model and deterministic scheduler
 - `Tuning`/`Scale`/`KeyboardSpec`: cents-based tunings, scales, and the playable
@@ -128,3 +150,22 @@ integration, end-to-end, and screenshot verification workflow.
 
 The canonical model deliberately does not use Tracktion MIDI clips. Adapters
 compile it into engine and plugin events, preserving richer sequencer semantics.
+
+## What is not here yet
+
+A passing suite says what was proved, not what exists. These are missing, and
+nothing in the interface pretends otherwise:
+
+- No undo. An edit is immediate and final until the session is reloaded from
+  disk.
+- No MIDI input. Notes are played from the on-screen surfaces and the computer
+  keyboard; no hardware controller is read.
+- No audio clips and no sampler. A pattern holds notes, chords, and parameter
+  locks; it cannot hold recorded or imported audio.
+- No effects. A mixer track has gain, pan, mute, and solo into one bus; there
+  are no inserts, no sends, and no master chain.
+- No recording of a performance. Playing a surface writes onto the step the
+  editors have selected; it is not captured against the running transport.
+- No tempo or time-signature changes inside a song.
+- No native plugin windows. A plugin's parameters are reached through the
+  step inspector's locks rather than through its own interface.

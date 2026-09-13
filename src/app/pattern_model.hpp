@@ -176,7 +176,8 @@ class AppController final : public QObject {
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
-                           Transport* transport = nullptr, QObject* parent = nullptr);
+                           Transport* transport = nullptr, QObject* parent = nullptr,
+                           std::unique_ptr<blokkily::RtAudioOutput> output = {});
     ~AppController() override;
     QString status() const { return status_; }
     QVariantList plugins() const { return plugins_; }
@@ -219,6 +220,7 @@ public:
     // in the piano roll is heard as it is entered, on a stopped song too.
     Q_INVOKABLE bool auditionStep(int step);
     Q_INVOKABLE void togglePlayback();
+    Q_INVOKABLE void rewindPlayback();
     Q_INVOKABLE bool saveProjectFile(const QString& path);
     Q_INVOKABLE bool loadProjectFile(const QString& path);
     // Sounds pitches straight through the running engine, so a keyboard is

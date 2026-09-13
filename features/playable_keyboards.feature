@@ -54,3 +54,31 @@ Feature: Play the song in the tuning it is written in
     When the producer plays a pad
     Then every voice of that chord sounds
     And the step carries one chord event rather than several notes
+
+  Scenario: An isomorphic grid is tiled as a honeycomb
+    Given the isomorphic grid is the surface in view
+    When the producer chooses a hexagonal layout
+    Then alternate rows are offset by half a cell
+    And the rows overlap the way interlocking hexagons do
+    And every cell is drawn as a hexagon rather than a square
+    And a press outside the drawn hexagon plays the neighbour it lands in
+
+  Scenario: A layout drawn on a square grid stays square
+    Given the isomorphic grid is the surface in view
+    When the producer chooses a layout drawn on a square grid
+    Then the cells sit on whole rows and columns
+    And the intervals under the hands are unchanged
+
+  Scenario: Any surface can be turned on its side
+    Given a surface laid out across the window
+    When the producer turns it to run down the window
+    Then what ran to the right now runs upward
+    And the surface asks for the room its turned layout needs
+    And no note of the pattern and no pitch of a cell has changed
+
+  Scenario: A surface too large for its panel scrolls instead of shrinking
+    Given a surface whose rows do not fit the keyboard panel
+    Then its keys keep a size that can be hit
+    And the surface can be scrolled to reach the rest of them
+    And grid cells remain at least 40 pixels wide and high in either orientation
+    And the rendered keys are clipped to their viewport without painting over the mixer

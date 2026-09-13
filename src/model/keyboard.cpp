@@ -40,14 +40,53 @@ int step_degrees(const Tuning& tuning, double cents) {
     return static_cast<int>(std::llround(cents / (tuning.period_cents / divisions)));
 }
 
+// Alternate rows are shifted half a cell whenever the layout asks for it, and
+// always on a honeycomb, where the shift is what makes the tiling close.
+bool staggered(const KeyboardSpec& spec) {
+    if (spec.kind != KeyboardKind::isomorphic) return false;
+    return spec.isomorphic.stagger || spec.isomorphic.shape == CellShape::hexagon;
+}
+
+// Rows of pointy-top hexagons interlock, so each one begins three quarters of a
+// cell below the last rather than a whole one.
+constexpr double hex_row_pitch = 0.75;
+
+// Turns rows and columns into places on the surface. Every kind of surface goes
+// through here, so the stagger, the honeycomb, and the quarter turn are written
+// once instead of once per keyboard.
+void place_cells(const KeyboardSpec& spec, std::vector<KeyboardCell>& cells) {
+    const bool hex = keyboard_shape(spec) == CellShape::hexagon;
+    const bool shift = staggered(spec);
+    double widest = 0.0;
+    for (auto& cell : cells) {
+        cell.x = cell.column + (shift && (cell.row % 2 != 0) ? 0.5 : 0.0);
+        cell.y = cell.row * (hex ? hex_row_pitch : 1.0);
+        widest = std::max(widest, cell.x);
+    }
+    if (spec.orientation != KeyboardOrientation::vertical) return;
+    // A quarter turn counter-clockwise: what ran left to right now runs bottom
+    // to top, so a rising line of pitch still rises. The hexagons turn with it,
+    // which is why the shape is reported rather than assumed.
+    for (auto& cell : cells) {
+        const double across = cell.x;
+        cell.x = cell.y;
+        cell.y = widest - across;
+    }
+}
+
 } // namespace
 
 std::vector<IsomorphicLayout> isomorphic_layouts() {
+    // Each is said in cents per step rather than in semitones, so the same
+    // fingering lands in any tuning the song is written in.
     return {
-        {"Wicki-Hayden", 200.0, 700.0, true},
-        {"Jankó", 200.0, 100.0, true},
-        {"Harmonic table", 700.0, 400.0, true},
-        {"Fourths", 100.0, 500.0, false},
+        {"Wicki-Hayden", 200.0, 700.0, true, CellShape::hexagon},
+        {"Bosanquet", 100.0, 700.0, true, CellShape::hexagon},
+        {"Harmonic table", 700.0, 400.0, true, CellShape::hexagon},
+        {"Accordion (B-system)", 300.0, 100.0, true, CellShape::hexagon},
+        {"Jankó", 200.0, 100.0, true, CellShape::rectangle},
+        {"Fourths", 100.0, 500.0, false, CellShape::rectangle},
+        {"Major thirds", 100.0, 400.0, false, CellShape::rectangle},
     };
 }
 
@@ -75,7 +114,10 @@ std::vector<StringTuning> string_tunings() {
     };
 }
 
-std::vector<KeyboardCell> keyboard_cells(const KeyboardSpec& spec) {
+namespace {
+
+// The cells of a surface, in reading order and still in rows and columns.
+std::vector<KeyboardCell> unplaced_cells(const KeyboardSpec& spec) {
     std::vector<KeyboardCell> cells;
     switch (spec.kind) {
         case KeyboardKind::piano: {
@@ -137,6 +179,28 @@ std::vector<KeyboardCell> keyboard_cells(const KeyboardSpec& spec) {
             return cells;
         }
     }
+    return cells;
+}
+
+} // namespace
+
+CellShape keyboard_shape(const KeyboardSpec& spec) {
+    return spec.kind == KeyboardKind::isomorphic ? spec.isomorphic.shape
+                                                 : CellShape::rectangle;
+}
+
+KeyboardExtent keyboard_extent(const std::vector<KeyboardCell>& cells) {
+    KeyboardExtent extent;
+    for (const auto& cell : cells) {
+        extent.columns = std::max(extent.columns, cell.x + 1.0);
+        extent.rows = std::max(extent.rows, cell.y + 1.0);
+    }
+    return extent;
+}
+
+std::vector<KeyboardCell> keyboard_cells(const KeyboardSpec& spec) {
+    auto cells = unplaced_cells(spec);
+    place_cells(spec, cells);
     return cells;
 }
 

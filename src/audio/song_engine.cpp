@@ -9,7 +9,7 @@ namespace {
 // The most events one track can receive in a single block. Enough for dense
 // ratcheted steps at any sane block size, and fixed so the render callback can
 // keep them on the stack.
-constexpr std::size_t maximum_events_per_block = 256;
+constexpr std::size_t maximum_events_per_block = timeline_event_budget + 128 + 128;
 // An engine that has never been prepared still has to render silence rather
 // than reach through a null arrangement.
 const std::vector<TimedPluginEvent>& empty_timeline() noexcept {
@@ -43,7 +43,8 @@ bool SongEngine::prepare(const Song& song, double bpm, double sample_rate,
         if (error != nullptr) *error = message;
         return false;
     };
-    if (bpm <= 0.0 || sample_rate <= 0.0 || maximum_block_size == 0)
+    if (!std::isfinite(bpm) || !std::isfinite(sample_rate) ||
+        bpm <= 0.0 || sample_rate <= 0.0 || maximum_block_size == 0)
         return fail("invalid playback settings");
     if (!song.consistent()) return fail("song refers to a track or pattern that does not exist");
 
@@ -77,6 +78,8 @@ bool SongEngine::prepare(const Song& song, double bpm, double sample_rate,
     }
     apply_mix(song);
     sample_position_ = 0;
+    published_position_.store(0, std::memory_order_release);
+    requested_position_.store(no_seek, std::memory_order_release);
     cursors_valid_ = false;
     return true;
 }
@@ -87,19 +90,26 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song, double bpm,
         if (error != nullptr) *error = message;
         return false;
     };
-    if (bpm <= 0.0 || sample_rate_ <= 0.0) return fail("invalid playback settings");
+    if (!std::isfinite(bpm) || bpm <= 0.0 || sample_rate_ <= 0.0)
+        return fail("invalid playback settings");
     if (!song.consistent()) return fail("song refers to a track or pattern that does not exist");
 
     const double ticks_per_beat = static_cast<double>(song.pattern().ticks_per_beat());
     const double samples_per_tick = sample_rate_ * 60.0 / (bpm * ticks_per_beat);
-    const auto samples = static_cast<std::uint64_t>(
-        std::llround(static_cast<double>(song.length()) * samples_per_tick));
+    const double length = static_cast<double>(song.length()) * samples_per_tick;
+    if (!std::isfinite(length) || length < 0.5 ||
+        length >= static_cast<double>(std::numeric_limits<std::int64_t>::max()))
+        return fail("song length is outside the supported sample range");
+    const auto samples = static_cast<std::uint64_t>(std::llround(length));
     if (samples == 0) return fail("song has no length");
 
     target.timelines.resize(song.tracks.size());
-    for (std::size_t index = 0; index < song.tracks.size(); ++index)
+    for (std::size_t index = 0; index < song.tracks.size(); ++index) {
         target.timelines[index] =
             compile_timeline(song.arrange(index, seed), samples_per_tick, samples - 1);
+        if (!timeline_density_supported(target.timelines[index]))
+            return fail("more than 256 simultaneous events on one track");
+    }
     target.song_samples = samples;
     return true;
 }
@@ -227,14 +237,26 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         std::size_t count = 0;
         if (release_arrangement_notes_) {
             for (std::size_t key = 0; key < track.sounding.size(); ++key) {
-                while (track.sounding[key] > 0 && count < block_events.size()) {
+                if (track.sounding[key] > 0) {
                     block_events[count] = {PluginEvent::Type::note_off, 0,
                                            static_cast<std::int32_t>(key), 0.0, 0.0};
                     ++count;
-                    --track.sounding[key];
+                    // A key-addressed release matches every voice of this key.
+                    track.sounding[key] = 0;
                 }
             }
         }
+        // Live events are due now, before any future event in this window.
+        auto& live = track.live;
+        auto read = live.read.load(std::memory_order_relaxed);
+        const auto written = live.written.load(std::memory_order_acquire);
+        while (read != written) {
+            block_events[count] = live.events[read % LiveEvents::capacity];
+            block_events[count].sample_offset = 0;
+            ++count;
+            ++read;
+        }
+        live.read.store(read, std::memory_order_release);
         while (from_timeline && track.cursor < timeline.size() &&
                timeline[track.cursor].sample < end) {
             const auto& timed = timeline[track.cursor];
@@ -255,18 +277,6 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
             }
             ++track.cursor;
         }
-        // Notes played from the interface sound at the top of the block they
-        // arrive in, which is as close to "now" as a block boundary allows.
-        auto& live = track.live;
-        auto read = live.read.load(std::memory_order_relaxed);
-        const auto written = live.written.load(std::memory_order_acquire);
-        while (read != written && count < block_events.size()) {
-            block_events[count] = live.events[read % LiveEvents::capacity];
-            block_events[count].sample_offset = 0;
-            ++count;
-            ++read;
-        }
-        live.read.store(read, std::memory_order_release);
         if (!track.instrument) {
             track.peak.store(0.0F, std::memory_order_relaxed);
             continue;
@@ -292,6 +302,15 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
 
 void SongEngine::process(StereoBlock output) noexcept {
     if (output.left.size() != output.right.size()) return;
+    const auto requested = requested_position_.exchange(no_seek, std::memory_order_acq_rel);
+    if (requested != no_seek) {
+        sample_position_ = requested;
+        published_position_.store(requested, std::memory_order_release);
+        cursors_valid_ = false;
+        release_arrangement_notes_ = true;
+    }
+    if (stop_requested_.exchange(false, std::memory_order_acq_rel))
+        release_arrangement_notes_ = true;
     // An edit made while the song was playing is picked up here, at a block
     // boundary, so the arrangement changes underneath the playhead rather than
     // the playhead being sent back to the start of the song.
@@ -326,14 +345,17 @@ void SongEngine::process(StereoBlock output) noexcept {
         const auto until_wrap = song_samples_ - song_position;
         // A chunk never exceeds what prepare() sized the per-track buffers for,
         // however long a block the host asks for.
-        const auto frames = std::min<std::uint64_t>(
+        auto frames = std::min<std::uint64_t>(
             {output.left.size() - rendered, until_wrap, maximum_block_});
+        for (std::size_t track = 0; track < tracks_.size(); ++track)
+            frames = timeline_window(timeline_for(track), song_position, frames);
         process_chunk({output.left.subspan(rendered, frames),
                        output.right.subspan(rendered, frames)}, song_position, true);
         rendered += static_cast<std::size_t>(frames);
         sample_position_ += frames;
         continuous_from_ = song_position + frames;
     }
+    published_position_.store(sample_position_, std::memory_order_release);
 }
 
 } // namespace blokkily

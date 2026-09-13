@@ -15,6 +15,11 @@ constexpr blokkily::KeyboardKind kinds[] = {
     blokkily::KeyboardKind::fretboard, blokkily::KeyboardKind::theoryboard};
 constexpr const char* surface_names[] = {"PIANO", "GRID", "FRETS", "CHORDS"};
 
+// Which way the surface runs. The order is the order of the switcher.
+constexpr blokkily::KeyboardOrientation orientations_[] = {
+    blokkily::KeyboardOrientation::horizontal, blokkily::KeyboardOrientation::vertical};
+constexpr const char* orientation_names[] = {"ACROSS", "DOWN"};
+
 // How far a degree sits from the twelve-tone key an instrument is told, said
 // the way a tuner says it. Exact keys show nothing rather than "+0".
 QString retune_text(double cents) {
@@ -30,8 +35,10 @@ KeyboardModel::KeyboardModel(SongModel* song, PatternModel* pattern,
     spec_.range = blokkily::keyboard_registers().back();   // the full span
     spec_.isomorphic = blokkily::isomorphic_layouts().front();
     spec_.strings = blokkily::string_tunings().front();
-    spec_.rows = 4;
-    spec_.columns = 14;
+    // An isomorphic grid needs depth as well as width: a chord shape on one
+    // reaches across rows, so four of them is a strip rather than a keyboard.
+    spec_.rows = 6;
+    spec_.columns = 16;
     spec_.frets = 12;
     if (song_ != nullptr) {
         // The surface is a projection of the song's tuning and scale, so it
@@ -96,6 +103,33 @@ int KeyboardModel::columns() const {
     return cells_.empty() ? 0 : widest + 1;
 }
 
+double KeyboardModel::spanX() const {
+    return blokkily::keyboard_extent(cells_).columns;
+}
+
+double KeyboardModel::spanY() const {
+    return blokkily::keyboard_extent(cells_).rows;
+}
+
+QString KeyboardModel::cellShape() const {
+    return blokkily::keyboard_shape(spec_) == blokkily::CellShape::hexagon
+               ? QStringLiteral("HEX")
+               : QStringLiteral("RECT");
+}
+
+QString KeyboardModel::orientation() const {
+    for (std::size_t index = 0; index < std::size(orientations_); ++index)
+        if (orientations_[index] == spec_.orientation)
+            return QString::fromLatin1(orientation_names[index]);
+    return QStringLiteral("ACROSS");
+}
+
+QStringList KeyboardModel::orientations() const {
+    QStringList names;
+    for (const auto* name : orientation_names) names << QString::fromLatin1(name);
+    return names;
+}
+
 QVariantList KeyboardModel::cells() const {
     QVariantList rows;
     rows.reserve(static_cast<qsizetype>(cells_.size()));
@@ -109,6 +143,11 @@ QVariantList KeyboardModel::cells() const {
         entry["retune"] = retune_text(cell.pitch.cents);
         entry["row"] = cell.row;
         entry["column"] = cell.column;
+        // Where to draw it, in cell widths and heights. The row and the column
+        // say which key this is; these say where it lands once the layout has
+        // been staggered, tiled, or turned.
+        entry["x"] = cell.x;
+        entry["y"] = cell.y;
         entry["accidental"] = cell.accidental;
         entry["inScale"] = cell.in_scale;
         entry["root"] = cell.root;
@@ -154,6 +193,24 @@ void KeyboardModel::setStringTuning(const QString& name) {
             rebuild();
             return;
         }
+}
+
+void KeyboardModel::setOrientation(const QString& name) {
+    for (std::size_t index = 0; index < std::size(orientations_); ++index) {
+        if (name != QString::fromLatin1(orientation_names[index])) continue;
+        if (spec_.orientation == orientations_[index]) return;
+        spec_.orientation = orientations_[index];
+        // Turning the surface moves the keys; it does not change which key is
+        // which, so nothing about the song or the pattern is touched.
+        rebuild();
+        return;
+    }
+}
+
+void KeyboardModel::toggleOrientation() {
+    setOrientation(spec_.orientation == blokkily::KeyboardOrientation::horizontal
+                       ? QStringLiteral("DOWN")
+                       : QStringLiteral("ACROSS"));
 }
 
 void KeyboardModel::toggleRecording() {

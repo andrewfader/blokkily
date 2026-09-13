@@ -37,8 +37,15 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     const std::uint64_t total = engine.song_samples() + tail_frames;
     bool wrote = true;
     while (report.frames < total && wrote) {
+        // Finish the arrangement exactly once, then let the same instruments
+        // render their releases with the transport stopped. Never wrap into
+        // the first bar just because the export requested a tail.
+        const auto song_end = engine.song_samples();
+        if (report.frames == song_end) engine.set_playing(false);
+        const auto remaining = report.frames < song_end
+            ? song_end - report.frames : total - report.frames;
         const auto frames = static_cast<std::size_t>(
-            std::min<std::uint64_t>(block, total - report.frames));
+            std::min<std::uint64_t>(block, remaining));
         const std::span<float> left_block{left.data(), frames};
         const std::span<float> right_block{right.data(), frames};
         engine.process({left_block, right_block});

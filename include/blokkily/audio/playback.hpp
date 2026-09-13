@@ -35,12 +35,24 @@ private:
     std::vector<TimedPluginEvent> events_;
     std::uint64_t loop_samples_ = 0;
     std::uint64_t sample_position_ = 0;
+    std::uint32_t maximum_block_ = 0;
     std::atomic<bool> playing_{false};
 };
 
 class RtAudioOutput {
 public:
-    RtAudioOutput();
+    enum class Mode { device, deterministic };
+    // What the audio server actually gave us. A device is negotiated, not
+    // chosen: the API, the sink, the rate, and the block size can all differ
+    // from what was asked for, and a player that cannot say which it got
+    // cannot be diagnosed when it is silent.
+    struct DeviceInfo {
+        std::string api;
+        std::string device;
+        unsigned int sample_rate = 0;
+        unsigned int buffer_frames = 0;
+    };
+    explicit RtAudioOutput(Mode mode = Mode::device);
     ~RtAudioOutput();
     RtAudioOutput(const RtAudioOutput&) = delete;
     RtAudioOutput& operator=(const RtAudioOutput&) = delete;
@@ -51,6 +63,19 @@ public:
     void stop() noexcept;
     void rebind(AudioSource& source) noexcept;
     [[nodiscard]] bool is_open() const noexcept;
+    [[nodiscard]] bool is_running() const noexcept;
+    // Deterministic hosts drive the very same callback as RtAudio. The buffer
+    // is non-interleaved stereo: all left frames followed by all right frames.
+    bool pump(std::span<float> stereo) noexcept;
+    // Valid once open() has succeeded on a real device; empty in deterministic
+    // mode, which has no device to describe.
+    [[nodiscard]] DeviceInfo device_info() const;
+    // How many times the server has pulled the callback, and the largest block
+    // it asked for. The engine is prepared for a maximum block; the server may
+    // renegotiate its quantum at any time, so what it actually asked for is
+    // worth knowing rather than assuming.
+    [[nodiscard]] std::uint64_t callback_count() const noexcept;
+    [[nodiscard]] unsigned int largest_block() const noexcept;
 
 private:
     struct Impl;
