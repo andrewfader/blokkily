@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
     parser.addOption({"surface", "Leave the keyboard on this playable surface.", "name"});
     parser.addOption({"layout", "Leave the isomorphic grid on this layout.", "name"});
     parser.addOption({"orientation", "Leave the surface running ACROSS or DOWN.", "name"});
-    parser.addOption({"scenario", "Run only this scenario group (midi) and exit.", "name"});
+    parser.addOption({"scenario", "Run only this scenario group (midi, chords) and exit.", "name"});
     parser.process(app);
 
     // Held for the life of the application, so rebuilding the audio graph

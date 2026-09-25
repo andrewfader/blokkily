@@ -159,6 +159,18 @@ nothing; and that in 19-EDO a recorded key keeps the degree and retune it was
 heard at. The screenshot shows the take in every editor, recording armed, and
 the panel naming the port and the last key.
 
+`build/artifacts/chord-velocity.png` — from the `bdd_chord_velocity` gate
+(`blokkily --verify --scenario chords`), which runs the interface scenarios of
+`features/chord_velocity.feature`: two keys are recorded onto one empty step at
+velocities 40 and 120, the softer let go first. The step must become a chord
+that keeps both velocities and both held lengths, heard through the production
+callback on the CLAP fixture's velocity mode at 0.25 × (40 + 120) / 127.
+Dragging the first voice's bar in the rendered inspector to the top must raise
+that voice alone, heard at 0.25 × (1 + 120 / 127); undo and redo are one step
+each, and the chord survives a save and a load. The screenshot shows the chord
+selected: the tracker's VEL column at the loudest voice, the piano roll drawing
+each voice at its own length, and the inspector's VOICE VELOCITY bars.
+
 `midi_device_input` opens a virtual port through the system's MIDI server — the
 way a controller's driver presents one — connects the production input to it by
 name, and fails unless a note sent there is heard through the render callback

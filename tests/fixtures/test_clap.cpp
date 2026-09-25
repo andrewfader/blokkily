@@ -15,10 +15,21 @@ constexpr clap_plugin_descriptor_t descriptor{
     CLAP_VERSION, "dev.blokkily.test", "Blokkily Test Synth", "Blokkily",
     "https://blokkily.invalid", "", "", "0.1.0", "Test fixture", features};
 
-// The fixture answers two questions. At rest it holds a steady level, which is
-// what the timing and mixer gates measure. Asked for a tone it becomes a real
+// The fixture answers three questions. At rest it holds a steady level, which
+// is what the timing and mixer gates measure. Asked for a tone it becomes a real
 // oscillator at the pitch it was told to play, so a retuned note can be proved
-// from the audio rather than from the event that asked for it.
+// from the audio rather than from the event that asked for it. Asked for its
+// velocity mode (parameter 2) it holds every key that is down and sounds
+// level × the sum of their velocities, so how hard and how long each voice of
+// a chord was struck can be read straight off the rendered plateau.
+[[maybe_unused]] constexpr clap_id level_parameter = 0;   // and any id not named below
+constexpr clap_id tone_parameter = 1;
+constexpr clap_id velocity_mode_parameter = 2;
+constexpr int maximum_held = 32;
+struct HeldKey {
+    int key;
+    float velocity;
+};
 struct TestSynth {
     clap_plugin_t plugin;
     bool sounding = false;
@@ -28,7 +39,33 @@ struct TestSynth {
     double phase = 0.0;
     int key = 60;
     double tuning_semitones = 0.0;
+    bool velocity_mode = false;
+    // Every key that is down, whatever the mode, so turning velocity mode on
+    // between a note-on and its note-off still reads correctly. Fixed size:
+    // process() must not allocate.
+    HeldKey held[maximum_held]{};
+    int held_count = 0;
 };
+void press(TestSynth& synth, int key, float velocity) {
+    for (int index = 0; index < synth.held_count; ++index)
+        if (synth.held[index].key == key) {
+            synth.held[index].velocity = velocity;
+            return;
+        }
+    if (synth.held_count < maximum_held) synth.held[synth.held_count++] = {key, velocity};
+}
+void lift(TestSynth& synth, int key) {
+    for (int index = 0; index < synth.held_count; ++index)
+        if (synth.held[index].key == key) {
+            synth.held[index] = synth.held[--synth.held_count];
+            return;
+        }
+}
+float held_velocity(const TestSynth& synth) {
+    float sum = 0.0F;
+    for (int index = 0; index < synth.held_count; ++index) sum += synth.held[index].velocity;
+    return sum;
+}
 TestSynth* self(const clap_plugin_t* plugin) { return static_cast<TestSynth*>(plugin->plugin_data); }
 bool plugin_init(const clap_plugin_t*) { return true; }
 void plugin_destroy(const clap_plugin_t* plugin) { delete self(plugin); }
@@ -40,7 +77,10 @@ bool plugin_activate(const clap_plugin_t* plugin, double sample_rate, std::uint3
 void plugin_deactivate(const clap_plugin_t*) {}
 bool plugin_start(const clap_plugin_t*) { return true; }
 void plugin_stop(const clap_plugin_t*) {}
-void plugin_reset(const clap_plugin_t* plugin) { self(plugin)->sounding = false; }
+void plugin_reset(const clap_plugin_t* plugin) {
+    self(plugin)->sounding = false;
+    self(plugin)->held_count = 0;
+}
 
 clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_process_t* process) {
     if (process_observer) process_observer(observer_context);
@@ -51,6 +91,10 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
     std::uint32_t cursor = 0;
     const auto render_to = [&](std::uint32_t end) {
         for (; cursor < end; ++cursor) {
+            if (synth->velocity_mode) {
+                channels[0][cursor] = channels[1][cursor] = synth->level * held_velocity(*synth);
+                continue;
+            }
             if (!synth->sounding) {
                 channels[0][cursor] = channels[1][cursor] = 0.0F;
                 continue;
@@ -83,20 +127,29 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             // retuned one is not still bent.
             synth->tuning_semitones = 0.0;
             synth->phase = 0.0;
+            press(*synth, note->key, static_cast<float>(note->velocity));
         } else if (header->type == CLAP_EVENT_NOTE_OFF) {
+            const auto* note = reinterpret_cast<const clap_event_note_t*>(header);
             synth->sounding = false;
+            lift(*synth, note->key);
         } else if (header->type == CLAP_EVENT_NOTE_EXPRESSION) {
             const auto* expression = reinterpret_cast<const clap_event_note_expression_t*>(header);
             if (expression->expression_id == CLAP_NOTE_EXPRESSION_TUNING)
                 synth->tuning_semitones = expression->value;
         } else if (header->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* parameter = reinterpret_cast<const clap_event_param_value_t*>(header);
-            if (parameter->param_id == 1) synth->tone = static_cast<float>(parameter->value);
-            else synth->level = static_cast<float>(parameter->value);
+            if (parameter->param_id == tone_parameter)
+                synth->tone = static_cast<float>(parameter->value);
+            else if (parameter->param_id == velocity_mode_parameter)
+                synth->velocity_mode = parameter->value >= 0.5;
+            else
+                synth->level = static_cast<float>(parameter->value);
         } else if (header->type == CLAP_EVENT_PARAM_MOD) {
             const auto* modulation = reinterpret_cast<const clap_event_param_mod_t*>(header);
-            if (modulation->param_id == 1) synth->tone += static_cast<float>(modulation->amount);
-            else synth->level += static_cast<float>(modulation->amount);
+            if (modulation->param_id == tone_parameter)
+                synth->tone += static_cast<float>(modulation->amount);
+            else if (modulation->param_id != velocity_mode_parameter)
+                synth->level += static_cast<float>(modulation->amount);
         }
     }
     render_to(process->frames_count);

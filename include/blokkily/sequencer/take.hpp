@@ -53,6 +53,8 @@ struct TakeTarget {
 // step and the song plays it back when it was played. A step that already
 // sounds that pitch is left alone; a step that sounds another becomes a chord
 // of both, so a take laid over a pattern adds to it rather than erasing it.
+// Each voice of that chord keeps its own velocity and its own held length, so
+// a soft short key and a hard long one merged onto a step still sound that way.
 // `note.start` is in the pattern's own ticks. Returns the step written.
 int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step);
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -29,7 +30,27 @@ struct Chord {
     // chord it is rather than the nearest twelve-tone approximation of it.
     // Empty means every voice sits on its key, as twelve tones do.
     std::vector<double> cents;
+    // How hard the chord is struck when its voices are not struck apart: a
+    // chord pad presses every voice at once, at one velocity.
+    float velocity = 0.8F;
+    // One velocity per interval, for a chord whose voices were struck apart —
+    // a take merged onto a step keeps how hard each key was played. Empty
+    // means every voice at `velocity`.
+    std::vector<float> velocities{};
+    // One length per interval, in ticks, for voices held for different times.
+    // Empty means every voice lasts as long as the trigger does.
+    std::vector<Tick> durations{};
 };
+
+// How hard voice `interval` of a chord sounds, and for how long, read the one
+// way the scheduler, the take recorder and the editors all read it.
+[[nodiscard]] inline float voice_velocity(const Chord& chord, std::size_t interval) noexcept {
+    return interval < chord.velocities.size() ? chord.velocities[interval] : chord.velocity;
+}
+[[nodiscard]] inline Tick voice_duration(const Chord& chord, std::size_t interval,
+                                         Tick trigger_duration) noexcept {
+    return interval < chord.durations.size() ? chord.durations[interval] : trigger_duration;
+}
 
 // A per-step parameter change. Automation and modulation stay distinct all the
 // way to the plugin: automation sets the parameter's value, modulation offsets

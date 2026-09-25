@@ -75,7 +75,11 @@ Feature: A MIDI keyboard plays the song and records into it
     Given a step that sounds one pitch
     When a take plays another pitch on that step
     Then the step becomes a chord of both, keeping its locks and timing
+    And each voice of the chord keeps the velocity it was played at
+    And each voice keeps how long it was held, and the step lasts as long as its longest voice
     And a pitch the step already sounds is not written twice
+    # Velocity and length per voice: features/chord_velocity.feature,
+    # chord_velocity_write_played and the bdd_chord_velocity gate.
 
   Scenario: A note held over the loop point keeps its length
     When a key goes down before the end of the song and comes up after it loops

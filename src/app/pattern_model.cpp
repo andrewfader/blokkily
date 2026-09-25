@@ -53,6 +53,56 @@ int pitch_voices(const blokkily::Trigger& trigger) {
     return static_cast<int>(std::get<blokkily::Chord>(trigger.musical_data).intervals.size());
 }
 
+// How hard a step is struck, as the tracker's VEL column and the inspector's
+// VELOCITY dial read it: a note's velocity, a chord's own velocity, or the
+// loudest voice of a chord whose voices were struck apart. Moving that one
+// value moves the whole step (see scale_chord_velocity).
+float step_velocity(const blokkily::Trigger& trigger) {
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data))
+        return note->velocity;
+    const auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    if (chord.velocities.empty()) return chord.velocity;
+    return *std::max_element(chord.velocities.begin(), chord.velocities.end());
+}
+
+// Every voice's velocity, and its length in ticks, in interval order: one entry
+// for a note, one per voice for a chord.
+QVariantList voice_velocities(const blokkily::Trigger& trigger) {
+    QVariantList values;
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
+        values.push_back(static_cast<double>(note->velocity));
+        return values;
+    }
+    const auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    for (std::size_t voice = 0; voice < chord.intervals.size(); ++voice)
+        values.push_back(static_cast<double>(blokkily::voice_velocity(chord, voice)));
+    return values;
+}
+
+QVariantList voice_lengths(const blokkily::Trigger& trigger) {
+    QVariantList values;
+    if (std::holds_alternative<blokkily::Note>(trigger.musical_data)) {
+        values.push_back(static_cast<int>(trigger.duration));
+        return values;
+    }
+    const auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    for (std::size_t voice = 0; voice < chord.intervals.size(); ++voice)
+        values.push_back(static_cast<int>(blokkily::voice_duration(chord, voice, trigger.duration)));
+    return values;
+}
+
+// Sets how hard a whole chord is struck. A chord struck as one takes the new
+// velocity; a chord whose voices were struck apart keeps their balance, its
+// loudest voice landing on the new velocity and the others scaled with it.
+void scale_chord_velocity(blokkily::Chord& chord, float velocity) {
+    const float loudest = chord.velocities.empty()
+                              ? chord.velocity
+                              : *std::max_element(chord.velocities.begin(), chord.velocities.end());
+    chord.velocity = velocity;
+    for (auto& voice : chord.velocities)
+        voice = loudest > 0.0F ? std::clamp(voice * velocity / loudest, 0.0F, 1.0F) : velocity;
+}
+
 QVariantList voice_keys(const blokkily::Trigger& trigger) {
     QVariantList keys;
     if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
@@ -111,16 +161,17 @@ int PatternModel::rowCount(const QModelIndex& parent) const {
 QVariant PatternModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) return {};
     const auto& event = pattern().events()[static_cast<std::size_t>(index.row())];
-    const auto* note = std::get_if<blokkily::Note>(&event.musical_data);
     switch (role) {
     case IdRole: return QVariant::fromValue<qulonglong>(event.id);
     case StepRole: return static_cast<int>(event.start / ticks_per_step);
     case KeyRole: return pitch_key(event);
     case NameRole: return pitch_label(song_, event);
     case DurationRole: return static_cast<int>(event.duration);
-    case VelocityRole: return hex2(velocity_units(note == nullptr ? 0.8F : note->velocity));
+    case VelocityRole: return hex2(velocity_units(step_velocity(event)));
     case LockRole: return lock_text(event);
     case VoiceKeysRole: return voice_keys(event);
+    case VoiceVelocitiesRole: return voice_velocities(event);
+    case VoiceLengthsRole: return voice_lengths(event);
     default: return {};
     }
 }
@@ -129,7 +180,8 @@ QHash<int, QByteArray> PatternModel::roleNames() const {
     return {{IdRole, "eventId"}, {StepRole, "step"}, {KeyRole, "key"},
             {NameRole, "noteName"}, {DurationRole, "duration"},
             {VelocityRole, "velocityHex"}, {LockRole, "lockText"},
-            {VoiceKeysRole, "voiceKeys"}};
+            {VoiceKeysRole, "voiceKeys"}, {VoiceVelocitiesRole, "voiceVelocities"},
+            {VoiceLengthsRole, "voiceLengths"}};
 }
 
 const blokkily::Trigger* PatternModel::triggerAt(int step) const {
@@ -161,9 +213,10 @@ QVariantList PatternModel::steps() const {
             row["ratchets"] = 0;
             row["duration"] = 0;
             row["voiceKeys"] = QVariantList{};
+            row["voiceVelocities"] = QVariantList{};
+            row["voiceLengths"] = QVariantList{};
         } else {
-            const auto* note = std::get_if<blokkily::Note>(&trigger->musical_data);
-            const float velocity = note == nullptr ? 0.8F : note->velocity;
+            const float velocity = step_velocity(*trigger);
             row["noteName"] = pitch_label(song_, *trigger);
             row["velocityHex"] = hex2(velocity_units(velocity));
             row["velocityUnits"] = velocity_units(velocity);
@@ -176,6 +229,8 @@ QVariantList PatternModel::steps() const {
             row["ratchets"] = static_cast<int>(trigger->ratchets);
             row["duration"] = static_cast<int>(trigger->duration);
             row["voiceKeys"] = voice_keys(*trigger);
+            row["voiceVelocities"] = voice_velocities(*trigger);
+            row["voiceLengths"] = voice_lengths(*trigger);
         }
         rows.push_back(row);
     }
@@ -188,13 +243,25 @@ QVariantMap PatternModel::selected() const {
     detail["step"] = selected_step_;
     detail["exists"] = trigger != nullptr;
     if (trigger == nullptr) return detail;
-    const auto* note = std::get_if<blokkily::Note>(&trigger->musical_data);
     detail["key"] = pitch_key(*trigger);
     detail["noteName"] = pitch_label(song_, *trigger);
     detail["cents"] = pitch_cents(*trigger);
     detail["voices"] = pitch_voices(*trigger);
-    detail["velocity"] = note == nullptr ? 0.8 : static_cast<double>(note->velocity);
-    detail["velocityUnits"] = velocity_units(note == nullptr ? 0.8F : note->velocity);
+    detail["velocity"] = static_cast<double>(step_velocity(*trigger));
+    detail["velocityUnits"] = velocity_units(step_velocity(*trigger));
+    // Each voice of a chord, for the inspector's per-voice velocity bars: its
+    // name in the song's tuning, how hard it is struck and how long it lasts.
+    detail["voiceVelocities"] = voice_velocities(*trigger);
+    detail["voiceLengths"] = voice_lengths(*trigger);
+    QVariantList voice_units;
+    for (const auto& velocity : voice_velocities(*trigger))
+        voice_units.push_back(velocity_units(static_cast<float>(velocity.toDouble())));
+    detail["voiceUnits"] = voice_units;
+    QVariantList voice_names;
+    if (song_ != nullptr)
+        for (const auto& pitch : pitchesAt(selected_step_))
+            voice_names.push_back(song_->pitchName(pitch.key, pitch.cents));
+    detail["voiceNames"] = voice_names;
     detail["probability"] = static_cast<double>(trigger->probability);
     detail["ratchets"] = static_cast<int>(trigger->ratchets);
     detail["micro"] = static_cast<int>(trigger->micro_offset);
@@ -316,11 +383,7 @@ void PatternModel::setStepKey(int step, int key) {
     // microtonal step does not quietly straighten it back onto equal semitones.
     const auto* existing = triggerAt(step);
     const double cents = existing == nullptr ? 0.0 : pitch_cents(*existing);
-    const float velocity = existing == nullptr
-                               ? 0.9F
-                               : (std::holds_alternative<blokkily::Note>(existing->musical_data)
-                                      ? std::get<blokkily::Note>(existing->musical_data).velocity
-                                      : 0.9F);
+    const float velocity = existing == nullptr ? 0.9F : step_velocity(*existing);
     placeNote(step, blokkily::Note{static_cast<std::int16_t>(bounded), velocity, 0.0F, cents});
 }
 
@@ -342,8 +405,18 @@ void PatternModel::setStepDuration(int step, int ticks) {
     const auto bounded = qBound(24, ticks, 1920);
     const auto* existing = triggerAt(step);
     if (existing == nullptr || existing->duration == bounded) return;
-    mutate(step, [bounded](blokkily::Trigger& trigger) { trigger.duration = bounded; },
-           QStringLiteral("duration"));
+    mutate(step, [bounded](blokkily::Trigger& trigger) {
+        // A chord whose voices are held for different times keeps their
+        // proportions: its longest voice takes the new length.
+        if (auto* chord = std::get_if<blokkily::Chord>(&trigger.musical_data);
+            chord != nullptr && !chord->durations.empty()) {
+            const auto longest = std::max<blokkily::Tick>(
+                1, *std::max_element(chord->durations.begin(), chord->durations.end()));
+            for (auto& length : chord->durations)
+                length = std::max<blokkily::Tick>(1, length * bounded / longest);
+        }
+        trigger.duration = bounded;
+    }, QStringLiteral("duration"));
 }
 
 void PatternModel::setSelectedDuration(int ticks) { setStepDuration(selected_step_, ticks); }
@@ -594,9 +667,34 @@ void PatternModel::transposeSelected(int semitones) {
 
 void PatternModel::setSelectedVelocity(double velocity) {
     mutate(selected_step_, [velocity](blokkily::Trigger& trigger) {
+        const auto bounded = static_cast<float>(qBound(0.0, velocity, 1.0));
         if (auto* note = std::get_if<blokkily::Note>(&trigger.musical_data))
-            note->velocity = static_cast<float>(qBound(0.0, velocity, 1.0));
+            note->velocity = bounded;
+        else
+            scale_chord_velocity(std::get<blokkily::Chord>(trigger.musical_data), bounded);
     }, QStringLiteral("velocity"));
+}
+
+void PatternModel::setSelectedVoiceVelocity(int voice, double velocity) {
+    const auto* existing = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+    if (existing == nullptr) return;
+    const auto* chord = std::get_if<blokkily::Chord>(&existing->musical_data);
+    // A note has one voice, and its velocity is the step's.
+    if (chord == nullptr) {
+        if (voice == 0) setSelectedVelocity(velocity);
+        return;
+    }
+    if (voice < 0 || static_cast<std::size_t>(voice) >= chord->intervals.size()) return;
+    const auto bounded = static_cast<float>(qBound(0.0, velocity, 1.0));
+    if (blokkily::voice_velocity(*chord, static_cast<std::size_t>(voice)) == bounded) return;
+    mutate(selected_step_, [voice, bounded](blokkily::Trigger& trigger) {
+        auto& edited = std::get<blokkily::Chord>(trigger.musical_data);
+        // The first voice struck apart gives every voice a velocity of its own,
+        // starting from the one they all shared.
+        if (edited.velocities.empty())
+            edited.velocities.assign(edited.intervals.size(), edited.velocity);
+        edited.velocities[static_cast<std::size_t>(voice)] = bounded;
+    }, QStringLiteral("voicevel%1").arg(voice));
 }
 
 void PatternModel::setSelectedProbability(double probability) {
