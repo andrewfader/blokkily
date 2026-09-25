@@ -95,6 +95,8 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // A strip control moved from the interface reaches the engine as a
         // move too, where automation plays and records it (item 3.1).
         QObject::connect(song_, &SongModel::stripMoved, this, &AppController::stripMoved);
+        // The click's settings reach the running engine the same way (item 3.7).
+        QObject::connect(song_, &SongModel::metronomeChanged, this, &AppController::applyMix);
         // The transport reads bars, beats and the tempo shown from the song's
         // own maps; a tempo edit reaches the engine as a recompile, through
         // structureChanged, like any other change to when events fall.
@@ -253,6 +255,7 @@ void AppController::applyMix() {
 void AppController::pollMeters() {
     if (!engine_ || song_ == nullptr) return;
     drainTake();
+    pollCountIn();
     const auto received = midi_input_->notes_received();
     if (received != midi_notes_) {
         midi_notes_ = received;
@@ -690,7 +693,11 @@ void AppController::togglePlayback() {
     flushRecompile();
     startAutomationTake();
     std::string error;
-    engine_->set_playing(true);
+    // Recording starts after the count-in, if one is set (item 3.7): the
+    // click counts in and the song waits where the producer left it.
+    const int count_in = record_armed_ ? song_->song().metronome.count_in_bars : 0;
+    if (count_in > 0) engine_->play_with_count_in(static_cast<std::uint32_t>(count_in));
+    else engine_->set_playing(true);
     if (audio_output_ && !audio_output_->start(&error)) {
         engine_->set_playing(false);
         status_ = QString("Audio start failed · %1").arg(QString::fromStdString(error));
@@ -754,7 +761,7 @@ void AppController::setTempo(double bpm) {
     (void)song_->setTempoAt(bpm, transport_ != nullptr ? transport_->tick() : 0.0);
 }
 
-bool AppController::exportAudioFile(const QString& path, const QString& depth) {
+bool AppController::exportAudioFile(const QString& path, const QString& depth, bool withClick) {
     if (!engine_) {
         export_status_ = "Load an instrument before exporting";
         emit exportStatusChanged();
@@ -771,8 +778,10 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth) {
     releaseSoundingNotes();
     // Half a second of tail so the last note's release is part of the file.
     const auto tail = static_cast<std::uint64_t>(engine_->sample_rate() / 2.0);
+    blokkily::BounceOptions options;
+    options.include_metronome = withClick;
     const auto report = bounce_song(*engine_, local_path(path).toStdString(), format,
-                                    tail, &error);
+                                    tail, options, &error);
     if (resume_device) {
         std::string resume_error;
         if (!audio_output_->start(&resume_error)) {

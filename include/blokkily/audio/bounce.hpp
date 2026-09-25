@@ -35,4 +35,17 @@ struct BounceReport {
     SongEngine& engine, const std::filesystem::path& file, WaveFormat format,
     std::uint64_t tail_frames = 0, std::string* error = nullptr);
 
+// What an export asks for beyond the song itself.
+struct BounceOptions {
+    // The metronome is left out of a bounce (decision 14) unless this asks
+    // for it; then the click is rendered into the file exactly as it plays
+    // live, at the level the session has. Either way the engine's click
+    // setting is put back afterwards.
+    bool include_metronome = false;
+};
+
+[[nodiscard]] std::optional<BounceReport> bounce_song(
+    SongEngine& engine, const std::filesystem::path& file, WaveFormat format,
+    std::uint64_t tail_frames, const BounceOptions& options, std::string* error = nullptr);
+
 } // namespace blokkily

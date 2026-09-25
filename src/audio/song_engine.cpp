@@ -5,6 +5,7 @@
 #include "engine/engine_clips.hpp"
 #include "engine/engine_effects.hpp"
 #include "engine/engine_input.hpp"
+#include "engine/engine_metronome.hpp"
 #include "engine/track_playback.hpp"
 
 #include <algorithm>
@@ -44,7 +45,9 @@ constexpr std::uint32_t handoff_state(std::uint32_t queued, std::uint32_t render
 }
 } // namespace
 
-SongEngine::SongEngine() : buses_(std::make_unique<engine::BusPlayback>()) {}
+SongEngine::SongEngine()
+    : buses_(std::make_unique<engine::BusPlayback>()),
+      metronome_(std::make_unique<engine::MetronomePlayback>()) {}
 SongEngine::~SongEngine() = default;
 
 std::unique_ptr<PluginInstance>* SongEngine::processor_slot(ProcessorAddress where) const {
@@ -160,6 +163,8 @@ void SongEngine::reset_processing() {
         track->peak.store(0.0F, std::memory_order_relaxed);
     }
     engine::reset_buses(*buses_);
+    // The click sounding and any count-in are forgotten with the rest.
+    engine::reset_metronome(*metronome_);
     master_peak_.store(0.0F, std::memory_order_relaxed);
     // A bounce plays the lanes, not what was latched while playing before it.
     for (auto& track : tracks_) engine::release_automation(track->automation);
@@ -252,6 +257,8 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     if (!engine::prepare_effects(song, track_chains(), *buses_, sample_rate, maximum_block_size,
                                  error))
         return false;
+    // The click sounds and room for the notes a count-in holds (item 3.7).
+    engine::prepare_metronome(*metronome_, sample_rate, tracks_.size());
     apply_mix(song);
     sample_position_ = 0;
     published_position_.store(0, std::memory_order_release);
@@ -291,6 +298,8 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     // Automation: strip envelopes and parameter lanes, placed by the same
     // clock (item 3.1).
     engine::compile_automation(target.automation, song, clock, samples);
+    // The click's beats, placed by the same clock (item 3.7).
+    engine::compile_clicks(target.clicks, song.meter, clock, song.length(), samples);
     target.song_samples = samples;
     target.clock = std::move(clock);
     target.ticks_per_beat = song.ticks_per_beat();
@@ -437,6 +446,7 @@ void SongEngine::apply_mix(const Song& song) {
         set_strip(index, song.tracks[index].mix, solo);
     set_master_gain_db(song.master_gain_db);
     engine::apply_effect_mix(song, track_chains(), *buses_);
+    set_metronome(song.metronome.enabled, song.metronome.level_db);
 }
 
 void SongEngine::set_master_gain_db(double decibels) {
@@ -762,7 +772,13 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         release_arrangement_notes_ = true;
     }
     const bool stopped = stop_requested_.exchange(false, std::memory_order_acq_rel);
-    if (stopped) release_arrangement_notes_ = true;
+    if (stopped) {
+        release_arrangement_notes_ = true;
+        // A count-in stopped before it ends starts nothing.
+        metronome_->count_clicking = false;
+        metronome_->song_waiting = false;
+        metronome_->counting_in.store(false, std::memory_order_release);
+    }
     // An edit made while the song was playing is picked up here, at a block
     // boundary, so the arrangement changes underneath the playhead rather than
     // the playhead being sent back to the start of the song.
@@ -803,13 +819,16 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         // Edits a plugin reports on a stopped song are stamped where the
         // playhead rests.
         const auto resting = song_samples_ == 0 ? 0 : sample_position_ % song_samples_;
+        metronome_->was_rolling = false;
         std::size_t idle = 0;
         while (idle < output.left.size()) {
             const auto frames = std::min<std::size_t>(output.left.size() - idle,
                                                       maximum_block_);
-            process_chunk({output.left.subspan(idle, frames),
-                           output.right.subspan(idle, frames)},
-                          input.slice(idle, frames), resting, false);
+            const StereoBlock chunk{output.left.subspan(idle, frames),
+                                    output.right.subspan(idle, frames)};
+            process_chunk(chunk, input.slice(idle, frames), resting, false);
+            // A click stopped mid-sound finishes; no new one starts.
+            engine::render_clicks(*metronome_, chunk, {});
             idle += frames;
         }
         // Stopped, the listener hears the song where the playhead rests.
@@ -817,7 +836,38 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
             heard_tick_.store(tick_at_sample(live_->clock, resting), std::memory_order_release);
         return;
     }
+    // Play pressed with a count-in asked for: the click counts in from here,
+    // and the song waits where it is until the count-in is over (item 3.7).
+    if (const auto bars = metronome_->count_in_request.exchange(0, std::memory_order_acq_rel);
+        bars > 0)
+        start_count_in(bars);
     std::size_t rendered = 0;
+    while (metronome_->song_waiting && rendered < output.left.size()) {
+        // The playhead rests; instruments still play what is played into
+        // them, but nothing is captured.
+        const auto resting = sample_position_ % song_samples_;
+        const auto frames = static_cast<std::size_t>(std::min<std::uint64_t>(
+            {output.left.size() - rendered, engine::count_in_remaining(*metronome_),
+             maximum_block_}));
+        if (frames == 0) {
+            finish_count_in();
+            break;
+        }
+        const StereoBlock chunk{output.left.subspan(rendered, frames),
+                                output.right.subspan(rendered, frames)};
+        process_chunk(chunk, input.slice(rendered, frames), resting, false);
+        engine::hold_count_in_notes(*metronome_,
+                                    std::span<const RoutedEvent>{incoming_.data(), incoming_count_});
+        engine::render_clicks(*metronome_, chunk, {});
+        rendered += frames;
+        if (engine::count_in_remaining(*metronome_) == 0) finish_count_in();
+    }
+    if (rendered < output.left.size()) {
+        // The song's click waits out the compensation after every start and
+        // every seek, so it never sounds a beat the listener is not reaching.
+        if (seeked || !metronome_->was_rolling) metronome_->rolled = 0;
+        metronome_->was_rolling = true;
+    }
     while (rendered < output.left.size()) {
         const auto song_position = sample_position_ % song_samples_;
         if (!cursors_valid_ || song_position != continuous_from_) {
@@ -836,10 +886,15 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         if (live_ != nullptr && live_->automation.any_strip)
             frames = std::min<std::uint64_t>(
                 frames, engine::automation_grid - song_position % engine::automation_grid);
-        process_chunk({output.left.subspan(rendered, frames),
-                       output.right.subspan(rendered, frames)},
-                      input.slice(rendered, static_cast<std::size_t>(frames)), song_position,
-                      true);
+        const StereoBlock chunk{output.left.subspan(rendered, frames),
+                                output.right.subspan(rendered, frames)};
+        process_chunk(chunk, input.slice(rendered, static_cast<std::size_t>(frames)),
+                      song_position, true);
+        // The click, on the beats the listener reaches in this chunk.
+        engine::render_clicks(*metronome_, chunk,
+                              {live_ != nullptr ? &live_->clicks : nullptr,
+                               heard_position(song_position), song_samples_, output_latency(),
+                               true});
         rendered += static_cast<std::size_t>(frames);
         sample_position_ += frames;
         continuous_from_ = song_position + frames;

@@ -17,7 +17,7 @@ ToolBar {
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
     }
     RowLayout {
-        anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 14
+        anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 7
 
         Label { text: "BLOKKILY"; color: Theme.acid; font.bold: true; font.letterSpacing: 2.5
             font.pixelSize: 15 }
@@ -61,6 +61,9 @@ ToolBar {
                     onClicked: appController.rewindPlayback() }
             }
         }
+
+        // The click, the count-in and the click level (item 3.7).
+        MetronomeControls { objectName: "metronomeControls" }
 
         Rectangle {
             Layout.preferredWidth: 96; Layout.preferredHeight: 30; radius: 4
@@ -185,7 +188,7 @@ ToolBar {
         Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: Theme.line }
 
         Label { text: patternModel.eventCount + " EVENTS"; color: Theme.muted; font.pixelSize: 11 }
-        Chip { text: appController.scanning ? "SCANNING…" : "RESCAN PLUGINS"
+        Chip { objectName: "rescanButton"; text: appController.scanning ? "SCANNING…" : "RESCAN PLUGINS"
                onClicked: appController.rescanPlugins() }
     }
 }

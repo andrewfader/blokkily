@@ -35,6 +35,8 @@ void SongModel::restore(Snapshot snapshot) {
     // Arm and input are how the session is wired, not what it plays: a step
     // of history keeps them as they are now (decision 5).
     keepInputs(song_, snapshot.song);
+    // The click and the count-in are session settings too (item 3.7).
+    snapshot.song.metronome = song_.metronome;
     // Only a step that brings a track back or takes one away can change which
     // tracks are armed.
     const bool inputs_differ = [&] {

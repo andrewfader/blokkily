@@ -105,6 +105,9 @@ class AppController final : public QObject {
     // Audio input (item 3.2): what the last audio take did, as "2 audio takes
     // recorded" or with the frames the capture ring had to drop.
     Q_PROPERTY(QString audioTakeStatus READ audioTakeStatus NOTIFY audioTakeChanged)
+    // A count-in is playing (item 3.7): Play was pressed with recording armed
+    // and a count-in set, and the song has not started yet.
+    Q_PROPERTY(bool countingIn READ countingIn NOTIFY countInChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -268,8 +271,10 @@ public:
     Q_INVOKABLE QVariantList clipPeaks(qint64 id, int buckets) const;
     // The decoded audio store clips and samplers share.
     blokkily::AudioAssetCache& assetCache() noexcept { return *assets_; }
-    // Bounces the arrangement through the engine the speakers hear.
-    Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32");
+    // Bounces the arrangement through the engine the speakers hear. The
+    // metronome is left out unless `withClick` asks for it (item 3.7).
+    Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
+                                     bool withClick = false);
     // Sets the tempo in effect at the playhead: the tempo readout's edit. The
     // tempo is the song's, so this is an undoable song edit, and the running
     // engine keeps the playhead on its bar.
@@ -382,6 +387,10 @@ public:
     // clip the last take made.
     std::uint64_t droppedInputFrames() const noexcept { return dropped_input_frames_; }
     qint64 lastRecordedClip() const noexcept { return last_recorded_clip_; }
+    // --- Metronome and count-in (item 3.7; app_controller_metronome.cpp) ----
+    bool countingIn() const noexcept { return counting_in_; }
+    // Reads whether the engine is counting in, for the transport to show.
+    void pollCountIn();
 
 signals:
     void statusChanged();
@@ -402,6 +411,7 @@ signals:
     void editorsChanged();
     void editorReadoutChanged();
     void audioTakeChanged();
+    void countInChanged();
 
 private:
     struct ImportResult;
@@ -613,4 +623,5 @@ private:
     QString editor_readout_;
     QTimer editor_timer_;
     std::unique_ptr<PluginWindows> windows_;
+    bool counting_in_ = false;
 };

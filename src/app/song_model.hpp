@@ -103,6 +103,12 @@ class SongModel final : public QObject {
     // The modes a track's automation can be in, in the order a click steps
     // through them.
     Q_PROPERTY(QStringList automationModes READ automationModes CONSTANT)
+    // The metronome and count-in (item 3.7): the click on or off, its level
+    // in dB, and the bars of count-in before a recording (0 to 4). Saved
+    // with the song, never a step of history, and left alone by undo.
+    Q_PROPERTY(bool metronomeOn READ metronomeOn NOTIFY metronomeChanged)
+    Q_PROPERTY(double metronomeLevelDb READ metronomeLevelDb NOTIFY metronomeChanged)
+    Q_PROPERTY(int countInBars READ countInBars NOTIFY metronomeChanged)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -310,6 +316,21 @@ public:
     Q_INVOKABLE void toggleReturnMute(int bus);
     void setReturnMeters(const std::vector<float>& peaks);
 
+    // --- Metronome and count-in (song_model_metronome.cpp, item 3.7) --------
+    // Session settings, like arm and input: each reaches the running engine
+    // at once (metronomeChanged), none is a step of history.
+    bool metronomeOn() const noexcept { return song_.metronome.enabled; }
+    double metronomeLevelDb() const noexcept { return song_.metronome.level_db; }
+    int countInBars() const noexcept { return song_.metronome.count_in_bars; }
+    Q_INVOKABLE void setMetronomeOn(bool on);
+    Q_INVOKABLE void toggleMetronome();
+    // Clamped to -60 .. +6 dB.
+    Q_INVOKABLE void setMetronomeLevelDb(double decibels);
+    // Clamped to 0 .. 4 bars.
+    Q_INVOKABLE void setCountInBars(int bars);
+    // Steps the count-in through 0, 1, 2, 3, 4 and round, by `step`.
+    Q_INVOKABLE void cycleCountIn(int step = 1);
+
     blokkily::Song& song() noexcept { return song_; }
     const blokkily::Song& song() const noexcept { return song_; }
     blokkily::Pattern& editPattern();
@@ -415,6 +436,8 @@ signals:
     // gain (dB), 1 pan, 2 mute (0/1), from `previous` to `value`. The
     // controller hands it to the engine, where automation records it.
     void stripMoved(int track, int control, double value, double previous);
+    // The metronome or count-in settings changed (item 3.7).
+    void metronomeChanged();
 
 private:
     [[nodiscard]] blokkily::AudioClip* findAudioClip(qint64 id);

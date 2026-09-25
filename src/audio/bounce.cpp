@@ -9,6 +9,12 @@ namespace blokkily {
 std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesystem::path& file,
                                         WaveFormat format, std::uint64_t tail_frames,
                                         std::string* error) {
+    return bounce_song(engine, file, format, tail_frames, BounceOptions{}, error);
+}
+
+std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesystem::path& file,
+                                        WaveFormat format, std::uint64_t tail_frames,
+                                        const BounceOptions& options, std::string* error) {
     const auto fail = [error](const char* message) -> std::optional<BounceReport> {
         if (error != nullptr) *error = message;
         return std::nullopt;
@@ -34,6 +40,11 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     const bool was_recording = engine.is_recording();
     engine.connect_input(nullptr);
     engine.set_recording(false);
+    // The click is a guide for whoever plays along, not part of the mix,
+    // unless the export asks for it (decision 14). Its level stays the
+    // session's.
+    const bool had_metronome = engine.metronome_enabled();
+    engine.set_metronome_enabled(options.include_metronome);
     engine.set_playing(true);
     engine.rewind();
     // The export is the song from silence: whatever playback left in the
@@ -87,6 +98,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // The export's own tail is not left ringing into the session: playback
     // resumes from silence at the place, and in the state, it was left in.
     engine.reset_processing();
+    engine.set_metronome_enabled(had_metronome);
     engine.set_playing(was_playing);
     engine.seek(resume_at);
     engine.set_recording(was_recording);

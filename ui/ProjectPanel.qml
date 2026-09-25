@@ -9,12 +9,15 @@ ColumnLayout {
     id: root
     // The bit depth the next bounce is written at, owned by the window.
     property string exportDepth: "PCM24"
+    // Whether the next bounce has the metronome in it, owned by the window.
+    property bool exportClick: false
     signal newRequested()
     signal openRequested()
     signal saveRequested()
     signal saveAsRequested()
     signal exportRequested()
     signal exportDepthPicked(string depth)
+    signal exportClickToggled()
     spacing: 10
 
     SectionLabel { text: "PROJECT" }
@@ -53,7 +56,21 @@ ColumnLayout {
                 color: Theme.muted; font.pixelSize: 10; elide: Text.ElideRight }
         }
     }
-    SectionLabel { text: "EXPORT" }
+    // The heading carries the click option (item 3.7), so the rail gives
+    // no height to it: the click is left out of a bounce unless it is lit.
+    RowLayout {
+        Layout.fillWidth: true; spacing: 4
+        SectionLabel { text: "EXPORT" }
+        Item { Layout.fillWidth: true }
+        Chip {
+            objectName: "exportClickButton"
+            implicitWidth: 64; implicitHeight: 14
+            text: "+ CLICK"
+            accent: Theme.amber
+            on: root.exportClick
+            onClicked: root.exportClickToggled()
+        }
+    }
     RowLayout {
         Layout.fillWidth: true; spacing: 4
         Chip {
