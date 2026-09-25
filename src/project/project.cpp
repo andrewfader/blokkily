@@ -17,6 +17,10 @@ std::span<const RecordModule* const> record_modules() {
     static const std::array modules{
         &core_records(),
         &chord_velocity_records(),
+        &audio_records(),
+        &effects_records(),
+        &input_records(),
+        &automation_records(),
     };
     return modules;
 }
@@ -89,8 +93,9 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
     for (const auto* module : project_io::record_modules())
         if (module->finish != nullptr && !module->finish(context)) return std::nullopt;
 
-    if (!project.song.consistent()) {
-        (void)fail(error, "a clip refers to a track or pattern that does not exist");
+    std::string why;
+    if (!project.song.consistent(&why)) {
+        (void)fail(error, why);
         return std::nullopt;
     }
     return project;

@@ -78,6 +78,14 @@ struct RecordModule {
 // Chord velocity and voice length: voicevel, voicelen (records_chord_velocity.cpp).
 [[nodiscard]] const RecordModule& chord_velocity_records();
 
+// Program schema (item 1.5): audiofile, audioclip; return, insert, send;
+// input, record-offset; automode, automation. Each record naming a track or a
+// return comes after that bus's own record.
+[[nodiscard]] const RecordModule& audio_records();
+[[nodiscard]] const RecordModule& effects_records();
+[[nodiscard]] const RecordModule& input_records();
+[[nodiscard]] const RecordModule& automation_records();
+
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();
 

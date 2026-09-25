@@ -23,13 +23,6 @@ bool Song::any_solo() const {
                        [](const Track& track) { return track.mix.solo; });
 }
 
-bool Song::consistent() const {
-    if (patterns.empty() || tracks.empty()) return false;
-    return std::all_of(clips.begin(), clips.end(), [this](const Clip& clip) {
-        return clip.track < tracks.size() && clip.pattern < patterns.size() && clip.start >= 0;
-    });
-}
-
 ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
     ScheduledEvents arranged;
     const Scheduler scheduler;

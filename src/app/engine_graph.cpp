@@ -31,6 +31,7 @@ GraphSignature graph_signature(const Song& song) {
     for (std::size_t track = 0; track < song.tracks.size(); ++track)
         signature.processors.emplace_back(track_instrument(static_cast<std::uint32_t>(track)),
                                           identity_of(song.tracks[track].instrument));
+    signature.returns = song.returns.size();
     return signature;
 }
 

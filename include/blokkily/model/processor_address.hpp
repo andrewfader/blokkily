@@ -4,9 +4,12 @@
 
 namespace blokkily {
 
-// Where a processor sits in the song's signal graph (plan F-D). The model owns
-// the type because automation targets name processors too (F-E), and the
-// engine, the factory and the editor windows all address them the same way.
+// Where a processor sits in the mixer (plan F-D). The model owns the type
+// because automation targets name processors too (F-E); the engine, the
+// factory and the editor windows use the same address to set, find, adopt and
+// release processor instances. A track's instrument is slot -1; its insert
+// effects are slots 0, 1, 2... in chain order. A return bus has no
+// instrument, so its slots start at 0; the master bus is bus 0 of kind master.
 enum class BusKind : std::uint8_t { track, ret, master };
 
 struct ProcessorAddress {

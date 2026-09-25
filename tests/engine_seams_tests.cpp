@@ -486,6 +486,10 @@ void graph_signature_rules() {
     auto wider = song;
     wider.tracks.push_back(Track{});
     require(!(graph_signature(wider) == base), "a track added changes it");
+    auto with_return = song;
+    with_return.returns.push_back(ReturnBus{});
+    require(graph_signature(with_return).returns == 1 && !(graph_signature(with_return) == base),
+            "a return bus added changes it");
 }
 
 // A turn of an event loop, stood in for by a queue the test runs.

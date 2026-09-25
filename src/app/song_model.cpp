@@ -264,18 +264,13 @@ bool SongModel::deleteTrack(int track) {
     if (!validTrack(track) || song_.tracks.size() < 2) return false;
     checkpoint();
     const auto removed = static_cast<std::size_t>(track);
-    song_.tracks.erase(song_.tracks.begin() + track);
-    std::erase_if(song_.clips, [removed](const blokkily::Clip& clip) {
-        return clip.track == removed;
-    });
-    for (auto& clip : song_.clips)
-        if (clip.track > removed) --clip.track;
+    // The song re-indexes everything that names a track (clips, audio clips,
+    // sends, automation lanes) in one place, and says where each old track
+    // went; the engine rebuild follows that same map to adopt instances.
+    auto remap = song_.remove_track(removed);
+    if (remap.empty()) return false;
     if (removed < peaks_.size()) peaks_.erase(peaks_.begin() + track);
     if (selected_track_ >= track && selected_track_ > 0) --selected_track_;
-    // Old track i is new track i, except the one removed and those after it.
-    std::vector<std::optional<std::size_t>> remap(song_.tracks.size() + 1);
-    for (std::size_t old = 0; old < remap.size(); ++old)
-        if (old != removed) remap[old] = old < removed ? old : old - 1;
     track_remap_ = std::move(remap);
     notifyStructureChanged();
     track_remap_.reset();
