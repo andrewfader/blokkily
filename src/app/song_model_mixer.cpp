@@ -10,27 +10,33 @@
 
 void SongModel::setTrackGain(int track, double decibels) {
     if (!validTrack(track)) return;
-    checkpoint(QString("gain:%1").arg(track));
-    song_.tracks[static_cast<std::size_t>(track)].mix.gain_db =
-        qBound(blokkily::minimum_audible_db, decibels, 6.0);
+    checkpointStrip(track, QString("gain:%1").arg(track));
+    auto& mix = song_.tracks[static_cast<std::size_t>(track)].mix;
+    const double previous = mix.gain_db;
+    mix.gain_db = qBound(blokkily::minimum_audible_db, decibels, 6.0);
     emit mixChanged();
+    emit stripMoved(track, 0, mix.gain_db, previous);
     emit songChanged();
 }
 
 void SongModel::setTrackPan(int track, double pan) {
     if (!validTrack(track)) return;
-    checkpoint(QString("pan:%1").arg(track));
-    song_.tracks[static_cast<std::size_t>(track)].mix.pan = qBound(-1.0, pan, 1.0);
+    checkpointStrip(track, QString("pan:%1").arg(track));
+    auto& mix = song_.tracks[static_cast<std::size_t>(track)].mix;
+    const double previous = mix.pan;
+    mix.pan = qBound(-1.0, pan, 1.0);
     emit mixChanged();
+    emit stripMoved(track, 1, mix.pan, previous);
     emit songChanged();
 }
 
 void SongModel::toggleMute(int track) {
     if (!validTrack(track)) return;
-    checkpoint();
+    checkpointStrip(track, {});
     auto& mix = song_.tracks[static_cast<std::size_t>(track)].mix;
     mix.mute = !mix.mute;
     emit mixChanged();
+    emit stripMoved(track, 2, mix.mute ? 1.0 : 0.0, mix.mute ? 0.0 : 1.0);
     emit songChanged();
 }
 

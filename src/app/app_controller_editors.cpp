@@ -107,6 +107,9 @@ void AppController::drainPluginEdits() {
     bool moved = false;
     while (engine_->take_plugin_edit(event)) {
         if (event.edit.kind == blokkily::ParameterEdit::Kind::value) moved = true;
+        // A knob turned while the song plays is automation, when its track's
+        // mode records (item 3.1).
+        captureParameterEdit(event);
         const auto done = gestures_.feed(event);
         if (!done || done->where.kind != blokkily::BusKind::track || !done->where.instrument())
             continue;
@@ -117,6 +120,7 @@ void AppController::drainPluginEdits() {
         (void)song_->commitInstrumentState(static_cast<int>(done->where.bus),
                                            instance->save_state());
     }
+    if (automation_take_.ready()) commitAutomation();
     if (!moved || !gestures_.last_value()) return;
     const auto& last = *gestures_.last_value();
     QString name = QStringLiteral("P%1").arg(last.parameter);

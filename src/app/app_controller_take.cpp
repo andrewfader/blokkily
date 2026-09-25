@@ -99,7 +99,7 @@ void AppController::toggleRecord() {
     if (record_armed_) finishTake();
     record_armed_ = !record_armed_;
     takes_.clear();
-    take_checkpointed_ = false;
+    if (song_ != nullptr) song_->newTake();
     if (engine_) engine_->set_recording(record_armed_);
     status_ = record_armed_ ? QStringLiteral("Recording armed · play to record")
                             : QStringLiteral("Recording off");
@@ -157,6 +157,10 @@ void AppController::releasePerformed() {
 
 void AppController::drainTake() {
     if (!engine_ || song_ == nullptr || engine_->sample_rate() <= 0.0) return;
+    // The strip moves played since the last drain (item 3.1), recorded into
+    // the take's automation passes; a pass a touch let go of is written now,
+    // so its lane plays from the next pass round.
+    drainAutomation();
     // Every event carries the tick the engine stamped on it, read through the
     // clock the audio thread was playing at the time, so a take played across
     // a tempo change lands on the ticks that were heard, and a tempo edit
@@ -204,10 +208,8 @@ void AppController::finishTake() {
 void AppController::commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes) {
     if (song_ == nullptr || notes.empty()) return;
     auto& song = song_->song();
-    if (!take_checkpointed_) {
-        song_->checkpoint();
-        take_checkpointed_ = true;
-    }
+    // One step of history for the whole take: notes and automation alike.
+    song_->checkpointTake();
     const auto open = static_cast<std::size_t>(std::max(0, song_->currentPattern()));
     for (auto& [track, note] : notes) {
         if (track >= song.tracks.size()) continue;

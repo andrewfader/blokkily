@@ -116,6 +116,7 @@ QVariantList SongModel::tracks() const {
         row["solo"] = track.mix.solo;
         row["audible"] = blokkily::audible(track.mix, solo);
         row["selected"] = static_cast<int>(index) == selected_track_;
+        row["automationMode"] = automationMode(static_cast<int>(index));
         row["peak"] = index < peaks_.size() ? static_cast<double>(peaks_[index]) : 0.0;
         // A meter reads in decibels; the bar is that mapped onto the last 60 dB.
         const double peak_db = blokkily::linear_to_db(row["peak"].toDouble());
@@ -213,6 +214,9 @@ void SongModel::addPattern(int bar) {
 
 void SongModel::replace(blokkily::Song song) {
     song_ = std::move(song);
+    // A new song is no take's: nothing it is given is recorded into one.
+    capturing_ = false;
+    take_recorded_ = false;
     if (song_.patterns.empty()) song_.patterns.push_back({"PATTERN 1", blokkily::Pattern(1920, 480)});
     if (song_.tracks.empty()) song_.tracks.push_back({"TRACK 1", {}, {}});
     current_pattern_ = 0;

@@ -57,8 +57,9 @@ bool target_ok(const Song& song, const AutomationTarget& target, std::string* wh
     switch (target.kind) {
     case AutomationTarget::Kind::gain:
     case AutomationTarget::Kind::pan:
+    case AutomationTarget::Kind::mute:
         if (slot != -1)
-            return refuse(why, "a gain or pan automation lane names a processor slot");
+            return refuse(why, "a gain, pan or mute automation lane names a processor slot");
         return true;
     case AutomationTarget::Kind::parameter:
         if (target.parameter_index < 0)
@@ -157,6 +158,10 @@ bool Song::consistent(std::string* why) const {
                 for (const auto& point : lane.points)
                     if (point.value < -1.0 || point.value > 1.0)
                         return refuse(why, where + ": a pan automation point is outside -1..+1");
+            if (lane.target.kind == AutomationTarget::Kind::mute)
+                for (const auto& point : lane.points)
+                    if (point.value < 0.0 || point.value > 1.0)
+                        return refuse(why, where + ": a mute automation point is outside 0..1");
             for (const auto* seen : targets)
                 if (same_control(*seen, lane.target))
                     return refuse(why, "two automation lanes drive the same control");

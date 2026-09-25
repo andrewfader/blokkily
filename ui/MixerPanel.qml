@@ -44,8 +44,11 @@ Rectangle {
             objectName: "mixerStrips"
             width: mixerScroll.width; spacing: 6
 
+            // Counted rather than given the rows, so a fader being dragged is
+            // not rebuilt under the pointer by the move it just made: each
+            // strip reads its own row of songModel.tracks.
             Repeater {
-                model: songModel.tracks
+                model: songModel.trackCount
                 MixerStrip {
                     onRenameRequested: (index, name) => root.trackRenameRequested(index, name)
                     onMenuRequested: (index, name) => root.trackMenuRequested(index, name)

@@ -18,6 +18,9 @@ ColumnLayout {
     // height; a dial that must take a press along its travel gives it one.
     property real grip: 0
     signal moved(real value)
+    // The slider was taken hold of (true) or let go (false), after the
+    // gesture that makes a drag one step of history was opened or closed.
+    signal touched(bool held)
     spacing: 3
     RowLayout {
         Layout.fillWidth: true; spacing: 6
@@ -37,7 +40,11 @@ ColumnLayout {
         from: parent.from; to: parent.to; value: parent.value
         onMoved: parent.moved(value)
         // One drag is one step of history, however far it travels.
-        onPressedChanged: pressed ? songModel.beginGesture() : songModel.endGesture()
+        onPressedChanged: {
+            if (pressed) songModel.beginGesture()
+            else songModel.endGesture()
+            parent.touched(pressed)
+        }
         background: Rectangle {
             x: parent.leftPadding; y: parent.topPadding + parent.availableHeight / 2 - height / 2
             width: parent.availableWidth; height: 4; radius: 2

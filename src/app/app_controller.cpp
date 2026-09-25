@@ -92,6 +92,9 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // A fader move only changes gains, so it reaches the running engine
         // without rebuilding the graph or interrupting playback.
         QObject::connect(song_, &SongModel::mixChanged, this, &AppController::applyMix);
+        // A strip control moved from the interface reaches the engine as a
+        // move too, where automation plays and records it (item 3.1).
+        QObject::connect(song_, &SongModel::stripMoved, this, &AppController::stripMoved);
         // The transport reads bars, beats and the tempo shown from the song's
         // own maps; a tempo edit reaches the engine as a recompile, through
         // structureChanged, like any other change to when events fall.
@@ -653,16 +656,19 @@ void AppController::togglePlayback() {
         // and the next key played on the stopped transport.
         transport_->stop();
         pollMeters();
-        // Stopping ends the take: a key still held is written as released.
+        // Stopping ends the take: a key still held is written as released,
+        // and every automation pass still open is written up to here.
         finishTake();
+        finishAutomationTake();
         return;
     }
     // Every pass the song is played through is a take of its own, so undo
     // takes back one pass rather than everything recorded since arming.
     takes_.clear();
-    take_checkpointed_ = false;
+    song_->newTake();
     // Play starts on the song as it is now, edits of this turn included.
     flushRecompile();
+    startAutomationTake();
     std::string error;
     engine_->set_playing(true);
     if (audio_output_ && !audio_output_->start(&error)) {
