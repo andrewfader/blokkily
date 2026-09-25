@@ -63,6 +63,14 @@ Feature: One timebase for the whole song
     And a stopped playhead keeps its tick across a tempo change
     And an edit that leaves the tempo alone leaves the playhead alone
 
+  # timebase_seek_to_event_tick (regression); bdd_midi_recording "a seek to a bar at 137 BPM"
+  Scenario: A seek to a tick sounds the note on that tick
+    Given a song at 137 BPM, where tick 1920 falls at sample 84087.59, with a note on it
+    When the playhead is sent to bar 2 and the song plays
+    Then the note on the downbeat of bar 2 sounds at once
+    And a seek to any beat at 97, 113, 173, 60.7 or 211 BPM sounds that beat's note
+    And a playhead resting on tick 1920 when the tempo changes to 137 BPM moves onto that note's sample
+
   # timebase_bounce_across_tempo
   Scenario: The bounce of a song with a tempo step and a ramp is what plays
     Given a song with a tempo step and a ramp

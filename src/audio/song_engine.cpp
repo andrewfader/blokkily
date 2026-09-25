@@ -206,8 +206,9 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
         !(live_->clock == incoming->clock)) {
         const auto position = sample_position_ % song_samples_;
         const double tick = live_->clock.tick_at(static_cast<double>(position));
-        const double moved = std::max(0.0, std::round(incoming->clock.sample_at_tick(tick)));
-        const auto kept = static_cast<std::uint64_t>(moved) % incoming->song_samples;
+        // The same rule the timeline was compiled with: a playhead that was
+        // on an event's tick is on that event's sample, not one past it.
+        const auto kept = sample_for_tick(incoming->clock, tick) % incoming->song_samples;
         sample_position_ = kept;
         published_position_.store(kept, std::memory_order_release);
     }

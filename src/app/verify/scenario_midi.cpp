@@ -377,6 +377,38 @@ void run_midi(VerifyContext& ctx) {
     }
     reached("midi: a take across a tempo change lands where it was played");
 
+    // features/timebase.feature: a seek to a bar sounds the note on its
+    // downbeat. At 137 BPM tick 1920 falls at sample 84087.59; the verse's
+    // downbeat note is compiled onto sample 84087, and a seek that rounded to
+    // the nearest sample landed on 84088, one sample past it, so the note on
+    // the very tick the seek was sent to never sounded.
+    {
+        check(!transport.playing());
+        check(song.setTempoPoint(0.0, 137.0, false));
+        controller.flushRecompile();
+        const double downbeat = controller.engine()->published_clock().sample_at(1920);
+        check(downbeat - std::floor(downbeat) >= 0.5);
+        controller.seekToBar(1);
+        controller.togglePlayback();
+        float loudest = 0.0F;
+        for (int block = 0; block < 2; ++block) {
+            (void)pump();
+            loudest = std::max(loudest, controller.engine()->track_peak(0));
+        }
+        controller.togglePlayback();
+        (void)pump();
+        check(loudest > 0.05F);
+        if (!(loudest > 0.05F))
+            std::cerr << "REGRESSION: seekToBar at 137 BPM skipped the downbeat (sample "
+                      << downbeat << ", peak " << loudest << ")\n";
+        check(song.undo() && song.song().tempo.points.size() == 2
+           && song.song().tempo.points.front().bpm == 120.0);
+        controller.seekToBar(1);
+        (void)pump();
+        lay_out();
+    }
+    reached("midi: a seek to a bar at 137 BPM sounds its downbeat");
+
     // Left armed with the take in view, and the panel naming the port
     // and the last key, for the screenshot.
     check(send(0x90, 64, 96) && send(0x80, 64, 0));

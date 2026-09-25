@@ -147,4 +147,12 @@ private:
 // The one sample-to-tick path: the tick sounding at `sample`, rounded down.
 [[nodiscard]] Tick tick_at_sample(const TickClock& clock, std::uint64_t sample) noexcept;
 
+// The one tick-to-sample rule: the whole sample (fractional) tick `at` sounds
+// on, which is where the clock places it, rounded down. The compiled timeline
+// places events with it and every playhead move to a tick (a seek, the move
+// that keeps a tick across a tempo change) lands with it, so a playhead sent
+// to a tick is on the sample of that tick's events, never one past them.
+// Ticks before 0 are sample 0. Safe on the render callback.
+[[nodiscard]] std::uint64_t sample_for_tick(const TickClock& clock, double at) noexcept;
+
 } // namespace blokkily

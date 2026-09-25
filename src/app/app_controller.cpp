@@ -658,8 +658,9 @@ void AppController::seekToTick(double tick) {
     // one tempo map and the arrangement under another.
     flushRecompile();
     if (engine_ == nullptr || engine_->sample_rate() <= 0.0) return;
-    const double sample = engine_->published_clock().sample_at_tick(tick);
-    engine_->seek(static_cast<std::uint64_t>(std::llround(sample)));
+    // Rounded as the timeline's events are, so a seek to a tick lands on the
+    // sample of the events on that tick and plays them.
+    engine_->seek(blokkily::sample_for_tick(engine_->published_clock(), tick));
 }
 
 bool AppController::auditionKey(int key, bool held) {

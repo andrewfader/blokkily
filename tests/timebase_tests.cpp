@@ -466,6 +466,65 @@ void engine_playhead() {
     require(engine.sample_position() == playing + 256, "an edit does not move the playhead");
 }
 
+// Scenario: A seek to a tick sounds the note on that tick.
+// Regression: the seek rounded a tick's sample to the nearest while the
+// timeline rounds down, and the playhead move on a tempo change rounded to the
+// nearest too; wherever a tick fell at a fraction of .5 or more (tick 1920 at
+// 137 BPM is 84087.59) the playhead landed one sample past the note on it and
+// the note never sounded.
+void seek_to_event_tick() {
+    Song song = song_of(beats(3840, 480, 240, 8));
+    for (const double bpm : {137.0, 97.0, 113.0, 173.0, 60.7, 211.0}) {
+        song.tempo.points = {{0, bpm, false}};
+        SongEngine engine;
+        engine.set_instrument(0, clap_fixture());
+        std::string error;
+        require(engine.prepare(song, 48000.0, 256, 0, &error), "prepare: " + error);
+        engine.set_playing(true);
+        Pump pump(engine);
+        int fractional = 0;
+        for (Tick tick = 480; tick < 3840; tick += 480) {
+            // By hand, the note's onset: 48000 * 60 / (bpm * 480) samples a tick.
+            const double exact = static_cast<double>(tick) * 6000.0 / bpm;
+            if (exact - std::floor(exact) >= 0.5) ++fractional;
+            const auto target = sample_for_tick(engine.published_clock(), static_cast<double>(tick));
+            require(target == static_cast<std::uint64_t>(std::floor(exact + 1e-9)) ||
+                        target + 1 == static_cast<std::uint64_t>(std::floor(exact + 1e-9)),
+                    "tick " + std::to_string(tick) + " is placed where the tempo puts it");
+            engine.seek(target);
+            const auto heard = pump.left(256);
+            require(std::abs(heard.front()) > 0.05F,
+                    "at " + std::to_string(bpm) + " BPM a seek to tick " + std::to_string(tick) +
+                        " (sample " + std::to_string(exact) + ") must sound its note at once");
+        }
+        require(bpm != 137.0 || fractional > 0, "137 BPM puts some beat at a fraction >= .5");
+    }
+
+    // The playhead's move on a tempo change follows the same rule. Resting on
+    // tick 1920 at 120 BPM (sample 96000), the song changes to 137 BPM: the
+    // playhead moves to tick 1920's sample under the new clock, 84087, where
+    // the note is, and playing from there sounds it.
+    song.tempo.points = {{0, 120.0, false}};
+    SongEngine engine;
+    engine.set_instrument(0, clap_fixture());
+    std::string error;
+    require(engine.prepare(song, 48000.0, 256, 0, &error), "prepare: " + error);
+    Pump pump(engine);
+    engine.seek(96000);
+    (void)pump.left(256);
+    require(engine.sample_position() == 96000, "the stopped playhead rests on tick 1920");
+    song.tempo.points = {{0, 137.0, false}};
+    require(engine.recompile(song, 0, &error), "recompile: " + error);
+    (void)pump.left(256);
+    require(engine.sample_position() == 84087,
+            "the playhead keeps tick 1920 on the sample its note is on: " +
+                std::to_string(engine.sample_position()));
+    engine.set_playing(true);
+    const auto heard = pump.left(256);
+    require(std::abs(heard.front()) > 0.05F,
+            "playing on from the moved playhead sounds the note on tick 1920");
+}
+
 // Scenario: The bounce of a song with a tempo step and a ramp is what plays.
 void bounce_across_tempo() {
     Song song = song_of(beats(3840, 480, 240, 8), {0, 3840});
@@ -755,6 +814,7 @@ int main(int argc, char** argv) {
         {"engine_ramp", engine_ramp},
         {"engine_seven_eight", engine_seven_eight},
         {"engine_playhead", engine_playhead},
+        {"seek_to_event_tick", seek_to_event_tick},
         {"bounce_across_tempo", bounce_across_tempo},
         {"recording_across_tempo", recording_across_tempo},
         {"soundfont_across_tempo", soundfont_across_tempo},

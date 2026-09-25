@@ -35,8 +35,7 @@ std::vector<TimedPluginEvent> compile_timeline(
     std::vector<TimedPluginEvent> timeline;
     timeline.reserve(scheduled.parameters.size() + scheduled.notes.size() * 2);
     const auto at = [&clock, last_sample](Tick tick) {
-        const auto sample = static_cast<std::uint64_t>(clock.sample_at(std::max<Tick>(0, tick)));
-        return std::min(sample, last_sample);
+        return std::min(sample_for_tick(clock, static_cast<double>(tick)), last_sample);
     };
     for (const auto& parameter : scheduled.parameters) {
         const auto type = parameter.kind == ParameterLock::Kind::modulation

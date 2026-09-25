@@ -321,4 +321,11 @@ Tick tick_at_sample(const TickClock& clock, std::uint64_t sample) noexcept {
     return static_cast<Tick>(std::floor(tick));
 }
 
+std::uint64_t sample_for_tick(const TickClock& clock, double at) noexcept {
+    const double sample = std::floor(clock.sample_at_tick(at));
+    if (!(sample > 0.0)) return 0;
+    if (!(sample < 18446744073709549568.0)) return std::numeric_limits<std::uint64_t>::max();
+    return static_cast<std::uint64_t>(sample);
+}
+
 } // namespace blokkily
