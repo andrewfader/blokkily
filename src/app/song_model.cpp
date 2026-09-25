@@ -264,12 +264,9 @@ bool SongModel::deleteTrack(int track) {
     if (!validTrack(track) || song_.tracks.size() < 2) return false;
     checkpoint();
     const auto removed = static_cast<std::size_t>(track);
-    song_.tracks.erase(song_.tracks.begin() + track);
-    std::erase_if(song_.clips, [removed](const blokkily::Clip& clip) {
-        return clip.track == removed;
-    });
-    for (auto& clip : song_.clips)
-        if (clip.track > removed) --clip.track;
+    // The song re-indexes everything that names a track (clips, audio clips,
+    // automation lanes) in one place.
+    if (song_.remove_track(removed).empty()) return false;
     if (removed < peaks_.size()) peaks_.erase(peaks_.begin() + track);
     if (selected_track_ >= track && selected_track_ > 0) --selected_track_;
     notifyStructureChanged();
