@@ -35,3 +35,9 @@ Feature: Audio remains correct at the production callback boundary
     Then recompilation returns an explanatory error
     And the previous arrangement still renders its notes and releases correctly
     And an edit through the real application preserves the running engine and playhead
+
+  Scenario: Playback does not allocate in the render callback
+    Given a song playing through the CLAP fixture with a MIDI input connected and recording
+    When the production process call renders a thousand blocks across a seek and loop wraps
+    Then no block allocates or frees heap memory
+    And the rendered audio still follows the arrangement, the seek, and the keys pressed

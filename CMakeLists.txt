@@ -292,8 +292,10 @@ endif()
 
 # Each foundation and feature owns one fragment holding its sources, tests,
 # labels and gates, so adding one means adding a file rather than editing this
-# one. The order is fixed; foundations come first.
+# one. The order is fixed; the test support comes first, because later
+# fragments register real-time cases with it, then the foundations.
 foreach(blokkily_feature
+        test_support
         timebase
         audio_assets
         plugin_boundary
