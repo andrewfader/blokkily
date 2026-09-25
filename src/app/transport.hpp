@@ -27,6 +27,11 @@ class Transport final : public QObject {
     Q_PROPERTY(QString position READ position NOTIFY changed)
     Q_PROPERTY(int bar READ bar NOTIFY changed)
     Q_PROPERTY(int bars READ bars NOTIFY changed)
+    // The meter of the bar the playhead is in, as "7/8", and the playhead in
+    // steps from the start of that bar: what the grid, the tracker and the
+    // roll mark, since a bar of 7/8 is fourteen steps and not sixteen.
+    Q_PROPERTY(QString meter READ meterText NOTIFY changed)
+    Q_PROPERTY(double barStepFraction READ barStepFraction NOTIFY changed)
 
 public:
     // A step is a sixteenth note, whatever the meter.
@@ -46,6 +51,8 @@ public:
     int bars() const noexcept { return bars_; }
     // Bar.beat.sixteenth, 1-based, counted in the meter of the bar.
     QString position() const;
+    QString meterText() const;
+    double barStepFraction() const;
     void setSongBars(int bars);
     // The song's tempo and meter, and the resolution its ticks are counted at.
     void setTimebase(const blokkily::TempoMap& tempo, const blokkily::MeterMap& meter,

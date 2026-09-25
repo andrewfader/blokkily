@@ -27,9 +27,13 @@ class PatternModel final : public QAbstractListModel {
     // Pitch window the piano roll draws, widened to whatever the pattern uses.
     Q_PROPERTY(int lowKey READ lowKey NOTIFY patternChanged)
     Q_PROPERTY(int highKey READ highKey NOTIFY patternChanged)
+    // How many sixteenth steps the open pattern has: sixteen for a 4/4 bar,
+    // fourteen for a 7/8 one, or whatever its LEN was set to. The grid, the
+    // tracker and the roll each draw this many columns.
+    Q_PROPERTY(int stepCount READ stepCount NOTIFY patternChanged)
 
 public:
-    static constexpr int step_count = 16;
+    // A step is a sixteenth note, whatever the meter or the pattern's length.
     static constexpr blokkily::Tick ticks_per_step = 120;
     enum Role { IdRole = Qt::UserRole + 1, StepRole, KeyRole, NameRole, DurationRole,
                 VelocityRole, LockRole, VoiceKeysRole, VoiceVelocitiesRole, VoiceLengthsRole };
@@ -44,6 +48,9 @@ public:
     int selectedStep() const noexcept { return selected_step_; }
     int lowKey() const;
     int highKey() const;
+    // The open pattern's length in steps; a length that is not a whole number
+    // of steps counts its last, partial step.
+    int stepCount() const;
 
     Q_INVOKABLE void toggleStep(int step, int key = 60);
     Q_INVOKABLE bool hasStep(int step) const;

@@ -218,7 +218,7 @@ ApplicationWindow {
     Shortcut { sequence: "Left"; enabled: !root.typing
         onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
     Shortcut { sequence: "Right"; enabled: !root.typing
-        onActivated: patternModel.selectStep(Math.min(15, patternModel.selectedStep + 1)) }
+        onActivated: patternModel.selectStep(Math.min(patternModel.stepCount - 1, patternModel.selectedStep + 1)) }
     Shortcut { sequence: "Up"; enabled: !root.typing
                onActivated: patternModel.transposeSelected(1) }
     Shortcut { sequence: "Down"; enabled: !root.typing
@@ -348,7 +348,7 @@ ApplicationWindow {
             root.writeNote(step, root.entryBase + semitone)
             // A tracker advances after a note is typed, which is what makes it
             // faster to write a phrase in than to click one.
-            patternModel.selectStep((step + 1) % 16)
+            patternModel.selectStep((step + 1) % patternModel.stepCount)
             event.accepted = true
         }
     }
@@ -409,12 +409,7 @@ ApplicationWindow {
                             color: Theme.ink; font.pixelSize: 16; font.bold: true
                             font.letterSpacing: 0.5
                         }
-                        Rectangle {
-                            implicitWidth: 44; implicitHeight: 18; radius: 3
-                            color: "transparent"; border.color: Theme.line
-                            Label { anchors.centerIn: parent; text: "16 ST"; color: Theme.muted
-                                font.pixelSize: 9; font.letterSpacing: 0.5 }
-                        }
+                        PatternLength {}
                         Rectangle {
                             implicitWidth: 52; implicitHeight: 18; radius: 3
                             color: "transparent"; border.color: Theme.line

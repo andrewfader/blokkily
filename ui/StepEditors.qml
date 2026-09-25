@@ -47,8 +47,10 @@ ColumnLayout {
             objectName: "stepGrid"
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: 5
+            // One column per step of the open pattern: sixteen in 4/4,
+            // fourteen for a 7/8 bar, or whatever its LEN says.
             Repeater {
-                model: 16
+                model: patternModel.stepCount
                 Rectangle {
                     id: cell
                     required property int index
@@ -135,9 +137,9 @@ ColumnLayout {
                             root.focusHome.forceActiveFocus()
                             if (mouse.modifiers & Qt.ControlModifier) {
                                 // Jump the song to this column of the
-                                // bar it is already in, engine and all.
-                                appController.seekToStep(
-                                    transport.bar * 16 + cell.index)
+                                // pass of the pattern it is already in,
+                                // engine and all, in whatever meter.
+                                appController.seekToPatternStep(cell.index)
                                 patternModel.selectStep(cell.index)
                                 return
                             }
@@ -159,8 +161,8 @@ ColumnLayout {
 
     // -------------------------------------------- tracker + piano roll
     SplitView {
-        // Enough height that sixteen tracker rows are readable rather
-        // than sixteen slivers.
+        // Enough height that every tracker row is readable rather than a
+        // sliver.
         Layout.fillWidth: true; Layout.fillHeight: true
         Layout.minimumHeight: 250
         orientation: Qt.Horizontal
@@ -224,9 +226,10 @@ ColumnLayout {
                     // not divide by sixteen does not print alternate
                     // rows in alternate sizes.
                     readonly property int rowFont:
-                        Math.max(7, Math.min(13, Math.floor(height / 16) - 2))
+                        Math.max(7, Math.min(13, Math.floor(height / Math.max(1,
+                            patternModel.stepCount)) - 2))
                     Repeater {
-                        model: 16
+                        model: patternModel.stepCount
                         Rectangle {
                             id: trackRow
                             required property int index
@@ -422,9 +425,13 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Label { text: "PIANO ROLL"; color: Theme.ink; font.bold: true
                         font.pixelSize: 12; font.letterSpacing: 1 }
-                    Item { Layout.fillWidth: true }
+                    // The hint gives way to the roll: at its full length it
+                    // made the header wider than the panel, which pushed the
+                    // last columns of the roll out of sight and out of reach.
                     Label { text: "drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases"; color: Theme.muted
-                        font.pixelSize: 9 }
+                        font.pixelSize: 9
+                        Layout.fillWidth: true; Layout.minimumWidth: 0
+                        horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                     Label {
                         text: patternModel.lowKey + "-" + patternModel.highKey + " KEYS"
                         color: Theme.muted; font.pixelSize: 9; font.family: "monospace"
@@ -438,7 +445,8 @@ ColumnLayout {
                         Math.max(1, patternModel.highKey - patternModel.lowKey + 1)
                     readonly property real laneHeight: height / keyCount
                     readonly property real gutter: 42
-                    readonly property real laneWidth: (width - gutter) / 16
+                    readonly property int columns: Math.max(1, patternModel.stepCount)
+                    readonly property real laneWidth: (width - gutter) / columns
                     function isBlack(key) {
                         var pc = key % 12
                         return pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10
@@ -503,7 +511,7 @@ ColumnLayout {
                     }
                     // Bar lines every four steps.
                     Repeater {
-                        model: 17
+                        model: rollArea.columns + 1
                         Rectangle {
                             required property int index
                             x: rollArea.gutter + index * rollArea.laneWidth
@@ -555,9 +563,11 @@ ColumnLayout {
                     // Playhead across the roll.
                     Rectangle {
                         objectName: "rollPlayhead"
-                        // The roll shows one bar, so the song's
-                        // playhead is drawn where it falls in it.
-                        x: rollArea.gutter + (transport.stepFraction % 16) * rollArea.laneWidth
+                        // The roll shows one pass of the pattern, so the
+                        // song's playhead is drawn where it falls in the bar
+                        // it is in, counted in that bar's own steps.
+                        x: rollArea.gutter + Math.min(rollArea.columns,
+                               transport.barStepFraction) * rollArea.laneWidth
                         y: 0; width: 2; height: rollArea.height
                         color: Theme.ink; opacity: 0.85
                     }
@@ -589,7 +599,7 @@ ColumnLayout {
                         property int grabKey: 0
 
                         function stepAt(px) {
-                            return Math.max(0, Math.min(15,
+                            return Math.max(0, Math.min(rollArea.columns - 1,
                                 Math.floor(px / rollArea.laneWidth)))
                         }
                         function keyAt(py) {
@@ -599,7 +609,7 @@ ColumnLayout {
                         function coveringNote(px, py) {
                             var key = keyAt(py)
                             var xStep = px / rollArea.laneWidth
-                            for (var i = 0; i < 16; ++i) {
+                            for (var i = 0; i < rollArea.columns; ++i) {
                                 if (!patternModel.hasStep(i)) continue
                                 var dur = patternModel.stepDuration(i)
                                 if (dur <= 0) dur = 96

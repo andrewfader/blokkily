@@ -79,6 +79,14 @@ const Trigger* Pattern::find(EventId id) const {
     return it == events_.end() ? nullptr : &*it;
 }
 
+Pattern Pattern::with_length(Tick length) const {
+    Pattern resized(length, ticks_per_beat_);
+    for (const auto& event : events_)
+        if (event.start < length) resized.events_.push_back(event);
+    resized.next_id_ = next_id_;
+    return resized;
+}
+
 void Pattern::sort() {
     std::stable_sort(events_.begin(), events_.end(), [](const Trigger& a, const Trigger& b) {
         return a.start < b.start || (a.start == b.start && a.id < b.id);
