@@ -86,10 +86,36 @@ if(BLOKKILY_BUILD_GUI)
         src/app/keyboard_model.cpp
         src/app/keyboard_model.hpp
     )
+    # The window and the panels it is built from. They are served from the
+    # module's own directory, beside its qmldir, so the files find one another
+    # and the Theme singleton without importing their own module.
+    set(BLOKKILY_QML_FILES
+        ui/Main.qml
+        ui/Theme.qml
+        ui/Format.js
+        ui/SectionLabel.qml
+        ui/Chip.qml
+        ui/Picker.qml
+        ui/ValueDial.qml
+        ui/TransportBar.qml
+        ui/InstrumentPanel.qml
+        ui/ProjectPanel.qml
+        ui/ArrangementView.qml
+        ui/StepEditors.qml
+        ui/KeyboardPanel.qml
+        ui/Inspector.qml
+        ui/MixerPanel.qml
+        ui/MixerStrip.qml
+    )
+    foreach(qml_file IN LISTS BLOKKILY_QML_FILES)
+        get_filename_component(qml_name "${qml_file}" NAME)
+        set_source_files_properties("${qml_file}" PROPERTIES QT_RESOURCE_ALIAS "${qml_name}")
+    endforeach()
+    set_source_files_properties(ui/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
     qt_add_qml_module(blokkily
         URI Blokkily
         VERSION 1.0
-        QML_FILES ui/Main.qml
+        QML_FILES ${BLOKKILY_QML_FILES}
     )
     target_link_libraries(blokkily PRIVATE blokkily_core
         Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2
