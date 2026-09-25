@@ -146,7 +146,12 @@ endif()
 # Headless tests and offscreen gates must not reach whatever display the
 # developer's session has: once JUCE GUI code is linked in, a stray DISPLAY
 # would make them depend on it. The device checks keep the real environment.
-set(BLOKKILY_HEADLESS_TEST_ENV "ALSA_CONFIG_PATH=/dev/null;DISPLAY=;WAYLAND_DISPLAY=")
+# DISPLAY is a socket path that does not exist rather than empty: JUCE (the
+# host's copy and every JUCE plugin's) replaces an empty DISPLAY with ":0.0",
+# which on a machine with another user's X server can take ~29 s per VST3
+# instantiation to fail (docs/plans/spike-1.7-juce-gui.md, "The DISPLAY= trap").
+set(BLOKKILY_HEADLESS_TEST_ENV
+    "ALSA_CONFIG_PATH=/dev/null;DISPLAY=/nonexistent/blokkily-no-x11:0;WAYLAND_DISPLAY=")
 set(BLOKKILY_OFFSCREEN_GATE_ENV
     "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;${BLOKKILY_HEADLESS_TEST_ENV}")
 
