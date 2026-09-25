@@ -1,5 +1,6 @@
 #pragma once
 
+#include "blokkily/model/event.hpp"
 #include "blokkily/plugins/plugin.hpp"
 
 #include <array>
@@ -53,10 +54,14 @@ using InputQueue = SpscQueue<RoutedEvent, 256>;
 
 // An input event as the engine played it: the track it sounded on and where
 // the song was when it did. This is what a take is recorded from, so what is
-// written is what was heard, at the position it was heard.
+// written is what was heard, at the position it was heard. `tick` is the song
+// tick at `sample` under the clock the render callback was playing when it
+// stamped the event, so a tempo edit compiled before the take is drained
+// cannot move a note that was already heard.
 struct CapturedEvent {
     std::uint32_t track = 0;
     std::uint64_t sample = 0;
+    Tick tick = 0;
     PluginEvent event{};
 };
 

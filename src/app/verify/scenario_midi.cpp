@@ -409,6 +409,58 @@ void run_midi(VerifyContext& ctx) {
     }
     reached("midi: a seek to a bar at 137 BPM sounds its downbeat");
 
+    // features/timebase.feature: a key held while the tempo is dragged is
+    // written where it was heard. Recording at 120 BPM, a key goes down; the
+    // tempo readout is then dragged to 60 and the coalesced recompile runs
+    // before the interface drains the take. The key-down was stamped under
+    // 120 BPM and must be read back under 120 BPM (tick S/50), not under the
+    // clock that was published after it (tick S/100, bar 1 half as far in).
+    {
+        check(!transport.playing() && controller.recordArmed());
+        const int held_step = empty_step(9);
+        check(held_step >= 0);
+        controller.seekToStep(held_step);
+        controller.togglePlayback();
+        (void)pump();
+        const auto pressed = controller.engine()->sample_position();
+        check(send(0x90, 69, 110));
+        for (int block = 0; block < 3; ++block) check(pump() > 0.05F);
+        // Dragged, and recompiled, before anything is drained.
+        controller.setTempo(60.0);
+        controller.flushRecompile();
+        check(song.song().tempo.points.front().bpm == 60.0);
+        for (int block = 0; block < 3; ++block) check(pump() > 0.05F);
+        const auto released = controller.engine()->sample_position();
+        const auto released_tick =
+            blokkily::tick_at_sample(controller.engine()->published_clock(), released);
+        check(send(0x80, 69, 0));
+        (void)pump();
+        settle(120);
+        controller.togglePlayback();
+        (void)pump();
+        // By hand: 50 samples a tick at 120 BPM.
+        const int pressed_tick = static_cast<int>(pressed / 50);
+        pattern.selectStep(held_step);
+        const bool landed = pattern.hasStep(held_step)
+            && pattern.stepKey(held_step) == 69
+            && pattern.selected().value("micro").toInt()
+                   == pressed_tick - held_step * PatternModel::ticks_per_step
+            && pattern.stepDuration(held_step) == released_tick - pressed_tick;
+        check(landed);
+        if (!landed)
+            std::cerr << "REGRESSION: a key held across a tempo drag was written with the "
+                         "later clock (step " << held_step << " has="
+                      << pattern.hasStep(held_step) << ")\n";
+        // One undo for the take, one for the tempo drag.
+        check(song.undo() && !pattern.hasStep(held_step));
+        check(song.undo() && song.song().tempo.points.front().bpm == 120.0);
+        controller.flushRecompile();
+        controller.seekToBar(1);
+        (void)pump();
+        lay_out();
+    }
+    reached("midi: a key held across a tempo drag lands where it was played");
+
     // Left armed with the take in view, and the panel naming the port
     // and the last key, for the screenshot.
     check(send(0x90, 64, 96) && send(0x80, 64, 0));

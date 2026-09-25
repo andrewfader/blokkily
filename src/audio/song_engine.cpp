@@ -282,7 +282,8 @@ bool SongEngine::play_live(std::size_t track, const PluginEvent& event) noexcept
 
 std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                                        std::uint64_t song_position, std::uint64_t end,
-                                       bool from_timeline, bool capture) noexcept {
+                                       bool from_timeline, bool capture,
+                                       Tick capture_tick) noexcept {
     auto& events = track.events;
     const auto capacity = events.size();
     const auto& timeline = timeline_for(index);
@@ -313,7 +314,10 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
         // Captured where it was heard: at the start of this block, which is
         // where the instrument is told to sound it. A full capture ring loses
         // the note from the take, never from the speakers.
-        if (capture) (void)captured_.push({routed.track, song_position, events[count - 1]});
+        // The tick is stamped here, with the clock this block is played
+        // under: a recompile published later must not re-read it.
+        if (capture)
+            (void)captured_.push({routed.track, song_position, capture_tick, events[count - 1]});
     }
     while (from_timeline && track.cursor < timeline.size() &&
            timeline[track.cursor].sample < end) {
@@ -368,6 +372,7 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
             ++incoming_count_;
     const bool capture = from_timeline && recording_.load(std::memory_order_acquire);
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
+    const Tick capture_tick = capture ? tick_at_sample(arranged.clock, song_position) : 0;
 
     for (std::size_t index = 0; index < tracks_.size(); ++index) {
         auto& track = *tracks_[index];
@@ -375,7 +380,8 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         if (track.left.size() < frames || track.right.size() < frames) continue;
         // 1. Events: owed releases, live, routed input, then the timeline.
         const auto count =
-            collect_events(track, index, song_position, end, from_timeline, capture);
+            collect_events(track, index, song_position, end, from_timeline, capture,
+                           capture_tick);
         // 2. The track's buffer starts silent, with or without an instrument,
         // because the stages after the instrument's still add to it.
         const std::span<float> left{track.left.data(), frames};

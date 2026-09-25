@@ -63,6 +63,13 @@ Feature: One timebase for the whole song
     And a stopped playhead keeps its tick across a tempo change
     And an edit that leaves the tempo alone leaves the playhead alone
 
+  # timebase_capture_keeps_its_clock; bdd_midi_recording "a key held across a tempo drag" (regression)
+  Scenario: A key held while the tempo is dragged is written where it was heard
+    Given a song recording at 120 BPM, with a key held down
+    When the tempo readout is dragged to 60 BPM and the song is recompiled before the take is read
+    Then the key-down is written on the tick it was heard at under 120 BPM
+    And the key-up is written on the tick it was heard at under 60 BPM
+
   # timebase_seek_to_event_tick (regression); bdd_midi_recording "a seek to a bar at 137 BPM"
   Scenario: A seek to a tick sounds the note on that tick
     Given a song at 137 BPM, where tick 1920 falls at sample 84087.59, with a note on it

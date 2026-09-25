@@ -466,6 +466,56 @@ void engine_playhead() {
     require(engine.sample_position() == playing + 256, "an edit does not move the playhead");
 }
 
+// Scenario: A key held while the tempo is dragged is written where it was heard.
+// The engine stamps each captured event with its tick under the clock it was
+// playing; a recompile published before the take is drained changes nothing.
+void capture_keeps_its_clock() {
+    Song song = song_of(Pattern(3840, 480));
+    SongEngine engine;
+    engine.set_instrument(0, clap_fixture());
+    std::string error;
+    require(engine.prepare(song, 48000.0, 1024, 0, &error), "prepare: " + error);
+    InputQueue input;
+    engine.connect_input(&input);
+    engine.set_recording(true);
+    engine.set_playing(true);
+    Pump pump(engine);
+    (void)pump.left(30 * 1024);
+    const auto pressed_at = engine.sample_position();
+    require(input.push({0, {PluginEvent::Type::note_on, 0, 64, 0.9, 0.0}}), "key down");
+    const auto held = pump.left(1024);
+    require(std::abs(held.front()) > 0.05F, "the key is heard");
+    // The tempo point at tick 0 is dragged to 60 BPM and compiled before
+    // anything is drained.
+    song.tempo.points = {{0, 60.0, false}};
+    require(engine.recompile(song, 0, &error), "recompile: " + error);
+    (void)pump.left(4 * 1024);
+    const auto released_at = engine.sample_position();
+    require(input.push({0, {PluginEvent::Type::note_off, 0, 64, 0.0, 0.0}}), "key up");
+    (void)pump.left(1024);
+
+    std::vector<CapturedEvent> heard;
+    CapturedEvent captured;
+    while (engine.take_captured(captured)) heard.push_back(captured);
+    require(heard.size() == 2 && heard[0].sample == pressed_at && heard[1].sample == released_at,
+            "the engine captured the key where it was heard");
+    // By hand: the key went down at 50 samples a tick; the playhead kept its
+    // tick across the change, 100 samples a tick from there.
+    const auto on_tick = static_cast<Tick>(pressed_at / 50);
+    const double change_tick = static_cast<double>(pressed_at + 1024) / 50.0;
+    const auto change_sample = static_cast<std::uint64_t>(std::floor(change_tick * 100.0));
+    require(heard[0].tick == on_tick,
+            "the key-down keeps the tick it was heard at under 120 BPM: " +
+                std::to_string(heard[0].tick) + " vs " + std::to_string(on_tick));
+    require(tick_at_sample(engine.published_clock(), heard[0].sample) != on_tick,
+            "the clock published after the key-down would have read another tick");
+    require(released_at >= change_sample &&
+                heard[1].tick ==
+                    static_cast<Tick>(std::floor(
+                        change_tick + static_cast<double>(released_at - change_sample) / 100.0)),
+            "the key-up is read under 60 BPM: " + std::to_string(heard[1].tick));
+}
+
 // Scenario: A seek to a tick sounds the note on that tick.
 // Regression: the seek rounded a tick's sample to the nearest while the
 // timeline rounds down, and the playhead move on a tempo change rounded to the
@@ -815,6 +865,7 @@ int main(int argc, char** argv) {
         {"engine_seven_eight", engine_seven_eight},
         {"engine_playhead", engine_playhead},
         {"seek_to_event_tick", seek_to_event_tick},
+        {"capture_keeps_its_clock", capture_keeps_its_clock},
         {"bounce_across_tempo", bounce_across_tempo},
         {"recording_across_tempo", recording_across_tempo},
         {"soundfont_across_tempo", soundfont_across_tempo},

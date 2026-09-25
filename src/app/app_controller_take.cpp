@@ -108,10 +108,10 @@ void AppController::toggleRecord() {
 
 void AppController::drainTake() {
     if (!engine_ || song_ == nullptr || engine_->sample_rate() <= 0.0) return;
-    // Every sample the engine stamped is read back through the song's tempo
-    // map, the one sample-to-tick path, so a take played across a tempo change
-    // lands on the ticks that were heard.
-    const auto& clock = engine_->published_clock();
+    // Every event carries the tick the engine stamped on it, read through the
+    // clock the audio thread was playing at the time, so a take played across
+    // a tempo change lands on the ticks that were heard, and a tempo edit
+    // compiled before this drain cannot move a note already heard.
     // Everything is taken off the engine before anything is written, because
     // writing reaches the engine again and must not find this half done.
     std::vector<blokkily::CapturedEvent> heard;
@@ -123,7 +123,7 @@ void AppController::drainTake() {
     for (const auto& event : heard) {
         const std::size_t track = event.track;
         if (takes_.size() <= track) takes_.resize(track + 1, blokkily::TakeRecorder(length));
-        const auto at = blokkily::tick_at_sample(clock, event.sample);
+        const auto at = event.tick;
         const auto key = static_cast<std::int16_t>(event.event.key_or_parameter);
         if (event.event.type == blokkily::PluginEvent::Type::note_on) {
             takes_[track].note_on(at, key, static_cast<float>(event.event.value),

@@ -197,9 +197,11 @@ private:
     void process_chunk(StereoBlock output, std::uint64_t song_position,
                        bool from_timeline) noexcept;
     // Chunk stage 1: gathers what one track plays this chunk into its scratch.
+    // `capture_tick` is the song tick of `song_position` under the clock being
+    // played, stamped on whatever input is captured.
     std::size_t collect_events(TrackPlayback& track, std::size_t index,
                                std::uint64_t song_position, std::uint64_t end,
-                               bool from_timeline, bool capture) noexcept;
+                               bool from_timeline, bool capture, Tick capture_tick) noexcept;
     // Chunk stage 4: moves what a processor reported into the edit ring.
     void drain_edits(PluginInstance& processor, ProcessorAddress where,
                      std::uint64_t song_position, bool from_timeline) noexcept;

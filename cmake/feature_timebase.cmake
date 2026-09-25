@@ -62,6 +62,7 @@ if(BLOKKILY_BUILD_TESTS)
             engine_seven_eight
             engine_playhead
             seek_to_event_tick
+            capture_keeps_its_clock
             bounce_across_tempo
             recording_across_tempo)
         add_test(NAME timebase_${timebase_case}
