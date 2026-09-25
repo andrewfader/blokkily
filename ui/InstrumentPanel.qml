@@ -54,6 +54,8 @@ ColumnLayout {
         }
     }
 
+    PluginEditorBar { Layout.fillWidth: true }
+
     SectionLabel { text: "MIDI IN" }
     // The keyboard being played, and what it last sent. The light
     // flashes on every key the port delivers, so a controller that

@@ -1,10 +1,18 @@
+#include "test_clap_gui.hpp"
+
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
+#include <clap/ext/gui.h>
 #include <clap/ext/latency.h>
 #include <clap/ext/params.h>
+#include <clap/ext/posix-fd-support.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 #include <clap/ext/thread-check.h>
+#include <clap/ext/timer-support.h>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <array>
@@ -15,6 +23,7 @@
 #include <cstring>
 #include <mutex>
 #include <new>
+#include <string>
 
 namespace {
 void (*process_observer)(void*) = nullptr;
@@ -89,7 +98,40 @@ struct TestSynth {
     std::atomic<bool> turn_pending{false};
     std::atomic<clap_id> turn_id{0};
     std::atomic<double> turn_value{0.0};
+
+    // The editor (clap.gui). It draws nothing; it keeps a timer and a pipe
+    // registered with the host while it exists, the way a real editor keeps
+    // its animation timer and its display connection.
+    const clap_host_gui_t* host_gui = nullptr;
+    const clap_host_timer_support_t* host_timers = nullptr;
+    const clap_host_posix_fd_support_t* host_fds = nullptr;
+    bool gui_created = false;
+    bool gui_floating = false;
+    std::uint32_t gui_width = 320;
+    std::uint32_t gui_height = 200;
+    clap_id gui_timer = CLAP_INVALID_ID;
+    int gui_pipe[2] = {-1, -1};
+    bool gui_fd_registered = false;
 };
+
+// What every editor was asked, for blokkily_test_gui_report(), and the order
+// the host called things in, for blokkily_test_gui_log().
+std::mutex gui_mutex;
+std::array<long, blokkily::test_clap_gui::report_size> gui_report{};
+std::string gui_log;
+void gui_record(const char* entry) {
+    const std::lock_guard lock(gui_mutex);
+    if (!gui_log.empty()) gui_log += ',';
+    gui_log += entry;
+}
+void gui_count(int field, long delta = 1) {
+    const std::lock_guard lock(gui_mutex);
+    gui_report[static_cast<std::size_t>(field)] += delta;
+}
+void gui_set(int field, long value) {
+    const std::lock_guard lock(gui_mutex);
+    gui_report[static_cast<std::size_t>(field)] = value;
+}
 void press(TestSynth& synth, int key, float velocity) {
     for (int index = 0; index < synth.held_count; ++index)
         if (synth.held[index].key == key) {
@@ -148,6 +190,11 @@ bool plugin_init(const clap_plugin_t* plugin) {
         static_cast<const clap_host_latency_t*>(host->get_extension(host, CLAP_EXT_LATENCY));
     synth->host_tail =
         static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL));
+    synth->host_gui = static_cast<const clap_host_gui_t*>(host->get_extension(host, CLAP_EXT_GUI));
+    synth->host_timers = static_cast<const clap_host_timer_support_t*>(
+        host->get_extension(host, CLAP_EXT_TIMER_SUPPORT));
+    synth->host_fds = static_cast<const clap_host_posix_fd_support_t*>(
+        host->get_extension(host, CLAP_EXT_POSIX_FD_SUPPORT));
     if (synth->thread_check) {
         thread_report.init_main = ask(synth->thread_check->is_main_thread, host);
         thread_report.init_audio = ask(synth->thread_check->is_audio_thread, host);
@@ -168,6 +215,8 @@ void plugin_destroy(const clap_plugin_t* plugin) {
             if (slot == synth) slot = nullptr;
     }
     instances_destroyed.fetch_add(1);
+    // A host must destroy the editor first; one that did not is on record.
+    gui_record(synth->gui_created ? "plugin-destroy-with-editor" : "plugin-destroy");
     delete synth;
 }
 bool plugin_activate(const clap_plugin_t* plugin, double sample_rate, std::uint32_t,
@@ -403,7 +452,149 @@ constexpr clap_plugin_latency_t latency_extension{latency_get};
 std::uint32_t tail_get(const clap_plugin_t*) { return tail_samples; }
 constexpr clap_plugin_tail_t tail_extension{tail_get};
 
+// --- clap.gui ------------------------------------------------------------------
+// An X11 editor, embedded or floating. It records what the host asks and the
+// window it was given rather than drawing, so it works without a display.
+namespace gui_report_field = blokkily::test_clap_gui;
+
+bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool) {
+    return api != nullptr && std::strcmp(api, CLAP_WINDOW_API_X11) == 0;
+}
+bool gui_get_preferred_api(const clap_plugin_t*, const char** api, bool* is_floating) {
+    *api = CLAP_WINDOW_API_X11;
+    *is_floating = false;
+    return true;
+}
+bool gui_create(const clap_plugin_t* plugin, const char* api, bool is_floating) {
+    auto* synth = self(plugin);
+    if (synth->gui_created || !gui_is_api_supported(plugin, api, is_floating)) return false;
+    synth->gui_created = true;
+    synth->gui_floating = is_floating;
+    synth->gui_width = 320;
+    synth->gui_height = 200;
+    gui_record(is_floating ? "create-floating" : "create-embedded");
+    gui_count(gui_report_field::creates);
+    gui_count(gui_report_field::open_editors);
+    gui_set(gui_report_field::last_floating, is_floating ? 1 : 0);
+    gui_set(gui_report_field::width, synth->gui_width);
+    gui_set(gui_report_field::height, synth->gui_height);
+    // An editor's animation timer and its connection to the display.
+    if (synth->host_timers != nullptr &&
+        synth->host_timers->register_timer(synth->host, 20, &synth->gui_timer))
+        gui_count(gui_report_field::timers_registered);
+    else
+        synth->gui_timer = CLAP_INVALID_ID;
+    if (synth->host_fds != nullptr && pipe2(synth->gui_pipe, O_NONBLOCK | O_CLOEXEC) == 0) {
+        synth->gui_fd_registered =
+            synth->host_fds->register_fd(synth->host, synth->gui_pipe[0], CLAP_POSIX_FD_READ);
+        if (synth->gui_fd_registered) gui_count(gui_report_field::fds_registered);
+    }
+    return true;
+}
+void gui_destroy(const clap_plugin_t* plugin) {
+    auto* synth = self(plugin);
+    if (!synth->gui_created) return;
+    if (synth->gui_timer != CLAP_INVALID_ID) {
+        if (synth->host_timers->unregister_timer(synth->host, synth->gui_timer))
+            gui_count(gui_report_field::timers_registered, -1);
+        synth->gui_timer = CLAP_INVALID_ID;
+    }
+    if (synth->gui_fd_registered) {
+        if (synth->host_fds->unregister_fd(synth->host, synth->gui_pipe[0]))
+            gui_count(gui_report_field::fds_registered, -1);
+        synth->gui_fd_registered = false;
+    }
+    for (int& end : synth->gui_pipe)
+        if (end >= 0) {
+            close(end);
+            end = -1;
+        }
+    synth->gui_created = false;
+    gui_record("destroy");
+    gui_count(gui_report_field::destroys);
+    gui_count(gui_report_field::open_editors, -1);
+}
+bool gui_set_scale(const clap_plugin_t*, double scale) {
+    gui_record("scale");
+    gui_set(gui_report_field::scale_percent, std::lround(scale * 100.0));
+    return true;
+}
+bool gui_get_size(const clap_plugin_t* plugin, std::uint32_t* width, std::uint32_t* height) {
+    const auto* synth = self(plugin);
+    if (!synth->gui_created) return false;
+    gui_record("size");
+    *width = synth->gui_width;
+    *height = synth->gui_height;
+    return true;
+}
+bool gui_can_resize(const clap_plugin_t*) { return true; }
+bool gui_get_resize_hints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) {
+    *hints = {true, true, false, 0, 0};
+    return true;
+}
+bool gui_adjust_size(const clap_plugin_t*, std::uint32_t* width, std::uint32_t* height) {
+    *width = std::max<std::uint32_t>(*width, 100);
+    *height = std::max<std::uint32_t>(*height, 60);
+    return true;
+}
+bool gui_set_size(const clap_plugin_t* plugin, std::uint32_t width, std::uint32_t height) {
+    auto* synth = self(plugin);
+    synth->gui_width = width;
+    synth->gui_height = height;
+    gui_record("set-size");
+    gui_set(gui_report_field::width, width);
+    gui_set(gui_report_field::height, height);
+    return true;
+}
+bool gui_set_parent(const clap_plugin_t* plugin, const clap_window_t* window) {
+    const auto* synth = self(plugin);
+    if (!synth->gui_created || synth->gui_floating || window == nullptr || window->api == nullptr ||
+        std::strcmp(window->api, CLAP_WINDOW_API_X11) != 0)
+        return false;
+    gui_record("parent");
+    gui_count(gui_report_field::set_parents);
+    gui_set(gui_report_field::last_parent, static_cast<long>(window->x11));
+    return true;
+}
+bool gui_set_transient(const clap_plugin_t*, const clap_window_t*) { return true; }
+void gui_suggest_title(const clap_plugin_t*, const char*) { gui_record("title"); }
+bool gui_show(const clap_plugin_t* plugin) {
+    if (!self(plugin)->gui_created) return false;
+    gui_record("show");
+    gui_count(gui_report_field::shows);
+    return true;
+}
+bool gui_hide(const clap_plugin_t* plugin) {
+    if (!self(plugin)->gui_created) return false;
+    gui_record("hide");
+    gui_count(gui_report_field::hides);
+    return true;
+}
+constexpr clap_plugin_gui_t gui_extension{
+    gui_is_api_supported, gui_get_preferred_api, gui_create,      gui_destroy,
+    gui_set_scale,        gui_get_size,          gui_can_resize,  gui_get_resize_hints,
+    gui_adjust_size,      gui_set_size,          gui_set_parent,  gui_set_transient,
+    gui_suggest_title,    gui_show,              gui_hide};
+
+// --- clap.timer-support and clap.posix-fd-support ---------------------------------
+void on_timer(const clap_plugin_t* plugin, clap_id id) {
+    if (self(plugin)->gui_timer == id) gui_count(gui_report_field::timer_ticks);
+}
+constexpr clap_plugin_timer_support_t timer_extension{on_timer};
+void on_fd(const clap_plugin_t* plugin, int fd, clap_posix_fd_flags_t flags) {
+    auto* synth = self(plugin);
+    if (fd != synth->gui_pipe[0] || (flags & CLAP_POSIX_FD_READ) == 0) return;
+    char byte = 0;
+    bool read_any = false;
+    while (read(fd, &byte, 1) == 1) read_any = true;
+    if (read_any) gui_count(gui_report_field::fd_events);
+}
+constexpr clap_plugin_posix_fd_support_t fd_extension{on_fd};
+
 const void* plugin_extension(const clap_plugin_t*, const char* id) {
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui_extension;
+    if (std::strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) return &timer_extension;
+    if (std::strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT) == 0) return &fd_extension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state_extension;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params_extension;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audio_ports_extension;
@@ -515,4 +706,57 @@ extern "C" CLAP_EXPORT void blokkily_test_transport(double* answers) {
 extern "C" CLAP_EXPORT void blokkily_test_instance_counts(long* created, long* destroyed) {
     if (created != nullptr) *created = instances_created.load();
     if (destroyed != nullptr) *destroyed = instances_destroyed.load();
+}
+
+// --- The editor, driven the way its window would be ------------------------------
+
+// Everything the editors were asked, indexed by blokkily::test_clap_gui::Report.
+extern "C" CLAP_EXPORT void blokkily_test_gui_report(long* values) {
+    const std::lock_guard lock(gui_mutex);
+    std::copy(gui_report.begin(), gui_report.end(), values);
+}
+
+// The calls the host made, in order, comma separated ("create-embedded,scale,
+// size,parent,show,..."), NUL-terminated into `text`; returns the full length.
+extern "C" CLAP_EXPORT std::size_t blokkily_test_gui_log(char* text, std::size_t size) {
+    const std::lock_guard lock(gui_mutex);
+    if (text != nullptr && size > 0) {
+        const auto count = std::min(size - 1, gui_log.size());
+        std::memcpy(text, gui_log.data(), count);
+        text[count] = '\0';
+    }
+    return gui_log.size();
+}
+extern "C" CLAP_EXPORT void blokkily_test_gui_clear_log() {
+    const std::lock_guard lock(gui_mutex);
+    gui_log.clear();
+}
+
+// Something arrives on each open editor's display connection: a byte on the
+// pipe the host is watching for it.
+extern "C" CLAP_EXPORT void blokkily_test_gui_poke() {
+    for_each_live([](TestSynth& synth) {
+        if (synth.gui_created && synth.gui_pipe[1] >= 0) {
+            const char byte = 1;
+            (void)!write(synth.gui_pipe[1], &byte, 1);
+        }
+    });
+}
+
+// Each open editor asks the host for a new size, as one does when a panel of
+// it is expanded.
+extern "C" CLAP_EXPORT void blokkily_test_gui_request_resize(std::uint32_t width,
+                                                             std::uint32_t height) {
+    for_each_live([&](TestSynth& synth) {
+        if (synth.gui_created && synth.host_gui != nullptr)
+            (void)synth.host_gui->request_resize(synth.host, width, height);
+    });
+}
+
+// Each open editor goes away by itself (its connection to the display was
+// lost), which the host must acknowledge by destroying it.
+extern "C" CLAP_EXPORT void blokkily_test_gui_request_close() {
+    for_each_live([](TestSynth& synth) {
+        if (synth.gui_created && synth.host_gui != nullptr) synth.host_gui->closed(synth.host, true);
+    });
 }

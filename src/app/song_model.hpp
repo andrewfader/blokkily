@@ -196,6 +196,12 @@ public:
     void markSaved();
     // A new or freshly opened session has no history to go back through.
     void clearHistory();
+    // A plugin's own window moved its parameters (item 2.6, decision 12):
+    // `state` is what the instrument on `track` now holds. One gesture in the
+    // plugin's window is one step of history. The engine already plays the
+    // new state, so nothing is rebuilt or recompiled. False, and no step,
+    // when the state did not change.
+    bool commitInstrumentState(int track, std::vector<std::byte> state);
 
 signals:
     void songChanged();
@@ -210,6 +216,10 @@ signals:
     void historyChanged();
     // The tempo or meter map changed. Also covered by songChanged.
     void timebaseChanged();
+    // Undo or redo put back a song whose instruments may hold other states
+    // than the running instances do. Raised before structureChanged, so the
+    // states reach the instances before a rebuild reads them back.
+    void instrumentStatesRestored();
 
 private:
     [[nodiscard]] bool validTrack(int track) const;

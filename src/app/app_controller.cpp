@@ -97,6 +97,9 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // structureChanged, like any other change to when events fall.
         QObject::connect(song_, &SongModel::timebaseChanged, this, &AppController::syncTimebase);
         syncTimebase();
+        // Undoing a knob turned in a plugin's window puts the plugin back.
+        QObject::connect(song_, &SongModel::instrumentStatesRestored, this,
+                         &AppController::restoreInstrumentStates);
         // A controller plays the selected track, in the song's own tuning and
         // scale, from the next key pressed.
         const auto follow = [this] {
@@ -116,6 +119,10 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
                      &AppController::releaseSoundingNotes);
     meter_timer_.setInterval(33);
     QObject::connect(&meter_timer_, &QTimer::timeout, this, &AppController::pollMeters);
+    // Plugins are served on the main thread while an engine exists: what they
+    // asked of it, and the edits their windows made.
+    editor_timer_.setInterval(30);
+    QObject::connect(&editor_timer_, &QTimer::timeout, this, &AppController::serviceEditors);
     // A candidate that stops answering is given up on rather than waited for.
     scan_deadline_.setSingleShot(true);
     QObject::connect(&scan_deadline_, &QTimer::timeout, this, [this] {
@@ -426,6 +433,9 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     ++rebuilds_;
     // The new engine compiles the song itself, so an owed recompile is moot.
     recompiler_.cancel();
+    // A gesture finished in a plugin's window before the rebuild is a step of
+    // history; the old engine's ring goes with it.
+    drainPluginEdits();
 
     // State streams belong to the control thread while the processor is idle.
     if (audio_output_) audio_output_->stop();
@@ -487,6 +497,10 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     }
     blokkily::load_fresh_state(*next, song, build);
     engine_ = std::move(next);
+    // Open editors follow their tracks; one whose instance was replaced has
+    // already been closed with it.
+    reconcileEditors(remap);
+    editor_timer_.start();
     // The controller's keys reach whichever engine is live, and a take being
     // recorded carries on into it.
     engine_->connect_input(&midi_input_->queue());

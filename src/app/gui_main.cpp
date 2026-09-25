@@ -1,5 +1,6 @@
 #include "keyboard_model.hpp"
 #include "app_controller.hpp"
+#include "plugin_run_loop_qt.hpp"
 #include "verify/harness.hpp"
 
 #include <QGuiApplication>
@@ -38,6 +39,12 @@ int main(int argc, char* argv[]) {
     parser.addOption({"orientation", "Leave the surface running ACROSS or DOWN.", "name"});
     parser.addOption({"scenario", "Run only this scenario group (midi, chords) and exit.", "name"});
     parser.process(app);
+
+    // Plugins' timers, watched descriptors and JUCE's message queue are served
+    // by the application's own event loop (item 2.6). Installed before any
+    // plugin exists and removed after the last one is gone.
+    QtPluginRunLoop plugin_run_loop;
+    const blokkily::ScopedPluginRunLoop plugin_run_loop_installed(plugin_run_loop);
 
     // Held for the life of the application, so rebuilding the audio graph
     // never tears the plugin host runtime down between two instruments.

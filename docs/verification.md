@@ -183,6 +183,29 @@ each, and the chord survives a save and a load. The screenshot shows the chord
 selected: the tracker's VEL column at the loudest voice, the piano roll drawing
 each voice at its own length, and the inspector's VOICE VELOCITY bars.
 
+`build/artifacts/plugin-windows.png` — from the `bdd_plugin_windows` gate
+(`blokkily --verify --scenario plugin_windows`, offscreen), which runs the
+interface scenarios of `features/plugin_windows.feature`. E on the CLAP strip
+opens the fixture's editor embedded in a 320 × 200 window made for it (the
+fixture records that window's id through `set_parent`); a knob turned in the
+editor reaches the song through the engine's edit ring, reads `LEVEL 0.60`
+and is heard at 0.60; one click of UNDO takes the gesture back to 0.25 and
+REDO returns it, without a rebuild. Adding a track keeps the same window with
+nothing destroyed; swapping an instrument closes its editor only; saving and
+loading opens no window and keeps 0.60; EDITOR in the instrument panel opens
+the selected track's editor; and the VST3 editor is refused with "Plugin window
+needs an X11 display", because offscreen has none. The screenshot shows E lit
+on the CLAP strip, the EDITOR bar lit with `LEVEL 0.60`, and the refusal.
+
+`build/artifacts/plugin-window-x11.png` — from `plugin_window_display_check`,
+the only real-pixel proof of plugin windows: the VST3 fixture's editor (solid
+`#C8FF3C`) embedded through the application's window code in a Qt window on the
+xcb platform, read back from the X server with `XGetImage`. The centre pixel
+must be the editor's colour. It keeps the session's `DISPLAY` and skips (exit
+77) where no X server can be opened, so it does not run on a headless machine
+without Xvfb. `blokkily_editor_nodisplay_check` covers that machine: with
+`DISPLAY` unset or empty a VST3 editor is refused before JUCE touches X.
+
 `midi_device_input` opens a virtual port through the system's MIDI server — the
 way a controller's driver presents one — connects the production input to it by
 name, and fails unless a note sent there is heard through the render callback

@@ -15,7 +15,9 @@
 #include "blokkily/midi/midi_input.hpp"
 #include "blokkily/sequencer/take.hpp"
 
+#include "editor_gestures.hpp"
 #include "engine_graph.hpp"
+#include "plugin_windows.hpp"
 #include "recompile_coalescer.hpp"
 
 #include <QObject>
@@ -62,6 +64,12 @@ class AppController final : public QObject {
     // Armed, a running song records what is played into the pattern under the
     // playhead on the selected track.
     Q_PROPERTY(bool recordArmed READ recordArmed NOTIFY recordChanged)
+    // Plugin editors (item 2.6): the tracks whose instrument has its own
+    // window open, what the last attempt to open one said, and the parameter
+    // the last knob turned in an editor moved, as "LEVEL 0.60".
+    Q_PROPERTY(QVariantList openEditors READ openEditors NOTIFY editorsChanged)
+    Q_PROPERTY(QString editorStatus READ editorStatus NOTIFY editorsChanged)
+    Q_PROPERTY(QString editorReadout READ editorReadout NOTIFY editorReadoutChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -203,6 +211,28 @@ public:
     // How many processors the last rebuild carried over from the engine before.
     int adoptedProcessors() const noexcept { return adopted_processors_; }
 
+    // --- Plugin editors (item 2.6; app_controller_editors.cpp) ----------------
+    QVariantList openEditors() const;
+    QString editorStatus() const { return editor_status_; }
+    QString editorReadout() const { return editor_readout_; }
+    // Opens the editor of the instrument on `track` in its own window. False,
+    // with editorStatus saying why, when there is no instrument, it has no
+    // editor, or this display cannot show it.
+    Q_INVOKABLE bool openEditor(int track);
+    Q_INVOKABLE void closeEditor(int track);
+    Q_INVOKABLE bool toggleEditor(int track);
+    Q_INVOKABLE bool editorOpen(int track) const;
+    // Whether the instrument on `track` has an editor to open.
+    Q_INVOKABLE bool hasEditor(int track) const;
+    PluginWindows& pluginWindows();
+    // Moves the plugins' own parameter edits out of the engine: each gesture
+    // finished in a plugin's window becomes one step of history holding the
+    // instrument's new state. Runs on a timer; callable directly.
+    void drainPluginEdits();
+    // Serves what plugins asked of the main thread (idle()) and drains their
+    // edits: what the editor timer does every turn.
+    void serviceEditors();
+
 signals:
     void statusChanged();
     void pluginsChanged();
@@ -216,8 +246,16 @@ signals:
     void midiChanged();
     void midiActivityChanged();
     void recordChanged();
+    void editorsChanged();
+    void editorReadoutChanged();
 
 private:
+    // Undo or redo put back instrument states: each running instance whose
+    // state differs is given the song's.
+    void restoreInstrumentStates();
+    // After a rebuild: editors follow their tracks and stay on adopted
+    // instances.
+    void reconcileEditors(const blokkily::TrackRemap* remap);
     // Drives the scan queue: one helper process per candidate, each with a
     // deadline, results appended to the browser as they land.
     void scanNext();
@@ -323,4 +361,11 @@ private:
     bool scan_cache_loaded_ = false;
     std::unique_ptr<QProcess> scanner_;
     QTimer scan_deadline_;
+    // Plugin editors. Declared last so the windows close while the engine and
+    // the instances they edit still exist.
+    blokkily::EditGestures gestures_;
+    QString editor_status_;
+    QString editor_readout_;
+    QTimer editor_timer_;
+    std::unique_ptr<PluginWindows> windows_;
 };

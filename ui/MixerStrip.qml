@@ -51,6 +51,7 @@ Rectangle {
                     font.pixelSize: 9; elide: Text.ElideRight
                 }
             }
+            PluginEditorButton { track: trackIndex; available: modelData.hasInstrument }
             Chip {
                 objectName: "mute" + modelData.index
                 text: "M"; accent: Theme.amber

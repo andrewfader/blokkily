@@ -60,10 +60,26 @@ target_link_libraries(blokkily_core PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(blokkily_core PUBLIC PkgConfig::FLUIDSYNTH)
 target_link_libraries(blokkily_core PUBLIC PkgConfig::RTAUDIO)
 target_link_libraries(blokkily_core PRIVATE PkgConfig::RTMIDI)
-target_link_libraries(blokkily_core PRIVATE juce::juce_audio_processors_headless)
-target_compile_definitions(blokkily_core PRIVATE
+# JUCE is compiled once, GUI-capable, here and nowhere else in the host
+# (docs/plans/spike-1.7-juce-gui.md, "core links GUI"). Everything that needs
+# JUCE links this target; nothing else links juce:: module targets (the VST3
+# test fixtures keep their own copies, as a plugin must). A VST3 editor can
+# only be made by an instance the GUI-capable VST3PluginFormat created, which
+# is why the adapter in core is compiled against it. JUCE's C sources compile
+# here, so blokkily_core keeps -Werror unchanged.
+add_library(blokkily_juce STATIC)
+target_link_libraries(blokkily_juce
+    PRIVATE juce::juce_audio_processors juce::juce_gui_basics
+    PUBLIC  juce::juce_recommended_config_flags)
+target_compile_definitions(blokkily_juce PUBLIC
     JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LV2=0
     JUCE_PLUGINHOST_VST=0 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+# Consumers must see JUCE's module-availability macros and include paths.
+target_compile_definitions(blokkily_juce INTERFACE
+    $<TARGET_PROPERTY:blokkily_juce,COMPILE_DEFINITIONS>)
+target_include_directories(blokkily_juce INTERFACE
+    $<TARGET_PROPERTY:blokkily_juce,INCLUDE_DIRECTORIES>)
+target_link_libraries(blokkily_core PRIVATE blokkily_juce)
 target_compile_options(blokkily_core PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
 )

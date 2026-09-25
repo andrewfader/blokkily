@@ -33,6 +33,7 @@ void SongModel::restore(Snapshot snapshot) {
     emit tuningChanged();
     emit mixChanged();
     emit timebaseChanged();
+    emit instrumentStatesRestored();
     notifyStructureChanged();
     emit historyChanged();
 }
