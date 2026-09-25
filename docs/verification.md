@@ -183,6 +183,28 @@ each, and the chord survives a save and a load. The screenshot shows the chord
 selected: the tracker's VEL column at the loudest voice, the piano roll drawing
 each voice at its own length, and the inspector's VOICE VELOCITY bars.
 
+`build/artifacts/audio-clips.png` — from the `bdd_audio_clips` gate
+(`blokkily --verify --scenario audio`), which runs the interface scenarios of
+`features/audio_clips.feature`. It clicks +AUD and cancels the import dialog,
+then imports a four-second 48 kHz file onto a new instrument-less audio track;
+the song must stay unchanged until the decode finishes off the control thread,
+and the import must be one step of undo. The clip must be drawn on the ruler's
+bars with a waveform, heard sample for sample through the production callback,
+and muted by its strip. It is then dragged two bars later and up a row, its
+edges trimmed and its fade handles dragged with synthesized mouse events, and
+turned down six wheel notches, each checked in the model and in the rendered
+audio, with undo and redo heard. A second, 44.1 kHz file is imported, the
+project is saved (both files stored relative to the project folder), bounced
+and read back sample for sample against the callback, reopened, and reopened
+again with the 44.1 kHz file removed. The screenshot shows the AUDIO 1 track's
+trimmed, faded clip at -6 dB with its waveform, and the BASS track's clip
+flagged MISSING in red. The engine side (`blokkily_audio_clips_tests`, tests
+`audio_clips_*`, and `realtime_audio_clips`) is proved from rendered audio:
+start sample, offset, length, gain, fades, live mixer moves, recompile
+continuity, a CLAP note plus a clip summing within 1e-6, overlaps summing, a
+bounce read back, a clip after a tempo step, a resampled file, a moved project
+folder, and missing and changed files.
+
 `midi_device_input` opens a virtual port through the system's MIDI server — the
 way a controller's driver presents one — connects the production input to it by
 name, and fails unless a note sent there is heard through the render callback

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "blokkily/audio/audio_asset.hpp"
 #include "blokkily/audio/audio_source.hpp"
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/event_timeline.hpp"
@@ -87,10 +88,13 @@ public:
 
     // Builds everything the render callback needs for `song` at `sample_rate`.
     // The song's tempo map says where each tick falls (plan F-A); there is no
-    // other tempo.
+    // other tempo. `assets` is the decoded audio of song.audio_files, indexed
+    // the same way and decoded at `sample_rate` (a null entry is a missing
+    // file, whose clips stay silent). The engine keeps the assets it plays
+    // alive; the render callback reads them through raw pointers only.
     [[nodiscard]] bool prepare(const Song& song, double sample_rate,
                                std::uint32_t maximum_block_size, std::uint64_t seed = 0,
-                               std::string* error = nullptr);
+                               std::string* error = nullptr, const AudioAssets& assets = {});
 
     // Recompiles what the arrangement plays and hands it to the render callback
     // without rebuilding the graph, reloading an instrument, or moving the
@@ -108,8 +112,13 @@ public:
     // the song position to the sample where the same tick falls under the new
     // clock, unless a seek was taken in that same block (the seek was already
     // placed with the new clock).
+    //
+    // Audio clips are recompiled the same way, from `assets` (see prepare()):
+    // moving, trimming or fading a clip never interrupts playback, and the
+    // audio an older arrangement played is let go on this (control) thread
+    // once no slot refers to it.
     [[nodiscard]] bool recompile(const Song& song, std::uint64_t seed = 0,
-                                 std::string* error = nullptr);
+                                 std::string* error = nullptr, const AudioAssets& assets = {});
     // The clock of the arrangement last prepared or recompiled: what the
     // control thread converts ticks and samples with. Control thread only.
     [[nodiscard]] const TickClock& published_clock() const noexcept { return published_clock_; }
@@ -219,7 +228,8 @@ private:
         std::size_t track) const noexcept;
     // Compiles `song` into `target`. Control thread only.
     [[nodiscard]] bool compile_into(Arrangement& target, const Song& song,
-                                    std::uint64_t seed, std::string* error) const;
+                                    std::uint64_t seed, std::string* error,
+                                    const AudioAssets& assets) const;
 
     std::vector<std::unique_ptr<TrackPlayback>> tracks_;
     std::unique_ptr<engine::BusPlayback> buses_;

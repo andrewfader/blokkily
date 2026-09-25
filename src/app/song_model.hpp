@@ -59,6 +59,14 @@ class SongModel final : public QObject {
     Q_PROPERTY(int rootDegree READ rootDegree NOTIFY tuningChanged)
     Q_PROPERTY(QString rootName READ rootName NOTIFY tuningChanged)
     Q_PROPERTY(bool autoScale READ autoScale NOTIFY tuningChanged)
+    // Audio clips (item 2.2), as the clip lane draws them: one entry per clip,
+    // {id, track, file, name, startTick, endTick, fadeInTick, fadeOutTick,
+    // gainDb, lengthSeconds, missing}. The ticks are song ticks through the
+    // tempo map; the lane places them with barLayout.
+    Q_PROPERTY(QVariantList audioClips READ audioClips NOTIFY audioClipsChanged)
+    // How many of the song's audio files could not be found as the song
+    // expects them.
+    Q_PROPERTY(int missingAudioFiles READ missingAudioFiles NOTIFY audioClipsChanged)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -169,6 +177,40 @@ public:
     // The degree a played one becomes once the scale has its say.
     [[nodiscard]] int snapDegree(int degree) const;
 
+    // --- Audio clips (song_model_audio.cpp) ---------------------------------
+    // Every edit names its clip by AudioClip::id, which survives other clips
+    // being added or removed; each is one step of history, and a drag wrapped
+    // in beginGesture()/endGesture() is one step however many moves it makes.
+    // Ticks are song ticks; frames are counted at the clip's file rate.
+    QVariantList audioClips() const;
+    int missingAudioFiles() const;
+    // A new track with no instrument, named for the audio it will hold.
+    // Returns its index.
+    Q_INVOKABLE int addAudioTrack();
+    // Places the whole of `file` on `track` from `start`: one step of history
+    // that adds the file (unless the song already lists it) and the clip.
+    // Returns the new clip's id, or 0 when the track or file is not valid.
+    blokkily::AudioClipId addAudioClip(const blokkily::AudioFileRef& file, int track,
+                                       blokkily::Tick start);
+    // Moves a clip so it starts at `tick` on `track` (the same length of
+    // file, the same fades).
+    Q_INVOKABLE bool moveAudioClip(qint64 id, double tick, int track);
+    // Moves the clip's start edge to `tick`, keeping its end where it is: the
+    // file under the edge is revealed or hidden, never shifted in time.
+    Q_INVOKABLE bool trimAudioClipStart(qint64 id, double tick);
+    // Moves the clip's end edge to `tick`, keeping its start.
+    Q_INVOKABLE bool trimAudioClipEnd(qint64 id, double tick);
+    // The fade-in ends at `tick`; the fade-out begins at `tick`.
+    Q_INVOKABLE bool setAudioClipFadeIn(qint64 id, double tick);
+    Q_INVOKABLE bool setAudioClipFadeOut(qint64 id, double tick);
+    Q_INVOKABLE bool setAudioClipGain(qint64 id, double decibels);
+    Q_INVOKABLE bool removeAudioClip(qint64 id);
+    // One clip as audioClips lists it, or an empty map.
+    Q_INVOKABLE QVariantMap audioClip(qint64 id) const;
+    // Which of the song's files the controller could not load as the song
+    // expects them, indexed like Song::audio_files.
+    void setMissingAudio(std::vector<bool> missing);
+
     blokkily::Song& song() noexcept { return song_; }
     const blokkily::Song& song() const noexcept { return song_; }
     blokkily::Pattern& editPattern();
@@ -210,8 +252,14 @@ signals:
     void historyChanged();
     // The tempo or meter map changed. Also covered by songChanged.
     void timebaseChanged();
+    // The audio clips, or which of their files are missing, changed.
+    void audioClipsChanged();
 
 private:
+    [[nodiscard]] blokkily::AudioClip* findAudioClip(qint64 id);
+    [[nodiscard]] const blokkily::AudioClip* findAudioClip(qint64 id) const;
+    [[nodiscard]] QVariantMap audioClipRow(const blokkily::AudioClip& clip) const;
+    std::vector<bool> missing_audio_;
     [[nodiscard]] bool validTrack(int track) const;
     // The clip covering a bar on a track, if any. One definition of coverage,
     // shared by the lanes projection and by editing.

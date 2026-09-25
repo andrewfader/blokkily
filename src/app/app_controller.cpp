@@ -84,7 +84,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
             // even if none existed: a keyboard must sound before playback. A
             // deleted track says where the others went, so each keeps its
             // own instrument instance.
-            if (engine_ || !instruments().empty()) {
+            if (engine_ || !instruments().empty() || hasAudioClips()) {
                 const auto* remap = song_->pendingTrackRemap();
                 (void)rebuildEngine(remap);
             }
@@ -126,6 +126,10 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
 }
 
 AppController::~AppController() {
+    // An import still decoding reports back to this object: it is waited for
+    // here, and what it posts is discarded with the object.
+    for (auto& [ticket, worker] : imports_)
+        if (worker.joinable()) worker.join();
     if (scanner_) {
         scanner_->kill();
         scanner_->waitForFinished(1000);
@@ -215,6 +219,7 @@ blokkily::ProcessorContext AppController::processorContext() const {
     blokkily::ProcessorContext context;
     if (!project_path_.isEmpty())
         context.project_dir = std::filesystem::path(project_path_.toStdString()).parent_path();
+    context.assets = &assets_;
     return context;
 }
 
@@ -259,7 +264,7 @@ bool AppController::refreshArrangement(std::string* failure) {
     // compiles the song itself.
     if (!builtFromCurrentGraph()) return rebuildEngine();
     std::string error;
-    if (!engine_->recompile(song_->song(), 0, &error)) {
+    if (!engine_->recompile(song_->song(), 0, &error, clipAssets(engine_->sample_rate()))) {
         if (failure != nullptr) *failure = error;
         // A busy engine is tried again on the next turn; only a refusal that
         // will not clear by itself is worth telling the producer about.
@@ -408,6 +413,9 @@ void AppController::newProject() {
     // A take in progress belonged to the song being replaced.
     takes_.clear();
     engine_.reset();
+    // The audio the last song played is let go unless the next one plays it.
+    clip_assets_.clear();
+    assets_.purge_unused();
     song_->replace(std::move(blank));
     if (song_->song().tracks.front().instrument.format.empty()) (void)loadDefaultInstrument();
     else (void)rebuildEngine();
@@ -479,7 +487,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     const double rate = device_open && audio_output_->device_info().sample_rate != 0
                             ? static_cast<double>(audio_output_->device_info().sample_rate)
                             : static_cast<double>(default_sample_rate);
-    if (!next->prepare(song, rate, 512, 0, &error)) {
+    if (!next->prepare(song, rate, 512, 0, &error, clipAssets(rate))) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
         emit statusChanged();
         emit activeInstrumentChanged();
@@ -590,6 +598,8 @@ void AppController::togglePlayback() {
     // Pressing Play is a request to hear the song. A session that has not been
     // given an instrument yet gets the default bank here rather than being told
     // to go and find one.
+    // A song of audio clips alone needs no instrument to be heard.
+    if (!engine_ && hasAudioClips()) (void)rebuildEngine();
     if (!engine_ && transport_ != nullptr) (void)loadDefaultInstrument();
     if (!engine_ || !transport_) {
         status_ = "No instrument could be loaded — pick one from the plugin browser";
@@ -953,6 +963,9 @@ bool AppController::saveProject(const QString& path) {
     blokkily::Project project;
     project.name = "Blokkily Session";
     project.song = song;
+    // Files no clip plays any more are not written. The song in memory keeps
+    // them, so undoing a deleted clip still finds its file.
+    (void)project.song.prune_audio_files();
     std::string error;
     const bool valid = blokkily::ProjectFile::save(project, path.toStdString(), &error);
     if (valid) {
@@ -983,6 +996,9 @@ bool AppController::loadProject(const QString& path) {
     forgetSoundingNotes();
     takes_.clear();
     engine_.reset();
+    // The audio the last song played is let go unless the next one plays it.
+    clip_assets_.clear();
+    assets_.purge_unused();
     const auto tracks = project->song.tracks.size();
     const auto patterns = project->song.patterns.size();
     song_->replace(std::move(project->song));
