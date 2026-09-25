@@ -42,6 +42,22 @@ public:
     // Runs a requested on_main_thread callback, serves a requested flush while
     // the plugin is inactive, and picks up an announced tail change.
     void idle() override;
+
+    // Native editor (item 2.6): clap.gui, embedded in the window the host
+    // gives or floating on its own. The adapter answers the plugin's
+    // clap.timer-support and clap.posix-fd-support requests through the
+    // installed PluginRunLoop, and destroys an open editor before the plugin,
+    // telling its EditorHost. What the plugin asks of its window from another
+    // thread (resize, show, hide, closed) reaches the EditorHost from idle(),
+    // on the main thread.
+    bool has_editor() const override;
+    bool supports_editor(WindowApi api, bool floating) const override;
+    bool open_editor(const NativeParent* parent, EditorHost& host, EditorSize* size,
+                     std::string* error) override;
+    bool resize_editor(std::uint32_t& width, std::uint32_t& height) override;
+    void set_editor_scale(double scale) override;
+    void close_editor() override;
+    bool editor_open() const override;
     [[nodiscard]] const std::string& id() const noexcept;
     [[nodiscard]] const std::string& name() const noexcept;
 

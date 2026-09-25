@@ -47,18 +47,10 @@ void AppController::connectSampler() {
     // the song or the selection may change what it shows.
     QObject::connect(song_, &SongModel::songChanged, this, &AppController::samplerChanged);
     // Undo and redo restore the song, and with it a sampler's earlier program:
-    // the running sampler is given that program too, so what is heard is what
-    // the song now says, still without rebuilding anything.
+    // restoreInstrumentStates gives the running sampler that program, still
+    // without rebuilding anything, and the panel reads it back.
     QObject::connect(song_, &SongModel::instrumentStatesRestored, this,
-                     [this](const QList<int>& tracks) {
-                         for (const int track : tracks) {
-                             const auto& state =
-                                 song_->song().tracks[static_cast<std::size_t>(track)]
-                                     .instrument.state;
-                             (void)pushInstrumentState(track, state, false);
-                         }
-                         emit samplerChanged();
-                     });
+                     &AppController::samplerChanged);
 }
 
 bool AppController::pushInstrumentState(int track, std::span<const std::byte> state,

@@ -84,8 +84,11 @@ public:
         render(audio.getNumSamples());
     }
 
-    bool hasEditor() const override { return false; }
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    // The editor fills 320 x 200 with one colour, #C8FF3C, so a grab of the
+    // host window proves it reached the screen: the centre pixel is that
+    // colour or the editor is not there.
+    bool hasEditor() const override { return true; }
+    juce::AudioProcessorEditor* createEditor() override;
     double getTailLengthSeconds() const override { return 0.0; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
@@ -115,6 +118,18 @@ private:
     juce::AudioParameterFloat* level_ = nullptr;
     juce::AudioParameterFloat* tone_ = nullptr;
 };
+
+namespace {
+struct TestEditor final : juce::AudioProcessorEditor {
+    explicit TestEditor(juce::AudioProcessor& processor) : AudioProcessorEditor(processor) {
+        setOpaque(true);
+        setSize(320, 200);
+    }
+    void paint(juce::Graphics& graphics) override { graphics.fillAll(juce::Colour(0xffc8ff3cU)); }
+};
+} // namespace
+
+juce::AudioProcessorEditor* TestVst3Processor::createEditor() { return new TestEditor(*this); }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new TestVst3Processor(); }
 

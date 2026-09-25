@@ -1,15 +1,19 @@
 #include "blokkily/plugins/clap_instance.hpp"
 
 #include "blokkily/audio/event_queue.hpp"
+#include "blokkily/plugins/plugin_run_loop.hpp"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
+#include <clap/ext/gui.h>
 #include <clap/ext/latency.h>
 #include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
+#include <clap/ext/posix-fd-support.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 #include <clap/ext/thread-check.h>
+#include <clap/ext/timer-support.h>
 
 #include <algorithm>
 #include <array>
@@ -18,6 +22,8 @@
 #include <cstring>
 #include <limits>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -81,6 +87,40 @@ struct HostState {
     // process() or flush(), which CLAP never runs at the same time; the
     // consumer is take_parameter_edits().
     SpscQueue<ParameterEdit, 512> edits;
+
+    // --- Main-thread services (item 2.6) ------------------------------------
+    // The plugin, once created, so run-loop callbacks can reach it.
+    const clap_plugin_t* plugin = nullptr;
+    // Timers and descriptors the plugin registered, with the run loop each
+    // went to, so every one is removed before the plugin is destroyed.
+    struct TimerRegistration {
+        clap_id id;
+        PluginRunLoop* loop;
+        std::uint64_t loop_id;
+    };
+    std::vector<TimerRegistration> timers;
+    clap_id next_timer = 1;
+    struct FdRegistration {
+        int fd;
+        PluginRunLoop* loop;
+    };
+    std::vector<FdRegistration> fds;
+    // The editor, when one is open, and what its window was asked for from
+    // threads other than the main one, served by idle().
+    // Read by the gui callbacks, which may arrive on any thread.
+    EditorHost* editor_host = nullptr;
+    std::atomic<bool> editor_open{false};
+    std::atomic<bool> editor_floating{false};
+    std::atomic<bool> gui_closed{false};
+    std::atomic<bool> gui_show_requested{false};
+    std::atomic<bool> gui_hide_requested{false};
+    std::atomic<bool> gui_resize_requested{false};
+    std::atomic<std::uint32_t> gui_resize_width{0};
+    std::atomic<std::uint32_t> gui_resize_height{0};
+
+    [[nodiscard]] bool on_main_thread() const noexcept {
+        return std::this_thread::get_id() == main_thread;
+    }
 };
 
 HostState* state_of(const clap_host_t* host) { return static_cast<HostState*>(host->host_data); }
@@ -117,8 +157,120 @@ void CLAP_ABI audio_ports_rescan(const clap_host_t*, std::uint32_t) {}
 constexpr clap_host_audio_ports_t host_audio_ports{audio_ports_rescan_supported,
                                                    audio_ports_rescan};
 
+// --- clap.gui: what an open editor asks of the window hosting it ------------
+void CLAP_ABI gui_resize_hints_changed(const clap_host_t*) {}
+bool CLAP_ABI gui_request_resize(const clap_host_t* host, std::uint32_t width,
+                                 std::uint32_t height) {
+    auto* state = state_of(host);
+    if (!state->editor_open || state->editor_floating) return false;
+    if (state->on_main_thread() && state->editor_host != nullptr) {
+        state->editor_host->request_resize(width, height);
+        return true;
+    }
+    state->gui_resize_width.store(width, std::memory_order_relaxed);
+    state->gui_resize_height.store(height, std::memory_order_relaxed);
+    state->gui_resize_requested.store(true, std::memory_order_release);
+    return true;
+}
+bool CLAP_ABI gui_request_show(const clap_host_t* host) {
+    auto* state = state_of(host);
+    if (!state->editor_open) return false;
+    if (state->on_main_thread() && state->editor_host != nullptr) state->editor_host->request_show();
+    else state->gui_show_requested.store(true, std::memory_order_release);
+    return true;
+}
+bool CLAP_ABI gui_request_hide(const clap_host_t* host) {
+    auto* state = state_of(host);
+    if (!state->editor_open) return false;
+    if (state->on_main_thread() && state->editor_host != nullptr) state->editor_host->request_hide();
+    else state->gui_hide_requested.store(true, std::memory_order_release);
+    return true;
+}
+// Whatever thread it arrives on, and whether or not the plugin already
+// destroyed its window, the editor is taken down on the main thread by idle():
+// calling back into the plugin from inside its own call would re-enter it.
+void CLAP_ABI gui_closed(const clap_host_t* host, bool) {
+    state_of(host)->gui_closed.store(true, std::memory_order_release);
+}
+constexpr clap_host_gui_t host_gui{gui_resize_hints_changed, gui_request_resize,
+                                   gui_request_show, gui_request_hide, gui_closed};
+
+// --- clap.timer-support and clap.posix-fd-support ------------------------------
+// Both go to whichever run loop the application installed; with none, the
+// plugin is told no and has to manage without.
+bool CLAP_ABI timer_register(const clap_host_t* host, std::uint32_t period_ms, clap_id* timer_id) {
+    auto* state = state_of(host);
+    auto* loop = plugin_run_loop();
+    if (loop == nullptr || timer_id == nullptr || !state->on_main_thread()) return false;
+    const clap_id id = state->next_timer++;
+    const auto loop_id = loop->add_timer(period_ms, [state, id] {
+        if (state->plugin == nullptr) return;
+        const auto* timers = static_cast<const clap_plugin_timer_support_t*>(
+            state->plugin->get_extension(state->plugin, CLAP_EXT_TIMER_SUPPORT));
+        if (timers != nullptr && timers->on_timer != nullptr) timers->on_timer(state->plugin, id);
+    });
+    if (loop_id == 0) return false;
+    state->timers.push_back({id, loop, loop_id});
+    *timer_id = id;
+    return true;
+}
+bool CLAP_ABI timer_unregister(const clap_host_t* host, clap_id timer_id) {
+    auto* state = state_of(host);
+    const auto found = std::find_if(state->timers.begin(), state->timers.end(),
+                                    [timer_id](const auto& timer) { return timer.id == timer_id; });
+    if (found == state->timers.end()) return false;
+    (void)found->loop->remove_timer(found->loop_id);
+    state->timers.erase(found);
+    return true;
+}
+constexpr clap_host_timer_support_t host_timer_support{timer_register, timer_unregister};
+
+bool CLAP_ABI fd_register(const clap_host_t* host, int fd, clap_posix_fd_flags_t flags) {
+    auto* state = state_of(host);
+    auto* loop = plugin_run_loop();
+    if (loop == nullptr || !state->on_main_thread()) return false;
+    const bool added = loop->add_fd(fd, flags, [state](int ready, std::uint32_t events) {
+        if (state->plugin == nullptr) return;
+        const auto* watcher = static_cast<const clap_plugin_posix_fd_support_t*>(
+            state->plugin->get_extension(state->plugin, CLAP_EXT_POSIX_FD_SUPPORT));
+        if (watcher != nullptr && watcher->on_fd != nullptr)
+            watcher->on_fd(state->plugin, ready, events);
+    });
+    if (added) state->fds.push_back({fd, loop});
+    return added;
+}
+bool CLAP_ABI fd_modify(const clap_host_t* host, int fd, clap_posix_fd_flags_t flags) {
+    auto* state = state_of(host);
+    const auto found = std::find_if(state->fds.begin(), state->fds.end(),
+                                    [fd](const auto& watch) { return watch.fd == fd; });
+    return found != state->fds.end() && found->loop->modify_fd(fd, flags);
+}
+bool CLAP_ABI fd_unregister(const clap_host_t* host, int fd) {
+    auto* state = state_of(host);
+    const auto found = std::find_if(state->fds.begin(), state->fds.end(),
+                                    [fd](const auto& watch) { return watch.fd == fd; });
+    if (found == state->fds.end()) return false;
+    (void)found->loop->remove_fd(fd);
+    state->fds.erase(found);
+    return true;
+}
+constexpr clap_host_posix_fd_support_t host_posix_fd{fd_register, fd_modify, fd_unregister};
+
+const char* window_api_name(WindowApi api) {
+    switch (api) {
+    case WindowApi::x11: return CLAP_WINDOW_API_X11;
+    case WindowApi::wayland: return CLAP_WINDOW_API_WAYLAND;
+    case WindowApi::win32: return CLAP_WINDOW_API_WIN32;
+    case WindowApi::cocoa: return CLAP_WINDOW_API_COCOA;
+    }
+    return CLAP_WINDOW_API_X11;
+}
+
 const void* CLAP_ABI host_extension(const clap_host_t*, const char* id) {
     if (id == nullptr) return nullptr;
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &host_gui;
+    if (std::strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) return &host_timer_support;
+    if (std::strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT) == 0) return &host_posix_fd;
     if (std::strcmp(id, CLAP_EXT_THREAD_CHECK) == 0) return &host_thread_check;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &host_params;
     if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) return &host_latency;
@@ -281,12 +433,46 @@ struct ClapPluginInstance::Impl {
                    std::memory_order_release);
     }
 
+    [[nodiscard]] const clap_plugin_gui_t* gui() const {
+        return extension<clap_plugin_gui_t>(CLAP_EXT_GUI);
+    }
+
+    // Takes the editor down: hidden, then destroyed, as CLAP orders it.
+    void destroy_editor() {
+        if (!state.editor_open) return;
+        if (const auto* plugin_gui = gui()) {
+            (void)plugin_gui->hide(plugin);
+            plugin_gui->destroy(plugin);
+        }
+        state.editor_open = false;
+        state.editor_host = nullptr;
+        state.gui_closed.store(false, std::memory_order_relaxed);
+    }
+
+    // Whatever the plugin still has registered is removed from the run loop,
+    // so no callback can reach a plugin that is gone.
+    void release_run_loop() {
+        for (const auto& timer : state.timers) (void)timer.loop->remove_timer(timer.loop_id);
+        state.timers.clear();
+        for (const auto& watch : state.fds) (void)watch.loop->remove_fd(watch.fd);
+        state.fds.clear();
+    }
+
     ~Impl() {
         if (plugin) {
+            // CLAP destroys the editor before the plugin, and the window that
+            // hosted it is told, so it can go too.
+            if (state.editor_open) {
+                auto* host_window = state.editor_host;
+                destroy_editor();
+                if (host_window != nullptr) host_window->closed();
+            }
             if (processing) plugin->stop_processing(plugin);
             if (active) plugin->deactivate(plugin);
             plugin->destroy(plugin);
         }
+        state.plugin = nullptr;
+        release_run_loop();
         if (entry) entry->deinit();
         close_library(library);
     }
@@ -319,6 +505,7 @@ std::unique_ptr<ClapPluginInstance> ClapPluginInstance::create(
     if (!factory) return fail("CLAP plugin factory unavailable");
     impl->plugin = factory->create_plugin(factory, &impl->host, plugin_id.c_str());
     if (!impl->plugin) return fail("CLAP plugin could not be created");
+    impl->state.plugin = impl->plugin;
     if (!impl->plugin->init(impl->plugin)) return fail("CLAP plugin initialization failed");
     impl->plugin_id = impl->plugin->desc->id;
     impl->plugin_name = impl->plugin->desc->name;
@@ -538,7 +725,109 @@ void ClapPluginInstance::idle() {
     }
     if (state.tail_announced.exchange(false, std::memory_order_acq_rel)) impl_->read_tail();
     state.parameters_rescanned.store(false, std::memory_order_relaxed);
+    // What the editor asked of its window from another thread.
+    if (state.editor_open && state.editor_host != nullptr) {
+        if (state.gui_resize_requested.exchange(false, std::memory_order_acq_rel))
+            state.editor_host->request_resize(state.gui_resize_width.load(std::memory_order_relaxed),
+                                              state.gui_resize_height.load(std::memory_order_relaxed));
+        if (state.gui_show_requested.exchange(false, std::memory_order_acq_rel))
+            state.editor_host->request_show();
+        if (state.gui_hide_requested.exchange(false, std::memory_order_acq_rel))
+            state.editor_host->request_hide();
+    }
+    // The plugin closed its own editor: CLAP asks the host to acknowledge by
+    // destroying it, and the window that hosted it goes too.
+    if (state.gui_closed.exchange(false, std::memory_order_acq_rel) && state.editor_open) {
+        auto* host_window = state.editor_host;
+        impl_->destroy_editor();
+        if (host_window != nullptr) host_window->closed();
+    }
 }
+
+bool ClapPluginInstance::has_editor() const { return impl_ && impl_->gui() != nullptr; }
+
+bool ClapPluginInstance::supports_editor(WindowApi api, bool floating) const {
+    const auto* plugin_gui = impl_ ? impl_->gui() : nullptr;
+    return plugin_gui != nullptr &&
+           plugin_gui->is_api_supported(impl_->plugin, window_api_name(api), floating);
+}
+
+bool ClapPluginInstance::open_editor(const NativeParent* parent, EditorHost& host,
+                                     EditorSize* size, std::string* error) {
+    auto fail = [error](const char* message) {
+        if (error != nullptr) *error = message;
+        return false;
+    };
+    if (!impl_ || !impl_->plugin) return fail("No plugin");
+    if (impl_->state.editor_open) return fail("The editor is already open");
+    const auto* plugin_gui = impl_->gui();
+    if (plugin_gui == nullptr) return fail("This plugin has no editor");
+    const bool floating = parent == nullptr;
+    // A floating window is the plugin's own top-level; on this platform that
+    // is an X11 window.
+    const char* api = floating ? CLAP_WINDOW_API_X11 : window_api_name(parent->api);
+    if (!plugin_gui->is_api_supported(impl_->plugin, api, floating))
+        return fail(floating ? "The plugin cannot open a floating editor"
+                             : "The plugin cannot embed its editor in this window");
+    // The editor counts as open from create() on, so a resize or show the
+    // plugin requests while it builds its window is served.
+    impl_->state.editor_host = &host;
+    impl_->state.editor_floating = floating;
+    impl_->state.editor_open = true;
+    impl_->state.gui_closed.store(false, std::memory_order_relaxed);
+    if (!plugin_gui->create(impl_->plugin, api, floating)) {
+        impl_->state.editor_open = false;
+        impl_->state.editor_host = nullptr;
+        return fail("The plugin could not create its editor");
+    }
+    EditorSize measured;
+    if (floating) {
+        plugin_gui->suggest_title(impl_->plugin, impl_->plugin_name.c_str());
+    } else {
+        (void)plugin_gui->set_scale(impl_->plugin, parent->scale);
+        measured.resizable = plugin_gui->can_resize(impl_->plugin);
+        std::uint32_t width = 0, height = 0;
+        if (plugin_gui->get_size(impl_->plugin, &width, &height)) {
+            measured.width = width;
+            measured.height = height;
+        }
+        clap_window_t window{};
+        window.api = api;
+        if (parent->api == WindowApi::x11) window.x11 = static_cast<clap_xwnd>(parent->handle);
+        else window.ptr = reinterpret_cast<void*>(parent->handle);
+        if (!plugin_gui->set_parent(impl_->plugin, &window)) {
+            impl_->destroy_editor();
+            return fail("The plugin refused the window it was given");
+        }
+    }
+    if (!plugin_gui->show(impl_->plugin)) {
+        impl_->destroy_editor();
+        return fail("The plugin could not show its editor");
+    }
+    if (size != nullptr) *size = measured;
+    return true;
+}
+
+bool ClapPluginInstance::resize_editor(std::uint32_t& width, std::uint32_t& height) {
+    const auto* plugin_gui = impl_ ? impl_->gui() : nullptr;
+    if (plugin_gui == nullptr || !impl_->state.editor_open || impl_->state.editor_floating ||
+        !plugin_gui->can_resize(impl_->plugin))
+        return false;
+    (void)plugin_gui->adjust_size(impl_->plugin, &width, &height);
+    return plugin_gui->set_size(impl_->plugin, width, height);
+}
+
+void ClapPluginInstance::set_editor_scale(double scale) {
+    const auto* plugin_gui = impl_ ? impl_->gui() : nullptr;
+    if (plugin_gui != nullptr && impl_->state.editor_open && !impl_->state.editor_floating)
+        (void)plugin_gui->set_scale(impl_->plugin, scale);
+}
+
+void ClapPluginInstance::close_editor() {
+    if (impl_) impl_->destroy_editor();
+}
+
+bool ClapPluginInstance::editor_open() const { return impl_ && impl_->state.editor_open; }
 
 const std::string& ClapPluginInstance::id() const noexcept { return impl_->plugin_id; }
 const std::string& ClapPluginInstance::name() const noexcept { return impl_->plugin_name; }

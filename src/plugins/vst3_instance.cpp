@@ -1,19 +1,171 @@
 #include "blokkily/plugins/vst3_instance.hpp"
 
 #include "blokkily/audio/event_queue.hpp"
+#include "blokkily/plugins/plugin_run_loop.hpp"
 
-#include <juce_audio_processors_headless/juce_audio_processors_headless.h>
+#include <juce_audio_processors/juce_audio_processors.h>
+
+#include <dlfcn.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <system_error>
+#include <type_traits>
+
+// JUCE's own Linux message dispatch: runs whatever is ready on the message
+// queue and on the descriptors JUCE watches (its X connection among them),
+// without blocking when returnIfNoPendingMessages is true. Declared here
+// because JUCE keeps it out of its public headers; it is what JUCE's own
+// plugin wrappers call from the host's run loop.
+namespace juce::detail {
+bool dispatchNextMessageOnSystemQueue(bool returnIfNoPendingMessages);
+}
 
 namespace blokkily {
+
+namespace {
+constexpr const char* no_display_message = "Plugin window needs an X11 display";
+
+// Xlib, reached through the same libX11.so.6 that JUCE opens with dlopen, so
+// the error handler installed here is the one JUCE's connection uses. The
+// types are spelled opaquely rather than taken from <X11/Xlib.h>, whose
+// macros (None, Bool, Status...) collide with JUCE's names.
+struct Xlib {
+    using Display = void;
+    using ErrorHandler = int (*)(Display*, void*);
+    void* library = nullptr;
+    Display* (*open_display)(const char*) = nullptr;
+    int (*close_display)(Display*) = nullptr;
+    ErrorHandler (*set_error_handler)(ErrorHandler) = nullptr;
+    int (*get_geometry)(Display*, unsigned long, unsigned long*, int*, int*, unsigned*,
+                        unsigned*, unsigned*, unsigned*) = nullptr;
+    int (*sync)(Display*, int) = nullptr;
+
+    static Xlib& get() {
+        static Xlib xlib = [] {
+            Xlib loaded;
+            loaded.library = dlopen("libX11.so.6", RTLD_LAZY | RTLD_LOCAL);
+            if (loaded.library == nullptr) return loaded;
+            const auto bind = [&](auto& function, const char* name) {
+                function = reinterpret_cast<std::remove_reference_t<decltype(function)>>(
+                    dlsym(loaded.library, name));
+                return function != nullptr;
+            };
+            const bool complete = bind(loaded.open_display, "XOpenDisplay") &&
+                                  bind(loaded.close_display, "XCloseDisplay") &&
+                                  bind(loaded.set_error_handler, "XSetErrorHandler") &&
+                                  bind(loaded.get_geometry, "XGetGeometry") &&
+                                  bind(loaded.sync, "XSync");
+            if (!complete) loaded.library = nullptr;
+            return loaded;
+        }();
+        return xlib;
+    }
+};
+
+std::atomic<int> x_errors{0};
+// Counts an X error instead of letting Xlib's default handler exit the
+// process: JUCE installs its own handlers only in a standalone JUCE
+// application, which this host never is, and a stale parent or a plugin that
+// misbehaves must not take the song down with it.
+int count_x_error(Xlib::Display*, void*) {
+    x_errors.fetch_add(1, std::memory_order_relaxed);
+    return 0;
+}
+
+// Whether a JUCE editor can be put on screen: a DISPLAY is named, the host can
+// open it, and the window the editor would be embedded in is a real window on
+// it. Refusing is the only safe answer otherwise: JUCE turns an empty DISPLAY
+// into ":0.0" (which can hang for tens of seconds on another user's server),
+// an editor peer without X segfaults, and embedding into a window that is not
+// an X window (an offscreen or Wayland winId) makes Xlib exit the process.
+bool x11_reachable(const NativeParent* parent) {
+    const char* name = std::getenv("DISPLAY");
+    if (name == nullptr || *name == '\0') return false;
+    if (parent != nullptr && parent->api != WindowApi::x11) return false;
+    auto& x = Xlib::get();
+    if (x.library == nullptr) return false;
+    static const bool handler_installed = [&x] {
+        (void)x.set_error_handler(&count_x_error);
+        return true;
+    }();
+    (void)handler_installed;
+    auto* display = x.open_display(name);
+    if (display == nullptr) return false;
+    bool reachable = true;
+    if (parent != nullptr) {
+        const int errors_before = x_errors.load(std::memory_order_relaxed);
+        unsigned long root = 0;
+        int left = 0, top = 0;
+        unsigned width = 0, height = 0, border = 0, depth = 0;
+        reachable = x.get_geometry(display, static_cast<unsigned long>(parent->handle), &root,
+                                   &left, &top, &width, &height, &border, &depth) != 0;
+        (void)x.sync(display, 0);
+        reachable = reachable && x_errors.load(std::memory_order_relaxed) == errors_before;
+    }
+    (void)x.close_display(display);
+    return reachable;
+}
+
+// Pumps the host's JUCE message queue from the installed run loop while any
+// VST3 instance lives: hosted plugins post messages to it, and a queue nobody
+// empties overflows. An editor's painting and its X events arrive the same
+// way. Main thread only, like every run-loop callback.
+class JucePump {
+public:
+    static void acquire() {
+        auto& pump = instance();
+        if (pump.users_++ > 0) return;
+        pump.loop_ = plugin_run_loop();
+        if (pump.loop_ != nullptr) pump.timer_ = pump.loop_->add_timer(10, &JucePump::dispatch);
+    }
+    static void release() {
+        auto& pump = instance();
+        if (pump.users_ == 0 || --pump.users_ > 0) return;
+        if (pump.loop_ != nullptr && pump.timer_ != 0) (void)pump.loop_->remove_timer(pump.timer_);
+        pump.loop_ = nullptr;
+        pump.timer_ = 0;
+    }
+    // Everything that is ready, within a bound, so a flood of messages cannot
+    // hold the host's own event loop.
+    static void dispatch() {
+        for (int message = 0; message < 256; ++message)
+            if (!juce::detail::dispatchNextMessageOnSystemQueue(true)) break;
+    }
+
+private:
+    static JucePump& instance() {
+        static JucePump pump;
+        return pump;
+    }
+    int users_ = 0;
+    PluginRunLoop* loop_ = nullptr;
+    std::uint64_t timer_ = 0;
+};
+
+// A floating editor's own top-level window. Its close button asks the
+// adapter to close the editor, which idle() then does: deleting the window
+// from inside its own callback would pull it out from under JUCE.
+class FloatingEditorWindow final : public juce::DocumentWindow {
+public:
+    FloatingEditorWindow(const juce::String& title, std::function<void()> on_close)
+        : DocumentWindow(title, juce::Colours::black, DocumentWindow::closeButton, true),
+          on_close_(std::move(on_close)) {
+        setUsingNativeTitleBar(true);
+    }
+    void closeButtonPressed() override { on_close_(); }
+
+private:
+    std::function<void()> on_close_;
+};
+} // namespace
 
 namespace {
 // JUCE recognises a VST3 bundle by the literal spelling of the path, so an
@@ -108,10 +260,45 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
     std::uint32_t input_channels = 0;
     TransportPlayHead play_head;
 
-    Impl() = default;
+    // The editor (item 2.6), when one is open: embedded in the host's window,
+    // or inside a floating window of its own. Main thread only.
+    struct ResizeWatcher final : juce::ComponentListener {
+        EditorHost* host = nullptr;
+        void componentMovedOrResized(juce::Component& component, bool, bool resized) override {
+            if (resized && host != nullptr)
+                host->request_resize(static_cast<std::uint32_t>(component.getWidth()),
+                                     static_cast<std::uint32_t>(component.getHeight()));
+        }
+    };
+    std::unique_ptr<juce::AudioProcessorEditor> editor;
+    std::unique_ptr<FloatingEditorWindow> floating;
+    ResizeWatcher resize_watcher;
+    EditorHost* editor_host = nullptr;
+    bool close_requested = false;
+
+    Impl() { JucePump::acquire(); }
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
-    ~Impl() override { stop_listening(); }
+    ~Impl() override {
+        // The editor goes before the plugin it edits, and the window that
+        // hosted it is told, so it can go too.
+        if (editor) {
+            auto* host = editor_host;
+            destroy_editor();
+            if (host != nullptr) host->closed();
+        }
+        stop_listening();
+        JucePump::release();
+    }
+
+    void destroy_editor() {
+        if (editor) editor->removeComponentListener(&resize_watcher);
+        floating.reset();
+        editor.reset();
+        editor_host = nullptr;
+        resize_watcher.host = nullptr;
+        close_requested = false;
+    }
 
     void attach(std::unique_ptr<juce::AudioPluginInstance> instance) {
         plugin = std::move(instance);
@@ -204,7 +391,7 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
 
 namespace {
 juce::OwnedArray<juce::PluginDescription> descriptions(const std::filesystem::path& path) {
-    juce::VST3PluginFormatHeadless format;
+    juce::VST3PluginFormat format;
     juce::OwnedArray<juce::PluginDescription> found;
     format.findAllTypesForFile(found, bundle_string(path));
     return found;
@@ -226,7 +413,7 @@ std::vector<Vst3Descriptor> Vst3PluginInstance::scan(const std::filesystem::path
 std::vector<Vst3Descriptor> Vst3PluginInstance::scan_paths(
     const std::vector<std::filesystem::path>& roots) {
     const juce::ScopedJuceInitialiser_GUI juce_lifetime;
-    juce::VST3PluginFormatHeadless format;
+    juce::VST3PluginFormat format;
     juce::FileSearchPath search;
     std::vector<Vst3Descriptor> result;
     for (const auto& root : roots) {
@@ -247,7 +434,7 @@ std::vector<Vst3Descriptor> Vst3PluginInstance::scan_paths(
 
 std::vector<std::filesystem::path> Vst3PluginInstance::system_paths() {
     const juce::ScopedJuceInitialiser_GUI juce_lifetime;
-    const auto search = juce::VST3PluginFormatHeadless{}.getDefaultLocationsToSearch();
+    const auto search = juce::VST3PluginFormat{}.getDefaultLocationsToSearch();
     std::vector<std::filesystem::path> result;
     for (int index = 0; index < search.getNumPaths(); ++index)
         result.emplace_back(search[index].getFullPathName().toStdString());
@@ -264,7 +451,7 @@ std::unique_ptr<Vst3PluginInstance> Vst3PluginInstance::create(
         if (error) *error = "VST3 descriptor not found";
         return nullptr;
     }
-    juce::VST3PluginFormatHeadless format;
+    juce::VST3PluginFormat format;
     juce::String message;
     auto plugin = format.createInstanceFromDescription(*found[static_cast<int>(index)], 48000.0, 512, message);
     if (!plugin) {
@@ -468,7 +655,74 @@ void Vst3PluginInstance::set_transport(const TransportInfo& transport) noexcept 
 }
 
 void Vst3PluginInstance::idle() {
-    if (impl_ && impl_->plugin) impl_->read_tail();
+    if (!impl_ || !impl_->plugin) return;
+    impl_->read_tail();
+    // A floating editor's close button was pressed.
+    if (impl_->close_requested && impl_->editor) {
+        auto* host = impl_->editor_host;
+        impl_->destroy_editor();
+        if (host != nullptr) host->closed();
+    }
 }
+
+bool Vst3PluginInstance::has_editor() const {
+    return impl_ && impl_->plugin && impl_->plugin->hasEditor();
+}
+
+bool Vst3PluginInstance::supports_editor(WindowApi api, bool) const {
+    // JUCE puts its editors on X11, embedded or as a top-level of their own.
+    return api == WindowApi::x11 && has_editor();
+}
+
+bool Vst3PluginInstance::open_editor(const NativeParent* parent, EditorHost& host,
+                                     EditorSize* size, std::string* error) {
+    auto fail = [error](const char* message) {
+        if (error != nullptr) *error = message;
+        return false;
+    };
+    if (!impl_ || !impl_->plugin) return fail("No plugin");
+    if (impl_->editor) return fail("The editor is already open");
+    if (!impl_->plugin->hasEditor()) return fail("This plugin has no editor");
+    // Decided before JUCE is asked for anything that would touch X.
+    if (!x11_reachable(parent)) return fail(no_display_message);
+    impl_->editor.reset(impl_->plugin->createEditorAndMakeActive());
+    if (!impl_->editor) return fail("The plugin could not create its editor");
+    auto& editor = *impl_->editor;
+    if (parent != nullptr) {
+        editor.addToDesktop(0, reinterpret_cast<void*>(parent->handle));
+        editor.setVisible(true);
+    } else {
+        auto* self = impl_.get();
+        impl_->floating = std::make_unique<FloatingEditorWindow>(
+            impl_->plugin->getName(), [self] { self->close_requested = true; });
+        impl_->floating->setContentNonOwned(&editor, true);
+        impl_->floating->setVisible(true);
+    }
+    impl_->editor_host = &host;
+    impl_->resize_watcher.host = &host;
+    editor.addComponentListener(&impl_->resize_watcher);
+    if (size != nullptr) {
+        // JUCE sizes a Linux editor in physical pixels: it is not scaled by
+        // the host window's device pixel ratio.
+        size->width = static_cast<std::uint32_t>(std::max(0, editor.getWidth()));
+        size->height = static_cast<std::uint32_t>(std::max(0, editor.getHeight()));
+        size->resizable = editor.isResizable();
+    }
+    return true;
+}
+
+bool Vst3PluginInstance::resize_editor(std::uint32_t& width, std::uint32_t& height) {
+    if (!impl_ || !impl_->editor || !impl_->editor->isResizable()) return false;
+    impl_->editor->setSize(static_cast<int>(width), static_cast<int>(height));
+    width = static_cast<std::uint32_t>(std::max(0, impl_->editor->getWidth()));
+    height = static_cast<std::uint32_t>(std::max(0, impl_->editor->getHeight()));
+    return true;
+}
+
+void Vst3PluginInstance::close_editor() {
+    if (impl_) impl_->destroy_editor();
+}
+
+bool Vst3PluginInstance::editor_open() const { return impl_ && impl_->editor != nullptr; }
 
 } // namespace blokkily

@@ -56,6 +56,21 @@ public:
     void set_transport(const TransportInfo& transport) noexcept override;
     void idle() override;
 
+    // Native editor (item 2.6), through JUCE: embedded in an X11 window or
+    // floating as a JUCE top-level. Opening is refused with "Plugin window
+    // needs an X11 display" unless DISPLAY names a server the host can open
+    // and the parent (if any) is a real window on it, because a JUCE editor
+    // without X crashes the process. The host's JUCE queue is pumped from the
+    // installed PluginRunLoop while any instance lives. A floating window's
+    // close button is served by idle(), which tells the EditorHost.
+    bool has_editor() const override;
+    bool supports_editor(WindowApi api, bool floating) const override;
+    bool open_editor(const NativeParent* parent, EditorHost& host, EditorSize* size,
+                     std::string* error) override;
+    bool resize_editor(std::uint32_t& width, std::uint32_t& height) override;
+    void close_editor() override;
+    bool editor_open() const override;
+
 private:
     struct Impl;
     explicit Vst3PluginInstance(std::unique_ptr<Impl> implementation);

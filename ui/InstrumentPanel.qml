@@ -58,6 +58,8 @@ ColumnLayout {
     }
 
     SamplerPanel { Layout.fillWidth: true; visible: appController.sampler.active === true }
+    // A sampler has no window of its own; its panel is its editor.
+    PluginEditorBar { Layout.fillWidth: true; visible: appController.sampler.active !== true }
 
     SectionLabel { text: "MIDI IN" }
     // The keyboard being played, and what it last sent. The light
