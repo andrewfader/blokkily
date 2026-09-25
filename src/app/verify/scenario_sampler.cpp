@@ -161,7 +161,7 @@ void run_sampler(VerifyContext& ctx) {
         const auto rows = controller.browserPlugins();
         for (int row = 0; row < rows.size(); ++row)
             if (rows.at(row).toMap().value("name").toString() == name) {
-                auto* item = ctx.named(QString("pluginRow%1").arg(row));
+                auto* item = ctx.named(QString("browserRow%1").arg(row));
                 if (item == nullptr) return false;
                 ctx.click_at(item, {item->width() / 2, item->height() / 2}, Qt::LeftButton);
                 lay_out();
@@ -180,6 +180,9 @@ void run_sampler(VerifyContext& ctx) {
     auto* panel = ctx.named("samplerPanel");
     check(panel != nullptr && panel->isVisible());
     check(VerifyContext::usable(panel, 180, 220));
+    // A sampler has no window of its own: its panel is its editor, so the
+    // plugin EDITOR bar (item 2.6) gives it the room instead.
+    check(ctx.named("editorBar") == nullptr || !ctx.named("editorBar")->isVisible());
     check(controller.activeInstrument() == "SMP · KEYS");
     reached("sampler: chosen in the browser");
 

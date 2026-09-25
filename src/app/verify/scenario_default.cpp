@@ -69,6 +69,14 @@ struct DefaultScenario {
     bool rendered_step(int step) const { return ctx.rendered_step(step); }
     QString tracker_note(int row) const { return ctx.tracker_note(row); }
     bool roll_draws(int step) const { return ctx.roll_draws(step); }
+    // The browser also lists effects (the built-ins among them), so what the
+    // instrument checks count is the instruments alone.
+    int instrument_entries() const {
+        int count = 0;
+        for (const auto& entry : controller.plugins())
+            if (entry.toMap().value("kind").toString() == "instrument") ++count;
+        return count;
+    }
 
     // The sections in the order the gates have always run them.
     void run() {
@@ -93,7 +101,7 @@ struct DefaultScenario {
         // isolated from plugins installed on the test host.
         // After them come the instruments the application provides itself
         // (the sampler), listed by the factory without a scan.
-        valid = valid && controller.plugins().size() == 5;
+        valid = valid && instrument_entries() == 5;
         valid = valid && controller.plugins().at(0).toMap().value("format") == "CLAP";
         valid = valid && controller.plugins().at(1).toMap().value("format") == "VST3";
         valid = valid && controller.plugins().at(2).toMap().value("format") == "SF";
@@ -469,8 +477,14 @@ struct DefaultScenario {
         if (parser.isSet("clap-fixture") && parser.isSet("vst3-fixture")) {
             // The browser must present both native formats through one list,
             // each entry tagged with the format that produced it.
-            const QVariantList browser = controller.plugins();
-            valid = valid && browser.size() == 2;
+            // The instruments the application provides itself (the sampler)
+            // follow them and are not what this checks.
+            QVariantList browser;
+            for (const QVariant& entry : controller.plugins())
+                if (entry.toMap().value("kind").toString() == "instrument"
+                    && entry.toMap().value("vendor").toString() != "Blokkily built-in")
+                    browser.push_back(entry);
+            valid = valid && browser.size() == 2 && instrument_entries() == 4;
             for (const QVariant& entry : browser) {
                 const QVariantMap fields = entry.toMap();
                 valid = valid && !fields.value("name").toString().isEmpty()
@@ -513,7 +527,9 @@ struct DefaultScenario {
                           && named("pluginScrollBar") != nullptr;
             if (valid) {
                 filter->forceActiveFocus();
-                valid = valid && listed() == 2;
+                // The two fixtures, then the sampler's two instruments, which
+                // the application lists without a scan.
+                valid = valid && listed() == 4;
                 // Letters of a name reach it wherever they sit, and leave
                 // the instruments they cannot reach out of the list.
                 type("vst");
@@ -529,7 +545,7 @@ struct DefaultScenario {
                 // Clearing the field lists the whole installation again.
                 type_key(Qt::Key_Escape, QString(QChar(27)));
                 valid = valid && filter->property("text").toString().isEmpty()
-                              && listed() == 2;
+                              && listed() == 4;
                 // The arrow keys walk the list without leaving the field.
                 valid = valid && browser->property("currentIndex").toInt() == 0;
                 type_key(Qt::Key_Down, QString());
@@ -1843,14 +1859,36 @@ struct DefaultScenario {
                         // painted hexagons, not just their QQuickItems.
                         auto* mixer = item("mixerPanel");
                         auto* strips = item("mixerStrips");
-                        auto* master = item("masterStrip");
-                        if (mixer && strips && master) {
+                        // The effect rack (item 2.4) sits between the
+                        // strips and the master, so the empty band the
+                        // keyboard must not paint into ends at the rack.
+                        auto* master = item("effectRack") != nullptr ? item("effectRack")
+                                                                     : item("masterStrip");
+                        auto* scroller = item("mixerScroll");
+                        auto* keys = item("keyboardPanel");
+                        if (mixer && strips && master && scroller && keys) {
                             const auto frame = window->grabWindow();
                             const auto left = mixer->mapToScene({1, 0}).x();
-                            const auto top = strips->mapToScene({0, strips->height() + 10}).y();
-                            const auto bottom = master->mapToScene({0, -10}).y();
                             const QColor background = mixer->property("color").value<QColor>();
-                            bool clipped = bottom > top;
+                            // The mixer's left gutter, beside the keyboard,
+                            // is always bare panel: nothing the keyboard
+                            // paints may reach it, however full the mixer is.
+                            const auto keys_top = std::max(0.0, keys->mapToScene({0, 0}).y());
+                            const auto keys_bottom =
+                                std::min<double>(window->height(),
+                                                 keys->mapToScene({0, keys->height()}).y());
+                            bool clipped = keys_bottom > keys_top + 40;
+                            for (int y = static_cast<int>(keys_top); y < keys_bottom; ++y)
+                                for (int x = static_cast<int>(left); x < left + 9; ++x)
+                                    clipped = frame.pixelColor(x, y) == background && clipped;
+                            // With room below the strips (few tracks, the
+                            // arm row and the effect rack take space), the
+                            // empty band between them and the rack must be
+                            // bare panel across its whole width too.
+                            const auto top = strips->mapToScene({0, strips->height() + 10}).y();
+                            const auto bottom =
+                                std::min(master->mapToScene({0, -10}).y(),
+                                         scroller->mapToScene({0, scroller->height()}).y());
                             for (int y = static_cast<int>(top); y < bottom; ++y)
                                 for (int x = static_cast<int>(left); x < window->width() - 2; ++x)
                                     clipped = frame.pixelColor(x, y) == background && clipped;
@@ -2012,7 +2050,7 @@ struct DefaultScenario {
             // The working plugin is listed; the one that hangs is reported
             // as a failure rather than waited for.
             // (followed by the built-in instruments, which need no scan)
-            valid = valid && controller.plugins().size() == 3
+            valid = valid && instrument_entries() == 3
                           && controller.plugins().first().toMap().value("format") == "CLAP"
                           && controller.plugins().first().toMap().value("name")
                                  == "Blokkily Test Synth";
@@ -2023,7 +2061,7 @@ struct DefaultScenario {
             QElapsedTimer repeat;
             repeat.start();
             valid = valid && run_scan(false);
-            valid = valid && controller.plugins().size() == 3
+            valid = valid && instrument_entries() == 3
                           && controller.status().contains("1 failure");
             valid = valid && repeat.elapsed() < 1000;
         }

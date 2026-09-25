@@ -129,6 +129,7 @@ QVariantList SongModel::tracks() const {
                                  ? QStringLiteral("ALL")
                                  : QString("CH %1").arg(track.input.midi_channel + 1);
         row["routable"] = index < blokkily::routable_tracks;
+        row["inserts"] = static_cast<int>(track.inserts.size());
         rows.push_back(row);
     }
     return rows;
@@ -166,8 +167,11 @@ QVariantList SongModel::clips() const {
 }
 
 void SongModel::selectTrack(int track) {
-    if (!validTrack(track) || track == selected_track_) return;
+    if (!validTrack(track)) return;
+    // Choosing a track also points the effect rack back at its inserts.
+    if (track == selected_track_ && rack_kind_ == blokkily::BusKind::track) return;
     selected_track_ = track;
+    rack_kind_ = blokkily::BusKind::track;
     emit songChanged();
 }
 

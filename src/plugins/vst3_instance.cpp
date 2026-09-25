@@ -404,7 +404,8 @@ std::vector<Vst3Descriptor> Vst3PluginInstance::scan(const std::filesystem::path
     std::size_t index = 0;
     for (const auto* description : descriptions(bundle)) {
         result.push_back({description->name.toStdString(), description->manufacturerName.toStdString(),
-                          description->createIdentifierString().toStdString(), bundle, index});
+                          description->createIdentifierString().toStdString(), bundle, index,
+                          description->isInstrument});
         ++index;
     }
     return result;

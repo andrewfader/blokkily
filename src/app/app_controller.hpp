@@ -50,6 +50,14 @@ class AppController final : public QObject {
     Q_PROPERTY(QVariantList browserPlugins READ browserPlugins NOTIFY browserChanged)
     Q_PROPERTY(QString browserFilter READ browserFilter WRITE setBrowserFilter
                    NOTIFY browserChanged)
+    // Which kind the browser lists: "instrument" or "effect" (item 2.4).
+    // Choosing an effect inserts it on the rack's bus.
+    Q_PROPERTY(QString browserKind READ browserKind WRITE setBrowserKind NOTIFY browserChanged)
+    // How many entries of that kind there are, before the filter.
+    Q_PROPERTY(int browserTotal READ browserTotal NOTIFY browserChanged)
+    // How late the speakers hear the song, in samples: the plugin delay
+    // compensation every path is aligned to.
+    Q_PROPERTY(int outputLatency READ outputLatency NOTIFY activeInstrumentChanged)
     Q_PROPERTY(QString soundfontStatus READ soundfontStatus NOTIFY soundfontStatusChanged)
     Q_PROPERTY(QString projectStatus READ projectStatus NOTIFY projectStatusChanged)
     Q_PROPERTY(QString projectDetail READ projectDetail NOTIFY projectStatusChanged)
@@ -100,7 +108,19 @@ public:
                            std::unique_ptr<blokkily::MidiInput> midi = {});
     ~AppController() override;
     QString status() const { return status_; }
-    QVariantList plugins() const { return plugins_; }
+    // Everything the browser can offer: what the scan found, then what the
+    // application provides itself (the built-in effects), each entry with
+    // its format and kind.
+    QVariantList plugins() const;
+    QString browserKind() const { return browser_kind_; }
+    Q_INVOKABLE void setBrowserKind(const QString& kind);
+    int browserTotal() const;
+    int outputLatency() const noexcept {
+        return engine_ ? static_cast<int>(engine_->output_latency()) : 0;
+    }
+    // Inserts the effect at `index` of plugins() on the rack's bus (the
+    // selected track, a return, or the master). False for an instrument.
+    Q_INVOKABLE bool addEffect(int index);
     // What the browser lists right now: every instrument the filter admits,
     // closest match first, each entry carrying `source` — its place in the
     // unfiltered list — so choosing one out of a filtered browser loads the
@@ -375,9 +395,6 @@ private:
     void finishScan();
     void appendRecords(const std::vector<blokkily::ScanRecord>& records);
     void reportScanProgress();
-    // Lists the instruments the application provides itself (the sampler) at
-    // the end of the browser.
-    void appendInternalInstruments();
     blokkily::ScanCacheEntry* cachedScan(const blokkily::ScanCandidate& candidate);
     void loadScanCache();
     void saveScanCache() const;
@@ -444,6 +461,7 @@ private:
     QString status_ = "Ready — CLAP native";
     QVariantList plugins_;
     QString browser_filter_;
+    QString browser_kind_ = QStringLiteral("instrument");
     QString soundfont_status_ = "No instrument loaded";
     QString project_status_ = "Not saved";
     QString project_detail_ = "No project on disk";

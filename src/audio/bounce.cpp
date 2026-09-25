@@ -41,26 +41,42 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     std::vector<float> left(block, 0.0F);
     std::vector<float> right(block, 0.0F);
     BounceReport report;
-    const std::uint64_t total = engine.song_samples() + tail_frames;
+    // The speakers hear the song `latency` samples late, however many
+    // latent inserts it passes through (decision 10). The file starts where
+    // the song does: the first `latency` frames the engine renders are the
+    // compensation, not the song, and are dropped. An insert that keeps
+    // sounding after its input stops (an echo, a reverb) gets its whole tail.
+    const std::uint64_t latency = engine.output_latency();
+    const std::uint64_t tail = std::max(tail_frames, engine.effect_tail_samples());
+    const std::uint64_t total = engine.song_samples() + tail;
+    std::uint64_t rendered = 0;
     bool wrote = true;
     while (report.frames < total && wrote) {
         // Finish the arrangement exactly once, then let the same instruments
-        // render their releases with the transport stopped. Never wrap into
-        // the first bar just because the export requested a tail.
+        // and effects render their releases with the transport stopped. Never
+        // wrap into the first bar just because the export requested a tail.
         const auto song_end = engine.song_samples();
-        if (report.frames == song_end) engine.set_playing(false);
-        const auto remaining = report.frames < song_end
-            ? song_end - report.frames : total - report.frames;
+        if (rendered == song_end) engine.set_playing(false);
+        const auto remaining = rendered < song_end ? song_end - rendered
+                                                   : latency + total - rendered;
         const auto frames = static_cast<std::size_t>(
             std::min<std::uint64_t>(block, remaining));
         const std::span<float> left_block{left.data(), frames};
         const std::span<float> right_block{right.data(), frames};
         engine.process({left_block, right_block});
-        for (std::size_t frame = 0; frame < frames; ++frame)
-            report.peak = std::max({report.peak, std::abs(left_block[frame]),
-                                    std::abs(right_block[frame])});
-        wrote = writer.write(left_block, right_block, &writer_error);
-        report.frames += frames;
+        // Whatever part of this block is still the compensation is skipped.
+        const auto skip = static_cast<std::size_t>(
+            rendered >= latency ? 0 : std::min<std::uint64_t>(frames, latency - rendered));
+        rendered += frames;
+        if (skip == frames) continue;
+        const auto kept = std::min<std::uint64_t>(frames - skip, total - report.frames);
+        const auto kept_left = left_block.subspan(skip, static_cast<std::size_t>(kept));
+        const auto kept_right = right_block.subspan(skip, static_cast<std::size_t>(kept));
+        for (std::size_t frame = 0; frame < kept_left.size(); ++frame)
+            report.peak = std::max({report.peak, std::abs(kept_left[frame]),
+                                    std::abs(kept_right[frame])});
+        wrote = writer.write(kept_left, kept_right, &writer_error);
+        report.frames += kept;
     }
 
     engine.set_playing(was_playing);

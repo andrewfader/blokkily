@@ -125,6 +125,7 @@ Feature: A sampler plays recorded sound as an instrument
     When the producer clicks "Sampler" with a track selected
     Then the track plays a keyed sampler created by the processor factory
     And the sampler panel takes the device box's place, at least 220 px tall
+    And the plugin EDITOR bar is not shown, because the panel is the sampler's editor
     And the browser below it still shows at least two rows
     When a WAV whose smpl chunk names note 57 is loaded into it
     Then the panel shows the file, root key A3 and a forward loop

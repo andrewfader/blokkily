@@ -41,6 +41,7 @@ namespace engine {
 struct TrackPlayback;
 struct Arrangement;
 struct BusPlayback;
+struct InsertChain;
 struct TestAccess;
 } // namespace engine
 
@@ -52,7 +53,9 @@ struct TestAccess;
 // buffer is zeroed, the instrument processes in place, its parameter edits go
 // to the edit ring, clip regions and input monitoring are added, the insert
 // chain and compensation run, the strip gain is taken, sends are mixed, and the
-// track is added to the bus. A track without an instrument still runs every
+// track is added to the bus. After every track the returns run, the direct bus
+// is delayed to meet them, and the master inserts and gain follow. Every
+// processor is told where the song is (set_transport) before its block. A track without an instrument still runs every
 // stage after the instrument's, so what reaches its strip is heard.
 class SongEngine final : public AudioSource {
 public:
@@ -63,9 +66,12 @@ public:
 
     // Processors are supplied by the caller because instantiating a plugin is
     // a format-specific job that belongs behind the adapters. Control thread,
-    // while the device is stopped. Only track instruments are addressable
-    // until the insert chains exist (item 2.4); an address the engine cannot
-    // hold yet is refused and the instance is destroyed here.
+    // while the device is stopped. Every address the mixer has can hold one:
+    // a track's instrument (slot -1), and the insert slots of a track, a
+    // return bus or the master bus (slots 0, 1, ...). An address that can
+    // never hold a processor (an instrument on a return or the master, the
+    // master bus other than bus 0) is refused and the instance destroyed
+    // here. prepare() then shapes every chain to the song it is given.
     void set_processor(ProcessorAddress where, std::unique_ptr<PluginInstance> instance);
     // The processor at `where`, or nullptr. Control thread.
     [[nodiscard]] PluginInstance* processor(ProcessorAddress where) const;
@@ -172,10 +178,24 @@ public:
     void process(StereoBlock output) noexcept override;
 
     // Live mixer moves. Safe to call from the control thread while audio runs:
-    // the audio thread only ever reads the resulting gains.
+    // the audio thread only ever reads the resulting gains. apply_mix() also
+    // carries every insert's bypass, every send's level and pre/post, and
+    // the return strips (item 2.4): none of those rebuild the graph.
     void set_strip(std::size_t track, const MixerStrip& strip, bool any_solo);
     void apply_mix(const Song& song);
     void set_master_gain_db(double decibels);
+
+    // How late the speakers hear the song, in samples, as of prepare(): the
+    // slowest track chain, plus the slowest return, plus the master inserts.
+    // Every path is compensated to it, live and in a bounce (decision 10),
+    // and a bounce drops this many frames from its start.
+    [[nodiscard]] std::uint32_t output_latency() const noexcept;
+    // The longest tail any insert reported, capped at a minute: how long a
+    // bounce keeps rendering after the song ends so an echo is not cut off.
+    [[nodiscard]] std::uint64_t effect_tail_samples() const noexcept;
+    // Return buses the engine was prepared with, and each one's last peak.
+    [[nodiscard]] std::size_t return_count() const noexcept;
+    [[nodiscard]] float return_peak(std::size_t bus) const;
 
     // The length of the arrangement the engine will play next. This is the
     // published value rather than the one the callback is midway through, so a
@@ -221,6 +241,15 @@ private:
     // Chunk stage 4: moves what a processor reported into the edit ring.
     void drain_edits(PluginInstance& processor, ProcessorAddress where,
                      std::uint64_t song_position, bool from_timeline) noexcept;
+    // The same, for an insert slot: `context` is the chunk's DrainContext.
+    static void drain_insert_edits(void* context, PluginInstance& processor,
+                                   ProcessorAddress where) noexcept;
+    // Where the song is at `song_position`, for set_transport().
+    [[nodiscard]] TransportInfo transport_at(const Arrangement& arranged,
+                                             std::uint64_t song_position,
+                                             bool playing) const noexcept;
+    // Every track's insert chain, in track order. Control thread.
+    [[nodiscard]] std::vector<engine::InsertChain*> track_chains() const;
     // The owner of a processor address, or nullptr when the engine has none.
     [[nodiscard]] std::unique_ptr<PluginInstance>* processor_slot(ProcessorAddress where) const;
     // Repoints every track's event cursor after a wrap or a seek, so playback

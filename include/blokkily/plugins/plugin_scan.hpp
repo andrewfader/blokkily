@@ -17,6 +17,11 @@ struct ScanCandidate {
     std::filesystem::path path;
 };
 
+// What a plugin is for, as the browser groups it: something that plays notes,
+// or something that processes the audio it is given.
+inline constexpr std::string_view instrument_kind = "instrument";
+inline constexpr std::string_view effect_kind = "effect";
+
 // A plugin the scan found, in the shape the browser lists.
 struct ScanRecord {
     std::string format;
@@ -25,7 +30,12 @@ struct ScanRecord {
     std::string path;
     std::string identifier;
     int index = 0;
+    std::string kind{instrument_kind}; // instrument_kind or effect_kind
 };
+
+// The kind a CLAP plugin declares through its features: an audio effect that
+// is not also an instrument is an effect; anything else plays notes.
+[[nodiscard]] std::string clap_kind(const std::vector<std::string>& features);
 
 // What one scan of one candidate produced, remembered between launches: a
 // candidate that failed is skipped next time instead of hanging again, and a

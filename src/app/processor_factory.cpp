@@ -1,7 +1,9 @@
 #include "processor_factory.hpp"
 #include "sampler_processor.hpp"
 
+#include "blokkily/effects/builtin.hpp"
 #include "blokkily/instruments/soundfont_synth.hpp"
+#include "blokkily/plugins/plugin_scan.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
@@ -24,11 +26,28 @@ std::unique_ptr<PluginInstance> create_soundfont(const InstrumentSlot& slot,
     return nullptr;
 }
 
+// Blokkily's own effects (item 2.4): the slot's identifier names which one.
+std::unique_ptr<PluginInstance> create_builtin(const InstrumentSlot& slot,
+                                               const ProcessorContext&, std::string* error) {
+    auto effect = create_builtin_effect(slot.identifier);
+    if (!effect && error != nullptr) *error = "unknown built-in effect";
+    return effect;
+}
+
+std::vector<CatalogEntry> builtin_entries() {
+    std::vector<CatalogEntry> entries;
+    for (const auto& effect : builtin_effects())
+        entries.push_back({effect.name, std::string(effect_kind),
+                           {std::string(builtin_effect_format), {}, effect.identifier, {}}});
+    return entries;
+}
+
 std::vector<Registration>& registry() {
     // Built on first use, with what the application always provides.
     static std::vector<Registration> registrations{
         {"SoundFont", &create_soundfont, {}},
         {sampler_format, &create_sampler, sampler_catalog()},
+        {std::string(builtin_effect_format), &create_builtin, builtin_entries()},
     };
     return registrations;
 }
