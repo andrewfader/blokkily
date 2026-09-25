@@ -8,6 +8,7 @@
 
 #include "engine_automation.hpp"
 #include "engine_clips.hpp"
+#include "engine_metronome.hpp"
 
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/model/timebase.hpp"
@@ -30,6 +31,8 @@ struct Arrangement {
     MeterMap meter;
     ArrangementClips clips;
     ArrangementAutomation automation;
+    // Every beat of the click (item 3.7), placed by `clock`.
+    ArrangementClicks clicks;
 };
 
 } // namespace blokkily::engine

@@ -58,6 +58,9 @@ struct ParseContext {
     std::optional<double> legacy_tempo;
     std::vector<TempoPoint> tempo_points;
     std::vector<MeterChange> meter_changes;
+    // The metronome record as read (records_metronome.cpp), so a second one
+    // is refused and the settings are applied once the file is read.
+    std::optional<MetronomeSettings> metronome;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -96,6 +99,9 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& effects_records();
 [[nodiscard]] const RecordModule& input_records();
 [[nodiscard]] const RecordModule& automation_records();
+
+// The metronome and count-in settings (item 3.7): metronome.
+[[nodiscard]] const RecordModule& metronome_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

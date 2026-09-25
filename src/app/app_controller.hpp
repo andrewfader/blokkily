@@ -100,6 +100,9 @@ class AppController final : public QObject {
     Q_PROPERTY(QVariantList openEditors READ openEditors NOTIFY editorsChanged)
     Q_PROPERTY(QString editorStatus READ editorStatus NOTIFY editorsChanged)
     Q_PROPERTY(QString editorReadout READ editorReadout NOTIFY editorReadoutChanged)
+    // A count-in is playing (item 3.7): Play was pressed with recording armed
+    // and a count-in set, and the song has not started yet.
+    Q_PROPERTY(bool countingIn READ countingIn NOTIFY countInChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -257,8 +260,10 @@ public:
     Q_INVOKABLE QVariantList clipPeaks(qint64 id, int buckets) const;
     // The decoded audio store clips and samplers share.
     blokkily::AudioAssetCache& assetCache() noexcept { return *assets_; }
-    // Bounces the arrangement through the engine the speakers hear.
-    Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32");
+    // Bounces the arrangement through the engine the speakers hear. The
+    // metronome is left out unless `withClick` asks for it (item 3.7).
+    Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
+                                     bool withClick = false);
     // Sets the tempo in effect at the playhead: the tempo readout's edit. The
     // tempo is the song's, so this is an undoable song edit, and the running
     // engine keeps the playhead on its bar.
@@ -350,6 +355,11 @@ public:
     // edits: what the editor timer does every turn.
     void serviceEditors();
 
+    // --- Metronome and count-in (item 3.7; app_controller_metronome.cpp) ----
+    bool countingIn() const noexcept { return counting_in_; }
+    // Reads whether the engine is counting in, for the transport to show.
+    void pollCountIn();
+
 signals:
     void statusChanged();
     void pluginsChanged();
@@ -368,6 +378,7 @@ signals:
     void assetsChanged();
     void editorsChanged();
     void editorReadoutChanged();
+    void countInChanged();
 
 private:
     struct ImportResult;
@@ -539,4 +550,5 @@ private:
     QString editor_readout_;
     QTimer editor_timer_;
     std::unique_ptr<PluginWindows> windows_;
+    bool counting_in_ = false;
 };

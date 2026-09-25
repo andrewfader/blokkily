@@ -17,6 +17,9 @@ ApplicationWindow {
     property string view: "ALL"
     // Bit depth the next bounce is written at.
     property string exportDepth: "PCM24"
+    // Whether the next bounce has the metronome in it (off: the click is a
+    // guide, not part of the mix).
+    property bool exportClick: false
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
 
@@ -184,7 +187,8 @@ ApplicationWindow {
         nameFilters: ["Wave audio (*.wav)"]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "wav"
-        onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth)
+        onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth,
+                                                  root.exportClick)
     }
 
     // Space plays, arrows move the step cursor, and Ctrl with the number row
@@ -386,6 +390,8 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     exportDepth: root.exportDepth
                     onExportDepthPicked: depth => root.exportDepth = depth
+                    exportClick: root.exportClick
+                    onExportClickToggled: root.exportClick = !root.exportClick
                     onNewRequested: root.whenDiscarded(function() { appController.newProject() })
                     onOpenRequested: root.whenDiscarded(function() { openProjectDialog.open() })
                     onSaveRequested: root.save()

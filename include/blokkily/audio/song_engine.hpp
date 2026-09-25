@@ -42,6 +42,7 @@ struct TrackPlayback;
 struct Arrangement;
 struct BusPlayback;
 struct InsertChain;
+struct MetronomePlayback;
 struct TestAccess;
 } // namespace engine
 
@@ -192,10 +193,8 @@ public:
     // The next captured event, oldest first. Control thread only.
     bool take_captured(CapturedEvent& event) noexcept { return captured_.pop(event); }
 
-    void set_playing(bool playing) noexcept {
-        if (!playing) stop_requested_.store(true, std::memory_order_release);
-        playing_.store(playing, std::memory_order_release);
-    }
+    // Stopping also abandons a count-in that has not finished.
+    void set_playing(bool playing) noexcept;
     [[nodiscard]] bool is_playing() const noexcept {
         return playing_.load(std::memory_order_acquire);
     }
@@ -212,6 +211,27 @@ public:
     void set_strip(std::size_t track, const MixerStrip& strip, bool any_solo);
     void apply_mix(const Song& song);
     void set_master_gain_db(double decibels);
+
+    // --- Metronome and count-in (item 3.7, decision 14) ---------------------
+    // The click: on or off, and its level (0 dB puts a downbeat at full
+    // scale). apply_mix() sets both from song.metronome. It plays while the
+    // transport rolls, on every beat of the meter's beat unit with the
+    // downbeats accented, placed by the tempo map as the notes are, and is
+    // added after the master strip on a path of its own: no track, solo,
+    // mute, insert or fader reaches it. A bounce leaves it out unless its
+    // options ask for it. Safe from the control thread while audio runs.
+    void set_metronome(bool enabled, double level_db) noexcept;
+    [[nodiscard]] bool metronome_enabled() const noexcept;
+    // The click on or off, keeping its level (what a bounce switches).
+    void set_metronome_enabled(bool enabled) noexcept;
+    // Starts the transport after `bars` bars of click in the tempo and meter
+    // at the playhead; 0 is set_playing(true). The playhead does not move and
+    // nothing is captured while the count-in plays; a note played into it
+    // and still held when the song starts is captured as starting there.
+    // Control thread, on a stopped transport.
+    void play_with_count_in(std::uint32_t bars) noexcept;
+    // A count-in is playing and the song has not started yet. Any thread.
+    [[nodiscard]] bool counting_in() const noexcept;
 
     // How late the speakers hear the song, in samples, as of prepare(): the
     // slowest track chain, plus the slowest return, plus the master inserts.
@@ -276,6 +296,11 @@ private:
     // The same, for an insert slot: `context` is the chunk's DrainContext.
     static void drain_insert_edits(void* context, PluginInstance& processor,
                                    ProcessorAddress where) noexcept;
+    // Begins a count-in of `bars` bars from where the playhead rests, and
+    // starts the song once it is over, capturing the notes still held into
+    // it. Render callback.
+    void start_count_in(std::uint32_t bars) noexcept;
+    void finish_count_in() noexcept;
     // Where the song is at `song_position`, for set_transport().
     [[nodiscard]] TransportInfo transport_at(const Arrangement& arranged,
                                              std::uint64_t song_position,
@@ -304,6 +329,7 @@ private:
 
     std::vector<std::unique_ptr<TrackPlayback>> tracks_;
     std::unique_ptr<engine::BusPlayback> buses_;
+    std::unique_ptr<engine::MetronomePlayback> metronome_;
     std::array<std::unique_ptr<Arrangement>, arrangement_slots> arrangements_;
     // The handoff between the control thread and the render callback, one
     // word so that it changes all at once: the slot queued for the callback,

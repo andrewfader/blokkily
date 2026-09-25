@@ -221,6 +221,7 @@ void SongModel::replace(blokkily::Song song) {
     clearHistory();
     emit tuningChanged();
     emit timebaseChanged();
+    emit metronomeChanged();
     notifyStructureChanged();
 }
 
