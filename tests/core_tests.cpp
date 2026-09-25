@@ -335,7 +335,9 @@ int main() {
     // opaque state of every instrument, and must come back byte-identical.
     Project project;
     project.name = "Blokkily Demo \xE2\x88\x86 1";  // non-ASCII and spaces exercise escaping
-    project.tempo = 137.5;
+    project.song.tempo.points = {TempoPoint{0, 137.5, false}, TempoPoint{1920, 90.25, true},
+                                 TempoPoint{3840, 60.0, false}};
+    project.song.meter.changes = {MeterChange{0, 4, 4}, MeterChange{2, 7, 8}};
     project.song.patterns = {PatternSlot{"Verse", Pattern(1920, 480)},
                              PatternSlot{"Chorus", Pattern(960, 480)}};
 
@@ -399,7 +401,8 @@ int main() {
     // nothing was lost, reordered, or rounded on the way through.
     assert(ProjectFile::serialize(*reloaded) == ProjectFile::serialize(project));
     assert(reloaded->name == project.name);
-    assert(reloaded->tempo == 137.5);
+    assert(reloaded->song.tempo == project.song.tempo);
+    assert(reloaded->song.meter == project.song.meter);
     assert(reloaded->pattern().length() == 1920 && reloaded->pattern().ticks_per_beat() == 480);
     assert(reloaded->pattern().events().size() == 2);
     // The whole arrangement survives, not just the pattern being edited.
@@ -645,7 +648,7 @@ int main() {
         engine.set_instrument(track, std::move(voice));
     }
     std::string engine_error;
-    assert(engine.prepare(mix_song, 120.0, 48000.0, 512, 0, &engine_error));
+    assert(engine.prepare(mix_song, 48000.0, 512, 0, &engine_error));
     assert(engine_error.empty());
     assert(engine.track_count() == 2 && engine.has_instrument(0) && engine.has_instrument(1));
     assert(engine.song_samples() == 96000);   // 1920 ticks at 120 BPM, 48 kHz
@@ -719,7 +722,7 @@ int main() {
         assert(live_voice != nullptr);
         live.set_instrument(0, std::move(live_voice));
         std::string live_error;
-        assert(live.prepare(live_song, 120.0, 48000.0, 512, 0, &live_error));
+        assert(live.prepare(live_song, 48000.0, 512, 0, &live_error));
         assert(live.song_samples() == 96000);
 
         std::vector<float> left(512, 0.0F), right(512, 0.0F);
@@ -744,7 +747,7 @@ int main() {
         written.duration = 480;
         written.musical_data = Note{60, 1.0F, 0.0F};
         const auto written_id = live_song.patterns[0].pattern.add(written);
-        assert(live.recompile(live_song, 120.0, 0, &live_error));
+        assert(live.recompile(live_song, 0, &live_error));
         assert(live_error.empty());
         // The edit does not move the playhead: the song is exactly where it was.
         assert(live.sample_position() == played_to);
@@ -762,7 +765,7 @@ int main() {
         later.duration = 240;
         later.musical_data = Note{60, 1.0F, 0.0F};
         (void)live_song.patterns[0].pattern.add(later);
-        assert(live.recompile(live_song, 120.0, 0, &live_error));
+        assert(live.recompile(live_song, 0, &live_error));
         // The note-off of what was already sounding still arrives, then the bar
         // is silent up to the step that replaced it: tick 1440 is sample 72000.
         while (live.sample_position() < 60000) (void)render();
@@ -783,7 +786,7 @@ int main() {
             auto untouched = ClapPluginInstance::create(
                 BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &clap_error);
             assert(untouched != nullptr && untouched->save_state() != before);
-            assert(live.recompile(live_song, 120.0, 0, &live_error));
+            assert(live.recompile(live_song, 0, &live_error));
             (void)render();
             assert(live.save_track_state(0) == before);
         }
@@ -792,14 +795,15 @@ int main() {
         // refused, so the caller rebuilds instead of playing the wrong graph.
         Song wider = live_song;
         wider.tracks.push_back(Track{"Two", {}, {}});
-        assert(!live.recompile(wider, 120.0, 0, &live_error));
+        assert(!live.recompile(wider, 0, &live_error));
         assert(!live_error.empty());
 
         // A shorter arrangement is published as the length the next bounce will
         // measure, not as the one the callback is midway through.
         assert(live_song.patterns[0].pattern.remove(tail_id));
         live_song.clips = {{0, 0, 0, 1}};
-        assert(live.recompile(live_song, 240.0, 0, &live_error));
+        live_song.tempo.points = {TempoPoint{0, 240.0, false}};
+        assert(live.recompile(live_song, 0, &live_error));
         assert(live.song_samples() == 48000);   // the same bar at twice the tempo
     }
 
@@ -817,7 +821,7 @@ int main() {
         one_track.tracks.resize(1);
         one_track.clips = {{0, 0, 0, 1}};
         std::string chunk_error;
-        assert(chunked.prepare(one_track, 120.0, 48000.0, 64, 0, &chunk_error));
+        assert(chunked.prepare(one_track, 48000.0, 64, 0, &chunk_error));
         chunked.set_playing(true);
 
         std::vector<float> whole_left(256, 0.0F), whole_right(256, 0.0F);
@@ -846,7 +850,7 @@ int main() {
         one_track.tracks = {Track{"One", {}, {}}};
         one_track.clips = {{0, 0, 0, 1}};
         one_track.master_gain_db = 0.0;
-        assert(checked.prepare(one_track, 120.0, 48000.0, 512));
+        assert(checked.prepare(one_track, 48000.0, 512));
         checked.set_playing(true);
         std::vector<float> left(512), right(512);
         checked.process({left, right});
@@ -1362,7 +1366,7 @@ int main() {
         tuned_engine.set_instrument(0, std::move(voice));
     }
     std::string tuned_error;
-    assert(tuned_engine.prepare(tuned_song, 120.0, 48000.0, 512, 0, &tuned_error));
+    assert(tuned_engine.prepare(tuned_song, 48000.0, 512, 0, &tuned_error));
     // Ask the instrument for a tone before the note starts, so what is measured
     // is pitch rather than a steady level.
     assert(tuned_engine.play_live(0, {PluginEvent::Type::parameter_value, 0, 1, 1.0}));
@@ -1555,7 +1559,7 @@ int main() {
         engine.set_instrument(1, ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &midi_error));
         assert(engine.has_instrument(1));
-        assert(engine.prepare(song, 120.0, 48000.0, 256, 0, &midi_error));
+        assert(engine.prepare(song, 48000.0, 256, 0, &midi_error));
         MidiInput keyboard(MidiInput::Mode::deterministic);
         assert(keyboard.open(std::size_t{0}));
         keyboard.set_track(1);
@@ -1616,7 +1620,7 @@ int main() {
         auto into_pattern = *played;
         into_pattern.start = target.offset;
         assert(write_played(song.pattern(target.pattern), into_pattern, 120) == 4);
-        assert(engine.recompile(song, 120.0, 0, &midi_error));
+        assert(engine.recompile(song, 0, &midi_error));
         engine.set_recording(false);
         engine.seek(0);
         std::vector<float> whole(static_cast<std::size_t>(engine.song_samples()), 0.0F);
@@ -1644,7 +1648,7 @@ int main() {
         SongEngine quiet;
         quiet.set_instrument(1, ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &midi_error));
-        assert(quiet.prepare(silent, 120.0, 48000.0, 256, 0, &midi_error));
+        assert(quiet.prepare(silent, 48000.0, 256, 0, &midi_error));
         engine.connect_input(nullptr);
         quiet.connect_input(&keyboard.queue());
         quiet.set_recording(true);

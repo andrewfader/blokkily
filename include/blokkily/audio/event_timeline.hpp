@@ -1,6 +1,7 @@
 #pragma once
 
 #include "blokkily/model/event.hpp"
+#include "blokkily/model/timebase.hpp"
 #include "blokkily/plugins/plugin.hpp"
 
 #include <cstdint>
@@ -18,9 +19,13 @@ struct TimedPluginEvent {
 };
 
 // Compiles scheduled musical events onto a sample timeline, sorted ready for
-// playback. `last_sample` clamps note-offs and locks that would otherwise land
+// playback. Each tick lands on the sample the clock places it at, rounded
+// down. `last_sample` clamps note-offs and locks that would otherwise land
 // past the end of the region being played. Pattern playback and song playback
 // share this so the two can never disagree about when a step sounds.
+[[nodiscard]] std::vector<TimedPluginEvent> compile_timeline(
+    const ScheduledEvents& scheduled, const TickClock& clock, std::uint64_t last_sample);
+// The same at a constant number of samples per tick, for pattern preview.
 [[nodiscard]] std::vector<TimedPluginEvent> compile_timeline(
     const ScheduledEvents& scheduled, double samples_per_tick, std::uint64_t last_sample);
 

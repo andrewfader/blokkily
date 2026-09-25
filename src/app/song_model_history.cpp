@@ -32,6 +32,7 @@ void SongModel::restore(Snapshot snapshot) {
     last_merge_.clear();
     emit tuningChanged();
     emit mixChanged();
+    emit timebaseChanged();
     notifyStructureChanged();
     emit historyChanged();
 }

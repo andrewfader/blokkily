@@ -43,6 +43,15 @@ const std::string v4_body =
     "clip 0 0 0 2\n"
     "clip 1 1 3840 1\n";
 
+// The same session as format 5 writes it since the timebase (item 1.2): the
+// legacy tempo line is read but never written; the tempo is a tempo point at
+// tick 0, and the meter is written beside it.
+const std::string v5_body = [] {
+    std::string body = v4_body;
+    body.erase(body.find("tempo 128\n"), std::string("tempo 128\n").size());
+    return body + "tempo_point 0 128 step\nmeter 0 4 4\n";
+}();
+
 std::string read_file(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary);
     std::ostringstream buffer;
@@ -61,7 +70,8 @@ int main() {
         check(project.has_value(), "a format 4 file parses");
         if (project) {
             check(project->name == "My Song", "v4 name");
-            check(project->tempo == 128.0, "v4 tempo");
+            check(project->song.tempo.points == std::vector<TempoPoint>{{0, 128.0, false}},
+                  "v4 tempo is one tempo point at tick 0");
             check(project->song.master_gain_db == -1.5, "v4 master");
             check(project->song.tuning.name == "Custom" &&
                       project->song.tuning.degrees.size() == 3,
@@ -76,15 +86,16 @@ int main() {
                       project->song.tracks[0].mix.mute && project->song.tracks[1].mix.solo,
                   "v4 tracks");
             check(project->song.clips.size() == 2, "v4 clips");
-            // Nothing is lost or reshaped: only the header changes on save.
-            check(ProjectFile::serialize(*project) == "blokkily-project 5\n" + v4_body,
+            // Nothing is lost or reshaped: the header changes, and the legacy
+            // tempo line becomes the tempo point it means (plan C3).
+            check(ProjectFile::serialize(*project) == "blokkily-project 5\n" + v5_body,
                   "a v4 file saves as the same records under the v5 header");
         }
     }
 
     // Scenario: Saving the same project twice gives the same bytes.
     {
-        const std::string v5_text = "blokkily-project 5\n" + v4_body;
+        const std::string v5_text = "blokkily-project 5\n" + v5_body;
         const auto project = ProjectFile::parse(v5_text, &error);
         check(project.has_value(), "a format 5 file parses");
         if (project) {
@@ -127,7 +138,9 @@ int main() {
             std::string(header) +
                 "tempo 97.5\npattern P 1920 480\ntrack T 0 0 0 0 CLAP /a.clap ~ ~\n",
             &error);
-        check(project.has_value() && project->tempo == 97.5, header);
+        check(project.has_value() &&
+                  project->song.tempo.points == std::vector<TempoPoint>{{0, 97.5, false}},
+              header);
     }
 
     // Scenario: A file inside the project folder is referenced relative to it.

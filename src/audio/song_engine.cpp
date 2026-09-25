@@ -78,16 +78,16 @@ const std::vector<TimedPluginEvent>& SongEngine::timeline_for(std::size_t track)
     return live_->timelines[track];
 }
 
-bool SongEngine::prepare(const Song& song, double bpm, double sample_rate,
+bool SongEngine::prepare(const Song& song, double sample_rate,
                          std::uint32_t maximum_block_size, std::uint64_t seed,
                          std::string* error) {
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
     };
-    if (!std::isfinite(bpm) || !std::isfinite(sample_rate) ||
-        bpm <= 0.0 || sample_rate <= 0.0 || maximum_block_size == 0)
+    if (!std::isfinite(sample_rate) || sample_rate <= 0.0 || maximum_block_size == 0)
         return fail("invalid playback settings");
+    if (!song.tempo.valid()) return fail("invalid tempo map");
     if (!song.consistent()) return fail("song refers to a track or pattern that does not exist");
 
     while (tracks_.size() < song.tracks.size()) tracks_.push_back(std::make_unique<TrackPlayback>());
@@ -102,12 +102,13 @@ bool SongEngine::prepare(const Song& song, double bpm, double sample_rate,
 
     // Nothing is rendering yet, so the first arrangement is installed directly
     // rather than queued for a callback that is not running.
-    if (!compile_into(*arrangements_.front(), song, bpm, seed, error)) return false;
+    if (!compile_into(*arrangements_.front(), song, seed, error)) return false;
     live_ = arrangements_.front().get();
     queued_.store(nullptr, std::memory_order_release);
     rendering_.store(live_, std::memory_order_release);
     song_samples_ = live_->song_samples;
     published_song_samples_.store(song_samples_, std::memory_order_release);
+    published_clock_ = live_->clock;
 
     for (std::size_t index = 0; index < tracks_.size(); ++index) {
         auto& track = *tracks_[index];
@@ -128,19 +129,18 @@ bool SongEngine::prepare(const Song& song, double bpm, double sample_rate,
     return true;
 }
 
-bool SongEngine::compile_into(Arrangement& target, const Song& song, double bpm,
+bool SongEngine::compile_into(Arrangement& target, const Song& song,
                               std::uint64_t seed, std::string* error) const {
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
     };
-    if (!std::isfinite(bpm) || bpm <= 0.0 || sample_rate_ <= 0.0)
-        return fail("invalid playback settings");
+    if (sample_rate_ <= 0.0) return fail("invalid playback settings");
+    if (!song.tempo.valid()) return fail("invalid tempo map");
     if (!song.consistent()) return fail("song refers to a track or pattern that does not exist");
 
-    const double ticks_per_beat = static_cast<double>(song.pattern().ticks_per_beat());
-    const double samples_per_tick = sample_rate_ * 60.0 / (bpm * ticks_per_beat);
-    const double length = static_cast<double>(song.length()) * samples_per_tick;
+    TickClock clock(song.tempo, song.ticks_per_beat(), sample_rate_);
+    const double length = clock.sample_at(song.length());
     if (!std::isfinite(length) || length < 0.5 ||
         length >= static_cast<double>(std::numeric_limits<std::int64_t>::max()))
         return fail("song length is outside the supported sample range");
@@ -149,16 +149,16 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song, double bpm,
 
     target.timelines.resize(song.tracks.size());
     for (std::size_t index = 0; index < song.tracks.size(); ++index) {
-        target.timelines[index] =
-            compile_timeline(song.arrange(index, seed), samples_per_tick, samples - 1);
+        target.timelines[index] = compile_timeline(song.arrange(index, seed), clock, samples - 1);
         if (!timeline_density_supported(target.timelines[index]))
             return fail("more than 256 simultaneous events on one track");
     }
     target.song_samples = samples;
+    target.clock = std::move(clock);
     return true;
 }
 
-bool SongEngine::recompile(const Song& song, double bpm, std::uint64_t seed, std::string* error) {
+bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* error) {
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
@@ -186,17 +186,31 @@ bool SongEngine::recompile(const Song& song, double bpm, std::uint64_t seed, std
             break;
         }
     if (target == nullptr) return fail("no free arrangement slot");
-    if (!compile_into(*target, song, bpm, seed, error)) return false;
+    if (!compile_into(*target, song, seed, error)) return false;
 
+    published_clock_ = target->clock;
     published_song_samples_.store(target->song_samples, std::memory_order_release);
     queued_.store(target, std::memory_order_release);
     apply_mix(song);
     return true;
 }
 
-void SongEngine::take_queued_arrangement() noexcept {
+void SongEngine::take_queued_arrangement(bool seeked) noexcept {
     auto* incoming = queued_.exchange(nullptr, std::memory_order_acquire);
     if (incoming == nullptr) return;
+    // A new tempo is a new place for every tick, not a new place in the music:
+    // the playhead stays on the tick it had reached and moves to the sample
+    // where that tick now falls. A seek taken in this same block was placed
+    // with the new clock already and is left where it was put.
+    if (!seeked && live_ != nullptr && song_samples_ > 0 && incoming->song_samples > 0 &&
+        !(live_->clock == incoming->clock)) {
+        const auto position = sample_position_ % song_samples_;
+        const double tick = live_->clock.tick_at(static_cast<double>(position));
+        const double moved = std::max(0.0, std::round(incoming->clock.sample_at_tick(tick)));
+        const auto kept = static_cast<std::uint64_t>(moved) % incoming->song_samples;
+        sample_position_ = kept;
+        published_position_.store(kept, std::memory_order_release);
+    }
     live_ = incoming;
     rendering_.store(incoming, std::memory_order_release);
     song_samples_ = incoming->song_samples;
@@ -410,7 +424,8 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
 void SongEngine::process(StereoBlock output) noexcept {
     if (output.left.size() != output.right.size()) return;
     const auto requested = requested_position_.exchange(no_seek, std::memory_order_acq_rel);
-    if (requested != no_seek) {
+    const bool seeked = requested != no_seek;
+    if (seeked) {
         sample_position_ = requested;
         published_position_.store(requested, std::memory_order_release);
         cursors_valid_ = false;
@@ -421,7 +436,7 @@ void SongEngine::process(StereoBlock output) noexcept {
     // An edit made while the song was playing is picked up here, at a block
     // boundary, so the arrangement changes underneath the playhead rather than
     // the playhead being sent back to the start of the song.
-    take_queued_arrangement();
+    take_queued_arrangement(seeked);
     master_peak_.store(0.0F, std::memory_order_relaxed);
     for (auto& track : tracks_) track->peak.store(0.0F, std::memory_order_relaxed);
     if (!is_playing() || song_samples_ == 0) {

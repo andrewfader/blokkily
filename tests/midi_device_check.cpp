@@ -86,7 +86,7 @@ int main(int argc, char* argv[]) {
     engine.set_instrument(0, blokkily::ClapPluginInstance::create(
                                  clap_path, "dev.blokkily.test", &error));
     if (!engine.has_instrument(0)) return fail("the CLAP fixture did not load");
-    if (!engine.prepare(song, 120.0, 48000.0, 256, 0, &error)) return fail(error.c_str());
+    if (!engine.prepare(song, 48000.0, 256, 0, &error)) return fail(error.c_str());
     engine.connect_input(&input.queue());
     input.set_track(0);
 

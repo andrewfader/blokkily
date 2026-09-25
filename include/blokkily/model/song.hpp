@@ -3,6 +3,7 @@
 #include "blokkily/model/pattern.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/scale.hpp"
+#include "blokkily/model/timebase.hpp"
 #include "blokkily/model/tuning.hpp"
 
 #include <cstddef>
@@ -253,15 +254,23 @@ struct Song {
     // Added to the measured device round trip when a recording is placed
     // (plan C21): the correction for a device that misreports its latency.
     std::int64_t record_offset_samples = 0;
+    // When each tick sounds, and how ticks group into bars (plan F-A). The
+    // only tempo the song has: the engine, the transport and recording all
+    // read these.
+    TempoMap tempo;
+    MeterMap meter;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return patterns.at(index).pattern; }
     [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {
         return patterns.at(index).pattern;
     }
-    // Ticks from the start of the song to the end of its last clip. A song
-    // whose clips are all empty still lasts one pattern, so transport has
-    // somewhere to run.
+    // Ticks from the start of the song to the end of its last clip. An audio
+    // clip ends where its last frame falls under the tempo map, found in
+    // seconds so the song's length needs no sample rate. A song whose clips
+    // are all empty still lasts one pattern, so transport has somewhere to run.
     [[nodiscard]] Tick length() const;
+    // The resolution the song's ticks are counted at: the first pattern's.
+    [[nodiscard]] Tick ticks_per_beat() const;
     [[nodiscard]] bool any_solo() const;
     // True when every cross-reference resolves and every value is in range:
     // clips name existing tracks and patterns; audio clips have unique non-zero

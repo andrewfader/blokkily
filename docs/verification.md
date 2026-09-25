@@ -156,8 +156,20 @@ and the piano roll; that the arrangement then sounds on that step with no key
 down where before it was silent; that one undo takes the take back; that
 stopping with a key held writes it released there; that an unarmed song records
 nothing; and that in 19-EDO a recorded key keeps the degree and retune it was
-heard at. The screenshot shows the take in every editor, recording armed, and
-the panel naming the port and the last key.
+heard at. It then slows the song to 60 BPM from bar 2 (`features/timebase.feature`)
+and checks that a key played into bar 2 is written on the tick the tempo map
+puts it at, that the readouts show 60.00 BPM and bar 2, that a 7/8 bar 2 moves
+the next clip to tick 3600 while it keeps its bar number and seeks the engine
+to that tick's sample, and that undo restores both. The screenshot shows the
+take in every editor, recording armed, the panel naming the port and the last
+key, and the transport at 2.1.1 reading 60.00 BPM.
+
+The timebase itself (`blokkily_timebase_tests`, tests `timebase_*`, and the
+`realtime_tempo_edit_keeps_bar` regression) is proved from audio rendered through
+the production callback: CLAP DC onsets across a tempo step, a ramp and a 7/8
+bar at hand-computed samples, a bounce across a tempo change read back and
+compared sample by sample with the live render, a recording across a tempo
+change, and non-silent SoundFont and VST3 notes placed by the tempo map.
 
 `build/artifacts/chord-velocity.png` — from the `bdd_chord_velocity` gate
 (`blokkily --verify --scenario chords`), which runs the interface scenarios of

@@ -30,6 +30,12 @@ class SongModel final : public QObject {
     Q_PROPERTY(int currentPattern READ currentPattern NOTIFY songChanged)
     Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY songChanged)
     Q_PROPERTY(int bars READ bars NOTIFY songChanged)
+    // Every bar the timeline shows, laid out by the meter map (plan F-A): one
+    // entry per bar, {start, ticks, numerator, denominator, x0, x1}, where
+    // start and ticks are song ticks and x0..x1 is the bar's share of the
+    // shown song, from 0 to 1. Clips, the ruler and automation lanes take
+    // their geometry from here, so a 7/8 bar is drawn 7/8 as wide as a 4/4 one.
+    Q_PROPERTY(QVariantList barLayout READ barLayout NOTIFY songChanged)
     Q_PROPERTY(double masterGainDb READ masterGainDb NOTIFY mixChanged)
     Q_PROPERTY(double masterPeak READ masterPeak NOTIFY metersChanged)
     // Each track's meter, as the fraction of its bar to light. Kept apart from
@@ -55,9 +61,8 @@ class SongModel final : public QObject {
     Q_PROPERTY(bool autoScale READ autoScale NOTIFY tuningChanged)
 
 public:
-    // One bar of 4/4 at the model's resolution. The arrangement is laid out in
-    // bars because that is how a producer reads a timeline.
-    static constexpr blokkily::Tick ticks_per_bar = 1920;
+    // The arrangement is laid out in bars because that is how a producer reads
+    // a timeline; how long each bar is comes from the song's meter map.
     static constexpr int minimum_visible_bars = 8;
 
     explicit SongModel(QObject* parent = nullptr);
@@ -70,6 +75,12 @@ public:
     int currentPattern() const noexcept { return current_pattern_; }
     int selectedTrack() const noexcept { return selected_track_; }
     int bars() const;
+    QVariantList barLayout() const;
+    // Where bar `bar` starts, and how long it is, in song ticks.
+    [[nodiscard]] blokkily::Tick barStart(int bar) const;
+    [[nodiscard]] blokkily::Tick barTicks(int bar) const;
+    // The bar a tick of the song lies in.
+    [[nodiscard]] int barAt(blokkily::Tick tick) const;
     double masterGainDb() const noexcept { return song_.master_gain_db; }
     double masterPeak() const noexcept { return master_peak_; }
     QVariantList meters() const;
@@ -131,6 +142,17 @@ public:
     // Moves the clip covering `bar` so it starts at `newBar` on the same track.
     Q_INVOKABLE bool moveClip(int track, int bar, int newBar);
     Q_INVOKABLE bool hasClip(int track, int bar) const;
+    // Timebase edits (plan F-A). Each is one step of history; a tempo dragged
+    // on a readout is one step however many moves it makes.
+    // Sets the tempo of the tempo point in effect at `atTick`.
+    Q_INVOKABLE bool setTempoAt(double bpm, double atTick = 0.0);
+    // Adds or replaces the tempo point at `atTick`; `ramp` glides from it to
+    // the next point.
+    Q_INVOKABLE bool setTempoPoint(double atTick, double bpm, bool ramp = false);
+    Q_INVOKABLE bool removeTempoPoint(double atTick);
+    // Makes num/den take effect from `bar`. Clips and tempo points keep their
+    // bar numbers (decision 9).
+    Q_INVOKABLE bool setMeter(int bar, int numerator, int denominator);
     // Tuning and scale moves. They change how the session is written and read,
     // never the notes already in it: a pattern keeps the pitches it was played
     // at, so changing tuning re-reads the music rather than rewriting it.
@@ -186,6 +208,8 @@ signals:
     // or draws a pitch re-reads itself from this.
     void tuningChanged();
     void historyChanged();
+    // The tempo or meter map changed. Also covered by songChanged.
+    void timebaseChanged();
 
 private:
     [[nodiscard]] bool validTrack(int track) const;

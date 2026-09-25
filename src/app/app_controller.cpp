@@ -92,6 +92,11 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // A fader move only changes gains, so it reaches the running engine
         // without rebuilding the graph or interrupting playback.
         QObject::connect(song_, &SongModel::mixChanged, this, &AppController::applyMix);
+        // The transport reads bars, beats and the tempo shown from the song's
+        // own maps; a tempo edit reaches the engine as a recompile, through
+        // structureChanged, like any other change to when events fall.
+        QObject::connect(song_, &SongModel::timebaseChanged, this, &AppController::syncTimebase);
+        syncTimebase();
         // A controller plays the selected track, in the song's own tuning and
         // scale, from the next key pressed.
         const auto follow = [this] {
@@ -230,7 +235,9 @@ void AppController::pollMeters() {
         emit midiActivityChanged();
     }
     if (transport_ != nullptr && transport_->playing())
-        transport_->followSamples(engine_->sample_position(), engine_->sample_rate());
+        transport_->followSamples(engine_->sample_position() %
+                                      std::max<std::uint64_t>(1, engine_->song_samples()),
+                                  engine_->sample_rate());
     std::vector<float> peaks(engine_->track_count(), 0.0F);
     for (std::size_t track = 0; track < peaks.size(); ++track)
         peaks[track] = engine_->track_peak(track);
@@ -252,7 +259,7 @@ bool AppController::refreshArrangement(std::string* failure) {
     // compiles the song itself.
     if (!builtFromCurrentGraph()) return rebuildEngine();
     std::string error;
-    if (!engine_->recompile(song_->song(), transport_->bpm(), 0, &error)) {
+    if (!engine_->recompile(song_->song(), 0, &error)) {
         if (failure != nullptr) *failure = error;
         // A busy engine is tried again on the next turn; only a refusal that
         // will not clear by itself is worth telling the producer about.
@@ -472,7 +479,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     const double rate = device_open && audio_output_->device_info().sample_rate != 0
                             ? static_cast<double>(audio_output_->device_info().sample_rate)
                             : static_cast<double>(default_sample_rate);
-    if (!next->prepare(song, transport_->bpm(), rate, 512, 0, &error)) {
+    if (!next->prepare(song, rate, 512, 0, &error)) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
         emit statusChanged();
         emit activeInstrumentChanged();
@@ -614,7 +621,9 @@ void AppController::togglePlayback() {
         return;
     }
     meter_timer_.start();
-    transport_->followSamples(engine_->sample_position(), engine_->sample_rate());
+    transport_->followSamples(engine_->sample_position() %
+                                  std::max<std::uint64_t>(1, engine_->song_samples()),
+                              engine_->sample_rate());
     transport_->play();
 }
 
@@ -624,20 +633,33 @@ void AppController::rewindPlayback() {
 }
 
 void AppController::seekToBar(int bar) {
-    if (bar < 0) return;
-    seekToStep(static_cast<double>(bar) * Transport::steps_per_bar);
+    if (bar < 0 || song_ == nullptr) return;
+    // A bar starts where the meter map says, whatever the bars before it hold.
+    seekToTick(static_cast<double>(song_->barStart(bar)));
 }
 
 void AppController::seekToStep(double step) {
     if (step < 0.0) return;
-    if (transport_ != nullptr) transport_->locate(step);
-    if (engine_ == nullptr || transport_ == nullptr) return;
-    const double bpm = transport_->bpm();
-    const double rate = engine_->sample_rate();
-    if (bpm <= 0.0 || rate <= 0.0) return;
-    // Four sixteenths to the beat, at the tempo the engine was prepared for.
-    const double samples_per_step = rate * 60.0 / (bpm * 4.0);
-    engine_->seek(static_cast<std::uint64_t>(std::llround(step * samples_per_step)));
+    seekToTick(step * static_cast<double>(PatternModel::ticks_per_step));
+}
+
+void AppController::syncTimebase() {
+    if (song_ == nullptr || transport_ == nullptr) return;
+    const auto& song = song_->song();
+    transport_->setTimebase(song.tempo, song.meter, song.ticks_per_beat());
+}
+
+void AppController::seekToTick(double tick) {
+    if (!(tick >= 0.0)) return;
+    if (transport_ != nullptr) transport_->locateTick(tick);
+    if (engine_ == nullptr) return;
+    // The seek is placed with the clock of the song as it is now: an edit of
+    // this turn is compiled first, so the engine never takes the seek under
+    // one tempo map and the arrangement under another.
+    flushRecompile();
+    if (engine_ == nullptr || engine_->sample_rate() <= 0.0) return;
+    const double sample = engine_->published_clock().sample_at_tick(tick);
+    engine_->seek(static_cast<std::uint64_t>(std::llround(sample)));
 }
 
 bool AppController::auditionKey(int key, bool held) {
@@ -646,12 +668,12 @@ bool AppController::auditionKey(int key, bool held) {
 }
 
 void AppController::setTempo(double bpm) {
-    if (!transport_) return;
-    transport_->setBpm(bpm);
+    if (song_ == nullptr) return;
     // The tempo readout is dragged, so this arrives once per pointer move. A
     // tempo change is a change to when the arrangement's events fall, not to
-    // the instruments playing them, so it goes to the running engine.
-    if (engine_) requestRecompile();
+    // the instruments playing them: the song model reports it as a structure
+    // change, which reaches the running engine as a coalesced recompile.
+    (void)song_->setTempoAt(bpm, transport_ != nullptr ? transport_->tick() : 0.0);
 }
 
 bool AppController::exportAudioFile(const QString& path, const QString& depth) {
@@ -929,7 +951,6 @@ bool AppController::saveProject(const QString& path) {
             }
     blokkily::Project project;
     project.name = "Blokkily Session";
-    project.tempo = transport_ == nullptr ? 120.0 : transport_->bpm();
     project.song = song;
     std::string error;
     const bool valid = blokkily::ProjectFile::save(project, path.toStdString(), &error);
@@ -961,7 +982,6 @@ bool AppController::loadProject(const QString& path) {
     forgetSoundingNotes();
     takes_.clear();
     engine_.reset();
-    if (transport_ != nullptr) transport_->setBpm(project->tempo);
     const auto tracks = project->song.tracks.size();
     const auto patterns = project->song.patterns.size();
     song_->replace(std::move(project->song));

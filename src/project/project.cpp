@@ -16,6 +16,7 @@ namespace project_io {
 std::span<const RecordModule* const> record_modules() {
     static const std::array modules{
         &core_records(),
+        &timebase_records(),
         &chord_velocity_records(),
         &audio_records(),
         &effects_records(),
@@ -75,7 +76,7 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
     }
 
     Project project;
-    project_io::ParseContext context{project, static_cast<int>(*version), base_dir, error, {}, {}, {}};
+    project_io::ParseContext context{project, static_cast<int>(*version), base_dir, error, {}, {}, {}, {}, {}, {}};
 
     while (std::getline(stream, line)) {
         if (line.empty()) continue;

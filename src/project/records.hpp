@@ -13,6 +13,7 @@
 #include "record_io.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <ostream>
 #include <span>
 #include <string>
@@ -51,6 +52,12 @@ struct ParseContext {
     std::vector<PatternDraft> drafts;
     std::vector<Track> tracks;
     std::vector<Clip> clips;
+    // The timebase as read (records_timebase.cpp): the legacy `tempo` line,
+    // and the tempo_point and meter records, combined by the timebase module
+    // once the whole file is read.
+    std::optional<double> legacy_tempo;
+    std::vector<TempoPoint> tempo_points;
+    std::vector<MeterChange> meter_changes;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -74,6 +81,10 @@ struct RecordModule {
 // Records defined by format 4: name, tempo, master, tuning, scale, harmony,
 // pattern, trigger, lock, track, clip.
 [[nodiscard]] const RecordModule& core_records();
+
+// The timebase (item 1.2): tempo_point, meter; and the legacy tempo line,
+// which the core module reads into the context.
+[[nodiscard]] const RecordModule& timebase_records();
 
 // Chord velocity and voice length: voicevel, voicelen (records_chord_velocity.cpp).
 [[nodiscard]] const RecordModule& chord_velocity_records();

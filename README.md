@@ -221,6 +221,9 @@ nothing in the interface pretends otherwise:
 - A recorded note is placed to within one audio block of when it was played
   (about 10 ms at 512 frames), and a step keeps one velocity, so notes merged
   into a chord lose their own.
-- No tempo or time-signature changes inside a song.
+- A song has a tempo map (steps and ramps) and a meter map, and the engine,
+  the bounce, the transport and recording all follow them, but there is no
+  tempo lane or meter menu to edit them yet: the tempo readout sets the tempo
+  in effect at the playhead, and the time-signature label is not yet live.
 - No native plugin windows. A plugin's parameters are reached through the
   step inspector's locks rather than through its own interface.

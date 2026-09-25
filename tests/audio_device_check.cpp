@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
         engine.set_instrument(track, std::move(voice));
     }
     std::string engine_error;
-    if (!engine.prepare(two_track_song(), 120.0, sample_rate, maximum_block, 0, &engine_error)) {
+    if (!engine.prepare(two_track_song(), sample_rate, maximum_block, 0, &engine_error)) {
         std::fprintf(stderr, "audio-device-check: engine prepare failed: %s\n",
                      engine_error.c_str());
         return 2;

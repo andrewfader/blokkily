@@ -20,8 +20,6 @@ namespace {
 void write_core(const Project& project, WriteContext& context) {
     auto& out = context.out;
     out << "name " << escape(project.name) << '\n';
-    // Legacy single-tempo record; accepted in every version.
-    out << "tempo " << number(project.tempo) << '\n';
     out << "master " << number(project.song.master_gain_db) << '\n';
     // The tuning travels in full rather than by name, so a session written in a
     // scale this build has never heard of still reloads as itself.
@@ -86,11 +84,14 @@ bool parse_name(const Fields& fields, ParseContext& context) {
     return true;
 }
 
-// `tempo <bpm>` is accepted in every format version.
+// `tempo <bpm>` is the legacy single tempo, accepted in every format version
+// and never written: the timebase module turns it into one tempo point at
+// tick 0 (plan C3).
 bool parse_tempo(const Fields& fields, ParseContext& context) {
     const auto value = fields.real(1);
     if (!fields.count(2) || !value || *value <= 0.0) return context.fail("malformed tempo record");
-    context.project.tempo = *value;
+    if (context.legacy_tempo) return context.fail("more than one tempo record");
+    context.legacy_tempo = *value;
     return true;
 }
 

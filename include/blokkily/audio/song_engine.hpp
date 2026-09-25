@@ -85,7 +85,10 @@ public:
     [[nodiscard]] std::size_t track_count() const noexcept { return tracks_.size(); }
     [[nodiscard]] bool has_instrument(std::size_t track) const;
 
-    [[nodiscard]] bool prepare(const Song& song, double bpm, double sample_rate,
+    // Builds everything the render callback needs for `song` at `sample_rate`.
+    // The song's tempo map says where each tick falls (plan F-A); there is no
+    // other tempo.
+    [[nodiscard]] bool prepare(const Song& song, double sample_rate,
                                std::uint32_t maximum_block_size, std::uint64_t seed = 0,
                                std::string* error = nullptr);
 
@@ -99,8 +102,17 @@ public:
     // allocates or blocks to make it. Refuses a song whose track list no longer
     // matches the prepared graph, because that needs instruments the engine
     // does not hold; the caller rebuilds for those.
-    [[nodiscard]] bool recompile(const Song& song, double bpm, std::uint64_t seed = 0,
+    //
+    // A new tempo or meter is a recompile too. The playhead keeps its musical
+    // position across it: the block that picks the new arrangement up moves
+    // the song position to the sample where the same tick falls under the new
+    // clock, unless a seek was taken in that same block (the seek was already
+    // placed with the new clock).
+    [[nodiscard]] bool recompile(const Song& song, std::uint64_t seed = 0,
                                  std::string* error = nullptr);
+    // The clock of the arrangement last prepared or recompiled: what the
+    // control thread converts ticks and samples with. Control thread only.
+    [[nodiscard]] const TickClock& published_clock() const noexcept { return published_clock_; }
 
     // A note played from the interface rather than from the arrangement. Safe
     // to call while audio runs: the control thread only ever writes, the audio
@@ -196,14 +208,15 @@ private:
     // Repoints every track's event cursor after a wrap or a seek, so playback
     // costs one step per event instead of a scan of the song per block.
     void seek_cursors(std::uint64_t position) noexcept;
-    // Installs a queued arrangement, if one is waiting. Called by the render
-    // callback and by nothing else.
-    void take_queued_arrangement() noexcept;
+    // Installs a queued arrangement, if one is waiting, and keeps the playhead
+    // on its tick under the new clock unless `seeked` (a seek was taken in
+    // this block). Called by the render callback and by nothing else.
+    void take_queued_arrangement(bool seeked) noexcept;
     // The timeline the render callback is playing for one track.
     [[nodiscard]] const std::vector<TimedPluginEvent>& timeline_for(
         std::size_t track) const noexcept;
     // Compiles `song` into `target`. Control thread only.
-    [[nodiscard]] bool compile_into(Arrangement& target, const Song& song, double bpm,
+    [[nodiscard]] bool compile_into(Arrangement& target, const Song& song,
                                     std::uint64_t seed, std::string* error) const;
 
     std::vector<std::unique_ptr<TrackPlayback>> tracks_;
@@ -215,6 +228,8 @@ private:
     std::atomic<Arrangement*> queued_{nullptr};
     std::atomic<Arrangement*> rendering_{nullptr};
     std::atomic<std::uint64_t> published_song_samples_{0};
+    // The clock of the last arrangement handed to the callback. Control thread.
+    TickClock published_clock_;
     // What the render callback is playing. Touched by the callback alone.
     Arrangement* live_ = nullptr;
     std::uint64_t song_samples_ = 0;
