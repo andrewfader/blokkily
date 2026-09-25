@@ -85,7 +85,12 @@ if(BLOKKILY_BUILD_GUI)
         src/app/song_model.hpp
         src/app/keyboard_model.cpp
         src/app/keyboard_model.hpp
+        src/app/verify/harness.cpp
+        src/app/verify/harness.hpp
+        src/app/verify/scenario_default.cpp
+        src/app/verify/scenario_midi.cpp
     )
+    target_include_directories(blokkily PRIVATE src/app)
     qt_add_qml_module(blokkily
         URI Blokkily
         VERSION 1.0
