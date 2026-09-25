@@ -24,6 +24,8 @@
 #include <memory>
 #include <string>
 #include <thread>
+
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -56,10 +58,13 @@ int main(int argc, char* argv[]) {
     if (clap_path.empty()) return fail("pass --clap-fixture <path>");
 
     // The keyboard: a virtual port, which is what a controller's driver makes.
+    // Named for this process, so two suites running side by side each open
+    // their own keyboard rather than the other's.
+    const std::string port_label = "Test Keyboard " + std::to_string(::getpid());
     std::unique_ptr<RtMidiOut> keyboard;
     try {
         keyboard = std::make_unique<RtMidiOut>(RtMidi::UNSPECIFIED, "Test Controller");
-        keyboard->openVirtualPort("Test Keyboard");
+        keyboard->openVirtualPort(port_label);
     } catch (const RtMidiError& error) {
         std::printf("SKIP: no MIDI server (%s)\n", error.getMessage().c_str());
         return exit_skip;
@@ -67,13 +72,13 @@ int main(int argc, char* argv[]) {
 
     blokkily::MidiInput input(blokkily::MidiInput::Mode::device);
     const auto ports = input.ports();
-    if (std::none_of(ports.begin(), ports.end(), [](const std::string& port) {
-            return port.find("Test Keyboard") != std::string::npos;
+    if (std::none_of(ports.begin(), ports.end(), [&port_label](const std::string& port) {
+            return port.find(port_label) != std::string::npos;
         }))
         return fail("the virtual keyboard is not among the ports the input lists");
     std::string error;
-    if (!input.open(std::string("Test Keyboard"), &error)) return fail(error.c_str());
-    if (!input.is_open() || input.port_name().find("Test Keyboard") == std::string::npos)
+    if (!input.open(port_label, &error)) return fail(error.c_str());
+    if (!input.is_open() || input.port_name().find(port_label) == std::string::npos)
         return fail("the input did not open the port it was asked for");
 
     blokkily::Song song;
