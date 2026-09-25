@@ -51,13 +51,34 @@ Rectangle {
                     onMenuRequested: (index, name) => root.trackMenuRequested(index, name)
                 }
             }
+
+            // Return buses, fed by the tracks' sends.
+            Repeater {
+                model: songModel.returns
+                ReturnStrip {}
+            }
+            Chip {
+                objectName: "addReturnButton"
+                Layout.fillWidth: true
+                text: "+ RETURN"; accent: Theme.amber
+                onClicked: songModel.addReturn()
+            }
         }
         }
+
+        EffectRack {}
 
         Rectangle {
             objectName: "masterStrip"
             Layout.fillWidth: true; implicitHeight: 78; radius: 6
-            color: Theme.panel; border.color: Theme.acid
+            color: songModel.masterRacked ? Theme.raised : Theme.panel
+            border.color: Theme.acid
+
+            // A click on the strip points the effect rack at the master.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: songModel.selectRack("master", 0)
+            }
 
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 9; spacing: 5
@@ -66,6 +87,12 @@ Rectangle {
                     Label { text: "MASTER"; color: Theme.acid; font.pixelSize: 11
                         font.bold: true; font.letterSpacing: 1 }
                     Item { Layout.fillWidth: true }
+                    Chip {
+                        objectName: "masterRack"
+                        text: "FX"; implicitHeight: 18
+                        on: songModel.masterRacked
+                        onClicked: songModel.selectRack("master", 0)
+                    }
                     Label {
                         text: songModel.masterPeak > 0.99 ? "CLIP" : "OK"
                         color: songModel.masterPeak > 0.99 ? "#ff4d4d" : Theme.muted

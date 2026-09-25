@@ -34,9 +34,16 @@ struct ProcessorIdentity {
 };
 [[nodiscard]] ProcessorIdentity identity_of(const InstrumentSlot& slot);
 
+// The slot the song keeps for an address: a track's instrument, or an insert
+// on a track, a return or the master bus. nullptr where the song has none.
+[[nodiscard]] const InstrumentSlot* song_slot(const Song& song, ProcessorAddress where);
+[[nodiscard]] InstrumentSlot* song_slot(Song& song, ProcessorAddress where);
+
 struct GraphSignature {
     // Every address the song defines, in graph order, with what sits there
-    // (an empty identity where nothing does).
+    // (an empty identity where nothing does): each track's instrument then
+    // its inserts, each return's inserts, then the master inserts. A send, a
+    // bypass or a level is not part of the graph: those are live moves.
     std::vector<std::pair<ProcessorAddress, ProcessorIdentity>> processors;
     // How many return buses the graph has (plan F-E adds them).
     std::size_t returns = 0;
@@ -53,7 +60,10 @@ using TrackRemap = std::vector<std::optional<std::size_t>>;
 // The released processors the wanted graph still has a place for, each moved
 // to the address it has there. Considered in order, address by address; one
 // whose identity changed, or whose track was removed, is left out and is
-// destroyed with `released` on the calling (control) thread.
+// destroyed with `released` on the calling (control) thread. An instrument
+// keeps its address (after `remap`); an insert follows its identity along its
+// own bus in chain order, so removing or adding an insert in front of it
+// moves it to its new slot as the same instance.
 [[nodiscard]] std::vector<ReleasedProcessor> adopt_processors(
     std::vector<ReleasedProcessor> released, const GraphSignature& built,
     const GraphSignature& wanted, const TrackRemap* remap);
@@ -76,5 +86,11 @@ struct GraphBuild {
 // After prepare(): loads the song's saved state into the processors that were
 // created fresh. Adopted processors keep the state they already have.
 void load_fresh_state(SongEngine& engine, const Song& song, const GraphBuild& build);
+
+// Copies every live processor's state into the song slot at its address,
+// where the song still names the same plugin there, so what is saved is what
+// is heard (instruments and effects alike). `built` is the graph the engine
+// was built from. Returns how many states were copied. Control thread.
+int capture_processor_states(const SongEngine& engine, Song& song, const GraphSignature& built);
 
 } // namespace blokkily

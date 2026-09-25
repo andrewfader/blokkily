@@ -14,6 +14,9 @@ ColumnLayout {
     property real to: 1
     property color accent: Theme.acid
     property bool enabled: true
+    // A height for the slider itself. Left at 0 the slider keeps its implicit
+    // height; a dial that must take a press along its travel gives it one.
+    property real grip: 0
     signal moved(real value)
     spacing: 3
     RowLayout {
@@ -25,6 +28,8 @@ ColumnLayout {
     }
     Slider {
         Layout.fillWidth: true
+        Layout.preferredHeight: parent.grip > 0 ? parent.grip : -1
+        Layout.minimumHeight: parent.grip
         enabled: parent.enabled
         // A slider keeps no keyboard focus, so the arrow keys and Space
         // stay with the editors after a fader has been dragged.

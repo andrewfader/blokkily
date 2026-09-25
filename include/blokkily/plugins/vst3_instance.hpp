@@ -15,6 +15,8 @@ struct Vst3Descriptor {
     std::string identifier;
     std::filesystem::path bundle;
     std::size_t index = 0;
+    // What the plugin says it is: an instrument, or an effect.
+    bool instrument = true;
 };
 
 class Vst3PluginInstance final : public PluginInstance {

@@ -4,7 +4,8 @@ Feature: Built-in effects and effect plugins shape the sound they are given
   the suite builds a real CLAP effect and a real VST3 effect whose work can be
   read off the rendered audio. Each scenario is proved from rendered samples
   by the CTest test named above it (blokkily_builtin_effects_tests <case>, or
-  blokkily_realtime_checks). There is no insert chain or UI yet (item 2.4).
+  blokkily_realtime_checks). Insert chains, returns and the browser that
+  hosts them are features/effects.feature (item 2.4).
 
   # builtin_eq3_response
   Scenario: The three-band EQ boosts and cuts where it is told to

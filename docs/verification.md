@@ -183,6 +183,32 @@ each, and the chord survives a save and a load. The screenshot shows the chord
 selected: the tracker's VEL column at the loudest voice, the piano roll drawing
 each voice at its own length, and the inspector's VOICE VELOCITY bars.
 
+`build/artifacts/effects.png` — from the `bdd_effects` gate
+(`blokkily --verify --scenario effects`), which runs the interface scenarios of
+`features/effects.feature`. The CLAP effect fixture is scanned beside the
+instrument fixtures; clicking FX above the browser must list it and the four
+built-ins and no instrument. Clicking the CLAP effect inserts it after the
+selected track's CLAP synth — a rebuild that keeps the synth as the same
+instance — and the track must be heard through the production callback at
+0.25 × 0.25 with 64 samples of latency. BYP in the rendered rack must bring
+back 0.25 with no rebuild, and undo must restore the effect, still live. A
+return added from the mixer and a send dragged up on the track's strip must add
+the return's share without a rebuild; the master rack takes the built-in EQ
+with no change in level. The effect's gain turned while it runs must survive a
+rebuild (same instance, state copied into the song) and a save and load; the
+export must start on the song's first sample with the 64 samples of
+compensation trimmed. The screenshot shows the browser listing effects, the
+track's rack with its CLAP insert, the send and the return strip.
+
+The engine side (`blokkily_effects_tests`, tests `effects_*`, and
+`realtime_effects`) is proved from audio rendered by `SongEngine::process()` with
+the real CLAP and VST3 effect fixtures: a chain renders −0.0625 after 96 samples,
+bypass keeps the latency, sends are post-fader and pre-pan, returns are
+solo-safe, every path's impulse lands on one sample (plugin delay compensation),
+the master takes inserts, a bounce read back equals the live render with the
+latency trimmed and keeps the delay's tail, and a synced delay follows a tempo
+change.
+
 `midi_device_input` opens a virtual port through the system's MIDI server — the
 way a controller's driver presents one — connects the production input to it by
 name, and fails unless a note sent there is heard through the render callback

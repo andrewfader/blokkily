@@ -23,6 +23,10 @@ struct Arrangement {
     // Where every tick of this arrangement falls. The playhead keeps its tick
     // when an arrangement with another clock replaces this one.
     TickClock clock;
+    // What the transport handed to each processor reads (item 2.4): beats
+    // are counted in these ticks, and bars by this meter.
+    Tick ticks_per_beat = 480;
+    MeterMap meter;
     ArrangementClips clips;
     ArrangementAutomation automation;
 };

@@ -69,6 +69,14 @@ struct DefaultScenario {
     bool rendered_step(int step) const { return ctx.rendered_step(step); }
     QString tracker_note(int row) const { return ctx.tracker_note(row); }
     bool roll_draws(int step) const { return ctx.roll_draws(step); }
+    // The browser also lists effects (the built-ins among them), so what the
+    // instrument checks count is the instruments alone.
+    int instrument_entries() const {
+        int count = 0;
+        for (const auto& entry : controller.plugins())
+            if (entry.toMap().value("kind").toString() == "instrument") ++count;
+        return count;
+    }
 
     // The sections in the order the gates have always run them.
     void run() {
@@ -91,7 +99,7 @@ struct DefaultScenario {
         reached("demonstration pattern");
         // Startup discovery is exercised with real format fixtures but
         // isolated from plugins installed on the test host.
-        valid = valid && controller.plugins().size() == 3;
+        valid = valid && instrument_entries() == 3;
         valid = valid && controller.plugins().at(0).toMap().value("format") == "CLAP";
         valid = valid && controller.plugins().at(1).toMap().value("format") == "VST3";
         valid = valid && controller.plugins().at(2).toMap().value("format") == "SF";
@@ -465,8 +473,11 @@ struct DefaultScenario {
         if (parser.isSet("clap-fixture") && parser.isSet("vst3-fixture")) {
             // The browser must present both native formats through one list,
             // each entry tagged with the format that produced it.
-            const QVariantList browser = controller.plugins();
-            valid = valid && browser.size() == 2;
+            QVariantList browser;
+            for (const QVariant& entry : controller.plugins())
+                if (entry.toMap().value("kind").toString() == "instrument")
+                    browser.push_back(entry);
+            valid = valid && browser.size() == 2 && instrument_entries() == 2;
             for (const QVariant& entry : browser) {
                 const QVariantMap fields = entry.toMap();
                 valid = valid && !fields.value("name").toString().isEmpty()
@@ -1839,7 +1850,11 @@ struct DefaultScenario {
                         // painted hexagons, not just their QQuickItems.
                         auto* mixer = item("mixerPanel");
                         auto* strips = item("mixerStrips");
-                        auto* master = item("masterStrip");
+                        // The effect rack (item 2.4) sits between the
+                        // strips and the master, so the empty band the
+                        // keyboard must not paint into ends at the rack.
+                        auto* master = item("effectRack") != nullptr ? item("effectRack")
+                                                                     : item("masterStrip");
                         if (mixer && strips && master) {
                             const auto frame = window->grabWindow();
                             const auto left = mixer->mapToScene({1, 0}).x();
@@ -2007,7 +2022,7 @@ struct DefaultScenario {
             valid = valid && edited_during_scan;
             // The working plugin is listed; the one that hangs is reported
             // as a failure rather than waited for.
-            valid = valid && controller.plugins().size() == 1
+            valid = valid && instrument_entries() == 1
                           && controller.plugins().first().toMap().value("format") == "CLAP"
                           && controller.plugins().first().toMap().value("name")
                                  == "Blokkily Test Synth";
@@ -2018,7 +2033,7 @@ struct DefaultScenario {
             QElapsedTimer repeat;
             repeat.start();
             valid = valid && run_scan(false);
-            valid = valid && controller.plugins().size() == 1
+            valid = valid && instrument_entries() == 1
                           && controller.status().contains("1 failure");
             valid = valid && repeat.elapsed() < 1000;
         }

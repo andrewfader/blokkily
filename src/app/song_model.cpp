@@ -109,6 +109,7 @@ QVariantList SongModel::tracks() const {
         row["peakFraction"] = qBound(0.0, (peak_db + 60.0) / 60.0, 1.0);
         row["gainFraction"] = qBound(0.0, (track.mix.gain_db + 60.0) / 66.0, 1.0);
         row["silent"] = gain.silent();
+        row["inserts"] = static_cast<int>(track.inserts.size());
         rows.push_back(row);
     }
     return rows;
@@ -146,8 +147,11 @@ QVariantList SongModel::clips() const {
 }
 
 void SongModel::selectTrack(int track) {
-    if (!validTrack(track) || track == selected_track_) return;
+    if (!validTrack(track)) return;
+    // Choosing a track also points the effect rack back at its inserts.
+    if (track == selected_track_ && rack_kind_ == blokkily::BusKind::track) return;
     selected_track_ = track;
+    rack_kind_ = blokkily::BusKind::track;
     emit songChanged();
 }
 

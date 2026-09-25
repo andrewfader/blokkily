@@ -12,7 +12,9 @@
 namespace blokkily {
 namespace {
 
-constexpr const char* cache_header = "blokkily-scan-cache 1";
+// Version 2 records each plugin's kind (instrument or effect). A version 1
+// cache is not read: it would list every effect as an instrument.
+constexpr const char* cache_header = "blokkily-scan-cache 2";
 
 std::filesystem::path normalize(const std::filesystem::path& path) {
     std::error_code error;
@@ -96,12 +98,16 @@ void append_record(std::string& text, const ScanRecord& record) {
     text += escape(record.identifier);
     text += '\t';
     text += std::to_string(record.index);
+    text += '\t';
+    text += escape(record.kind);
     text += '\n';
 }
 
 bool read_record(const std::vector<std::string>& fields, ScanRecord& record) {
-    if (fields.size() != 7 || fields[0] != "record") return false;
-    record = {fields[1], fields[2], fields[3], fields[4], fields[5], to_number<int>(fields[6])};
+    if (fields.size() != 8 || fields[0] != "record") return false;
+    if (fields[7] != instrument_kind && fields[7] != effect_kind) return false;
+    record = {fields[1], fields[2], fields[3], fields[4], fields[5], to_number<int>(fields[6]),
+              fields[7]};
     return true;
 }
 
@@ -190,17 +196,26 @@ std::vector<ScanRecord> scan_candidate(const ScanCandidate& candidate, std::stri
         if (!result.failures.empty()) return records;
         for (const auto& plugin : result.plugins)
             records.push_back({"CLAP", plugin.name, plugin.vendor, plugin.library.string(),
-                               plugin.id, 0});
+                               plugin.id, 0, clap_kind(plugin.features)});
         return records;
     }
     if (candidate.format == "VST3") {
         for (const auto& plugin : Vst3PluginInstance::scan(candidate.path))
             records.push_back({"VST3", plugin.name, plugin.manufacturer, plugin.bundle.string(),
-                               plugin.identifier, static_cast<int>(plugin.index)});
+                               plugin.identifier, static_cast<int>(plugin.index),
+                               std::string(plugin.instrument ? instrument_kind : effect_kind)});
         return records;
     }
     if (error != nullptr) *error = "unknown plugin format '" + candidate.format + "'";
     return records;
+}
+
+std::string clap_kind(const std::vector<std::string>& features) {
+    const auto has = [&features](std::string_view wanted) {
+        return std::find(features.begin(), features.end(), wanted) != features.end();
+    };
+    return std::string(has("audio-effect") && !has("instrument") ? effect_kind
+                                                                  : instrument_kind);
 }
 
 std::string write_scan_records(const std::vector<ScanRecord>& records) {

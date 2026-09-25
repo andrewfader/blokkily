@@ -1,0 +1,56 @@
+// The browser's effects half (item 2.4): which kind it lists, the built-in
+// effects the application offers without a scan, and inserting a chosen
+// effect on the rack's bus. The song model owns the chains; the rebuild that
+// follows an insert adopts every processor already running.
+
+#include "app_controller.hpp"
+#include "app_controller_internal.hpp"
+
+#include "blokkily/plugins/plugin_scan.hpp"
+
+using app_detail::plugin_entry;
+
+QVariantList AppController::plugins() const {
+    QVariantList entries = plugins_;
+    // What the application provides itself follows what the scan found, so
+    // every scanned entry keeps its index.
+    for (const auto& entry : blokkily::internal_catalog())
+        entries.push_back(plugin_entry(QString::fromStdString(entry.slot.format), entry.name,
+                                       "Blokkily", entry.slot.path, entry.slot.identifier, 0,
+                                       entry.kind));
+    return entries;
+}
+
+void AppController::setBrowserKind(const QString& kind) {
+    const QString wanted = kind == QLatin1String(blokkily::effect_kind.data(),
+                                                 blokkily::effect_kind.size())
+                               ? QStringLiteral("effect")
+                               : QStringLiteral("instrument");
+    if (wanted == browser_kind_) return;
+    browser_kind_ = wanted;
+    emit browserChanged();
+}
+
+int AppController::browserTotal() const {
+    int total = 0;
+    for (const auto& entry : plugins())
+        if (entry.toMap().value("kind").toString() == browser_kind_) ++total;
+    return total;
+}
+
+bool AppController::addEffect(int index) {
+    const auto entries = plugins();
+    if (song_ == nullptr || index < 0 || index >= entries.size()) return false;
+    const auto entry = entries.at(index).toMap();
+    if (entry.value("kind").toString() != "effect") return false;
+    blokkily::PluginSlot slot;
+    slot.format = entry.value("format").toString().toStdString();
+    slot.path = entry.value("path").toString().toStdString();
+    slot.identifier = entry.value("identifier").toString().toStdString();
+    if (!song_->addInsertToRack(slot)) return false;
+    status_ = QString("Inserted %1 · latency %2 samples")
+                  .arg(entry.value("name").toString())
+                  .arg(outputLatency());
+    emit statusChanged();
+    return engine_ != nullptr;
+}

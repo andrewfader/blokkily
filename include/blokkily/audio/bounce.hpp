@@ -22,7 +22,10 @@ struct BounceReport {
 // is deterministic: the same song and seed produce the same bytes.
 //
 // `tail_frames` keeps the release of the last note instead of cutting the song
-// off at its final tick.
+// off at its final tick; an insert effect's own tail (an echo, a reverb) is
+// kept whole when it is longer. The engine's output latency (plugin delay
+// compensation, decision 10) is trimmed from the start, so the file begins
+// where the song does and runs song length plus tail.
 [[nodiscard]] std::optional<BounceReport> bounce_song(
     SongEngine& engine, const std::filesystem::path& file, WaveFormat format,
     std::uint64_t tail_frames = 0, std::string* error = nullptr);

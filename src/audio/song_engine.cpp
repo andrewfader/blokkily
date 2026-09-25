@@ -28,16 +28,50 @@ SongEngine::SongEngine() : buses_(std::make_unique<engine::BusPlayback>()) {}
 SongEngine::~SongEngine() = default;
 
 std::unique_ptr<PluginInstance>* SongEngine::processor_slot(ProcessorAddress where) const {
-    // Only a track's instrument has somewhere to live until the insert chains
-    // and the return buses exist.
-    if (where.kind != BusKind::track || !where.instrument() || where.bus >= tracks_.size())
+    engine::InsertChain* chain = nullptr;
+    switch (where.kind) {
+    case BusKind::track:
+        if (where.bus >= tracks_.size()) return nullptr;
+        if (where.instrument()) return &tracks_[where.bus]->instrument;
+        chain = &tracks_[where.bus]->chain;
+        break;
+    case BusKind::ret:
+        if (where.instrument() || where.bus >= buses_->returns.size()) return nullptr;
+        chain = &buses_->returns[where.bus]->chain;
+        break;
+    case BusKind::master:
+        if (where.instrument() || where.bus != 0) return nullptr;
+        chain = &buses_->master;
+        break;
+    }
+    if (chain == nullptr || static_cast<std::size_t>(where.slot) >= chain->slots.size())
         return nullptr;
-    return &tracks_[where.bus]->instrument;
+    return &chain->slots[static_cast<std::size_t>(where.slot)]->instance;
 }
 
 void SongEngine::set_processor(ProcessorAddress where, std::unique_ptr<PluginInstance> instance) {
-    if (where.kind == BusKind::track && where.instrument())
+    // Makes room for the address first; prepare() trims every chain to the
+    // song afterwards.
+    engine::InsertChain* chain = nullptr;
+    switch (where.kind) {
+    case BusKind::track:
         while (tracks_.size() <= where.bus) tracks_.push_back(std::make_unique<TrackPlayback>());
+        if (!where.instrument()) chain = &tracks_[where.bus]->chain;
+        break;
+    case BusKind::ret:
+        if (where.instrument()) return;
+        while (buses_->returns.size() <= where.bus)
+            buses_->returns.push_back(std::make_unique<engine::ReturnPlayback>());
+        chain = &buses_->returns[where.bus]->chain;
+        break;
+    case BusKind::master:
+        if (where.instrument() || where.bus != 0) return;
+        chain = &buses_->master;
+        break;
+    }
+    if (chain != nullptr)
+        while (chain->slots.size() <= static_cast<std::size_t>(where.slot))
+            chain->slots.push_back(std::make_unique<engine::EffectSlotPlayback>());
     if (auto* slot = processor_slot(where)) *slot = std::move(instance);
 }
 
@@ -48,13 +82,45 @@ PluginInstance* SongEngine::processor(ProcessorAddress where) const {
 
 std::vector<ReleasedProcessor> SongEngine::release_processors() {
     std::vector<ReleasedProcessor> released;
+    const auto release_chain = [&released](engine::InsertChain& chain, BusKind kind,
+                                           std::uint32_t bus) {
+        for (std::size_t slot = 0; slot < chain.slots.size(); ++slot)
+            if (chain.slots[slot]->instance)
+                released.push_back({{kind, bus, static_cast<std::int32_t>(slot)},
+                                    std::move(chain.slots[slot]->instance)});
+    };
     for (std::size_t index = 0; index < tracks_.size(); ++index) {
         auto& instrument = tracks_[index]->instrument;
         if (instrument)
             released.push_back({track_instrument(static_cast<std::uint32_t>(index)),
                                 std::move(instrument)});
+        release_chain(tracks_[index]->chain, BusKind::track, static_cast<std::uint32_t>(index));
     }
+    for (std::size_t index = 0; index < buses_->returns.size(); ++index)
+        release_chain(buses_->returns[index]->chain, BusKind::ret,
+                      static_cast<std::uint32_t>(index));
+    release_chain(buses_->master, BusKind::master, 0);
     return released;
+}
+
+std::vector<engine::InsertChain*> SongEngine::track_chains() const {
+    std::vector<engine::InsertChain*> chains;
+    chains.reserve(tracks_.size());
+    for (const auto& track : tracks_) chains.push_back(&track->chain);
+    return chains;
+}
+
+std::uint32_t SongEngine::output_latency() const noexcept {
+    return buses_->track_latency + buses_->return_latency + buses_->master.latency;
+}
+
+std::uint64_t SongEngine::effect_tail_samples() const noexcept { return buses_->tail; }
+
+std::size_t SongEngine::return_count() const noexcept { return buses_->returns.size(); }
+
+float SongEngine::return_peak(std::size_t bus) const {
+    if (bus >= buses_->returns.size()) return 0.0F;
+    return buses_->returns[bus]->peak.load(std::memory_order_relaxed);
 }
 
 bool SongEngine::update_processor_state(ProcessorAddress where,
@@ -121,6 +187,11 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
         if (track.instrument && !track.instrument->activate(sample_rate, 1, maximum_block_size))
             return fail("an instrument refused to activate");
     }
+    // The insert chains, sends, returns and master inserts, shaped to the
+    // song, activated, and compensated for their latency.
+    if (!engine::prepare_effects(song, track_chains(), *buses_, sample_rate, maximum_block_size,
+                                 error))
+        return false;
     apply_mix(song);
     sample_position_ = 0;
     published_position_.store(0, std::memory_order_release);
@@ -155,6 +226,8 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     }
     target.song_samples = samples;
     target.clock = std::move(clock);
+    target.ticks_per_beat = song.ticks_per_beat();
+    target.meter = song.meter;
     return true;
 }
 
@@ -237,6 +310,7 @@ void SongEngine::apply_mix(const Song& song) {
     for (std::size_t index = 0; index < song.tracks.size() && index < tracks_.size(); ++index)
         set_strip(index, song.tracks[index].mix, solo);
     set_master_gain_db(song.master_gain_db);
+    engine::apply_effect_mix(song, track_chains(), *buses_);
 }
 
 void SongEngine::set_master_gain_db(double decibels) {
@@ -357,6 +431,32 @@ void SongEngine::drain_edits(PluginInstance& processor, ProcessorAddress where,
     }
 }
 
+namespace {
+// What an insert slot's edits are stamped with: the chunk they came out of.
+struct DrainContext {
+    SongEngine* engine;
+    std::uint64_t song_position;
+    bool rolling;
+};
+} // namespace
+
+void SongEngine::drain_insert_edits(void* context, PluginInstance& processor,
+                                    ProcessorAddress where) noexcept {
+    auto& chunk = *static_cast<DrainContext*>(context);
+    chunk.engine->drain_edits(processor, where, chunk.song_position, chunk.rolling);
+}
+
+TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_t song_position,
+                                       bool playing) const noexcept {
+    const auto sample = static_cast<double>(song_position);
+    const double tick = arranged.clock.tick_at(sample);
+    const auto beat_ticks = static_cast<double>(std::max<Tick>(1, arranged.ticks_per_beat));
+    const auto bar = arranged.meter.bar_at(static_cast<Tick>(tick));
+    const auto& meter = arranged.meter.meter_in(bar);
+    return {arranged.clock.bpm_at_sample(sample), tick / beat_ticks, bar, meter.numerator,
+            meter.denominator, playing};
+}
+
 void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
                                bool from_timeline) noexcept {
     const auto frames = output.left.size();
@@ -373,6 +473,12 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
     const bool capture = from_timeline && recording_.load(std::memory_order_acquire);
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
     const Tick capture_tick = capture ? tick_at_sample(arranged.clock, song_position) : 0;
+    // Where the song is for every processor this chunk: a tempo-synced effect
+    // follows the tempo map from here (plan C20).
+    const TransportInfo transport = transport_at(arranged, song_position, from_timeline);
+    DrainContext drain_context{this, song_position, from_timeline};
+    const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context};
+    engine::begin_buses(*buses_, frames);
 
     for (std::size_t index = 0; index < tracks_.size(); ++index) {
         auto& track = *tracks_[index];
@@ -391,6 +497,7 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         const StereoBlock buffer{left, right};
         if (track.instrument) {
             // 3. The instrument renders in place.
+            track.instrument->set_transport(transport);
             track.instrument->process(buffer, std::span{track.events.data(), count});
             // 4. What it reported about its own parameters goes to the ring.
             drain_edits(*track.instrument, track_instrument(static_cast<std::uint32_t>(index)),
@@ -402,7 +509,8 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         // 6. Input monitoring; a capture taps the raw input here.
         engine::add_input_monitoring(track.input, buffer, song_position, from_timeline);
         // 7. The insert chain, in place. 8. Its compensation delay.
-        engine::run_insert_chain(track.chain, buffer);
+        engine::run_insert_chain(track.chain, buffer, BusKind::track,
+                                 static_cast<std::uint32_t>(index), transport, drain);
         engine::apply_track_compensation(track.chain, buffer);
         // 9. The strip gain for this chunk.
         const StripGain gain = engine::chunk_strip_gain(
@@ -411,7 +519,7 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
              track.gain_right.load(std::memory_order_relaxed)},
             song_position, frames, from_timeline);
         // 10. Sends.
-        engine::mix_sends(track.chain, *buses_, buffer, gain);
+        engine::mix_sends(track.chain, *buses_, buffer);
         // 11. Onto the direct bus.
         const float peak = mix_into(output, left, right, gain);
         // A block split by the loop point arrives as two chunks; the meter must
@@ -420,9 +528,9 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
                          std::memory_order_relaxed);
     }
     release_arrangement_notes_ = false;
-    engine::process_returns(*buses_, output);
+    engine::process_returns(*buses_, frames, transport, drain);
     engine::apply_master_compensation(*buses_, output);
-    engine::run_master_inserts(*buses_, output);
+    engine::run_master_inserts(*buses_, output, transport, drain);
     const float bus_peak = apply_master(output, master_gain_.load(std::memory_order_relaxed));
     master_peak_.store(std::max(master_peak_.load(std::memory_order_relaxed), bus_peak),
                        std::memory_order_relaxed);
@@ -446,6 +554,7 @@ void SongEngine::process(StereoBlock output) noexcept {
     take_queued_arrangement(seeked);
     master_peak_.store(0.0F, std::memory_order_relaxed);
     for (auto& track : tracks_) track->peak.store(0.0F, std::memory_order_relaxed);
+    for (auto& bus : buses_->returns) bus->peak.store(0.0F, std::memory_order_relaxed);
     if (!is_playing() || song_samples_ == 0) {
         // A stopped transport is not a silent instrument: keys pressed in the
         // interface still sound, and what is already ringing keeps ringing.

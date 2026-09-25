@@ -120,7 +120,24 @@ ColumnLayout {
         }
     }
 
-    SectionLabel { text: "PLUGINS" }
+    RowLayout {
+        Layout.fillWidth: true; spacing: 6
+        SectionLabel { text: "PLUGINS" }
+        Item { Layout.fillWidth: true }
+        // Instruments play a track's notes; effects go into the rack.
+        Chip {
+            objectName: "browserKindInstrument"
+            text: "INSTR"; implicitHeight: 20
+            on: appController.browserKind === "instrument"
+            onClicked: appController.setBrowserKind("instrument")
+        }
+        Chip {
+            objectName: "browserKindEffect"
+            text: "FX"; implicitHeight: 20; accent: Theme.amber
+            on: appController.browserKind === "effect"
+            onClicked: appController.setBrowserKind("effect")
+        }
+    }
 
     // An installation holds hundreds of instruments, so the browser
     // is searched by typing a few letters of one rather than by
@@ -143,7 +160,8 @@ ColumnLayout {
                 objectName: "pluginFilter"
                 Layout.fillWidth: true
                 padding: 0
-                placeholderText: "Find instrument"
+                placeholderText: appController.browserKind === "effect"
+                                 ? "Find effect" : "Find instrument"
                 placeholderTextColor: Theme.muted
                 color: Theme.ink; font.pixelSize: 11
                 selectByMouse: true
@@ -177,9 +195,9 @@ ColumnLayout {
             Label {
                 objectName: "pluginBrowserCount"
                 text: pluginFilter.text === ""
-                      ? appController.plugins.length
+                      ? appController.browserTotal
                       : appController.browserPlugins.length + "/"
-                        + appController.plugins.length
+                        + appController.browserTotal
                 color: Theme.muted; font.pixelSize: 10; font.family: "monospace"
             }
         }
@@ -227,8 +245,9 @@ ColumnLayout {
         Label {
             anchors.centerIn: parent
             width: parent.width - 16
-            visible: pluginBrowser.count === 0 && appController.plugins.length > 0
-            text: "No instrument matches “" + pluginFilter.text + "”"
+            visible: pluginBrowser.count === 0 && appController.browserTotal > 0
+            text: "No " + (appController.browserKind === "effect" ? "effect" : "instrument")
+                  + " matches “" + pluginFilter.text + "”"
             color: Theme.muted; font.pixelSize: 11
             horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
         }
@@ -236,6 +255,7 @@ ColumnLayout {
         delegate: Rectangle {
             required property var modelData
             required property int index
+            objectName: "browserRow" + index
             width: ListView.view.width; height: 40; radius: 5
             color: ListView.isCurrentItem || rowMouse.containsMouse ? Theme.raised : Theme.panel
             border.color: ListView.isCurrentItem ? Theme.acid : Theme.line
@@ -254,8 +274,10 @@ ColumnLayout {
                 Rectangle {
                     Layout.preferredWidth: 38; Layout.preferredHeight: 16; radius: 3
                     color: modelData.format === "CLAP" ? Theme.acid
-                         : modelData.format === "VST3" ? Theme.blue : Theme.amber
-                    Label { anchors.centerIn: parent; text: modelData.format
+                         : modelData.format === "VST3" ? Theme.blue
+                         : modelData.format === "Built-in" ? Theme.line : Theme.amber
+                    Label { anchors.centerIn: parent
+                        text: modelData.format === "Built-in" ? "INT" : modelData.format
                         color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
                         font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
                 }

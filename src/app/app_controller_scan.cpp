@@ -129,7 +129,7 @@ void AppController::appendRecords(const std::vector<blokkily::ScanRecord>& recor
     for (const auto& record : records)
         plugins_.push_back(plugin_entry(QString::fromStdString(record.format), record.name,
                                         record.vendor, record.path, record.identifier,
-                                        record.index));
+                                        record.index, record.kind));
     emit pluginsChanged();
 }
 
@@ -237,11 +237,12 @@ void AppController::finishScan() {
     int clap = 0;
     int vst3 = 0;
     int soundfonts = 0;
+    // Counted by format, so nothing that is not a SoundFont is counted as one.
     for (const auto& entry : plugins_) {
         const auto format = entry.toMap().value("format").toString();
         if (format == "CLAP") ++clap;
         else if (format == "VST3") ++vst3;
-        else ++soundfonts;
+        else if (format == "SF") ++soundfonts;
     }
     status_ = QString("Scan: %1 CLAP, %2 VST3, %3 SoundFont, %4 failure%5")
                   .arg(clap).arg(vst3).arg(soundfonts).arg(scan_failures_)
@@ -263,11 +264,13 @@ void AppController::scanPluginPaths(
     plugins_.clear();
     for (const auto& plugin : clap.plugins)
         plugins_.push_back(plugin_entry("CLAP", plugin.name, plugin.vendor,
-                                        plugin.library.string(), plugin.id));
+                                        plugin.library.string(), plugin.id, 0,
+                                        blokkily::clap_kind(plugin.features)));
     for (const auto& plugin : vst3)
-        plugins_.push_back(plugin_entry("VST3", plugin.name, plugin.manufacturer,
-                                        plugin.bundle.string(), plugin.identifier,
-                                        static_cast<int>(plugin.index)));
+        plugins_.push_back(plugin_entry(
+            "VST3", plugin.name, plugin.manufacturer, plugin.bundle.string(), plugin.identifier,
+            static_cast<int>(plugin.index),
+            std::string(plugin.instrument ? blokkily::instrument_kind : blokkily::effect_kind)));
     for (const auto& soundfont : soundfonts)
         plugins_.push_back(plugin_entry("SF", soundfont.stem().string(),
                                         soundfont.parent_path().string(), soundfont.string()));
@@ -286,7 +289,8 @@ bool AppController::scanClapFile(const QString& path) {
     const auto result = blokkily::ClapCatalog{}.scan_file(path.toStdString());
     plugins_.clear();
     for (const auto& plugin : result.plugins)
-        plugins_.push_back(plugin_entry("CLAP", plugin.name, plugin.vendor));
+        plugins_.push_back(plugin_entry("CLAP", plugin.name, plugin.vendor, {}, {}, 0,
+                                        blokkily::clap_kind(plugin.features)));
     status_ = QString("CLAP fixture: %1 plugin%2, %3 failure%4")
                   .arg(result.plugins.size()).arg(result.plugins.size() == 1 ? "" : "s")
                   .arg(result.failures.size()).arg(result.failures.size() == 1 ? "" : "s");

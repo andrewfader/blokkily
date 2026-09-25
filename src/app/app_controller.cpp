@@ -242,6 +242,9 @@ void AppController::pollMeters() {
     for (std::size_t track = 0; track < peaks.size(); ++track)
         peaks[track] = engine_->track_peak(track);
     song_->setMeters(peaks, engine_->master_peak());
+    std::vector<float> returns(engine_->return_count(), 0.0F);
+    for (std::size_t bus = 0; bus < returns.size(); ++bus) returns[bus] = engine_->return_peak(bus);
+    song_->setReturnMeters(returns);
 }
 
 bool AppController::builtFromCurrentGraph() const {
@@ -439,12 +442,13 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     if (engine_)
         adopted = blokkily::adopt_processors(engine_->release_processors(), engine_signature_,
                                              wanted, remap);
+    // Instruments and effects alike: an effect a producer has dialled in is
+    // saved with the song it now sits in, at the slot it moved to.
     for (const auto& kept : adopted) {
-        if (kept.where.kind != blokkily::BusKind::track || !kept.where.instrument() ||
-            kept.where.bus >= song.tracks.size())
-            continue;
+        auto* slot = blokkily::song_slot(song, kept.where);
+        if (slot == nullptr) continue;
         auto state = kept.instance->save_state();
-        if (!state.empty()) song.tracks[kept.where.bus].instrument.state = std::move(state);
+        if (!state.empty()) slot->state = std::move(state);
     }
     forgetSoundingNotes();
     if (engine_) engine_->connect_input(nullptr);
@@ -513,9 +517,19 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     }
     // A keyboard that was being played is heard through the new engine too.
     if (midi_input_->is_open()) (void)ensureAudioRunning();
+    // Instruments and effects are counted apart: "3 instruments" must not
+    // mean one synth and two inserts.
+    int instruments = 0;
+    for (std::size_t track = 0; track < song.tracks.size(); ++track)
+        if (engine_->has_instrument(track)) ++instruments;
+    const int effects = loaded - instruments;
     status_ = QString("Ready · %1 track%2, %3 instrument%4")
                   .arg(song.tracks.size()).arg(song.tracks.size() == 1 ? "" : "s")
-                  .arg(loaded).arg(loaded == 1 ? "" : "s");
+                  .arg(instruments).arg(instruments == 1 ? "" : "s");
+    if (effects > 0)
+        status_ += QString(", %1 effect%2 · latency %3")
+                       .arg(effects).arg(effects == 1 ? "" : "s")
+                       .arg(engine_->output_latency());
     emit statusChanged();
     emit activeInstrumentChanged();
     return true;
@@ -539,8 +553,12 @@ QVariantList AppController::browserPlugins() const {
     };
     std::vector<Ranked> ranked;
     ranked.reserve(static_cast<std::size_t>(plugins_.size()));
-    for (int index = 0; index < plugins_.size(); ++index) {
-        const auto fields = plugins_.at(index).toMap();
+    const auto entries = plugins();
+    for (int index = 0; index < entries.size(); ++index) {
+        const auto fields = entries.at(index).toMap();
+        // One kind at a time: instruments for a track to play, or effects to
+        // insert after one.
+        if (fields.value("kind").toString() != browser_kind_) continue;
         // Name, maker and format are all searched, so an instrument is found
         // by who made it or by what kind of plugin it is as readily as by its
         // own name.
@@ -561,7 +579,7 @@ QVariantList AppController::browserPlugins() const {
     QVariantList listed;
     listed.reserve(static_cast<qsizetype>(ranked.size()));
     for (const auto& entry : ranked) {
-        auto fields = plugins_.at(entry.source).toMap();
+        auto fields = entries.at(entry.source).toMap();
         fields.insert("source", entry.source);
         listed.push_back(fields);
     }
@@ -575,8 +593,12 @@ void AppController::setBrowserFilter(const QString& query) {
 }
 
 bool AppController::selectInstrument(int index) {
-    if (song_ == nullptr || index < 0 || index >= plugins_.size()) return false;
-    const auto entry = plugins_.at(index).toMap();
+    const auto entries = plugins();
+    if (song_ == nullptr || index < 0 || index >= entries.size()) return false;
+    const auto entry = entries.at(index).toMap();
+    // An effect chosen from the browser goes after the instrument, not in
+    // its place.
+    if (entry.value("kind").toString() == "effect") return addEffect(index);
     const QString format = entry.value("format").toString();
     blokkily::InstrumentSlot slot;
     slot.format = (format == "SF" ? QStringLiteral("SoundFont") : format).toStdString();
@@ -943,13 +965,9 @@ bool AppController::verifyBounce(const QString& path) {
 bool AppController::saveProject(const QString& path) {
     if (song_ == nullptr) return false;
     auto& song = song_->song();
-    // Ask every live instrument what it wants persisted before writing.
-    if (engine_)
-        for (std::size_t track = 0; track < song.tracks.size(); ++track)
-            if (engine_->has_instrument(track)) {
-                auto state = engine_->save_track_state(track);
-                if (!state.empty()) song.tracks[track].instrument.state = std::move(state);
-            }
+    // Ask every live processor, instrument or effect, what it wants
+    // persisted before writing.
+    if (engine_) (void)blokkily::capture_processor_states(*engine_, song, engine_signature_);
     blokkily::Project project;
     project.name = "Blokkily Session";
     project.song = song;

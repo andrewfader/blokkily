@@ -59,6 +59,22 @@ class SongModel final : public QObject {
     Q_PROPERTY(int rootDegree READ rootDegree NOTIFY tuningChanged)
     Q_PROPERTY(QString rootName READ rootName NOTIFY tuningChanged)
     Q_PROPERTY(bool autoScale READ autoScale NOTIFY tuningChanged)
+    // Effects (item 2.4). The rack is the insert chain being edited: the
+    // selected track's, a return's, or the master's, as
+    // {kind, bus, title, inserts: [{index, name, format, bypass}]}.
+    Q_PROPERTY(QVariantMap rack READ rack NOTIFY songChanged)
+    Q_PROPERTY(bool masterRacked READ masterRacked NOTIFY songChanged)
+    // One row per return bus: {index, letter, name, gainDb, gainText, pan,
+    // mute, inserts, racked, peakFraction}.
+    Q_PROPERTY(QVariantList returns READ returns NOTIFY songChanged)
+    Q_PROPERTY(QVariantList returnMeters READ returnMeters NOTIFY metersChanged)
+    // The live values of the sends (per track, one entry per return:
+    // {bus, letter, levelDb, levelText, pre, active}) and of the return
+    // strips ({gainDb, gainText, pan, mute}). Notified by mixChanged alone, so
+    // a send or return fader being dragged is not rebuilt under the pointer
+    // by a change to the song's structure.
+    Q_PROPERTY(QVariantList sendLevels READ sendLevels NOTIFY mixChanged)
+    Q_PROPERTY(QVariantList returnMix READ returnMix NOTIFY mixChanged)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -169,6 +185,34 @@ public:
     // The degree a played one becomes once the scale has its say.
     [[nodiscard]] int snapDegree(int degree) const;
 
+    // --- Effects (song_model_effects.cpp) -----------------------------------
+    QVariantMap rack() const;
+    bool masterRacked() const;
+    QVariantList returns() const;
+    QVariantList returnMeters() const;
+    QVariantList sendLevels() const;
+    QVariantList returnMix() const;
+    // The bus whose inserts the rack shows (its slot is meaningless).
+    [[nodiscard]] blokkily::ProcessorAddress rackBus() const;
+    // Points the rack at "track", "return" or "master" `bus`. Choosing a
+    // track selects it too.
+    Q_INVOKABLE void selectRack(const QString& kind, int bus);
+    // Graph edits: each is one step of history and rebuilds the engine.
+    bool addInsert(blokkily::BusKind kind, int bus, const blokkily::PluginSlot& plugin);
+    bool addInsertToRack(const blokkily::PluginSlot& plugin);
+    Q_INVOKABLE bool removeInsert(const QString& kind, int bus, int slot);
+    Q_INVOKABLE int addReturn();
+    Q_INVOKABLE bool removeReturn(int bus);
+    // Mixer moves: live on the running engine, never a rebuild.
+    Q_INVOKABLE bool setInsertBypass(const QString& kind, int bus, int slot, bool bypass);
+    // A send is created by giving it a level; -96 dB or below is silent.
+    Q_INVOKABLE void setSendLevel(int track, int bus, double decibels);
+    Q_INVOKABLE void setSendPreFader(int track, int bus, bool pre);
+    Q_INVOKABLE void setReturnGain(int bus, double decibels);
+    Q_INVOKABLE void setReturnPan(int bus, double pan);
+    Q_INVOKABLE void toggleReturnMute(int bus);
+    void setReturnMeters(const std::vector<float>& peaks);
+
     blokkily::Song& song() noexcept { return song_; }
     const blokkily::Song& song() const noexcept { return song_; }
     blokkily::Pattern& editPattern();
@@ -213,6 +257,12 @@ signals:
 
 private:
     [[nodiscard]] bool validTrack(int track) const;
+    // The insert chain of a bus, or nullptr when there is no such bus.
+    std::vector<blokkily::EffectSlot>* chainAt(blokkily::BusKind kind, int bus);
+    // A track's send to a return, made (silent) when `create` and missing.
+    blokkily::Send* sendAt(int track, int bus, bool create);
+    // A track's sends as its strip shows them: one entry per return.
+    QVariantList sendsOf(std::size_t track) const;
     // The clip covering a bar on a track, if any. One definition of coverage,
     // shared by the lanes projection and by editing.
     [[nodiscard]] const blokkily::Clip* clipAt(int track, int bar) const;
@@ -235,6 +285,10 @@ private:
     std::vector<float> peaks_;
     std::optional<std::vector<std::optional<std::size_t>>> track_remap_;
     float master_peak_ = 0.0F;
+    std::vector<float> return_peaks_;
+    // Which chain the effect rack edits; a track rack follows the selection.
+    blokkily::BusKind rack_kind_ = blokkily::BusKind::track;
+    int rack_return_ = 0;
     std::vector<Snapshot> undo_;
     std::vector<Snapshot> redo_;
     std::uint64_t state_id_ = 0;

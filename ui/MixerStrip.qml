@@ -14,7 +14,8 @@ Rectangle {
     readonly property int trackIndex: modelData.index
     objectName: "mixerStrip" + modelData.index
     Layout.fillWidth: true
-    implicitHeight: 126
+    // Each send adds a row of its own, sized so its dial is never squeezed.
+    implicitHeight: 126 + songModel.returns.length * 48
     radius: 6
     color: modelData.selected ? Theme.raised : Theme.panel
     border.color: modelData.selected ? Theme.acid : Theme.line
@@ -47,6 +48,7 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: modelData.instrument
+                          + (modelData.inserts > 0 ? " · " + modelData.inserts + " FX" : "")
                     color: modelData.hasInstrument ? Theme.muted : "#5c626e"
                     font.pixelSize: 9; elide: Text.ElideRight
                 }
@@ -102,6 +104,12 @@ Rectangle {
             value: modelData.pan
             readout: modelData.panText
             onMoved: function(v) { songModel.setTrackPan(trackIndex, v) }
+        }
+        SendDials {
+            id: sendDials
+            Layout.fillWidth: true
+            visible: songModel.returns.length > 0
+            trackIndex: root.trackIndex
         }
     }
 }

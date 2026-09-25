@@ -28,7 +28,9 @@ struct ProcessorContext {
 };
 
 // An internal processor a browser can offer without a scan, such as a
-// built-in effect. `kind` is what the browser groups it under.
+// built-in effect. `kind` is what the browser groups it under: "instrument"
+// or "effect" (plugin_scan.hpp). The built-in effects are registered from the
+// start, under the format "Built-in".
 struct CatalogEntry {
     std::string name;
     std::string kind;
