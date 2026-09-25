@@ -14,9 +14,9 @@ Rectangle {
     readonly property int trackIndex: modelData.index
     objectName: "mixerStrip" + modelData.index
     Layout.fillWidth: true
-    // The arm row is fixed; each send adds a row of its own, sized so its dial
-    // is never squeezed.
-    implicitHeight: 157 + songModel.returns.length * 48
+    // The arm and input rows are fixed; each send adds a row of its own, sized
+    // so its dial is never squeezed.
+    implicitHeight: 188 + songModel.returns.length * 48
     radius: 6
     color: modelData.selected ? Theme.raised : Theme.panel
     border.color: modelData.selected ? Theme.acid : Theme.line
@@ -69,7 +69,7 @@ Rectangle {
             }
         }
 
-        // Arm and channel: where played notes go.
+        // Arm, channel and audio input: where what is played goes.
         TrackInputControls {
             Layout.fillWidth: true
             track: root.modelData

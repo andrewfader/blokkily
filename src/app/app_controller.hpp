@@ -12,6 +12,7 @@
 #include "blokkily/audio/audio_asset.hpp"
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
+#include "blokkily/audio/take_writer.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/midi/midi_input.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
@@ -100,6 +101,9 @@ class AppController final : public QObject {
     Q_PROPERTY(QVariantList openEditors READ openEditors NOTIFY editorsChanged)
     Q_PROPERTY(QString editorStatus READ editorStatus NOTIFY editorsChanged)
     Q_PROPERTY(QString editorReadout READ editorReadout NOTIFY editorReadoutChanged)
+    // Audio input (item 3.2): what the last audio take did, as "2 audio takes
+    // recorded" or with the frames the capture ring had to drop.
+    Q_PROPERTY(QString audioTakeStatus READ audioTakeStatus NOTIFY audioTakeChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -350,6 +354,28 @@ public:
     // edits: what the editor timer does every turn.
     void serviceEditors();
 
+    // --- Audio input and audio takes (item 3.2; app_controller_record_audio.cpp)
+    QString audioTakeStatus() const { return audio_take_status_; }
+    // Hands every track's audio-input route to the running engine, and the
+    // device's input count to the strips' input chips.
+    void updateAudioInputs();
+    // Whether any track is hearing its audio input through the engine now.
+    bool monitorsAudioInput() const;
+    // Whether any track of the song takes audio input: the device is opened
+    // duplex only then.
+    bool songTakesAudioInput() const;
+    // Where a take is written: <project>.audio/ beside a saved project, or the
+    // session's own temporary folder until the first save (decision 8).
+    std::filesystem::path recordingDirectory() const;
+    // What a take is moved earlier by to sound where it was heard (plan C21):
+    // the device's round trip, the engine's output latency, and the song's
+    // record offset.
+    std::uint64_t takeCompensation() const;
+    // Frames of input the capture ring dropped in the last take, and the
+    // clip the last take made.
+    std::uint64_t droppedInputFrames() const noexcept { return dropped_input_frames_; }
+    qint64 lastRecordedClip() const noexcept { return last_recorded_clip_; }
+
 signals:
     void statusChanged();
     void pluginsChanged();
@@ -368,6 +394,7 @@ signals:
     void assetsChanged();
     void editorsChanged();
     void editorReadoutChanged();
+    void audioTakeChanged();
 
 private:
     struct ImportResult;
@@ -443,6 +470,19 @@ private:
     bool pushInstrumentState(int track, std::span<const std::byte> state, bool stop_if_needed);
     // Wires the sampler panel and undo to the song (app_controller_sampler.cpp).
     void connectSampler();
+    // Audio takes (app_controller_record_audio.cpp). A take is written while
+    // the song records and plays: started when recording is armed or the
+    // song starts, finished, and placed as clips in the same step of history
+    // as the notes, when the song stops or recording is disarmed.
+    void connectAudioInput();
+    void startAudioTake();
+    void finishAudioTake();
+    // Stops writing a take that belongs to a song being replaced.
+    void discardAudioTake();
+    void commitAudioTakes(std::vector<blokkily::RecordedTake> takes);
+    // Moves the takes still in the session's temporary folder into the audio
+    // folder of the project saved at `path` (decision 8).
+    void relocateRecordings(const QString& path);
     // The program the sampler on `track` plays, or nullopt when it has none.
     std::optional<blokkily::SamplerProgram> samplerProgram(int track) const;
     // Applies `edit` to the selected track's sampler program and, if the
@@ -480,6 +520,15 @@ private:
     // Declared before the engine and the device so it outlives both: the render
     // callback reads its queue until the device has stopped.
     std::unique_ptr<blokkily::MidiInput> midi_input_;
+    // What the engine captures recorded input into, and the thread that
+    // writes it to disk. Declared before the engine and the device so it
+    // outlives both: the callback writes into its ring until the device stops.
+    std::unique_ptr<blokkily::TakeWriter> take_writer_ = std::make_unique<blokkily::TakeWriter>();
+    // The session's temporary take folder, made when first needed.
+    mutable std::filesystem::path session_audio_dir_;
+    QString audio_take_status_ = QStringLiteral("No audio recorded");
+    std::uint64_t dropped_input_frames_ = 0;
+    qint64 last_recorded_clip_ = 0;
     QStringList midi_ports_;
     QString midi_activity_ = QStringLiteral("—");
     std::uint64_t midi_notes_ = 0;

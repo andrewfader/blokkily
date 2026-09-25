@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace blokkily {
 
@@ -94,8 +95,22 @@ struct RtAudioOutput::Impl {
     // nothing here allocates, locks, or blocks the callback.
     std::atomic<std::uint64_t> callbacks{0};
     std::atomic<unsigned int> largest{0};
+    // How many input channels the callback is handed: what the duplex stream
+    // opened with, or what the deterministic device models.
+    unsigned int input_channels = 0;
+    std::uint32_t round_trip = 0;
+    bool want_input = false;
+    bool opened_wanting_input = false;
+    // The deterministic device's loopback cable: what each output channel
+    // played over the last `round_trip` frames, and the scratch a piece of a
+    // block is rendered through.
+    bool loopback = false;
+    std::uint64_t pumped_frames = 0;
+    std::array<std::vector<float>, 2> played;
+    std::vector<float> input;
+    std::vector<float> piece;
 
-    static int callback(void* output, void*, unsigned int frames, double,
+    static int callback(void* output, void* input, unsigned int frames, double,
                         RtAudioStreamStatus, void* user) {
         auto* self = static_cast<Impl*>(user);
         auto* samples = static_cast<float*>(output);
@@ -104,7 +119,13 @@ struct RtAudioOutput::Impl {
         while (frames > seen &&
                !self->largest.compare_exchange_weak(seen, frames, std::memory_order_relaxed)) {
         }
-        self->source->process({std::span{samples, frames}, std::span{samples + frames, frames}});
+        // RtAudio hands a duplex stream's input non-interleaved, channel by
+        // channel, exactly as InputBlock reads it.
+        InputBlock block;
+        if (input != nullptr && self->input_channels > 0)
+            block = {static_cast<const float*>(input), self->input_channels, frames, frames};
+        self->source->process({std::span{samples, frames}, std::span{samples + frames, frames}},
+                              block);
         return 0;
     }
 };
@@ -155,12 +176,47 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     RtAudio::StreamOptions options;
     options.flags = RTAUDIO_NONINTERLEAVED | RTAUDIO_MINIMIZE_LATENCY;
     impl_->source = &source;
-    const auto result = impl_->audio->openStream(&parameters, nullptr, RTAUDIO_FLOAT32,
-        sample_rate, &requested_frames, &Impl::callback, impl_.get(), &options);
+    impl_->input_channels = 0;
+    impl_->info.input_device.clear();
+    // Duplex first, so a track can record what is plugged into the inputs
+    // (item 3.2). A server that refuses it - a capture device at another rate,
+    // one that is busy - still gets an output-only stream: playing never
+    // depends on recording being possible.
+    unsigned int frames = requested_frames;
+    auto result = RTAUDIO_INVALID_USE;
+    const auto input_device = impl_->want_input ? impl_->audio->getDefaultInputDevice() : 0U;
+    const auto input_info = input_device != 0 ? impl_->audio->getDeviceInfo(input_device)
+                                              : RtAudio::DeviceInfo{};
+    impl_->opened_wanting_input = impl_->want_input;
+    if (impl_->want_input && input_device != 0 && input_info.inputChannels > 0) {
+        RtAudio::StreamParameters input;
+        input.deviceId = input_device;
+        // A pair is what a track records at most; a few more let a track pick
+        // its pair on an interface with several.
+        input.nChannels = std::min(input_info.inputChannels, 8U);
+        input.firstChannel = 0;
+        result = impl_->audio->openStream(&parameters, &input, RTAUDIO_FLOAT32, sample_rate,
+                                          &frames, &Impl::callback, impl_.get(), &options);
+        if (result == RTAUDIO_NO_ERROR) {
+            impl_->input_channels = input.nChannels;
+            impl_->info.input_device = input_info.name;
+        } else if (impl_->audio->isStreamOpen()) {
+            impl_->audio->closeStream();
+        }
+    }
+    if (result != RTAUDIO_NO_ERROR) {
+        frames = requested_frames;
+        result = impl_->audio->openStream(&parameters, nullptr, RTAUDIO_FLOAT32, sample_rate,
+                                          &frames, &Impl::callback, impl_.get(), &options);
+    }
+    requested_frames = frames;
     if (result != RTAUDIO_NO_ERROR) {
         if (error) *error = impl_->audio->getErrorText();
         return false;
     }
+    impl_->info.input_channels = impl_->input_channels;
+    impl_->round_trip = static_cast<std::uint32_t>(std::max(0L, impl_->audio->getStreamLatency()));
+    impl_->info.round_trip_frames = impl_->round_trip;
     // openStream writes the block size it actually negotiated back into
     // requested_frames, which is rarely what was asked for.
     impl_->info.api = RtAudio::getApiDisplayName(impl_->audio->getCurrentApi());
@@ -203,8 +259,90 @@ bool RtAudioOutput::is_running() const noexcept {
 bool RtAudioOutput::pump(std::span<float> stereo) noexcept {
     if (!impl_->deterministic || !is_running() || stereo.empty() || stereo.size() % 2 != 0)
         return false;
+    // A device with inputs delivers them whether or not anything is played
+    // into them: silence, or what the loopback cable carries.
+    if (impl_->input_channels > 0) {
+        try {
+            return pump(stereo, {});
+        } catch (...) {
+            return false;
+        }
+    }
     return Impl::callback(stereo.data(), nullptr, static_cast<unsigned int>(stereo.size() / 2),
                           0.0, 0, impl_.get()) == 0;
 }
+
+void RtAudioOutput::model_input(unsigned int channels, std::uint32_t round_trip, bool loopback) {
+    if (!impl_->deterministic) return;
+    impl_->input_channels = channels;
+    impl_->round_trip = round_trip;
+    impl_->loopback = loopback && round_trip > 0 && channels > 0;
+    impl_->pumped_frames = 0;
+    for (auto& line : impl_->played) line.assign(impl_->loopback ? round_trip : 0, 0.0F);
+    impl_->info.input_device = channels > 0 ? "Deterministic input" : "";
+    impl_->info.input_channels = channels;
+    impl_->info.round_trip_frames = round_trip;
+}
+
+bool RtAudioOutput::pump(std::span<float> stereo, std::span<const float> injected) {
+    if (!impl_->deterministic || !is_running() || stereo.empty() || stereo.size() % 2 != 0)
+        return false;
+    const auto frames = stereo.size() / 2;
+    const auto channels = static_cast<std::size_t>(impl_->input_channels);
+    if (!injected.empty() && injected.size() != channels * frames) return false;
+    if (channels == 0)
+        return Impl::callback(stereo.data(), nullptr, static_cast<unsigned int>(frames), 0.0, 0,
+                              impl_.get()) == 0;
+    // With a cable from the outputs, a piece is never longer than the round
+    // trip: every input frame it needs was played before the piece began.
+    const std::size_t longest = impl_->loopback ? impl_->round_trip : frames;
+    for (std::size_t done = 0; done < frames;) {
+        const auto count = std::min(longest, frames - done);
+        impl_->input.assign(channels * count, 0.0F);
+        impl_->piece.assign(2 * count, 0.0F);
+        for (std::size_t channel = 0; channel < channels; ++channel) {
+            auto* heard = impl_->input.data() + channel * count;
+            if (!injected.empty())
+                std::copy_n(injected.data() + channel * frames + done, count, heard);
+            if (!impl_->loopback) continue;
+            const auto& line = impl_->played[channel % 2];
+            for (std::size_t frame = 0; frame < count; ++frame)
+                heard[frame] += line[(impl_->pumped_frames + frame) % line.size()];
+        }
+        if (Impl::callback(impl_->piece.data(), impl_->input.data(),
+                           static_cast<unsigned int>(count), 0.0, 0, impl_.get()) != 0)
+            return false;
+        for (std::size_t side = 0; side < 2; ++side) {
+            const auto* played = impl_->piece.data() + side * count;
+            std::copy_n(played, count, stereo.data() + side * frames + done);
+            if (!impl_->loopback) continue;
+            auto& line = impl_->played[side];
+            for (std::size_t frame = 0; frame < count; ++frame)
+                line[(impl_->pumped_frames + frame) % line.size()] = played[frame];
+        }
+        impl_->pumped_frames += count;
+        done += count;
+    }
+    return true;
+}
+
+void RtAudioOutput::set_input_wanted(bool wanted) noexcept { impl_->want_input = wanted; }
+
+bool RtAudioOutput::opened_for_input(bool wanted) const noexcept {
+    return impl_->deterministic || !is_open() || impl_->opened_wanting_input == wanted;
+}
+
+void RtAudioOutput::close() noexcept {
+    if (impl_->deterministic) return;
+    stop();
+    if (impl_->audio->isStreamOpen()) impl_->audio->closeStream();
+    impl_->input_channels = 0;
+    impl_->round_trip = 0;
+    impl_->info = {};
+}
+
+unsigned int RtAudioOutput::input_channels() const noexcept { return impl_->input_channels; }
+
+std::uint32_t RtAudioOutput::round_trip_latency() const noexcept { return impl_->round_trip; }
 
 } // namespace blokkily

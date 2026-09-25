@@ -545,8 +545,8 @@ TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_
             meter.denominator, playing};
 }
 
-void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
-                               bool from_timeline) noexcept {
+void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
+                               std::uint64_t song_position, bool from_timeline) noexcept {
     const auto frames = output.left.size();
     std::fill(output.left.begin(), output.left.end(), 0.0F);
     std::fill(output.right.begin(), output.right.end(), 0.0F);
@@ -566,6 +566,8 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
     // Where the song is for every processor this chunk: a tempo-synced effect
     // follows the tempo map from here (plan C20).
     const TransportInfo transport = transport_at(arranged, song_position, from_timeline);
+    // Recorded input goes here only while the song plays and records.
+    SampleRing* const capture_ring = capture ? capture_.load(std::memory_order_acquire) : nullptr;
     DrainContext drain_context{this, song_position, from_timeline};
     const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context};
     engine::begin_buses(*buses_, frames);
@@ -597,7 +599,8 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         engine::sum_clip_regions(track.clips, arranged.clips, index, buffer, song_position,
                                  from_timeline);
         // 6. Input monitoring; a capture taps the raw input here.
-        engine::add_input_monitoring(track.input, buffer, song_position, from_timeline);
+        engine::add_input_monitoring(track.input, buffer, input, capture_ring,
+                                     static_cast<std::uint32_t>(index), song_position);
         // 7. The insert chain, in place. 8. Its compensation delay.
         engine::run_insert_chain(track.chain, buffer, BusKind::track,
                                  static_cast<std::uint32_t>(index), transport, drain);
@@ -626,8 +629,28 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
                        std::memory_order_relaxed);
 }
 
-void SongEngine::process(StereoBlock output) noexcept {
+void SongEngine::set_audio_input(std::size_t track, const AudioInputRoute& route) noexcept {
+    if (track >= tracks_.size() || !tracks_[track]) return;
+    tracks_[track]->input.route.store(engine::InputPlayback::pack(route),
+                                      std::memory_order_release);
+}
+
+AudioInputRoute SongEngine::audio_input(std::size_t track) const noexcept {
+    if (track >= tracks_.size() || !tracks_[track]) return {};
+    return engine::InputPlayback::unpack(
+        tracks_[track]->input.route.load(std::memory_order_acquire));
+}
+
+void SongEngine::set_audio_inputs(const std::vector<AudioInputRoute>& routes) noexcept {
+    for (std::size_t track = 0; track < tracks_.size(); ++track)
+        set_audio_input(track, track < routes.size() ? routes[track] : AudioInputRoute{});
+}
+
+void SongEngine::process(StereoBlock output) noexcept { process(output, InputBlock{}); }
+
+void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     if (output.left.size() != output.right.size()) return;
+    if (input.frames != output.left.size()) input = {};
     const auto requested = requested_position_.exchange(no_seek, std::memory_order_acq_rel);
     const bool seeked = requested != no_seek;
     if (seeked) {
@@ -661,7 +684,8 @@ void SongEngine::process(StereoBlock output) noexcept {
             const auto frames = std::min<std::size_t>(output.left.size() - idle,
                                                       maximum_block_);
             process_chunk({output.left.subspan(idle, frames),
-                           output.right.subspan(idle, frames)}, resting, false);
+                           output.right.subspan(idle, frames)},
+                          input.slice(idle, frames), resting, false);
             idle += frames;
         }
         // Stopped, the listener hears the song where the playhead rests.
@@ -684,7 +708,9 @@ void SongEngine::process(StereoBlock output) noexcept {
         for (std::size_t track = 0; track < tracks_.size(); ++track)
             frames = timeline_window(timeline_for(track), song_position, frames);
         process_chunk({output.left.subspan(rendered, frames),
-                       output.right.subspan(rendered, frames)}, song_position, true);
+                       output.right.subspan(rendered, frames)},
+                      input.slice(rendered, static_cast<std::size_t>(frames)), song_position,
+                      true);
         rendered += static_cast<std::size_t>(frames);
         sample_position_ += frames;
         continuous_from_ = song_position + frames;
