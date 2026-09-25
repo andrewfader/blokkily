@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pattern_model.hpp"
+#include "app_controller.hpp"
 #include "song_model.hpp"
 
 #include "blokkily/model/keyboard.hpp"

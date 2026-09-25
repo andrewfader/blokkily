@@ -81,7 +81,18 @@ if(BLOKKILY_BUILD_GUI)
         src/app/gui_main.cpp
         src/app/pattern_model.cpp
         src/app/pattern_model.hpp
+        src/app/transport.cpp
+        src/app/transport.hpp
+        src/app/app_controller.cpp
+        src/app/app_controller_scan.cpp
+        src/app/app_controller_take.cpp
+        src/app/app_controller.hpp
+        src/app/app_controller_internal.hpp
         src/app/song_model.cpp
+        src/app/song_model_arrangement.cpp
+        src/app/song_model_history.cpp
+        src/app/song_model_mixer.cpp
+        src/app/song_model_tuning.cpp
         src/app/song_model.hpp
         src/app/keyboard_model.cpp
         src/app/keyboard_model.hpp

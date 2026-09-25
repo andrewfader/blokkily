@@ -1,5 +1,5 @@
 #include "keyboard_model.hpp"
-#include "pattern_model.hpp"
+#include "app_controller.hpp"
 
 #include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/scheduler.hpp"
