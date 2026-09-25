@@ -172,5 +172,5 @@ void AppController::commitTake(std::vector<std::pair<std::size_t, blokkily::Play
                                      PatternModel::ticks_per_step);
     }
     if (pattern_ != nullptr) pattern_->notifyRecorded();
-    else (void)refreshArrangement();
+    else requestRecompile();
 }

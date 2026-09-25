@@ -2,6 +2,7 @@
 #include <clap/ext/state.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <new>
@@ -9,6 +10,10 @@
 namespace {
 void (*process_observer)(void*) = nullptr;
 void* observer_context = nullptr;
+// The fixture's lifecycle log: how many instances the host created and
+// destroyed, so a test can prove an instance was adopted and not reloaded.
+std::atomic<long> instances_created{0};
+std::atomic<long> instances_destroyed{0};
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT,
                                     CLAP_PLUGIN_FEATURE_SYNTHESIZER, nullptr};
 constexpr clap_plugin_descriptor_t descriptor{
@@ -31,7 +36,10 @@ struct TestSynth {
 };
 TestSynth* self(const clap_plugin_t* plugin) { return static_cast<TestSynth*>(plugin->plugin_data); }
 bool plugin_init(const clap_plugin_t*) { return true; }
-void plugin_destroy(const clap_plugin_t* plugin) { delete self(plugin); }
+void plugin_destroy(const clap_plugin_t* plugin) {
+    instances_destroyed.fetch_add(1);
+    delete self(plugin);
+}
 bool plugin_activate(const clap_plugin_t* plugin, double sample_rate, std::uint32_t,
                      std::uint32_t) {
     self(plugin)->sample_rate = sample_rate;
@@ -125,6 +133,7 @@ const clap_plugin_t* create(const clap_plugin_factory_t*, const clap_host_t*, co
     if (id == nullptr || std::strcmp(id, descriptor.id) != 0) return nullptr;
     auto* synth = new (std::nothrow) TestSynth{};
     if (synth == nullptr) return nullptr;
+    instances_created.fetch_add(1);
     synth->plugin = {&descriptor, synth, plugin_init, plugin_destroy, plugin_activate,
                      plugin_deactivate, plugin_start, plugin_stop, plugin_reset,
                      plugin_process, plugin_extension, plugin_main_thread};
@@ -146,4 +155,11 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry{
 extern "C" CLAP_EXPORT void blokkily_test_observe_process(void (*observer)(void*), void* context) {
     process_observer = observer;
     observer_context = context;
+}
+
+// The lifecycle log, read by tests that must tell an adopted instance from a
+// reloaded one.
+extern "C" CLAP_EXPORT void blokkily_test_instance_counts(long* created, long* destroyed) {
+    if (created != nullptr) *created = instances_created.load();
+    if (destroyed != nullptr) *destroyed = instances_destroyed.load();
 }

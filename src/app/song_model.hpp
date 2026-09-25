@@ -9,6 +9,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <cstddef>
+#include <optional>
 #include <vector>
 
 // The session, as the interface sees it: named patterns, mixer tracks, and the
@@ -96,6 +98,13 @@ public:
     Q_INVOKABLE void clearPattern();
     Q_INVOKABLE bool deletePattern(int pattern);
     Q_INVOKABLE bool deleteTrack(int track);
+    // While structureChanged is being emitted for a deleted track: where each
+    // track before the deletion went (entry i is old track i's new index, or
+    // empty for the one removed). Null at any other time, so it can never be
+    // applied to a later change.
+    const std::vector<std::optional<std::size_t>>* pendingTrackRemap() const {
+        return track_remap_ ? &*track_remap_ : nullptr;
+    }
     Q_INVOKABLE void renamePattern(int pattern, const QString& name);
     Q_INVOKABLE void renameTrack(int track, const QString& name);
     Q_INVOKABLE bool undo();
@@ -200,6 +209,7 @@ private:
     int current_pattern_ = 0;
     int selected_track_ = 0;
     std::vector<float> peaks_;
+    std::optional<std::vector<std::optional<std::size_t>>> track_remap_;
     float master_peak_ = 0.0F;
     std::vector<Snapshot> undo_;
     std::vector<Snapshot> redo_;

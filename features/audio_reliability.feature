@@ -41,3 +41,69 @@ Feature: Audio remains correct at the production callback boundary
     When the production process call renders a thousand blocks across a seek and loop wraps
     Then no block calls operator new or operator delete
     And the rendered audio still follows the arrangement, the seek, and the keys pressed
+
+  # Engine seams (plan F-D, item 1.1): tests/engine_seams_tests.cpp,
+  # tests/realtime/engine_seams.cpp and the bdd_engine_seams gate
+  # (src/app/verify/scenario_engine_seams.cpp).
+
+  Scenario: A track without an instrument still plays through its strip
+    Given a playing song with a CLAP track and a track with no instrument
+    And a steady source on the bare track's clip stage
+    When the production callback renders the song
+    Then the bare track's source reaches the bus scaled by its strip gain and pan
+    And muting it, soloing another track, or moving its fader changes the bus accordingly
+    And a stopped song plays no clip region
+
+  Scenario: The render callback keeps its seams allocation-free
+    Given a song with a CLAP track, a bare track with a source, and a plugin that reports edits
+    When the production process call renders a thousand playing and a hundred stopped blocks
+    Then no block calls operator new or operator delete
+    And every chunk's parameter edit reaches the edit ring
+    And the bare track sounds through its strip exactly while the song plays
+
+  Scenario: A processor's own parameter edits are stamped where they happened
+    Given a plugin that reports a parameter edit seven samples into every block
+    When the song is stopped with the playhead at sample 1000, and then plays
+    Then each edit reaches the edit ring with its processor's address
+    And it is stamped with the song sample it happened at and whether the song was rolling
+    And a ring nobody drains drops edits instead of blocking the callback
+
+  Scenario: Rebuilding the graph keeps the instruments that did not change
+    Given two tracks playing the CLAP fixture, the first dialled to level 0.6
+    When the second track is given the VST3 fixture and the graph is rebuilt
+    Then the first track's instrument is the same instance, never destroyed or created again
+    And it still plays at level 0.6
+    And only the replaced instrument is destroyed
+
+  Scenario: A deleted track does not hand its instrument to its neighbour
+    Given tracks playing the same CLAP plugin at different levels
+    When the first track is deleted
+    Then each remaining track keeps its own instance and plays at its own level
+    And its saved state is its own level
+
+  Scenario: A running plugin is not sent a state it cannot take while running
+    Given the CLAP, VST3 and SoundFont instruments loaded in a prepared engine
+    When a state is pushed into each while it runs
+    Then each refuses it and nothing is loaded
+    And a processor that accepts running state is given it
+
+  Scenario: The instrument a slot names is created by one factory
+    Given the processor factory
+    When a SoundFont slot is created
+    Then the SoundFont player comes from the internal registry and plays a note as audio
+    And CLAP and VST3 slots come from their adapters
+    And an unknown format is refused with a reason
+    And a registered internal processor is created with the project context and listed in the catalog
+
+  Scenario: A burst of edits is one recompile of the latest song
+    Given a song playing through the CLAP fixture
+    When fifty edits are made in one turn of the event loop
+    Then no recompile runs during the turn and exactly one runs after it
+    And the engine plays the last edit and nothing from the earlier ones
+
+  Scenario: A busy engine is asked again rather than losing the edit
+    Given an engine that refuses a recompile because no arrangement slot is free
+    When the recompile is requested
+    Then it is tried again on each later turn until the engine accepts it
+    And a refusal for any other reason is reported and not retried
+    And retries stop after a bounded number of turns

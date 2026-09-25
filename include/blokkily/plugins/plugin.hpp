@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -24,6 +25,16 @@ struct PluginEvent {
     double cents = 0.0;
 };
 
+// A parameter moved by the plugin itself — a knob turned in its own window —
+// reported back to the host (plan F-C). Declared here by item 1.1 for the
+// engine's edit ring; item 1.4 owns this header and its adapters fill it.
+struct ParameterEdit {
+    enum class Kind : std::uint8_t { begin, value, end } kind = Kind::value;
+    std::int32_t parameter = 0;
+    double value = 0.0;
+    std::uint32_t sample_offset = 0;
+};
+
 class PluginInstance {
 public:
     virtual ~PluginInstance() = default;
@@ -33,6 +44,12 @@ public:
     virtual std::vector<std::byte> save_state() = 0;
     virtual bool load_state(std::span<const std::byte> state) = 0;
     virtual std::string format() const = 0;
+    // Whether load_state() may be called while the instance processes, so a
+    // state change reaches it without rebuilding the graph (plan F-C).
+    virtual bool accepts_state_while_running() const noexcept { return false; }
+    // Edits the plugin made during the last process(), oldest first. Called on
+    // the audio thread straight after process(); must not allocate or block.
+    virtual std::size_t take_parameter_edits(std::span<ParameterEdit>) noexcept { return 0; }
 };
 
 } // namespace blokkily

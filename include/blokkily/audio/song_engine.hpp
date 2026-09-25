@@ -4,6 +4,7 @@
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
+#include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/plugin.hpp"
 
@@ -13,14 +14,45 @@
 #include <cstdint>
 #include <memory>
 #include <limits>
+#include <span>
 #include <string>
 #include <vector>
 
 namespace blokkily {
 
+// A parameter edit a processor made, stamped on the audio thread with where in
+// the song it happened (plan F-D). `rolling` is whether the transport was
+// playing the arrangement at the time.
+struct PluginEditEvent {
+    ProcessorAddress where;
+    std::uint64_t song_sample = 0;
+    bool rolling = false;
+    ParameterEdit edit;
+};
+
+// A processor handed back by release_processors(), with the address it had.
+struct ReleasedProcessor {
+    ProcessorAddress where;
+    std::unique_ptr<PluginInstance> instance;
+};
+
+namespace engine {
+struct TrackPlayback;
+struct Arrangement;
+struct BusPlayback;
+struct TestAccess;
+} // namespace engine
+
 // Plays a whole arrangement: every track renders its own timeline through its
 // own instrument, and the mixer sums them. Everything the render callback needs
 // is allocated by prepare(); process() neither allocates, locks, nor logs.
+//
+// Each chunk runs in a fixed order (plan F-D): events are collected, the track
+// buffer is zeroed, the instrument processes in place, its parameter edits go
+// to the edit ring, clip regions and input monitoring are added, the insert
+// chain and compensation run, the strip gain is taken, sends are mixed, and the
+// track is added to the bus. A track without an instrument still runs every
+// stage after the instrument's, so what reaches its strip is heard.
 class SongEngine final : public AudioSource {
 public:
     SongEngine();
@@ -28,9 +60,27 @@ public:
     SongEngine(const SongEngine&) = delete;
     SongEngine& operator=(const SongEngine&) = delete;
 
-    // Instruments are supplied by the caller because instantiating a plugin is
-    // a format-specific job that belongs behind the adapters. A track with no
-    // instrument stays silent instead of failing the whole song.
+    // Processors are supplied by the caller because instantiating a plugin is
+    // a format-specific job that belongs behind the adapters. Control thread,
+    // while the device is stopped. Only track instruments are addressable
+    // until the insert chains exist (item 2.4); an address the engine cannot
+    // hold yet is refused and the instance is destroyed here.
+    void set_processor(ProcessorAddress where, std::unique_ptr<PluginInstance> instance);
+    // The processor at `where`, or nullptr. Control thread.
+    [[nodiscard]] PluginInstance* processor(ProcessorAddress where) const;
+    // Takes every processor out of the engine, with its address, so a rebuild
+    // can adopt the ones it still needs instead of loading them again. Only
+    // after the device has stopped: the callback must not be reading them.
+    [[nodiscard]] std::vector<ReleasedProcessor> release_processors();
+    // Pushes a state into a running processor, for a processor that accepts
+    // one while it runs. False, and nothing loaded, for any other.
+    [[nodiscard]] bool update_processor_state(ProcessorAddress where,
+                                              std::span<const std::byte> state);
+    // The next parameter edit a processor reported, oldest first. Control
+    // thread. A full ring drops edits rather than holding up the callback.
+    bool take_plugin_edit(PluginEditEvent& edit) noexcept { return edits_.pop(edit); }
+
+    // A track's instrument; the same as set_processor(track_instrument(track)).
     void set_instrument(std::size_t track, std::unique_ptr<PluginInstance> instrument);
     [[nodiscard]] std::size_t track_count() const noexcept { return tracks_.size(); }
     [[nodiscard]] bool has_instrument(std::size_t track) const;
@@ -124,40 +174,25 @@ public:
     [[nodiscard]] bool load_track_state(std::size_t track, std::span<const std::byte> state);
 
 private:
-    // Events played from the interface, waiting for the next block.
-    using LiveEvents = SpscQueue<PluginEvent, 128>;
-
-    // One compiled arrangement: a sample timeline per track and the length they
-    // were compiled against. Three of these are owned for the life of the
-    // engine, so a recompile always has a slot to fill that is neither being
-    // rendered nor already queued, and publishing one costs a pointer store
-    // instead of an allocation the render callback would have to wait for.
-    struct Arrangement {
-        std::vector<std::vector<TimedPluginEvent>> timelines;
-        std::uint64_t song_samples = 0;
-    };
+    friend struct engine::TestAccess;
+    using Arrangement = engine::Arrangement;
+    using TrackPlayback = engine::TrackPlayback;
+    // One compiled arrangement per slot (src/audio/engine/arrangement.hpp).
     static constexpr std::size_t arrangement_slots = 3;
-
-    struct TrackPlayback {
-        std::unique_ptr<PluginInstance> instrument;
-        std::vector<float> left;
-        std::vector<float> right;
-        std::size_t cursor = 0;
-        // How many note-ons the arrangement has sent for each key without a
-        // note-off. Read and written by the render callback alone. A note whose
-        // step is erased mid-flight has no note-off left in the timeline, so
-        // without this it would ring for ever.
-        std::array<std::uint8_t, 128> sounding{};
-        std::atomic<float> gain_left{1.0F};
-        std::atomic<float> gain_right{1.0F};
-        std::atomic<float> peak{0.0F};
-        LiveEvents live;
-    };
 
     // `from_timeline` is false when the transport is stopped: the arrangement
     // contributes nothing, but live notes and ringing tails still do.
     void process_chunk(StereoBlock output, std::uint64_t song_position,
                        bool from_timeline) noexcept;
+    // Chunk stage 1: gathers what one track plays this chunk into its scratch.
+    std::size_t collect_events(TrackPlayback& track, std::size_t index,
+                               std::uint64_t song_position, std::uint64_t end,
+                               bool from_timeline, bool capture) noexcept;
+    // Chunk stage 4: moves what a processor reported into the edit ring.
+    void drain_edits(PluginInstance& processor, ProcessorAddress where,
+                     std::uint64_t song_position, bool from_timeline) noexcept;
+    // The owner of a processor address, or nullptr when the engine has none.
+    [[nodiscard]] std::unique_ptr<PluginInstance>* processor_slot(ProcessorAddress where) const;
     // Repoints every track's event cursor after a wrap or a seek, so playback
     // costs one step per event instead of a scan of the song per block.
     void seek_cursors(std::uint64_t position) noexcept;
@@ -172,6 +207,7 @@ private:
                                     std::uint64_t seed, std::string* error) const;
 
     std::vector<std::unique_ptr<TrackPlayback>> tracks_;
+    std::unique_ptr<engine::BusPlayback> buses_;
     std::array<std::unique_ptr<Arrangement>, arrangement_slots> arrangements_;
     // Handed from the control thread to the render callback, and back again as
     // the callback reports what it is reading. A slot named by neither is free
@@ -200,6 +236,11 @@ private:
     std::atomic<InputQueue*> input_{nullptr};
     std::atomic<bool> recording_{false};
     SpscQueue<CapturedEvent, 1024> captured_;
+    // Parameter edits the processors reported, stamped with the song sample.
+    SpscQueue<PluginEditEvent, 1024> edits_;
+    // What one processor reported in one call, before it is stamped. Touched
+    // by the callback alone.
+    std::array<ParameterEdit, 64> edit_scratch_{};
     // What the input delivered for the block being rendered, before it is
     // handed to the tracks it names. Touched by the callback alone.
     std::array<RoutedEvent, InputQueue::capacity()> incoming_{};
