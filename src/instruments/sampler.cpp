@@ -370,10 +370,12 @@ bool SamplerInstrument::render_voice(Voice& voice, StereoBlock audio, std::size_
     // Where tap `index` of the interpolator reads, following the loop the
     // voice is in. Taps just outside the region read the file itself, so the
     // first and last frames interpolate against their true neighbours; only
-    // the file's own ends read as silence.
+    // the file's own ends read as silence. Once a forward loop has wrapped,
+    // the frame before loop_start is the loop's last frame, not the file's
+    // lead-in: both sides of the seam read the loop.
     const auto tap = [&](std::int64_t index, const float* channel) noexcept -> float {
-        if (forward_loop && index >= loop_end)
-            index = loop_start + (index - loop_start) % loop_length;
+        if (forward_loop && (index >= loop_end || (voice.in_loop && index < loop_start)))
+            index = loop_start + ((index - loop_start) % loop_length + loop_length) % loop_length;
         else if (ping_pong) {
             if (index > loop_end - 1) index = 2 * (loop_end - 1) - index;
             else if (voice.in_loop && index < loop_start) index = 2 * loop_start - index;

@@ -26,6 +26,7 @@ if(BLOKKILY_BUILD_TESTS)
         hits8_48k_pcm16.wav
         tones8_48k_pcm16.wav
         loop480_48k_pcm16.wav
+        loopseam_48k_pcm16.wav
         truncated_data.wav
         truncated_header.wav
         empty.wav

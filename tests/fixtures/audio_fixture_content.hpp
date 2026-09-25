@@ -106,6 +106,16 @@ inline std::int16_t loop480(std::uint64_t frame) {
         std::lrint(16383.0 * std::sin(two_pi * static_cast<double>(frame % 100) / 100.0)));
 }
 
+// loopseam_48k_pcm16.wav: loop480's loop and smpl chunk, but everything before
+// the loop is a constant 0.9, so the frame before loop_start is nothing like
+// the loop's last frame. An interpolator that reads the file, rather than the
+// loop, on the far side of the seam once the voice has wrapped is heard as a
+// click at every turn.
+inline constexpr std::int16_t loopseam_lead_in = 29490;   // 0.9 of full scale
+inline std::int16_t loopseam(std::uint64_t frame) {
+    return frame < loop480_loop_first ? loopseam_lead_in : loop480(frame);
+}
+
 // truncated_data.wav: a PCM16 mono header promising sine1k_frames frames,
 // followed by only this many.
 inline constexpr std::uint64_t truncated_frames_present = 1000;

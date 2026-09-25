@@ -229,11 +229,8 @@ int main(int argc, char** argv) {
         }
         ok &= save(dir / "tones8_48k_pcm16.wav", wave(spec));
     }
-    {
-        WaveSpec spec{Tag::pcm, 1, fx::loop480_rate, 16, {}, {}, 0};
-        for (std::uint64_t frame = 0; frame < fx::loop480_frames; ++frame) {
-            put16(spec.data, static_cast<std::uint16_t>(fx::loop480(frame)));
-        }
+    // A forward sustain loop over loop480's frames, as a `smpl` chunk.
+    const auto with_loop480_smpl = [](WaveSpec& spec) {
         Bytes smpl;
         put32(smpl, 0);                                   // manufacturer
         put32(smpl, 0);                                   // product
@@ -249,7 +246,22 @@ int main(int argc, char** argv) {
         put32(smpl, 0);                                   // fraction
         put32(smpl, 0);                                   // play count: forever
         spec.extra_chunks.emplace_back("smpl", smpl);
+    };
+    {
+        WaveSpec spec{Tag::pcm, 1, fx::loop480_rate, 16, {}, {}, 0};
+        for (std::uint64_t frame = 0; frame < fx::loop480_frames; ++frame) {
+            put16(spec.data, static_cast<std::uint16_t>(fx::loop480(frame)));
+        }
+        with_loop480_smpl(spec);
         ok &= save(dir / "loop480_48k_pcm16.wav", wave(spec));
+    }
+    {
+        WaveSpec spec{Tag::pcm, 1, fx::loop480_rate, 16, {}, {}, 0};
+        for (std::uint64_t frame = 0; frame < fx::loop480_frames; ++frame) {
+            put16(spec.data, static_cast<std::uint16_t>(fx::loopseam(frame)));
+        }
+        with_loop480_smpl(spec);
+        ok &= save(dir / "loopseam_48k_pcm16.wav", wave(spec));
     }
 
     // Broken files: each must be refused with a reason, never half-played.

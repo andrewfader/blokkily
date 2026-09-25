@@ -57,6 +57,13 @@ Feature: A sampler plays recorded sound as an instrument
     Then the track is still sounding and the loop seam adds no jump
     And with the loop off the note ends with the sample
 
+  # sampler_loop_seam (regression)
+  Scenario: A loop seam reads the loop, not what comes before it
+    Given a sample whose frames before the forward loop are nothing like the loop's end
+    When a key a semitone above the root is held for four turns of the loop
+    Then every turn of the loop is as smooth as the sine it loops
+    And after the first turn it sounds sample for sample like the same loop without that lead-in
+
   # sampler_kit_slices
   Scenario: A loop is chopped into pads
     Given a loop of eight hits, each at its own pitch

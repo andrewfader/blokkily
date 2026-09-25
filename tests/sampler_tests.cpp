@@ -372,6 +372,47 @@ void loop() {
             "with the loop off the note ends with the file");
 }
 
+// Regression: once a forward loop has wrapped, the interpolator's taps on the
+// near side of loop_start must read the loop's end, not the file before the
+// loop. The loopseam fixture's lead-in (0.9) is nothing like the loop's last
+// frame, so a tap that reads it clicks at every turn; the loop itself is whole
+// cycles of a sine, so a tap that reads the loop is as smooth as the sine.
+void loop_seam() {
+    SamplerInstrument probe_instrument;
+    auto zone = *probe_instrument.make_zone(fixture("loopseam_48k_pcm16.wav"));
+    require(zone.loop == LoopMode::forward && zone.loop_start == fx::loop480_loop_first &&
+                zone.loop_end == fx::loop480_loop_last + 1,
+            "the seam fixture's smpl loop must be read");
+    // One semitone up, so the read position is fractional and every output
+    // sample is interpolated from four taps.
+    const double ratio = std::exp2(1.0 / 12.0);
+    const double sine_step = 0.5 * fx::two_pi * 480.0 * ratio / rate;
+    // The voice reaches loop_end after this many output frames; everything
+    // after it is loop, turn after turn.
+    const auto first_turn =
+        static_cast<std::size_t>(std::ceil(static_cast<double>(zone.loop_end) / ratio));
+    const std::size_t held = first_turn + 4 * fx::loop480_frames;
+    auto sampler = sampler_with(keyed({zone}));
+    const auto audio = render(*sampler, held, {note_on(0, 72)});
+    const auto looped = audio.window(first_turn + 2, held - first_turn - 2);
+    require(probe::rms(looped) > 0.3, "the loop sustains the note");
+    const double largest = max_step(looped);
+    require(largest <= sine_step * 1.1,
+            "every turn of the loop must be continuous: largest step " + number(largest) +
+                " vs the sine's own " + number(sine_step));
+    // And the loop sounds as the loop does in the smooth fixture, sample for
+    // sample: the lead-in is never heard once the voice has wrapped.
+    auto smooth_zone = *probe_instrument.make_zone(fixture("loop480_48k_pcm16.wav"));
+    auto smooth = sampler_with(keyed({smooth_zone}));
+    const auto reference = render(*smooth, held, {note_on(0, 72)});
+    double worst = 0.0;
+    for (std::size_t frame = first_turn + 2; frame < held; ++frame)
+        worst = std::max(worst, std::abs(static_cast<double>(audio.left[frame]) -
+                                         reference.left[frame]));
+    require(worst < 1e-6, "after the first turn the seam fixture must render exactly as the "
+                          "smooth loop does: differs by " + number(worst));
+}
+
 // A loop chopped into eight slices plays hit i on key 36 + i, sample-exact.
 void kit_slices() {
     AudioAssetCache cache;
@@ -714,6 +755,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"velocity", velocity},
     {"envelope", envelope},
     {"loop", loop},
+    {"loop_seam", loop_seam},
     {"kit_slices", kit_slices},
     {"one_shot_and_choke", one_shot_and_choke},
     {"state", state},

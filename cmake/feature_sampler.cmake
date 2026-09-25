@@ -31,6 +31,7 @@ if(BLOKKILY_BUILD_TESTS)
             velocity
             envelope
             loop
+            loop_seam
             kit_slices
             one_shot_and_choke
             state
