@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// One mixer track: its name and instrument, mute and solo, a peak meter,
-// gain and pan. Every control writes to the song, which reaches the
-// running engine without rebuilding it.
+// One mixer track: its name and instrument, mute and solo, its arm and
+// input channel, a peak meter, gain and pan. Every control writes to the
+// song, which reaches the running engine without rebuilding it.
 Rectangle {
     id: root
     // Naming and the track menu belong to the window, which owns them.
@@ -14,7 +14,7 @@ Rectangle {
     readonly property int trackIndex: modelData.index
     objectName: "mixerStrip" + modelData.index
     Layout.fillWidth: true
-    implicitHeight: 126
+    implicitHeight: 157
     radius: 6
     color: modelData.selected ? Theme.raised : Theme.panel
     border.color: modelData.selected ? Theme.acid : Theme.line
@@ -63,6 +63,12 @@ Rectangle {
                 on: modelData.solo
                 onClicked: songModel.toggleSolo(trackIndex)
             }
+        }
+
+        // Arm and channel: where played notes go.
+        TrackInputControls {
+            Layout.fillWidth: true
+            track: root.modelData
         }
 
         // Peak meter: the last block's loudest sample,

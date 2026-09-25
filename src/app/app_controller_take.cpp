@@ -4,6 +4,7 @@
 #include "blokkily/plugins/clap_instance.hpp"
 #include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/playback.hpp"
+#include "blokkily/midi/input_routes.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
 #include <QCoreApplication>
@@ -104,6 +105,54 @@ void AppController::toggleRecord() {
                             : QStringLiteral("Recording off");
     emit statusChanged();
     emit recordChanged();
+}
+
+bool AppController::recordingLive() const noexcept {
+    return record_armed_ && engine_ != nullptr && engine_->is_playing();
+}
+
+void AppController::updateInputRoutes() {
+    if (song_ == nullptr) return;
+    midi_input_->set_routes(blokkily::midi_routes(
+        song_->song(), static_cast<std::size_t>(std::max(0, song_->selectedTrack()))));
+}
+
+bool AppController::performPitches(const std::vector<blokkily::TunedPitch>& pitches,
+                                   double velocity, bool held) {
+    if (!recordingLive() || song_ == nullptr || pitches.empty()) return false;
+    // A run of presses does not pile voices up: what the surfaces were still
+    // holding is let go first, on the tracks it went down on.
+    audition_timer_.stop();
+    releaseSoundingNotes();
+    const auto routes = blokkily::surface_routes(
+        song_->song(), static_cast<std::size_t>(std::max(0, song_->selectedTrack())));
+    for (const auto& pitch : pitches) {
+        PerformedNote note{pitch, {}};
+        for (std::size_t track = 0; track < engine_->track_count(); ++track)
+            if ((routes & blokkily::track_bit(track)) != 0 &&
+                engine_->perform(track, {blokkily::PluginEvent::Type::note_on, 0, pitch.key,
+                                         velocity, pitch.cents}))
+                note.tracks.push_back(track);
+        if (!note.tracks.empty()) performed_.push_back(std::move(note));
+    }
+    audition_timer_.start(held ? 8000 : 450);
+    meter_timer_.start();
+    // Recording against the transport is still recording: the press is the
+    // take's, and was not written onto a step.
+    return true;
+}
+
+bool AppController::performKey(int key, bool held) {
+    return performPitches({{static_cast<std::int16_t>(qBound(0, key, 127)), 0.0}}, 0.9, held);
+}
+
+void AppController::releasePerformed() {
+    if (engine_ != nullptr)
+        for (const auto& note : performed_)
+            for (const auto track : note.tracks)
+                (void)engine_->perform(track, {blokkily::PluginEvent::Type::note_off, 0,
+                                               note.pitch.key, 0.0, note.pitch.cents});
+    performed_.clear();
 }
 
 void AppController::drainTake() {

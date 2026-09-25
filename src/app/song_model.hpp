@@ -70,6 +70,9 @@ class SongModel final : public QObject {
     // How many of the song's audio files could not be found as the song
     // expects them.
     Q_PROPERTY(int missingAudioFiles READ missingAudioFiles NOTIFY audioClipsChanged)
+    // How many tracks are armed. With none, what is played goes to the
+    // selected track (decision 4).
+    Q_PROPERTY(int armedCount READ armedCount NOTIFY songChanged)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -144,6 +147,15 @@ public:
     Q_INVOKABLE void toggleMute(int track);
     Q_INVOKABLE void toggleSolo(int track);
     Q_INVOKABLE void setMasterGain(double decibels);
+    // Arm and input (item 2.5). Saved with the song, never a step of history,
+    // and left alone by undo and redo (decision 5).
+    Q_INVOKABLE void toggleArm(int track);
+    Q_INVOKABLE void setArmed(int track, bool armed);
+    // 0 hears every MIDI channel; 1..16 hears that one.
+    Q_INVOKABLE void setInputChannel(int track, int channel);
+    // Steps the channel through ALL, 1 .. 16 and round, by `step`.
+    Q_INVOKABLE void cycleInputChannel(int track, int step = 1);
+    int armedCount() const;
     // Arrangement editing. An empty bar takes the open pattern; a filled bar
     // is opened rather than erased — the right button takes a clip away.
     Q_INVOKABLE void placeClip(int track, int bar);
@@ -276,6 +288,9 @@ signals:
     void instrumentStatesRestored(const QList<int>& tracks);
     // The audio clips, or which of their files are missing, changed.
     void audioClipsChanged();
+    // A track was armed or disarmed, or its input changed: where played notes
+    // go. Also covered by songChanged.
+    void inputChanged();
 
 private:
     [[nodiscard]] blokkily::AudioClip* findAudioClip(qint64 id);
@@ -298,6 +313,9 @@ private:
     };
     Snapshot snapshot() const;
     void restore(Snapshot snapshot);
+    // Gives the tracks of `restored` the arm and input the same tracks have
+    // in `live`, so a step of history never arms or disarms anything.
+    static void keepInputs(const blokkily::Song& live, blokkily::Song& restored);
 
     blokkily::Song song_;
     int current_pattern_ = 0;

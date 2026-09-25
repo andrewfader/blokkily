@@ -28,6 +28,7 @@ Feature: A MIDI keyboard plays the song and records into it
     And nothing is written into the pattern
 
   Scenario: The selected track is the one that sounds
+    Given no track is armed (armed tracks: features/record_everything.feature)
     When the producer selects the second track and plays a key
     Then only the second track sounds
     When they select the first track before letting go

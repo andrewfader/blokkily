@@ -32,6 +32,17 @@ void SongModel::restore(Snapshot snapshot) {
             was.identifier == now.identifier && was.state != now.state)
             restored_states.push_back(static_cast<int>(track));
     }
+    // Arm and input are how the session is wired, not what it plays: a step
+    // of history keeps them as they are now (decision 5).
+    keepInputs(song_, snapshot.song);
+    // Only a step that brings a track back or takes one away can change which
+    // tracks are armed.
+    const bool inputs_differ = [&] {
+        if (snapshot.song.tracks.size() != song_.tracks.size()) return true;
+        for (std::size_t index = 0; index < song_.tracks.size(); ++index)
+            if (!(snapshot.song.tracks[index].input == song_.tracks[index].input)) return true;
+        return false;
+    }();
     song_ = std::move(snapshot.song);
     current_pattern_ = qBound(0, snapshot.current_pattern,
                               static_cast<int>(song_.patterns.size()) - 1);
@@ -45,6 +56,7 @@ void SongModel::restore(Snapshot snapshot) {
     emit mixChanged();
     emit timebaseChanged();
     if (!restored_states.isEmpty()) emit instrumentStatesRestored(restored_states);
+    if (inputs_differ) emit inputChanged();
     notifyStructureChanged();
     emit historyChanged();
 }

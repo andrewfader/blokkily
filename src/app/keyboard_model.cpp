@@ -258,6 +258,15 @@ bool KeyboardModel::sound(int index, bool held) {
         if (song_ != nullptr) names << song_->degreeName(degree);
     }
 
+    // Against a running transport that is recording, a press is performed into
+    // the take - on every armed track, where and how long it was played - and
+    // the take writes it, so no step is written here.
+    if (controller_ != nullptr && controller_->performPitches(pitches, 0.9, held)) {
+        last_played_ = names.isEmpty() ? QString::fromStdString(cell.label) : names.join(' ');
+        emit played(degrees.front());
+        return true;
+    }
+
     // The step is written before the press is sounded. Editing the pattern
     // recompiles the arrangement, and a note sent to the engine that the edit
     // replaces is a note nobody hears.

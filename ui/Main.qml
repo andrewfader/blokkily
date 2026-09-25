@@ -341,15 +341,28 @@ ApplicationWindow {
         Keys.onPressed: function(event) {
             if (event.isAutoRepeat || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier)))
                 return
-            var step = patternModel.selectedStep
-            if (step < 0) return
             var semitone = semitoneFor(event.text)
             if (semitone < 0) return
+            // Recording against the running transport, a key is played into
+            // the take - on every armed track, when and for as long as it is
+            // held - and the cursor stays where it is.
+            if (appController.performKey(root.entryBase + semitone, true)) {
+                event.accepted = true
+                return
+            }
+            var step = patternModel.selectedStep
+            if (step < 0) return
             root.writeNote(step, root.entryBase + semitone)
             // A tracker advances after a note is typed, which is what makes it
             // faster to write a phrase in than to click one.
             patternModel.selectStep((step + 1) % patternModel.stepCount)
             event.accepted = true
+        }
+        // A performed key is let go when it comes up, so the take holds it
+        // exactly as long as it was held.
+        Keys.onReleased: function(event) {
+            if (event.isAutoRepeat || semitoneFor(event.text) < 0) return
+            appController.releasePerformed()
         }
     }
 

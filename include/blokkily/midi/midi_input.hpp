@@ -42,10 +42,22 @@ using KeyMap = std::array<TunedKey, 128>;
 // Every key sounds itself: the twelve equal semitones a MIDI keyboard assumes.
 [[nodiscard]] KeyMap identity_key_map() noexcept;
 
+// Where each MIDI channel is played: entry c is the set of tracks a key on
+// channel c (0-based) sounds on. A channel with no tracks is not heard.
+using ChannelRoutes = std::array<TrackMask, 16>;
+
 // A MIDI input port. Messages arrive on the port's own thread and go straight
 // to the render callback through a lock-free queue, so a note is not held up
-// behind a busy interface. Only the key map and the target track are set from
-// the control thread, and both are read without locking.
+// behind a busy interface. Only the key map and the routes are set from the
+// control thread, and both are read without locking.
+//
+// A key is played on every track its channel is routed to: one armed track or
+// sixty-four. Its release goes to exactly the tracks that key went down on,
+// whatever the routes say by then, so arming, disarming or re-channelling a
+// track mid-phrase cannot leave a voice ringing on a track that was left. A
+// release the queue has no room for is owed, not lost: it is sent before
+// anything else the next time the port delivers a message, and that key is
+// not struck again on a track that is still owed its release.
 //
 // A deterministic input has no port: inject() delivers bytes through the very
 // same decode, map, and route path a port's callback runs, so verification
@@ -71,11 +83,18 @@ public:
     [[nodiscard]] bool is_open() const noexcept;
     [[nodiscard]] std::string port_name() const;
 
-    // Which track a key pressed from now on sounds on. A key already held is
-    // let go on the track it went down on, so changing track mid-phrase cannot
-    // leave a voice sounding on the track that was left.
+    // Which tracks a key pressed from now on sounds on, per channel. Stored
+    // as sixteen atomic masks, so the port thread reads them without a lock.
+    // A key already held is let go on the tracks it went down on.
+    void set_routes(const ChannelRoutes& routes) noexcept;
+    [[nodiscard]] ChannelRoutes routes() const noexcept;
+    // Every channel to one track: the routing of a song with nothing armed.
     void set_track(std::size_t track) noexcept;
+    // The lowest track channel 1 is routed to, or 0 when it reaches none.
     [[nodiscard]] std::size_t track() const noexcept;
+    // Whether a release is still owed to a track because the queue was full
+    // when the key came up. Cleared by the next message the port delivers.
+    [[nodiscard]] bool release_pending() const noexcept;
     // How each key is tuned. Held keys keep the pitch they were struck at.
     void set_key_map(const KeyMap& map) noexcept;
 

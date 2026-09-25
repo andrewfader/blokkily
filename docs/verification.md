@@ -225,6 +225,24 @@ continuity, a CLAP note plus a clip summing within 1e-6, overlaps summing, a
 bounce read back, a clip after a tempo step, a resampled file, a moved project
 folder, and missing and changed files.
 
+`build/artifacts/record-everything.png` — from the `bdd_record_everything` gate
+(`blokkily --verify --scenario record`), part 1 of
+`features/record_everything.feature`: two tracks play the CLAP fixture, one
+panned hard left and one hard right, and are armed by clicking the R on their
+mixer strips (each at least 18 px square; arming adds no step of history). With
+the song recording, a key of the rendered piano is clicked and held and a
+tracker note key is typed and held: each must be heard at exactly 0.25 on both
+the left and the right half of the production callback's output, and each must
+land in both tracks' patterns on the step nearest where it was heard, with the
+micro-timing it was heard at, while the tracker cursor stays on its empty step.
+Stopped, the same key writes the cursor's step and advances. Undo and redo take
+the step and the take back and forth without touching the arm, and arm and
+channel survive a save and a load. The screenshot shows both strips armed (the
+second on CH 2) and the take in the step grid, the tracker and the piano roll.
+The routing underneath (`blokkily_record_tests`, tests `record_*`, and
+`realtime_record_fanout` with 64 armed tracks) is proved from the left and right
+energy of the rendered bus.
+
 `midi_device_input` opens a virtual port through the system's MIDI server — the
 way a controller's driver presents one — connects the production input to it by
 name, and fails unless a note sent there is heard through the render callback

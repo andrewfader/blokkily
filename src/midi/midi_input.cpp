@@ -3,6 +3,7 @@
 #include <RtMidi.h>
 
 #include <algorithm>
+#include <bit>
 #include <mutex>
 
 namespace blokkily {
@@ -39,17 +40,26 @@ struct MidiInput::Impl {
     std::unique_ptr<RtMidiIn> port;
     std::string port_name;
     std::atomic<bool> open{false};
-    std::atomic<std::uint32_t> track{0};
+    // Which tracks each channel plays: written by the control thread, read by
+    // the port thread, never locked.
+    std::array<std::atomic<TrackMask>, 16> routes;
     std::array<std::atomic<TunedKey>, 128> key_map;
-    // Where each key went down, so its release reaches the same track and the
-    // same pitch. Touched only by the one producer: the port thread, or the
-    // caller of inject().
+    // Where each key of each channel went down, so its release reaches the
+    // same tracks and the same pitch. Touched only by the one producer: the
+    // port thread, or the caller of inject().
     struct Held {
-        bool down = false;
-        std::uint32_t track = 0;
+        // Tracks the key sounds on: they were sent its note-on and not yet
+        // its note-off.
+        TrackMask sounding = 0;
+        // Tracks owed a release the queue had no room for.
+        TrackMask owed = 0;
         TunedKey pitch{};
+        TunedKey owed_pitch{};
     };
-    std::array<Held, 128> held{};
+    std::array<std::array<Held, 128>, 16> held{};
+    // Whether any release is owed, so the next message need not look at every
+    // key to find out. Written by the producer; read by release_pending().
+    std::atomic<bool> any_owed{false};
     InputQueue queue;
     std::atomic<std::uint64_t> received{0};
     std::atomic<int> last_key{-1};
@@ -61,6 +71,55 @@ struct MidiInput::Impl {
         const auto identity = identity_key_map();
         for (std::size_t key = 0; key < key_map.size(); ++key)
             key_map[key].store(identity[key], std::memory_order_relaxed);
+        for (auto& route : routes) route.store(track_bit(0), std::memory_order_relaxed);
+    }
+
+    // Sends one event to every track of `tracks`, lowest first. Returns the
+    // tracks the queue had room for.
+    TrackMask push_to(TrackMask tracks, const PluginEvent& event) noexcept {
+        TrackMask delivered = 0;
+        for (TrackMask left = tracks; left != 0; left &= left - 1) {
+            const auto track = static_cast<std::uint32_t>(std::countr_zero(left));
+            if (!queue.push({track, event})) break;
+            delivered |= track_bit(track);
+        }
+        return delivered;
+    }
+
+    // Sends what a key owes, keeping what still does not fit.
+    void settle(Held& key) noexcept {
+        if (key.owed == 0) return;
+        key.owed &= ~push_to(key.owed, {PluginEvent::Type::note_off, 0, key.owed_pitch.key,
+                                        0.0, key.owed_pitch.cents});
+    }
+
+    // Moves a key's sounding tracks to its owed ones and sends what fits.
+    void release(Held& key) noexcept {
+        if (key.sounding != 0) {
+            key.owed |= key.sounding;
+            key.owed_pitch = key.pitch;
+            key.sounding = 0;
+        }
+        settle(key);
+        if (key.owed != 0) any_owed.store(true, std::memory_order_release);
+    }
+
+    // Tries every owed release again, oldest message first in effect: a
+    // release is always sent before anything that arrived after it.
+    void retry_owed() noexcept {
+        if (!any_owed.load(std::memory_order_acquire)) return;
+        bool still = false;
+        for (auto& channel : held)
+            for (auto& key : channel) {
+                settle(key);
+                still = still || key.owed != 0;
+            }
+        any_owed.store(still, std::memory_order_release);
+    }
+
+    void release_everything() noexcept {
+        for (auto& channel : held)
+            for (auto& key : channel) release(key);
     }
 };
 
@@ -169,13 +228,8 @@ void MidiInput::close() noexcept {
     // The port thread is gone, so this thread may speak for it: whatever it
     // left held down is let go, or a keyboard unplugged mid-chord would leave
     // the chord ringing.
-    for (auto& held : impl_->held) {
-        if (!held.down) continue;
-        (void)impl_->queue.push({held.track,
-                                 {PluginEvent::Type::note_off, 0, held.pitch.key, 0.0,
-                                  held.pitch.cents}});
-        held.down = false;
-    }
+    impl_->retry_owed();
+    impl_->release_everything();
 }
 
 bool MidiInput::is_open() const noexcept { return impl_->open.load(std::memory_order_acquire); }
@@ -185,12 +239,31 @@ std::string MidiInput::port_name() const {
     return impl_->port_name;
 }
 
+void MidiInput::set_routes(const ChannelRoutes& routes) noexcept {
+    for (std::size_t channel = 0; channel < routes.size(); ++channel)
+        impl_->routes[channel].store(routes[channel], std::memory_order_release);
+}
+
+ChannelRoutes MidiInput::routes() const noexcept {
+    ChannelRoutes routes{};
+    for (std::size_t channel = 0; channel < routes.size(); ++channel)
+        routes[channel] = impl_->routes[channel].load(std::memory_order_acquire);
+    return routes;
+}
+
 void MidiInput::set_track(std::size_t track) noexcept {
-    impl_->track.store(static_cast<std::uint32_t>(track), std::memory_order_release);
+    ChannelRoutes routes{};
+    routes.fill(track_bit(track));
+    set_routes(routes);
 }
 
 std::size_t MidiInput::track() const noexcept {
-    return impl_->track.load(std::memory_order_acquire);
+    const auto mask = impl_->routes[0].load(std::memory_order_acquire);
+    return mask == 0 ? 0 : static_cast<std::size_t>(std::countr_zero(mask));
+}
+
+bool MidiInput::release_pending() const noexcept {
+    return impl_->any_owed.load(std::memory_order_acquire);
 }
 
 void MidiInput::set_key_map(const KeyMap& map) noexcept {
@@ -206,36 +279,32 @@ bool MidiInput::inject(std::span<const std::uint8_t> message) noexcept {
 
 void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
     if (!impl_->open.load(std::memory_order_acquire)) return;
+    // Releases the queue had no room for go before anything newer.
+    impl_->retry_owed();
     const auto note = decode_midi(message);
     if (!note) return;
-    auto& queue = impl_->queue;
+    auto& channel = impl_->held[note->channel & 0x0FU];
     if (note->kind == MidiNote::Kind::all_off) {
-        for (auto& held : impl_->held) {
-            if (!held.down) continue;
-            (void)queue.push({held.track, {PluginEvent::Type::note_off, 0, held.pitch.key,
-                                           0.0, held.pitch.cents}});
-            held.down = false;
-        }
+        for (auto& held : channel) impl_->release(held);
         return;
     }
-    auto& held = impl_->held[note->key];
+    auto& held = channel[note->key];
     if (note->kind == MidiNote::Kind::off) {
-        if (!held.down) return;
-        (void)queue.push({held.track, {PluginEvent::Type::note_off, 0, held.pitch.key,
-                                       note->velocity / 127.0, held.pitch.cents}});
-        held.down = false;
+        // The tracks it went down on, not the ones the routes name now.
+        impl_->release(held);
         return;
     }
     // A key struck again without a release in between is let go first, so
     // the instrument never holds two voices for one key of the keyboard.
-    if (held.down)
-        (void)queue.push({held.track, {PluginEvent::Type::note_off, 0, held.pitch.key, 0.0,
-                                       held.pitch.cents}});
+    if (held.sounding != 0) impl_->release(held);
     const auto pitch = impl_->key_map[note->key].load(std::memory_order_acquire);
-    const auto track = impl_->track.load(std::memory_order_acquire);
-    held = {queue.push({track, {PluginEvent::Type::note_on, 0, pitch.key,
-                                note->velocity / 127.0, pitch.cents}}),
-            track, pitch};
+    // A track still owed this key's release is not struck again: its release
+    // would arrive after the new note and silence it.
+    const auto tracks =
+        impl_->routes[note->channel & 0x0FU].load(std::memory_order_acquire) & ~held.owed;
+    held.sounding = impl_->push_to(
+        tracks, {PluginEvent::Type::note_on, 0, pitch.key, note->velocity / 127.0, pitch.cents});
+    held.pitch = pitch;
     impl_->received.fetch_add(1, std::memory_order_relaxed);
     impl_->last_key.store(note->key, std::memory_order_relaxed);
     impl_->last_velocity.store(note->velocity, std::memory_order_relaxed);
