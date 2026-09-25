@@ -230,7 +230,15 @@ bool KeyboardModel::pressDegree(int degree) {
     return press(static_cast<int>(cell - cells_.data()));
 }
 
-bool KeyboardModel::press(int index) {
+bool KeyboardModel::press(int index) { return sound(index, false); }
+
+bool KeyboardModel::hold(int index) { return sound(index, true); }
+
+void KeyboardModel::release() {
+    if (controller_ != nullptr) controller_->releaseAudition();
+}
+
+bool KeyboardModel::sound(int index, bool held) {
     if (index < 0 || static_cast<std::size_t>(index) >= cells_.size()) return false;
     const auto& cell = cells_[static_cast<std::size_t>(index)];
 
@@ -276,7 +284,7 @@ bool KeyboardModel::press(int index) {
         }
     }
 
-    if (controller_ != nullptr) (void)controller_->auditionPitches(pitches, 0.9);
+    if (controller_ != nullptr) (void)controller_->auditionPitches(pitches, 0.9, held);
 
     last_played_ = names.isEmpty() ? QString::fromStdString(cell.label) : names.join(' ');
     emit played(degrees.front());

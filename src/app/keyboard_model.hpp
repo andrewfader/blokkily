@@ -77,6 +77,10 @@ public:
     // Presses the cell at `index` of `cells`. Sounds it, and — while recording
     // — writes it onto the step the editors have selected.
     Q_INVOKABLE bool press(int index);
+    // A key held under a pointer: it sounds on the press and rings until
+    // release(), the way a key of an instrument does.
+    Q_INVOKABLE bool hold(int index);
+    Q_INVOKABLE void release();
     // Presses whichever cell sounds a degree, which is how a computer key or a
     // test drives the surface without knowing how it is laid out.
     Q_INVOKABLE bool pressDegree(int degree);
@@ -92,6 +96,7 @@ signals:
     void played(int degree);
 
 private:
+    bool sound(int index, bool held);
     // Re-reads the tuning and scale from the song and rebuilds the layout.
     void rebuild();
     [[nodiscard]] const blokkily::KeyboardCell* cellForDegree(int degree) const;

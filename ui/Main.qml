@@ -8,7 +8,8 @@ ApplicationWindow {
     id: root
     objectName: "mainWindow"
     width: 1280; height: 800; visible: true
-    title: "Blokkily"
+    // The session's name, and a dot while it holds changes that are not on disk.
+    title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + " \u2014 Blokkily"
     color: bg
 
     readonly property color bg: "#0e0f12"
@@ -49,12 +50,131 @@ ApplicationWindow {
         appController.auditionStep(step)
     }
 
+    // True while a text field has the keyboard. The transport and editing
+    // keys stand aside then, so Return accepts what was typed, the arrows move
+    // the caret or the list, and Space types a space.
+    readonly property bool typing: activeFocusItem !== null
+                                   && activeFocusItem.cursorPosition !== undefined
+
+    // Save writes back to the file the session came from; a session that has
+    // never been saved asks where to put it.
+    function save() {
+        if (!appController.saveProjectInPlace()) saveProjectDialog.open()
+    }
+
+    // Opening or starting a session throws the current one away, and there is
+    // no undo across that, so unsaved work is asked about first.
+    property var pendingDiscard: null
+    property bool closeConfirmed: false
+    function whenDiscarded(action) {
+        if (!songModel.dirty) { action(); return }
+        pendingDiscard = action
+        discardDialog.open()
+    }
+
+    onClosing: function(close) {
+        if (!songModel.dirty || closeConfirmed) return
+        close.accepted = false
+        whenDiscarded(function() { root.closeConfirmed = true; root.close() })
+    }
+
+    Dialog {
+        id: discardDialog
+        objectName: "discardDialog"
+        anchors.centerIn: parent
+        modal: true
+        title: "Discard unsaved changes?"
+        standardButtons: Dialog.Discard | Dialog.Cancel
+        Label {
+            text: "“" + appController.projectName + "” has changes that are not saved."
+            color: ink
+        }
+        onDiscarded: {
+            close()
+            var action = root.pendingDiscard
+            root.pendingDiscard = null
+            if (action) action()
+        }
+        onRejected: root.pendingDiscard = null
+    }
+
+    // Names a pattern or a track. One field serves both, because renaming is
+    // the same act whichever lane it happens in.
+    Popup {
+        id: renamePopup
+        objectName: "renamePopup"
+        property string kind: ""
+        property int target: -1
+        anchors.centerIn: parent
+        modal: true; focus: true
+        padding: 14
+        background: Rectangle { color: panel; border.color: acid; radius: 6 }
+        function ask(kind, target, current) {
+            renamePopup.kind = kind
+            renamePopup.target = target
+            renameField.text = current
+            open()
+            renameField.forceActiveFocus()
+            renameField.selectAll()
+        }
+        onClosed: noteEntry.forceActiveFocus()
+        ColumnLayout {
+            spacing: 8
+            SectionLabel { text: "RENAME " + renamePopup.kind }
+            TextField {
+                id: renameField
+                objectName: "renameField"
+                Layout.preferredWidth: 220
+                color: ink; font.pixelSize: 13; font.bold: true
+                selectByMouse: true
+                maximumLength: 24
+                onAccepted: {
+                    if (renamePopup.kind === "PATTERN")
+                        songModel.renamePattern(renamePopup.target, text)
+                    else
+                        songModel.renameTrack(renamePopup.target, text)
+                    renamePopup.close()
+                }
+                Keys.onEscapePressed: renamePopup.close()
+            }
+        }
+    }
+
+    Menu {
+        id: patternMenu
+        objectName: "patternMenu"
+        property int target: -1
+        property string name: ""
+        MenuItem { text: "Rename…"
+            onTriggered: renamePopup.ask("PATTERN", patternMenu.target, patternMenu.name) }
+        MenuItem { text: "Duplicate"
+            onTriggered: { songModel.selectPattern(patternMenu.target); songModel.duplicatePattern() } }
+        MenuItem { text: "Clear steps"
+            onTriggered: { songModel.selectPattern(patternMenu.target); songModel.clearPattern() } }
+        MenuItem { text: "Delete"; enabled: songModel.patterns.length > 1
+            onTriggered: songModel.deletePattern(patternMenu.target) }
+    }
+
+    Menu {
+        id: trackMenu
+        objectName: "trackMenu"
+        property int target: -1
+        property string name: ""
+        MenuItem { text: "Rename…"
+            onTriggered: renamePopup.ask("TRACK", trackMenu.target, trackMenu.name) }
+        MenuItem { text: "Mute"; onTriggered: songModel.toggleMute(trackMenu.target) }
+        MenuItem { text: "Solo"; onTriggered: songModel.toggleSolo(trackMenu.target) }
+        MenuItem { text: "Delete"; enabled: songModel.trackCount > 1
+            onTriggered: songModel.deleteTrack(trackMenu.target) }
+    }
+
     FileDialog {
         id: openProjectDialog
         title: "Open Blokkily project"
         nameFilters: ["Blokkily projects (*.blok)", "All files (*)"]
         fileMode: FileDialog.OpenFile
         onAccepted: appController.loadProjectFile(selectedFile.toString())
+        onRejected: noteEntry.forceActiveFocus()
     }
     FileDialog {
         id: saveProjectDialog
@@ -74,34 +194,119 @@ ApplicationWindow {
         onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth)
     }
 
-    // Space plays, arrows move the step cursor, and the number row toggles the
-    // step under it, so the grid can be driven without leaving the keyboard.
-    Shortcut { sequence: "Space"; onActivated: appController.togglePlayback() }
-    Shortcut { sequence: StandardKey.Open; onActivated: openProjectDialog.open() }
-    Shortcut { sequence: StandardKey.Save; onActivated: saveProjectDialog.open() }
+    // Space plays, arrows move the step cursor, and Ctrl with the number row
+    // toggles a step, so the grid can be driven without leaving the keyboard.
+    // Bare digits are reserved for the tracker's upper-octave note keys.
+    Shortcut { sequence: "Space"; enabled: !root.typing
+               onActivated: appController.togglePlayback() }
+    Shortcut { sequence: StandardKey.New
+               onActivated: root.whenDiscarded(function() { appController.newProject() }) }
+    Shortcut { sequence: StandardKey.Open
+               onActivated: root.whenDiscarded(function() { openProjectDialog.open() }) }
+    Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
+    Shortcut { sequence: "Ctrl+Shift+S"; onActivated: saveProjectDialog.open() }
     Shortcut { sequence: "Ctrl+E"; onActivated: exportDialog.open() }
+    // A text field keeps its own undo; everywhere else undo is the song's.
+    Shortcut { sequence: StandardKey.Undo; enabled: !root.typing
+               onActivated: songModel.undo() }
+    Shortcut { sequences: [StandardKey.Redo, "Ctrl+Y"]; enabled: !root.typing
+               onActivated: songModel.redo() }
     // Finding an instrument is a search, so it answers to the search key.
     Shortcut { sequence: StandardKey.Find
                onActivated: { pluginFilter.forceActiveFocus(); pluginFilter.selectAll() } }
-    Shortcut { sequence: "Return"; onActivated: transport.rewind() }
-    Shortcut { sequence: "Left"
+    // Return and Home go back to the top of the song: the audio engine's
+    // playhead and the one drawn over the editors, which are the same playhead.
+    Shortcut { sequence: "Return"; enabled: !root.typing
+               onActivated: appController.rewindPlayback() }
+    Shortcut { sequence: "Home"; enabled: !root.typing
+               onActivated: appController.rewindPlayback() }
+    Shortcut { sequence: "Left"; enabled: !root.typing
         onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
-    Shortcut { sequence: "Right"
+    Shortcut { sequence: "Right"; enabled: !root.typing
         onActivated: patternModel.selectStep(Math.min(15, patternModel.selectedStep + 1)) }
-    Shortcut { sequence: "Up"; onActivated: patternModel.transposeSelected(1) }
-    Shortcut { sequence: "Down"; onActivated: patternModel.transposeSelected(-1) }
-    Shortcut { sequence: "Ctrl+Up"; onActivated: patternModel.transposeSelected(12) }
-    Shortcut { sequence: "Ctrl+Down"; onActivated: patternModel.transposeSelected(-12) }
+    Shortcut { sequence: "Up"; enabled: !root.typing
+               onActivated: patternModel.transposeSelected(1) }
+    Shortcut { sequence: "Down"; enabled: !root.typing
+               onActivated: patternModel.transposeSelected(-1) }
+    Shortcut { sequence: "Ctrl+Up"; enabled: !root.typing
+               onActivated: patternModel.transposeSelected(12) }
+    Shortcut { sequence: "Ctrl+Down"; enabled: !root.typing
+               onActivated: patternModel.transposeSelected(-12) }
     // The tracker's own octave, moved without leaving the letter keys.
-    Shortcut { sequence: "Ctrl+Left"
+    Shortcut { sequence: "Ctrl+Left"; enabled: !root.typing
         onActivated: root.entryOctave = Math.max(0, root.entryOctave - 1) }
-    Shortcut { sequence: "Ctrl+Right"
+    Shortcut { sequence: "Ctrl+Right"; enabled: !root.typing
         onActivated: root.entryOctave = Math.min(8, root.entryOctave + 1) }
-    Shortcut { sequence: "Backspace"
+    Shortcut { sequences: ["Backspace", "Delete"]; enabled: !root.typing
         onActivated: patternModel.clearStep(patternModel.selectedStep) }
-    Shortcut { sequence: "Delete"
-        onActivated: { if (patternModel.selected.exists)
-                           patternModel.toggleStep(patternModel.selectedStep, 60) } }
+    // Insert pushes later rows down; Shift+Backspace pulls them up.
+    Shortcut { sequence: "Insert"; enabled: !root.typing
+        onActivated: patternModel.insertStep(patternModel.selectedStep) }
+    Shortcut { sequence: "Shift+Backspace"; enabled: !root.typing
+        onActivated: patternModel.deleteAndShift(patternModel.selectedStep) }
+    Shortcut { sequence: StandardKey.Copy; enabled: !root.typing
+               onActivated: patternModel.copySelected() }
+    Shortcut { sequence: StandardKey.Paste; enabled: !root.typing
+               onActivated: patternModel.pasteSelected() }
+    Shortcut { sequence: "Ctrl+D"; enabled: !root.typing
+               onActivated: patternModel.duplicateSelected() }
+    // Mute and solo the selected mixer track. Ctrl+S is Save, so solo is Ctrl+L
+    // ("listen alone") rather than fighting the file shortcut.
+    Shortcut { sequence: "Ctrl+M"; enabled: !root.typing
+               onActivated: songModel.toggleMute(songModel.selectedTrack) }
+    Shortcut { sequence: "Ctrl+L"; enabled: !root.typing
+               onActivated: songModel.toggleSolo(songModel.selectedTrack) }
+    // Alt nudges feel without leaving the letter keys: micro-timing sideways,
+    // note length up and down by one step.
+    Shortcut { sequence: "Alt+Left"; enabled: !root.typing
+        onActivated: patternModel.setSelectedMicroOffset(
+            (patternModel.selected.micro !== undefined ? patternModel.selected.micro : 0) - 1) }
+    Shortcut { sequence: "Alt+Right"; enabled: !root.typing
+        onActivated: patternModel.setSelectedMicroOffset(
+            (patternModel.selected.micro !== undefined ? patternModel.selected.micro : 0) + 1) }
+    Shortcut { sequence: "Alt+Down"; enabled: !root.typing
+        onActivated: patternModel.setSelectedDuration(
+            Math.max(30, (patternModel.selected.duration !== undefined
+                          ? patternModel.selected.duration : 120) - 120)) }
+    Shortcut { sequence: "Alt+Up"; enabled: !root.typing
+        onActivated: patternModel.setSelectedDuration(
+            Math.min(1920, (patternModel.selected.duration !== undefined
+                            ? patternModel.selected.duration : 120) + 120)) }
+    // Ctrl+1..0 toggles steps 0..9; Ctrl+Shift+1..6 toggles steps 10..15.
+    // Digits alone stay with the tracker's note layout. Declared outright
+    // rather than through a Repeater so the shortcuts actually register.
+    Shortcut { sequence: "Ctrl+1"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(0, root.entryBase); if (patternModel.hasStep(0)) appController.auditionStep(0) } }
+    Shortcut { sequence: "Ctrl+2"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(1, root.entryBase); if (patternModel.hasStep(1)) appController.auditionStep(1) } }
+    Shortcut { sequence: "Ctrl+3"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(2, root.entryBase); if (patternModel.hasStep(2)) appController.auditionStep(2) } }
+    Shortcut { sequence: "Ctrl+4"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(3, root.entryBase); if (patternModel.hasStep(3)) appController.auditionStep(3) } }
+    Shortcut { sequence: "Ctrl+5"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(4, root.entryBase); if (patternModel.hasStep(4)) appController.auditionStep(4) } }
+    Shortcut { sequence: "Ctrl+6"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(5, root.entryBase); if (patternModel.hasStep(5)) appController.auditionStep(5) } }
+    Shortcut { sequence: "Ctrl+7"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(6, root.entryBase); if (patternModel.hasStep(6)) appController.auditionStep(6) } }
+    Shortcut { sequence: "Ctrl+8"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(7, root.entryBase); if (patternModel.hasStep(7)) appController.auditionStep(7) } }
+    Shortcut { sequence: "Ctrl+9"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(8, root.entryBase); if (patternModel.hasStep(8)) appController.auditionStep(8) } }
+    Shortcut { sequence: "Ctrl+0"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(9, root.entryBase); if (patternModel.hasStep(9)) appController.auditionStep(9) } }
+    Shortcut { sequence: "Ctrl+Shift+1"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(10, root.entryBase); if (patternModel.hasStep(10)) appController.auditionStep(10) } }
+    Shortcut { sequence: "Ctrl+Shift+2"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(11, root.entryBase); if (patternModel.hasStep(11)) appController.auditionStep(11) } }
+    Shortcut { sequence: "Ctrl+Shift+3"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(12, root.entryBase); if (patternModel.hasStep(12)) appController.auditionStep(12) } }
+    Shortcut { sequence: "Ctrl+Shift+4"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(13, root.entryBase); if (patternModel.hasStep(13)) appController.auditionStep(13) } }
+    Shortcut { sequence: "Ctrl+Shift+5"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(14, root.entryBase); if (patternModel.hasStep(14)) appController.auditionStep(14) } }
+    Shortcut { sequence: "Ctrl+Shift+6"; enabled: !root.typing
+        onActivated: { patternModel.toggleStep(15, root.entryBase); if (patternModel.hasStep(15)) appController.auditionStep(15) } }
 
     component SectionLabel: Label {
         color: muted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.4
@@ -112,7 +317,10 @@ ApplicationWindow {
         property bool on: false
         property color accent: acid
         signal clicked()
+        signal rightClicked()
+        signal doubleClicked()
         implicitWidth: chipText.implicitWidth + 22; implicitHeight: 26
+        opacity: enabled ? 1.0 : 0.4
         radius: 4
         color: on ? accent : (chipMouse.containsMouse ? raised : "transparent")
         border.color: on ? accent : line
@@ -124,7 +332,14 @@ ApplicationWindow {
         MouseArea {
             id: chipMouse; anchors.fill: parent; hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: parent.clicked()
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onClicked: function(mouse) {
+                if (mouse.button === Qt.RightButton) parent.rightClicked()
+                else parent.clicked()
+            }
+            onDoubleClicked: function(mouse) {
+                if (mouse.button === Qt.LeftButton) parent.doubleClicked()
+            }
         }
     }
 
@@ -196,8 +411,13 @@ ApplicationWindow {
         Slider {
             Layout.fillWidth: true
             enabled: parent.enabled
+            // A slider keeps no keyboard focus, so the arrow keys and Space
+            // stay with the editors after a fader has been dragged.
+            focusPolicy: Qt.NoFocus
             from: parent.from; to: parent.to; value: parent.value
             onMoved: parent.moved(value)
+            // One drag is one step of history, however far it travels.
+            onPressedChanged: pressed ? songModel.beginGesture() : songModel.endGesture()
             background: Rectangle {
                 x: parent.leftPadding; y: parent.topPadding + parent.availableHeight / 2 - height / 2
                 width: parent.availableWidth; height: 4; radius: 2
@@ -269,28 +489,71 @@ ApplicationWindow {
                 }
             }
 
+            // Tempo: dragged, scrolled, or typed. Dragging and the wheel move it
+            // by whole beats per minute (a tenth with Shift held), and a
+            // double-click takes a number from the keyboard.
             Rectangle {
+                objectName: "tempoBox"
                 Layout.preferredWidth: 88; Layout.preferredHeight: 30; radius: 4
-                color: raised; border.color: line
+                color: raised; border.color: tempoField.visible ? acid : line
                 RowLayout {
                     anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 0
-                    Label { text: transport.bpm.toFixed(2); color: ink
+                    Label { objectName: "tempoReadout"; visible: !tempoField.visible
+                        text: transport.bpm.toFixed(2); color: ink
                         font.family: "monospace"; font.pixelSize: 13; font.bold: true }
-                    Item { Layout.fillWidth: true }
+                    TextField {
+                        id: tempoField
+                        objectName: "tempoField"
+                        visible: false
+                        Layout.fillWidth: true
+                        padding: 0; background: Item {}
+                        color: acid; font.family: "monospace"; font.pixelSize: 13; font.bold: true
+                        validator: DoubleValidator { bottom: 20; top: 300; decimals: 2 }
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        function finish() { visible = false; noteEntry.forceActiveFocus() }
+                        onAccepted: {
+                            var typed = parseFloat(text)
+                            if (!isNaN(typed)) appController.setTempo(typed)
+                            finish()
+                        }
+                        onActiveFocusChanged: if (!activeFocus && visible) finish()
+                        Keys.onEscapePressed: finish()
+                    }
+                    Item { Layout.fillWidth: true; visible: !tempoField.visible }
                     Label { text: "BPM"; color: muted; font.pixelSize: 8; font.letterSpacing: 1 }
                 }
                 MouseArea {
                     anchors.fill: parent; cursorShape: Qt.SizeVerCursor
+                    visible: !tempoField.visible
                     property real anchorY: 0
                     property real anchorBpm: 120
                     onPressed: function(mouse) { anchorY = mouse.y; anchorBpm = transport.bpm }
                     onPositionChanged: function(mouse) {
-                        appController.setTempo(anchorBpm + (anchorY - mouse.y) * 0.5)
+                        var fine = mouse.modifiers & Qt.ShiftModifier
+                        appController.setTempo(Math.round((anchorBpm + (anchorY - mouse.y)
+                                                * (fine ? 0.1 : 0.5)) * 100) / 100)
+                    }
+                    onDoubleClicked: {
+                        tempoField.text = transport.bpm.toFixed(2)
+                        tempoField.visible = true
+                        tempoField.forceActiveFocus()
+                        tempoField.selectAll()
+                    }
+                    onWheel: function(wheel) {
+                        var step = (wheel.modifiers & Qt.ShiftModifier) ? 0.1 : 1.0
+                        var notches = wheel.angleDelta.y / 120
+                        appController.setTempo(Math.round((transport.bpm + notches * step) * 100) / 100)
                     }
                 }
             }
 
             Label { text: "4 / 4"; color: muted; font.pixelSize: 12 }
+
+            Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: line }
+            Chip { objectName: "undoButton"; text: "UNDO"; enabled: songModel.canUndo
+                   onClicked: songModel.undo() }
+            Chip { objectName: "redoButton"; text: "REDO"; enabled: songModel.canRedo
+                   onClicked: songModel.redo() }
 
             Item { Layout.fillWidth: true }
 
@@ -503,6 +766,9 @@ ApplicationWindow {
                     ScrollBar.vertical: ScrollBar {
                         objectName: "pluginScrollBar"
                         policy: ScrollBar.AsNeeded
+                        // Drawn only when there is somewhere to scroll to, so a
+                        // short list does not carry a stray bar down its side.
+                        visible: size < 1.0
                         contentItem: Rectangle {
                             implicitWidth: 5; radius: 2
                             color: parent.pressed ? acid : line
@@ -558,11 +824,27 @@ ApplicationWindow {
                 }
 
                 SectionLabel { text: "PROJECT" }
-                RowLayout {
-                    Layout.fillWidth: true; spacing: 4
+                // Two rows, because four actions side by side are wider than
+                // the rail, and a control row that cannot shrink widens every
+                // other row of the rail with it.
+                GridLayout {
+                    objectName: "projectActions"
+                    Layout.fillWidth: true; Layout.minimumWidth: 0
+                    columns: 2; columnSpacing: 4; rowSpacing: 4
+                    Chip { objectName: "newProjectButton"; text: "NEW"
+                        Layout.fillWidth: true
+                        onClicked: root.whenDiscarded(function() { appController.newProject() }) }
                     Chip { objectName: "openProjectButton"; text: "OPEN"
-                        onClicked: openProjectDialog.open() }
+                        Layout.fillWidth: true
+                        onClicked: root.whenDiscarded(function() { openProjectDialog.open() }) }
                     Chip { objectName: "saveProjectButton"; text: "SAVE"
+                        Layout.fillWidth: true
+                        // Lit while there is something on screen that is not
+                        // on disk.
+                        on: songModel.dirty
+                        onClicked: root.save() }
+                    Chip { objectName: "saveAsProjectButton"; text: "SAVE AS"
+                        Layout.fillWidth: true
                         onClicked: saveProjectDialog.open() }
                 }
                 Rectangle {
@@ -648,7 +930,7 @@ ApplicationWindow {
                             color: muted; font.pixelSize: 9; font.letterSpacing: 0.5 }
                     }
                     Item { Layout.fillWidth: true }
-                    Label { text: "SPACE play  |  ARROWS select  |  UP/DOWN transpose  |  DEL clear"
+                    Label { text: "SPACE play  |  HOME rewind  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
                         color: muted; font.pixelSize: 10 }
                 }
 
@@ -664,6 +946,8 @@ ApplicationWindow {
                         Layout.fillWidth: true; spacing: 6
                         SectionLabel { text: "ARRANGEMENT" }
                         Item { Layout.fillWidth: true }
+                        Label { text: "shift-click lengthens  |  alt-click moves  |  right-click removes"
+                            color: muted; font.pixelSize: 9 }
                         Repeater {
                             model: songModel.patterns
                             Chip {
@@ -672,12 +956,22 @@ ApplicationWindow {
                                 text: modelData.name
                                 on: modelData.current
                                 onClicked: songModel.selectPattern(modelData.index)
+                                onDoubleClicked: renamePopup.ask("PATTERN", modelData.index,
+                                                                 modelData.name)
+                                onRightClicked: {
+                                    patternMenu.target = modelData.index
+                                    patternMenu.name = modelData.name
+                                    patternMenu.popup()
+                                }
                             }
                         }
                         Chip { objectName: "addPatternButton"; text: "+PAT"; accent: blue
                             onClicked: songModel.addPattern() }
+                        // A variation starts as a copy of what is open.
+                        Chip { objectName: "duplicatePatternButton"; text: "DUP"; accent: blue
+                            onClicked: songModel.duplicatePattern() }
                         Chip { objectName: "addTrackButton"; text: "+TRK"; accent: blue
-                            onClicked: songModel.addTrack() }
+                            onClicked: appController.addTrack() }
                     }
 
                     Rectangle {
@@ -686,13 +980,50 @@ ApplicationWindow {
                         // One lane per track plus the frame, so the timeline
                         // takes only the room it needs and the editors keep
                         // the rest of the window.
-                        Layout.preferredHeight: 12 + Math.max(1, songModel.trackCount) * 24
+                        Layout.preferredHeight: 28 + Math.max(1, songModel.trackCount) * 24
                         radius: 6; color: panel; border.color: line; clip: true
 
                         ColumnLayout {
                             id: arrangementRows
                             objectName: "arrangementRows"
                             anchors.fill: parent; anchors.margins: 5; spacing: 2
+
+                            // A ruler over the bars, so the playhead is something
+                            // the producer can put rather than only watch.
+                            RowLayout {
+                                objectName: "arrangeRuler"
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 14
+                                spacing: 2
+                                Item { Layout.preferredWidth: 64; Layout.preferredHeight: 14 }
+                                Repeater {
+                                    model: songModel.bars
+                                    Rectangle {
+                                        id: rulerCell
+                                        required property int index
+                                        objectName: "rulerBar" + index
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 14
+                                        radius: 2
+                                        color: transport.bar === index ? acid : "transparent"
+                                        Label {
+                                            anchors.centerIn: parent
+                                            text: (rulerCell.index + 1).toString()
+                                            color: transport.bar === rulerCell.index ? "#0e0f12" : muted
+                                            font.pixelSize: 9; font.bold: true
+                                            font.family: "monospace"
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                noteEntry.forceActiveFocus()
+                                                appController.seekToBar(rulerCell.index)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             Repeater {
                                 model: songModel.tracks
@@ -712,17 +1043,32 @@ ApplicationWindow {
                                         radius: 3
                                         color: track.selected ? raised : "transparent"
                                         border.color: track.selected ? acid : line
+                                        objectName: "trackHeader" + trackIndex
                                         Label {
                                             anchors.centerIn: parent
+                                            width: parent.width - 6
+                                            horizontalAlignment: Text.AlignHCenter
+                                            elide: Text.ElideRight
                                             text: track.name
                                             color: track.audible ? ink : muted
                                             font.pixelSize: 9; font.bold: true
                                             font.letterSpacing: 0.6
                                         }
+                                        // Click selects, double-click names,
+                                        // the right button offers the rest.
                                         MouseArea {
                                             anchors.fill: parent
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: songModel.selectTrack(trackIndex)
+                                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                            onClicked: function(mouse) {
+                                                songModel.selectTrack(trackIndex)
+                                                if (mouse.button !== Qt.RightButton) return
+                                                trackMenu.target = trackIndex
+                                                trackMenu.name = track.name
+                                                trackMenu.popup()
+                                            }
+                                            onDoubleClicked: renamePopup.ask("TRACK", trackIndex,
+                                                                             track.name)
                                         }
                                     }
 
@@ -758,10 +1104,69 @@ ApplicationWindow {
                                             }
                                             MouseArea {
                                                 anchors.fill: parent
+                                                acceptedButtons: Qt.LeftButton | Qt.RightButton
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
+                                                // onPressed rather than onClicked: a synthetic
+                                                // right-button event reaches the press handler
+                                                // even when the composed click does not.
+                                                onPressed: function(mouse) {
+                                                    noteEntry.forceActiveFocus()
                                                     songModel.selectTrack(trackIndex)
-                                                    songModel.toggleClip(trackIndex, index)
+                                                    if (mouse.button === Qt.RightButton) {
+                                                        // The right button takes a clip away;
+                                                        // the left button never does.
+                                                        songModel.removeClip(trackIndex, index)
+                                                        mouse.accepted = true
+                                                        return
+                                                    }
+                                                    // Shift+click sets how many bars the clip
+                                                    // runs: on a filled cell it ends there; on
+                                                    // an empty cell it extends the earlier clip.
+                                                    if (mouse.modifiers & Qt.ShiftModifier) {
+                                                        if (parent.filled && parent.cell
+                                                            && parent.cell.startBar >= 0) {
+                                                            songModel.setClipRepeats(
+                                                                trackIndex, parent.cell.startBar,
+                                                                Math.max(1, index
+                                                                    - parent.cell.startBar + 1))
+                                                        } else {
+                                                            for (var b = index - 1; b >= 0; --b) {
+                                                                var earlier =
+                                                                    songModel.lanes[trackIndex][b]
+                                                                if (earlier !== undefined
+                                                                    && earlier.filled) {
+                                                                    songModel.setClipRepeats(
+                                                                        trackIndex,
+                                                                        earlier.startBar,
+                                                                        index - earlier.startBar
+                                                                            + 1)
+                                                                    break
+                                                                }
+                                                            }
+                                                        }
+                                                        mouse.accepted = true
+                                                        return
+                                                    }
+                                                    // Alt+click on an empty bar moves the clip
+                                                    // the playhead is sitting in on this track.
+                                                    if ((mouse.modifiers & Qt.AltModifier)
+                                                        && !parent.filled) {
+                                                        if (songModel.moveClip(
+                                                                trackIndex, transport.bar, index)) {
+                                                            mouse.accepted = true
+                                                            return
+                                                        }
+                                                    }
+                                                    if (parent.filled) {
+                                                        // Opening a clip puts its pattern in
+                                                        // every editor and puts the playhead
+                                                        // where that clip starts sounding.
+                                                        songModel.openClip(trackIndex, index)
+                                                        appController.seekToBar(index)
+                                                    } else {
+                                                        songModel.placeClip(trackIndex, index)
+                                                    }
+                                                    mouse.accepted = true
                                                 }
                                             }
                                         }
@@ -785,7 +1190,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         SectionLabel { text: "STEP GRID" }
                         Item { Layout.fillWidth: true }
-                        Label { text: "click toggles  |  shift-click selects"; color: muted
+                        Label { text: "click toggles  |  shift-click selects  |  CTRL-click seeks  |  CTRL+1..0 toggles"; color: muted
                             font.pixelSize: 9 }
                     }
                     RowLayout {
@@ -877,10 +1282,24 @@ ApplicationWindow {
                                     anchors.fill: parent; hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: function(mouse) {
-                                        if (mouse.modifiers & Qt.ShiftModifier)
+                                        noteEntry.forceActiveFocus()
+                                        if (mouse.modifiers & Qt.ControlModifier) {
+                                            // Jump the song to this column of the
+                                            // bar it is already in, engine and all.
+                                            appController.seekToStep(
+                                                transport.bar * 16 + cell.index)
                                             patternModel.selectStep(cell.index)
-                                        else
-                                            patternModel.toggleStep(cell.index, 60)
+                                            return
+                                        }
+                                        if (mouse.modifiers & Qt.ShiftModifier) {
+                                            patternModel.selectStep(cell.index)
+                                            return
+                                        }
+                                        // A new step is written in the octave the
+                                        // tracker types in, and heard as it lands.
+                                        patternModel.toggleStep(cell.index, root.entryBase)
+                                        if (patternModel.hasStep(cell.index))
+                                            appController.auditionStep(cell.index)
                                     }
                                 }
                             }
@@ -926,7 +1345,7 @@ ApplicationWindow {
                                     objectName: "octaveUp"; text: "OCT+"
                                     onClicked: root.entryOctave = Math.min(8, root.entryOctave + 1)
                                 }
-                                Label { text: "TYPE ZSXDCVGBHNJM"; color: muted
+                                Label { text: "TYPE ZSXDCVGBHNJM  ·  DRAG VEL/FX"; color: muted
                                     font.pixelSize: 9; font.family: "monospace" }
                             }
                             Rectangle {
@@ -948,8 +1367,14 @@ ApplicationWindow {
                             // Every row is shown, empty ones included — a tracker that
                             // hides its empty rows is not a tracker.
                             ColumnLayout {
+                                id: trackerRows
                                 objectName: "trackerRows"
                                 Layout.fillWidth: true; Layout.fillHeight: true; spacing: 0
+                                // One size for every row, so a height that does
+                                // not divide by sixteen does not print alternate
+                                // rows in alternate sizes.
+                                readonly property int rowFont:
+                                    Math.max(7, Math.min(13, Math.floor(height / 16) - 2))
                                 Repeater {
                                     model: 16
                                     Rectangle {
@@ -962,8 +1387,7 @@ ApplicationWindow {
                                         // into the one below it is not a tracker
                                         // anybody can read. The text follows the row
                                         // rather than the row being assumed.
-                                        readonly property int rowFont:
-                                            Math.max(7, Math.min(13, Math.floor(height) - 2))
+                                        readonly property int rowFont: trackerRows.rowFont
                                         objectName: "trackerRow" + index
                                         clip: true
                                         Layout.fillWidth: true; Layout.fillHeight: true
@@ -1013,6 +1437,7 @@ ApplicationWindow {
                                                     onPressed: function(mouse) {
                                                         noteEntry.forceActiveFocus()
                                                         patternModel.selectStep(trackRow.index)
+                                                        songModel.beginGesture()
                                                         if (mouse.button === Qt.RightButton) {
                                                             patternModel.clearStep(trackRow.index)
                                                             return
@@ -1029,22 +1454,96 @@ ApplicationWindow {
                                                         patternModel.setStepKey(trackRow.index,
                                                                                 anchorKey + moved)
                                                     }
+                                                    onReleased: songModel.endGesture()
+                                                    onCanceled: songModel.endGesture()
                                                 }
                                             }
-                                            Label {
+                                            Item {
+                                                objectName: "trackerVel" + trackRow.index
                                                 Layout.preferredWidth: 44
-                                                text: trackRow.row ? trackRow.row.velocityHex : "--"
-                                                color: trackRow.row && trackRow.row.active ? ink : "#3d434e"
-                                                font.family: "monospace"
-                                                font.pixelSize: trackRow.rowFont
+                                                Layout.fillHeight: true
+                                                Label {
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: trackRow.row ? trackRow.row.velocityHex : "--"
+                                                    color: trackRow.row && trackRow.row.active ? ink : "#3d434e"
+                                                    font.family: "monospace"
+                                                    font.pixelSize: trackRow.rowFont
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.SizeVerCursor
+                                                    property real anchorY: 0
+                                                    property real anchorVel: 0.9
+                                                    onPressed: function(mouse) {
+                                                        noteEntry.forceActiveFocus()
+                                                        patternModel.selectStep(trackRow.index)
+                                                        if (!trackRow.row || !trackRow.row.active) return
+                                                        songModel.beginGesture()
+                                                        anchorY = mouse.y
+                                                        anchorVel = trackRow.row.velocity
+                                                    }
+                                                    onPositionChanged: function(mouse) {
+                                                        if (!pressed || !trackRow.row || !trackRow.row.active)
+                                                            return
+                                                        var next = anchorVel + (anchorY - mouse.y) / 40
+                                                        patternModel.setSelectedVelocity(
+                                                            Math.max(0, Math.min(1, next)))
+                                                    }
+                                                    onReleased: songModel.endGesture()
+                                                    onCanceled: songModel.endGesture()
+                                                }
                                             }
-                                            Label {
+                                            Item {
+                                                objectName: "trackerFx" + trackRow.index
                                                 Layout.fillWidth: true
-                                                text: trackRow.row ? trackRow.row.lockText : "---"
-                                                color: trackRow.row && trackRow.row.hasLock ? amber : "#3d434e"
-                                                font.family: "monospace"
-                                                font.pixelSize: trackRow.rowFont
-                                                font.bold: trackRow.row && trackRow.row.hasLock
+                                                Layout.fillHeight: true
+                                                Label {
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: trackRow.row ? trackRow.row.lockText : "---"
+                                                    color: trackRow.row && trackRow.row.hasLock
+                                                           ? amber : "#3d434e"
+                                                    font.family: "monospace"
+                                                    font.pixelSize: trackRow.rowFont
+                                                    font.bold: trackRow.row && trackRow.row.hasLock
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                                    cursorShape: Qt.SizeVerCursor
+                                                    property real anchorY: 0
+                                                    property real anchorValue: 0.75
+                                                    onPressed: function(mouse) {
+                                                        noteEntry.forceActiveFocus()
+                                                        patternModel.selectStep(trackRow.index)
+                                                        if (!trackRow.row || !trackRow.row.active)
+                                                            return
+                                                        if (mouse.button === Qt.RightButton) {
+                                                            patternModel.clearSelectedLock()
+                                                            return
+                                                        }
+                                                        songModel.beginGesture()
+                                                        anchorY = mouse.y
+                                                        if (!trackRow.row.hasLock)
+                                                            patternModel.setSelectedLock(
+                                                                0, 0.75, false)
+                                                        anchorValue = patternModel.selected.lockValue
+                                                                      !== undefined
+                                                            ? patternModel.selected.lockValue
+                                                            : 0.75
+                                                    }
+                                                    onPositionChanged: function(mouse) {
+                                                        if (!pressed || !trackRow.row
+                                                            || !trackRow.row.active) return
+                                                        if (!(mouse.buttons & Qt.LeftButton)) return
+                                                        var next = anchorValue
+                                                                   + (anchorY - mouse.y) / 40
+                                                        patternModel.setSelectedLock(
+                                                            0, Math.max(0, Math.min(1, next)),
+                                                            false)
+                                                    }
+                                                    onReleased: songModel.endGesture()
+                                                    onCanceled: songModel.endGesture()
+                                                }
                                             }
                                         }
                                         MouseArea {
@@ -1074,7 +1573,7 @@ ApplicationWindow {
                                 Label { text: "PIANO ROLL"; color: ink; font.bold: true
                                     font.pixelSize: 12; font.letterSpacing: 1 }
                                 Item { Layout.fillWidth: true }
-                                Label { text: "drag draws  |  right-click erases"; color: muted
+                                Label { text: "drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases"; color: muted
                                     font.pixelSize: 9 }
                                 Label {
                                     text: patternModel.lowKey + "-" + patternModel.highKey + " KEYS"
@@ -1105,6 +1604,7 @@ ApplicationWindow {
                                     Rectangle {
                                         required property int index
                                         readonly property int key: patternModel.highKey - index
+                                        objectName: "rollKey" + key
                                         x: 0; y: index * rollArea.laneHeight
                                         width: rollArea.gutter; height: rollArea.laneHeight
                                         color: rollArea.isBlack(key) ? "#111318" : "#39404b"
@@ -1117,6 +1617,16 @@ ApplicationWindow {
                                             text: "C" + (key / 12 - 1)
                                             color: ink; font.pixelSize: 9; font.family: "monospace"
                                             font.bold: true
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onPressed: {
+                                                noteEntry.forceActiveFocus()
+                                                appController.auditionKey(key, true)
+                                            }
+                                            onReleased: appController.releaseAudition()
+                                            onCanceled: appController.releaseAudition()
                                         }
                                     }
                                 }
@@ -1152,26 +1662,38 @@ ApplicationWindow {
                                     }
                                 }
                                 // Notes, drawn on the lane the gutter labels.
+                                // A chord is drawn as every voice it sounds.
                                 Repeater {
                                     model: patternModel
-                                    Rectangle {
+                                    Item {
+                                        id: rollNote
                                         required property int step
-                                        required property int key
                                         required property int duration
-                                        required property string velocityHex
+                                        required property var voiceKeys
                                         objectName: "rollNote" + step
                                         x: rollArea.gutter + step * rollArea.laneWidth + 1
-                                        y: rollArea.laneY(key)
                                         width: Math.max(6, duration / 120 * rollArea.laneWidth - 2)
-                                        height: Math.max(3, rollArea.laneHeight - 1)
-                                        radius: 2
-                                        color: patternModel.selectedStep === step ? amber : acid
+                                        height: rollArea.height
+                                        Repeater {
+                                            model: rollNote.voiceKeys
+                                            Rectangle {
+                                                required property var modelData
+                                                y: rollArea.laneY(modelData)
+                                                width: rollNote.width
+                                                height: Math.max(3, rollArea.laneHeight - 1)
+                                                radius: 2
+                                                color: patternModel.selectedStep === rollNote.step
+                                                       ? amber : acid
+                                            }
+                                        }
                                     }
                                 }
                                 // Playhead across the roll.
                                 Rectangle {
                                     objectName: "rollPlayhead"
-                                    x: rollArea.gutter + transport.stepFraction * rollArea.laneWidth
+                                    // The roll shows one bar, so the song's
+                                    // playhead is drawn where it falls in it.
+                                    x: rollArea.gutter + (transport.stepFraction % 16) * rollArea.laneWidth
                                     y: 0; width: 2; height: rollArea.height
                                     color: ink; opacity: 0.85
                                 }
@@ -1197,6 +1719,10 @@ ApplicationWindow {
                                     // The lane the pointer is over, so the roll
                                     // can show which pitch a press would write.
                                     property int hoverKey: keyAt(mouseY)
+                                    // 0 draws a phrase, 1 moves a note, 2 lengthens it.
+                                    property int dragMode: 0
+                                    property int dragStep: -1
+                                    property int grabKey: 0
 
                                     function stepAt(px) {
                                         return Math.max(0, Math.min(15,
@@ -1205,6 +1731,23 @@ ApplicationWindow {
                                     function keyAt(py) {
                                         return Math.max(0, Math.min(127, patternModel.highKey -
                                             Math.floor(py / rollArea.laneHeight)))
+                                    }
+                                    function coveringNote(px, py) {
+                                        var key = keyAt(py)
+                                        var xStep = px / rollArea.laneWidth
+                                        for (var i = 0; i < 16; ++i) {
+                                            if (!patternModel.hasStep(i)) continue
+                                            var dur = patternModel.stepDuration(i)
+                                            if (dur <= 0) dur = 96
+                                            var end = i + dur / 120
+                                            if (xStep < i || xStep >= Math.max(end, i + 1)) continue
+                                            if (patternModel.stepKey(i) === key) return i
+                                            var row = patternModel.steps[i]
+                                            var voices = row && row.voiceKeys ? row.voiceKeys : []
+                                            for (var v = 0; v < voices.length; ++v)
+                                                if (Number(voices[v]) === key) return i
+                                        }
+                                        return -1
                                     }
                                     function paint(mouse) {
                                         var step = stepAt(mouse.x)
@@ -1219,14 +1762,70 @@ ApplicationWindow {
                                     }
                                     onPressed: function(mouse) {
                                         noteEntry.forceActiveFocus()
+                                        // A stroke is one edit, so one undo
+                                        // takes the whole phrase back.
+                                        songModel.beginGesture()
                                         lastStep = -1
                                         lastKey = -1
+                                        dragMode = 0
+                                        dragStep = -1
+                                        var key = keyAt(mouse.y)
+                                        var hit = coveringNote(mouse.x, mouse.y)
+                                        if (hit < 0) {
+                                            var under = stepAt(mouse.x)
+                                            if (patternModel.hasStep(under) &&
+                                                patternModel.stepKey(under) === key)
+                                                hit = under
+                                        }
+                                        if (mouse.button === Qt.RightButton) {
+                                            if (hit >= 0) patternModel.clearStep(hit)
+                                            else patternModel.clearStep(stepAt(mouse.x))
+                                            return
+                                        }
+                                        if (hit >= 0) {
+                                            var dur = patternModel.stepDuration(hit)
+                                            if (dur <= 0) dur = 96
+                                            var end = hit + dur / 120
+                                            var xStep = mouse.x / rollArea.laneWidth
+                                            patternModel.selectStep(hit)
+                                            grabKey = key
+                                            dragStep = hit
+                                            var handle = Math.max(end - 0.25, hit + 0.55)
+                                            dragMode = xStep >= handle ? 2 : 1
+                                            return
+                                        }
                                         paint(mouse)
                                     }
                                     onPositionChanged: function(mouse) {
-                                        if (pressed) paint(mouse)
+                                        if (!pressed) return
+                                        if (dragMode === 2 && dragStep >= 0) {
+                                            var ticks = Math.round(
+                                                (mouse.x / rollArea.laneWidth - dragStep) * 120)
+                                            patternModel.setStepDuration(dragStep, ticks)
+                                            return
+                                        }
+                                        if (dragMode === 1 && dragStep >= 0) {
+                                            var step = stepAt(mouse.x)
+                                            var key = keyAt(mouse.y)
+                                            var delta = key - grabKey
+                                            if (step === dragStep && delta === 0) return
+                                            patternModel.relocateStep(dragStep, step, delta)
+                                            dragStep = step
+                                            grabKey = key
+                                            return
+                                        }
+                                        paint(mouse)
                                     }
-                                    onReleased: { lastStep = -1; lastKey = -1 }
+                                    onReleased: {
+                                        lastStep = -1; lastKey = -1
+                                        dragMode = 0; dragStep = -1
+                                        songModel.endGesture()
+                                    }
+                                    onCanceled: {
+                                        lastStep = -1; lastKey = -1
+                                        dragMode = 0; dragStep = -1
+                                        songModel.endGesture()
+                                    }
                                 }
 
                                 // Where a press would land, so the pitch under
@@ -1486,7 +2085,8 @@ ApplicationWindow {
                                     // A key says three things at once: whether
                                     // it is raised, whether the scale holds it,
                                     // and whether it is the root of that scale.
-                                    readonly property color fill: modelData.root ? acid
+                                    readonly property color fill: keyInput.pressed ? amber
+                                           : modelData.root ? acid
                                            : (modelData.accidental ? "#101218"
                                               : (modelData.inScale ? "#2d323d" : raised))
                                     readonly property color edge:
@@ -1563,7 +2163,11 @@ ApplicationWindow {
                                         }
                                     }
 
+                                    // A key sounds when it goes down and
+                                    // rings until it comes back up.
                                     MouseArea {
+                                        id: keyInput
+                                        objectName: "keyInput"
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
                                         onPressed: mouse => {
@@ -1572,8 +2176,12 @@ ApplicationWindow {
                                             mouse.accepted = keyboardSurface.insideCell(
                                                 mouse.x / Math.max(1, width),
                                                 mouse.y / Math.max(1, height))
+                                            if (!mouse.accepted) return
+                                            noteEntry.forceActiveFocus()
+                                            keyboardModel.hold(modelData.index)
                                         }
-                                        onClicked: keyboardModel.press(modelData.index)
+                                        onReleased: keyboardModel.release()
+                                        onCanceled: keyboardModel.release()
                                     }
                                 }
                             }
@@ -1586,8 +2194,8 @@ ApplicationWindow {
                 Rectangle {
                     objectName: "stepInspector"
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 206
-                    Layout.minimumHeight: 206
+                    Layout.preferredHeight: 228
+                    Layout.minimumHeight: 228
                     radius: 6; color: panel; border.color: line
 
                     // Nothing selected, or an empty step: say so and say what to do.
@@ -1636,6 +2244,21 @@ ApplicationWindow {
                                     onClicked: patternModel.transposeSelected(1) }
                                 Chip { text: "+12"; accent: blue
                                     onClicked: patternModel.transposeSelected(12) }
+                            }
+                            RowLayout {
+                                spacing: 3
+                                SectionLabel { text: "LEN" }
+                                Repeater {
+                                    model: [1, 2, 4, 8]
+                                    Chip {
+                                        required property var modelData
+                                        objectName: "duration" + modelData
+                                        text: modelData + "ST"
+                                        on: Math.round(patternModel.selected.duration / 120)
+                                            === modelData
+                                        onClicked: patternModel.setSelectedDuration(modelData * 120)
+                                    }
+                                }
                             }
                         }
 
@@ -1794,9 +2417,21 @@ ApplicationWindow {
                     }
                 }
 
+                // However many tracks the song has, the strips scroll and the
+                // master stays in reach below them.
+                Flickable {
+                    id: mixerScroll
+                    objectName: "mixerScroll"
+                    Layout.fillWidth: true; Layout.fillHeight: true
+                    clip: true
+                    contentWidth: width
+                    contentHeight: mixerStripColumn.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 ColumnLayout {
+                    id: mixerStripColumn
                     objectName: "mixerStrips"
-                    Layout.fillWidth: true; spacing: 6
+                    width: mixerScroll.width; spacing: 6
 
                     Repeater {
                         model: songModel.tracks
@@ -1812,7 +2447,15 @@ ApplicationWindow {
 
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: songModel.selectTrack(trackIndex)
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: function(mouse) {
+                                    songModel.selectTrack(trackIndex)
+                                    if (mouse.button !== Qt.RightButton) return
+                                    trackMenu.target = trackIndex
+                                    trackMenu.name = modelData.name
+                                    trackMenu.popup()
+                                }
+                                onDoubleClicked: renamePopup.ask("TRACK", trackIndex, modelData.name)
                             }
 
                             ColumnLayout {
@@ -1857,11 +2500,18 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     implicitHeight: 5; radius: 2
                                     color: "#0d0e11"
+                                    // Read from the meters alone: they move
+                                    // thirty times a second, and the rest of
+                                    // the strip has no reason to redraw.
                                     Rectangle {
-                                        width: parent.width * modelData.peakFraction
+                                        objectName: "meterFill" + trackIndex
+                                        readonly property real level:
+                                            songModel.meters[trackIndex] !== undefined
+                                            ? songModel.meters[trackIndex] : 0
+                                        width: parent.width * level
                                         height: parent.height; radius: 2
-                                        color: modelData.peak > 0.99 ? "#ff4d4d"
-                                             : modelData.peak > 0.7 ? amber : acid
+                                        color: level > 0.998 ? "#ff4d4d"
+                                             : level > 0.948 ? amber : acid
                                     }
                                 }
 
@@ -1885,8 +2535,7 @@ ApplicationWindow {
                         }
                     }
                 }
-
-                Item { Layout.fillHeight: true }
+                }
 
                 Rectangle {
                     objectName: "masterStrip"
@@ -1920,7 +2569,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             label: "LEVEL"; from: -60; to: 6
                             value: songModel.masterGainDb
-                            readout: songModel.masterGainDb.toFixed(1) + " dB"
+                            readout: (songModel.masterGainDb <= -59.95 ? "-inf"
+                                      : (songModel.masterGainDb > 0 ? "+" : "")
+                                        + songModel.masterGainDb.toFixed(1)) + " dB"
                             onMoved: function(v) { songModel.setMasterGain(v) }
                         }
                     }

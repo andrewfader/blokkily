@@ -79,15 +79,24 @@ transposition, velocity, micro-timing, probability, ratchets, loop conditions,
 and parameter locks with an automation/modulation switch. Every editor is an
 input rather than a read-out: clicking a step toggles it, pressing a lane of the
 piano roll writes that pitch onto the column under the pointer and dragging
-draws a phrase across lanes, the tracker's note column takes a click and a drag,
-and its rows are typed the way a tracker has always been typed — ZSXDCVGBHNJM
+draws a phrase across lanes, dragging a drawn note moves it and dragging its
+right edge sets how long it sounds, the tracker's note column takes a click and
+a drag, its velocity column writes how loud the row is, and its rows are typed
+the way a tracker has always been typed — ZSXDCVGBHNJM
 for one octave and the two rows above for the next, with the entry octave on
 screen and moved by Ctrl+Left and Ctrl+Right, and Backspace clearing a row.
+Ctrl+C copies the selected step and Ctrl+V pastes it onto the cursor, locks
+and length included.
 Whichever one is used, the edit lands on the one canonical pattern, so it shows
 at once in every other editor, in the inspector, and in what the song plays; the
 view switcher focuses one editor or shows them all.
-Above the editors is the arrangement: one lane per track, one cell per bar, and
-a click places or removes a clip of whichever pattern is open. Down the right
+Above the editors is the arrangement: one lane per track, one cell per bar.
+A click on an empty bar places a clip of whichever pattern is open; a click on
+a filled clip opens that pattern in every editor and seeks the song there; a
+right-click takes the clip away; Shift-click lengthens a clip across bars
+(one clip with several repeats, not a second placement); Alt-click moves a
+clip along its lane. The numbers over those bars are a ruler: a
+click locates the audio engine on that bar. Down the right
 is the mixer, one strip per track plus the master. The playhead is the audio
 engine's own position, read in bar.beat.sixteenth across the whole song.
 Below the editors is the keyboard: the session's tuning, scale, and root, a
@@ -101,8 +110,30 @@ Any surface runs across the window or down it: turning one is a quarter turn, so
 pitch that ran to the right runs upward, and it moves keys without touching a
 note or a pitch. A surface that cannot be drawn at a playable key size scrolls
 rather than shrinking its keys past the point of being hit.
-Space plays, the arrow keys move and transpose the step cursor, Ctrl+E bounces
-the arrangement to disk.
+Space plays, Return or Home goes back to the top of the song, the arrow keys
+move and transpose the step cursor, Insert pushes later rows down and
+Shift+Backspace pulls them up, Alt+arrows nudge micro-timing and note length,
+Ctrl+D duplicates the selected step onto
+the next row, Ctrl+1..0 (and Ctrl+Shift+1..6 for the second half of the bar)
+toggles a step, Ctrl+M mutes and Ctrl+L solos the selected track, and Ctrl+E
+bounces the arrangement to disk. Those keys stand aside while a text field has
+the keyboard, so typing a search or a name never moves the song.
+
+Every edit can be taken back: Ctrl+Z undoes and Ctrl+Shift+Z (or Ctrl+Y) redoes
+steps, strokes, clips, tracks, patterns, fader moves and the tuning, and a drag —
+a phrase drawn across the roll, a fader pulled — is one step of history rather
+than one per pixel. Ctrl+S writes back to the file the session came from and
+Ctrl+Shift+S asks for a new one; the window title carries a dot while there is
+anything unsaved, and opening a file, starting a new session with Ctrl+N or
+closing the window asks before throwing unsaved work away. DUP copies the open
+pattern into a new one; a right-click on a pattern offers rename, duplicate,
+clear and delete, and on a track rename, mute, solo and delete, while a
+double-click on either names it. A track added with +TRK is given the SoundFont
+the session already plays, so it is heard at once. A key of a playable surface
+sounds when it goes down and rings until it is let go. The tempo is dragged,
+scrolled (Shift for tenths) or typed after a double-click. The engine renders at
+the rate the audio device actually negotiated, so a sink locked to 44.1 kHz
+plays the song at its own pitch and tempo rather than flat and slow.
 Its plugin browser scans the platform's standard CLAP and VST3 locations and
 lists what it finds through one shared plugin boundary, tagging each entry with
 the format that produced it. An installation of that size is browsed by typing
@@ -156,8 +187,6 @@ compile it into engine and plugin events, preserving richer sequencer semantics.
 A passing suite says what was proved, not what exists. These are missing, and
 nothing in the interface pretends otherwise:
 
-- No undo. An edit is immediate and final until the session is reloaded from
-  disk.
 - No MIDI input. Notes are played from the on-screen surfaces and the computer
   keyboard; no hardware controller is read.
 - No audio clips and no sampler. A pattern holds notes, chords, and parameter

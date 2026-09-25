@@ -37,6 +37,86 @@ Feature: Write music in whichever editor is open
     When the producer presses Backspace on row 05
     Then row 05 is empty rather than holding a note again
 
+  Scenario: The piano roll lengthens a note by its right edge
+    Given a note drawn on step 4
+    When the producer drags that note's right edge across later columns
+    Then the canonical pattern holds a longer duration on that step
+    And the piano roll draws a wider note
+    And the scheduler sounds it for that many ticks
+    And the tracker still names the note on the row it started on
+
+  Scenario: The piano roll moves a note by dragging it
+    Given a note on step 4
+    When the producer drags the body of that note to another lane and column
+    Then the original step is empty
+    And the destination holds that pitch
+    And the step grid, the tracker and the roll all follow the move
+
+  Scenario: The tracker's velocity column is an input
+    Given a note on a tracker row
+    When the producer drags the VEL column
+    Then that step's velocity changes
+    And the inspector and the step grid report the same value
+
+  Scenario: A step can be copied and pasted
+    Given a step that holds a note, a velocity and a lock
+    When the producer copies it and pastes onto an empty row
+    Then the destination holds the same pitch, length, velocity and lock
+    And the original step is unchanged
+
+  Scenario: A step is duplicated onto the next row
+    Given a note on row 05
+    When the producer presses Ctrl+D
+    Then row 06 holds the same note
+    And the cursor is on row 06
+
+  Scenario: Insert pushes later rows down
+    Given a note on row 05 and another on row 06
+    When the producer presses Insert on row 05
+    Then row 05 is empty
+    And the note that was on row 05 is now on row 06
+    And the note that was on row 06 is now on row 07
+
+  Scenario: Shift+Backspace pulls later rows up
+    Given a note on row 06 and another on row 07
+    When the producer presses Shift+Backspace on row 06
+    Then row 06 holds what was on row 07
+    And row 07 is empty
+
+  Scenario: The tracker's FX column writes a lock
+    Given a note on a tracker row
+    When the producer drags the FX column
+    Then that step carries a parameter lock
+    And the inspector reports the same lock value
+    When they right-click the FX column
+    Then the lock is cleared
+
+  Scenario: Alt nudges micro-timing and note length
+    Given a note on the selected step
+    When the producer presses Alt+Right
+    Then that step's micro-offset advances by one tick
+    When they press Alt+Up
+    Then that step is one step longer
+
+  Scenario: Ctrl with a digit toggles that step
+    Given the pattern is empty at step 3
+    When the producer presses Ctrl+4
+    Then step 3 holds a note in the entry octave
+    When they press Ctrl+4 again
+    Then step 3 is empty
+
+  Scenario: Ctrl-click on the step grid seeks the song
+    Given the song's playhead is on bar 1
+    When the producer Ctrl-clicks step 6 of the rendered grid
+    Then the audio engine's playhead is on step 6 of bar 1
+    And every editor draws the playhead there
+
+  Scenario: The piano roll keyboard sounds the lane that was pressed
+    Given a track carrying an instrument
+    When the producer presses a key of the roll's gutter
+    Then that pitch is auditioned through the running engine
+    And it is released when the key is let go
+
   Scenario: A note entered in an editor is heard as it is entered
     Given a track carrying an instrument
     When a note is written in the tracker or the piano roll

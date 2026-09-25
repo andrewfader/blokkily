@@ -1,9 +1,11 @@
 #include "keyboard_model.hpp"
 #include "pattern_model.hpp"
 
+#include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/scheduler.hpp"
 
 #include <QGuiApplication>
+
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFileInfo>
@@ -26,6 +28,7 @@
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
+
     QGuiApplication::setApplicationName("Blokkily");
     QGuiApplication::setOrganizationName("Blokkily");
 
@@ -48,6 +51,8 @@ int main(int argc, char* argv[]) {
     parser.addOption({"orientation", "Leave the surface running ACROSS or DOWN.", "name"});
     parser.process(app);
 
+    // Held for the life of the application, so rebuilding the audio graph
+    // never tears the plugin host runtime down between two instruments.
     SongModel song;
     PatternModel pattern(&song);
     Transport transport;
@@ -99,15 +104,31 @@ int main(int argc, char* argv[]) {
         // Presses the rendered editor rather than calling the model behind it:
         // an editor that stops turning a click into an edit must fail this gate.
         const auto click_at = [window](QQuickItem* item, QPointF local,
-                                       Qt::MouseButton button) {
+                                       Qt::MouseButton button,
+                                       Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
             if (item == nullptr) return;
             const QPointF scene = item->mapToScene(local);
             const QPointF global = window->mapToGlobal(scene);
             QMouseEvent press(QEvent::MouseButtonPress, scene, scene, global, button, button,
-                              Qt::NoModifier);
+                              modifiers);
             QCoreApplication::sendEvent(window, &press);
             QMouseEvent release(QEvent::MouseButtonRelease, scene, scene, global, button,
-                                Qt::NoButton, Qt::NoModifier);
+                                Qt::NoButton, modifiers);
+            QCoreApplication::sendEvent(window, &release);
+        };
+        const auto mouse_at = [window](QQuickItem* target, QPointF local,
+                                       QEvent::Type type, Qt::MouseButton button,
+                                       Qt::MouseButtons held) {
+            if (target == nullptr) return;
+            const QPointF scene = target->mapToScene(local);
+            QMouseEvent event(type, scene, scene, window->mapToGlobal(scene), button,
+                              held, Qt::NoModifier);
+            QCoreApplication::sendEvent(window, &event);
+        };
+        const auto chord_key = [window](Qt::Key key, Qt::KeyboardModifiers modifiers) {
+            QKeyEvent press(QEvent::KeyPress, key, modifiers);
+            QCoreApplication::sendEvent(window, &press);
+            QKeyEvent release(QEvent::KeyRelease, key, modifiers);
             QCoreApplication::sendEvent(window, &release);
         };
         // Types one of the tracker's note keys at the window, the way a
@@ -136,7 +157,11 @@ int main(int argc, char* argv[]) {
             // behaviour regressed instead of only that something did.
             QString failed;
             bool valid = pattern.rowCount() == 4;
+            // BLOKKILY_TRACE=1 prints each scenario as it is reached, so a gate
+            // that hangs says where.
+            const bool trace = qEnvironmentVariableIsSet("BLOKKILY_TRACE");
             const auto reached = [&](const char* scenario) {
+                if (trace) std::cerr << "reached: " << scenario << (valid ? "" : " (failing)") << std::endl;
                 if (!valid && failed.isEmpty()) failed = QString::fromLatin1(scenario);
             };
             reached("demonstration pattern");
@@ -184,6 +209,86 @@ int main(int argc, char* argv[]) {
                     valid = valid && !pattern.hasStep(3) && !rendered_step(3)
                                   && !roll_draws(3) && tracker_note(3) == "---";
                     reached("piano roll erases a note");
+
+                    // Dragging the right edge of a drawn note lengthens it, and
+                    // that duration is what the scheduler will sound.
+                    click_at(roll, spot, Qt::LeftButton);
+                    (void)window->grabWindow();
+                    QCoreApplication::processEvents();
+                    valid = valid && pattern.hasStep(3);
+                    const int written_key =
+                        pattern.steps().at(3).toMap().value("key").toInt();
+                    const int high_now = pattern.highKey();
+                    const double lane_height_now = roll->height() /
+                        std::max(1, high_now - pattern.lowKey() + 1);
+                    const QPointF on_note((3 + 0.8) * lane_width,
+                                          (high_now - written_key + 0.5) * lane_height_now);
+                    mouse_at(roll, on_note, QEvent::MouseButtonPress, Qt::LeftButton,
+                             Qt::LeftButton);
+                    mouse_at(roll, {7.5 * lane_width, on_note.y()}, QEvent::MouseMove,
+                             Qt::NoButton, Qt::LeftButton);
+                    mouse_at(roll, {7.5 * lane_width, on_note.y()},
+                             QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+                    QCoreApplication::processEvents();
+                    const int stretched = pattern.hasStep(3)
+                        ? pattern.steps().at(3).toMap().value("duration").toInt() : 0;
+                    if (stretched < 360) {
+                        std::cerr << "REGRESSION: piano roll did not lengthen step 3; duration="
+                                  << stretched << " occupied=";
+                        for (int s = 0; s < 16; ++s)
+                            if (pattern.hasStep(s))
+                                std::cerr << ' ' << s << ':'
+                                          << pattern.steps().at(s).toMap().value("duration").toInt()
+                                          << '@'
+                                          << pattern.steps().at(s).toMap().value("key").toInt();
+                        std::cerr << '\n';
+                    }
+                    valid = valid && stretched >= 360;
+                    if (auto* drawn = named("rollNote3"))
+                        valid = valid && drawn->width() >= 3.0 * lane_width - 4.0;
+                    else
+                        valid = false;
+                    valid = valid && tracker_note(3) == song.pitchName(written_key, 0.0);
+                    {
+                        blokkily::Scheduler scheduler;
+                        bool sounded = false;
+                        for (const auto& note : scheduler.render(song.editPattern(), 1, 0).notes)
+                            if (note.start == 3 * PatternModel::ticks_per_step) {
+                                sounded = note.duration == stretched;
+                                break;
+                            }
+                        valid = valid && sounded;
+                    }
+                    reached("piano roll lengthens a note");
+
+                    // Dragging the body of a note moves it in time and pitch.
+                    const int high_move = pattern.highKey();
+                    const double lane_height_move = roll->height() /
+                        std::max(1, high_move - pattern.lowKey() + 1);
+                    const int current_key =
+                        pattern.steps().at(3).toMap().value("key").toInt();
+                    const int moved_key = current_key - 2;
+                    const QPointF body((3 + 0.3) * lane_width,
+                                       (high_move - current_key + 0.5) * lane_height_move);
+                    const QPointF dest((6 + 0.5) * lane_width,
+                                       (high_move - moved_key + 0.5) * lane_height_move);
+                    mouse_at(roll, body, QEvent::MouseButtonPress, Qt::LeftButton,
+                             Qt::LeftButton);
+                    mouse_at(roll, dest, QEvent::MouseMove, Qt::NoButton, Qt::LeftButton);
+                    mouse_at(roll, dest, QEvent::MouseButtonRelease, Qt::LeftButton,
+                             Qt::NoButton);
+                    valid = valid && !pattern.hasStep(3) && pattern.hasStep(6)
+                                  && pattern.steps().at(6).toMap().value("key").toInt()
+                                         == moved_key
+                                  && pattern.steps().at(6).toMap().value("duration").toInt()
+                                         == stretched
+                                  && rendered_step(6) && roll_draws(6)
+                                  && tracker_note(6) == song.pitchName(moved_key, 0.0);
+                    pattern.clearStep(3);
+                    pattern.clearStep(5);
+                    pattern.clearStep(6);
+                    pattern.clearStep(7);
+                    reached("piano roll moves a note");
                 }
             }
 
@@ -193,7 +298,7 @@ int main(int argc, char* argv[]) {
             {
                 auto* cell = named("trackerNote5");
                 valid = valid && cell != nullptr;
-                if (valid) {
+                if (cell != nullptr) {
                     click_at(cell, QPointF(cell->width() / 2, cell->height() / 2),
                              Qt::LeftButton);
                     // The entry octave the tracker shows is the octave it writes
@@ -219,6 +324,144 @@ int main(int argc, char* argv[]) {
                     type_key(Qt::Key_Backspace, "\b");
                     valid = valid && !pattern.hasStep(5) && !rendered_step(5);
                     reached("tracker clears a row");
+
+                    // The VEL column writes velocity, not only displays it.
+                    auto* vel = named("trackerVel0");
+                    valid = valid && vel != nullptr && pattern.hasStep(0);
+                    if (vel != nullptr) {
+                        const int before =
+                            pattern.steps().at(0).toMap().value("velocityUnits").toInt();
+                        mouse_at(vel, {vel->width() / 2, vel->height() / 2},
+                                 QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+                        mouse_at(vel, {vel->width() / 2, vel->height() / 2 - 40},
+                                 QEvent::MouseMove, Qt::NoButton, Qt::LeftButton);
+                        mouse_at(vel, {vel->width() / 2, vel->height() / 2 - 40},
+                                 QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+                        const int after =
+                            pattern.steps().at(0).toMap().value("velocityUnits").toInt();
+                        valid = valid && after > before
+                                      && pattern.selected().value("velocityUnits").toInt()
+                                             == after;
+                        pattern.setSelectedVelocity(0.9);
+                    }
+                    reached("tracker velocity column");
+
+                    // A tracker copies a row: pitch, length, velocity and lock.
+                    if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
+                    pattern.selectStep(8);
+                    const auto original = pattern.steps().at(8).toMap();
+                    chord_key(Qt::Key_C, Qt::ControlModifier);
+                    pattern.selectStep(2);
+                    valid = valid && !pattern.hasStep(2);
+                    chord_key(Qt::Key_V, Qt::ControlModifier);
+                    valid = valid && pattern.hasStep(2);
+                    const auto pasted = pattern.steps().at(2).toMap();
+                    valid = valid && pasted.value("key") == original.value("key")
+                                  && pasted.value("duration") == original.value("duration")
+                                  && pasted.value("velocityUnits") == original.value("velocityUnits")
+                                  && pasted.value("hasLock") == original.value("hasLock")
+                                  && pasted.value("lockText") == original.value("lockText")
+                                  && pattern.hasStep(8)
+                                  && pattern.steps().at(8).toMap().value("key")
+                                         == original.value("key");
+                    pattern.clearStep(2);
+                    reached("copy and paste a step");
+
+                    // Ctrl+D copies the selected row onto the next one.
+                    pattern.clearStep(5);
+                    pattern.clearStep(6);
+                    pattern.toggleStep(5, 50);
+                    pattern.selectStep(5);
+                    const int source_key = pattern.steps().at(5).toMap().value("key").toInt();
+                    valid = valid && pattern.hasStep(5) && !pattern.hasStep(6);
+                    chord_key(Qt::Key_D, Qt::ControlModifier);
+                    valid = valid && pattern.hasStep(6)
+                                  && pattern.steps().at(6).toMap().value("key").toInt()
+                                         == source_key
+                                  && pattern.selectedStep() == 6;
+                    pattern.clearStep(5);
+                    pattern.clearStep(6);
+                    pattern.selectStep(0);
+                    reached("duplicate a step");
+
+                    // Insert pushes later rows down; the last row falls off.
+                    pattern.clearStep(5);
+                    pattern.clearStep(6);
+                    pattern.clearStep(7);
+                    pattern.toggleStep(5, 50);
+                    pattern.toggleStep(6, 52);
+                    const int at_five = pattern.steps().at(5).toMap().value("key").toInt();
+                    const int at_six = pattern.steps().at(6).toMap().value("key").toInt();
+                    pattern.selectStep(5);
+                    if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
+                    type_key(Qt::Key_Insert, QString());
+                    valid = valid && !pattern.hasStep(5) && pattern.hasStep(6)
+                                  && pattern.hasStep(7)
+                                  && pattern.steps().at(6).toMap().value("key").toInt()
+                                         == at_five
+                                  && pattern.steps().at(7).toMap().value("key").toInt()
+                                         == at_six
+                                  && pattern.selectedStep() == 5;
+                    reached("insert pushes rows down");
+
+                    // Shift+Backspace pulls later rows up into the hole.
+                    chord_key(Qt::Key_Backspace, Qt::ShiftModifier);
+                    valid = valid && pattern.hasStep(5)
+                                  && pattern.steps().at(5).toMap().value("key").toInt()
+                                         == at_five
+                                  && pattern.hasStep(6)
+                                  && pattern.steps().at(6).toMap().value("key").toInt()
+                                         == at_six
+                                  && !pattern.hasStep(7);
+                    pattern.clearStep(5);
+                    pattern.clearStep(6);
+                    reached("shift backspace pulls rows up");
+
+                    // The FX column writes a lock the way VEL writes velocity.
+                    pattern.toggleStep(4, 60);
+                    pattern.selectStep(4);
+                    valid = valid && pattern.hasStep(4)
+                                  && !pattern.selected().value("hasLock").toBool();
+                    auto* fx = named("trackerFx4");
+                    valid = valid && fx != nullptr;
+                    if (fx != nullptr) {
+                        mouse_at(fx, {fx->width() / 2, fx->height() / 2},
+                                 QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+                        mouse_at(fx, {fx->width() / 2, fx->height() / 2 - 30},
+                                 QEvent::MouseMove, Qt::NoButton, Qt::LeftButton);
+                        mouse_at(fx, {fx->width() / 2, fx->height() / 2 - 30},
+                                 QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+                        valid = valid && pattern.selected().value("hasLock").toBool()
+                                      && pattern.steps().at(4).toMap().value("hasLock").toBool();
+                        click_at(fx, {fx->width() / 2, fx->height() / 2}, Qt::RightButton);
+                        valid = valid && !pattern.selected().value("hasLock").toBool();
+                    }
+                    pattern.clearStep(4);
+                    reached("tracker fx column");
+
+                    // Alt nudges micro-timing and note length from the keyboard.
+                    pattern.toggleStep(2, 48);
+                    pattern.selectStep(2);
+                    pattern.setSelectedDuration(120);
+                    pattern.setSelectedMicroOffset(0);
+                    chord_key(Qt::Key_Right, Qt::AltModifier);
+                    valid = valid && pattern.selected().value("micro").toInt() == 1;
+                    chord_key(Qt::Key_Up, Qt::AltModifier);
+                    valid = valid && pattern.selected().value("duration").toInt() == 240;
+                    pattern.clearStep(2);
+                    reached("alt nudges feel");
+
+                    // Ctrl+digit toggles that numbered step without using the
+                    // tracker's note keys (digits alone are for the upper octave).
+                    pattern.clearStep(3);
+                    valid = valid && !pattern.hasStep(3);
+                    chord_key(Qt::Key_4, Qt::ControlModifier);
+                    valid = valid && pattern.hasStep(3)
+                                  && pattern.steps().at(3).toMap().value("key").toInt()
+                                         == (window->property("entryOctave").toInt() + 1) * 12;
+                    chord_key(Qt::Key_4, Qt::ControlModifier);
+                    valid = valid && !pattern.hasStep(3);
+                    reached("ctrl digit toggles a step");
                 }
             }
 
@@ -434,12 +677,42 @@ int main(int argc, char* argv[]) {
             };
             valid = uninterrupted() && valid;
             reached("selection and mixer preserve running playback");
+
+            // Ctrl-click on the step grid seeks the engine into that column.
+            // Runs after instruments are loaded so the engine that would be
+            // heard can be checked, not only the transport drawing.
+            {
+                auto* step6 = named("step6");
+                valid = valid && step6 != nullptr && controller.engine() != nullptr;
+                if (step6 != nullptr) {
+                    controller.seekToBar(0);
+                    click_at(step6, {step6->width() / 2, step6->height() / 2},
+                             Qt::LeftButton, Qt::ControlModifier);
+                    valid = valid && transport.step() == 6 && transport.bar() == 0
+                                  && pattern.selectedStep() == 6;
+                    if (auto* running = controller.engine()) {
+                        const double expected = running->sample_rate() * 60.0
+                                                / (transport.bpm() * 4.0) * 6.0;
+                        valid = valid && running->sample_position()
+                                             == static_cast<std::uint64_t>(
+                                                    std::llround(expected));
+                    }
+                    controller.rewindPlayback();
+                }
+                reached("ctrl click seeks the grid");
+            }
+
             // features/song_and_mixer.feature: transport and export must work
             // through the device callback, including its stopped/running state.
             {
                 std::vector<float> stereo(1024);
                 verification_output->stop();
-                controller.engine()->set_playing(false);
+                auto* running = controller.engine();
+                if (running == nullptr) {
+                    valid = false;
+                    std::cerr << "REGRESSION: No engine for the device callback\n";
+                } else {
+                running->set_playing(false);
                 const bool auditioned = controller.auditionPitches({{60, 0.0}}, 1.0)
                     && verification_output->pump(stereo)
                     && std::any_of(stereo.begin(), stereo.end(),
@@ -459,6 +732,7 @@ int main(int argc, char* argv[]) {
                 const bool stopped_callback = verification_output->pump(stereo);
                 if (!stopped_callback) std::cerr << "REGRESSION: Stop disables live audition and tails\n";
                 valid = auditioned && rewound && stopped_callback && valid;
+                }
             }
             reached("transport through device callback");
             if (parser.isSet("export")) {
@@ -593,6 +867,20 @@ int main(int argc, char* argv[]) {
                           && item("trackerView")->height() > 140
                           && item("pianoRollView")->height() > 140
                           && item("pianoRollView")->width() > 200;
+            {
+                auto* gutter = named("rollKey36");
+                valid = valid && gutter != nullptr && controller.engine() != nullptr;
+                if (gutter != nullptr) {
+                    const QPointF middle(gutter->width() / 2, gutter->height() / 2);
+                    mouse_at(gutter, middle, QEvent::MouseButtonPress, Qt::LeftButton,
+                             Qt::LeftButton);
+                    valid = valid && controller.auditioning();
+                    mouse_at(gutter, middle, QEvent::MouseButtonRelease, Qt::LeftButton,
+                             Qt::NoButton);
+                    valid = valid && !controller.auditioning();
+                }
+                reached("piano roll gutter sounds");
+            }
             if (parser.isSet("view"))
                 valid = valid && window->setProperty("view", parser.value("view"));
 
@@ -665,14 +953,76 @@ int main(int argc, char* argv[]) {
             };
             valid = valid && item("arrangement") != nullptr;
             valid = valid && song.trackCount() == 3;   // CLAP, VST3, and SoundFont
+            if (auto* scroll = item("editorScroll"))
+                scroll->setProperty("contentY", 0);
+            (void)window->grabWindow();
             valid = valid && cellFilled(0, 0) && cellFilled(0, 3) && !cellFilled(0, 5);
             valid = valid && !cellFilled(1, 0) && cellFilled(1, 2);
 
             const int clips_before = song.clips().size();
-            song.toggleClip(1, 0);
+            song.placeClip(1, 0);
+            (void)window->grabWindow();
             valid = valid && song.clips().size() == clips_before + 1 && cellFilled(1, 0);
-            song.toggleClip(1, 0);
+            // The right button takes a clip away through the same song API the
+            // timeline's MouseArea calls; a left click on a filled cell never does.
+            valid = valid && arrangeCell(1, 0) != nullptr;
+            valid = valid && song.removeClip(1, 0);
+            (void)window->grabWindow();
             valid = valid && song.clips().size() == clips_before && !cellFilled(1, 0);
+
+            // Opening a filled clip puts its pattern in every editor and seeks
+            // the engine to that bar — again the same path the MouseArea takes.
+            {
+                song.selectPattern(0);
+                song.selectTrack(0);
+                valid = valid && arrangeCell(1, 2) != nullptr && cellFilled(1, 2);
+                valid = valid && song.openClip(1, 2) == 1;
+                controller.seekToBar(2);
+                const auto title = item("patternTitle") == nullptr
+                    ? QString()
+                    : item("patternTitle")->property("text").toString();
+                valid = valid && song.currentPattern() == 1
+                              && song.selectedTrack() == 1
+                              && title == "CHORUS"
+                              && transport.bar() == 2
+                              && cellFilled(1, 2);
+                if (auto* running = controller.engine()) {
+                    const double expected =
+                        running->sample_rate() * 240.0 / std::max(1.0, transport.bpm()) * 2.0;
+                    valid = valid && running->sample_position()
+                                         == static_cast<std::uint64_t>(std::llround(expected));
+                } else {
+                    valid = false;
+                }
+                song.selectPattern(0);
+                song.selectTrack(0);
+                controller.rewindPlayback();
+            }
+
+            // Lengthening a clip is not placing another of the same pattern:
+            // one clip with repeats=2 is one object whose second bar is the
+            // next loop of that pattern.
+            {
+                const int clips_now = song.clips().size();
+                song.placeClip(2, 4);
+                valid = valid && song.clips().size() == clips_now + 1 && cellFilled(2, 4)
+                              && !cellFilled(2, 5);
+                valid = valid && song.setClipRepeats(2, 4, 2);
+                valid = valid && cellFilled(2, 4) && cellFilled(2, 5)
+                              && song.clips().size() == clips_now + 1;
+                const auto lane = song.lanes().at(2).toList();
+                valid = valid && lane.at(4).toMap().value("repeats").toInt() == 2
+                              && lane.at(5).toMap().value("start").toBool() == false
+                              && lane.at(5).toMap().value("repeats").toInt() == 2;
+                // Moving it along the lane keeps the length and frees the old bars.
+                valid = valid && song.moveClip(2, 4, 6);
+                valid = valid && !cellFilled(2, 4) && !cellFilled(2, 5)
+                              && cellFilled(2, 6) && cellFilled(2, 7)
+                              && song.clips().size() == clips_now + 1;
+                valid = valid && song.removeClip(2, 6);
+                valid = valid && song.clips().size() == clips_now;
+                reached("clip lengthen and move");
+            }
 
             // Switching the pattern the arrangement has open moves every editor.
             valid = valid && song.currentPattern() == 0;
@@ -685,6 +1035,26 @@ int main(int argc, char* argv[]) {
             valid = valid && pattern.rowCount() == verse_events
                           && item("patternTitle")->property("text").toString() == "VERSE";
 
+            // Clicking the ruler locates the engine, not only the drawing.
+            {
+                const int clips_now = song.clips().size();
+                auto* ruler = named("rulerBar1");
+                valid = valid && ruler != nullptr;
+                if (ruler != nullptr)
+                    click_at(ruler, {ruler->width() / 2, ruler->height() / 2}, Qt::LeftButton);
+                valid = valid && transport.bar() == 1 && transport.position() == "2.1.1";
+                if (auto* running = controller.engine()) {
+                    const double expected =
+                        running->sample_rate() * 240.0 / std::max(1.0, transport.bpm());
+                    valid = valid && running->sample_position()
+                                         == static_cast<std::uint64_t>(std::llround(expected));
+                } else {
+                    valid = false;
+                }
+                valid = valid && song.clips().size() == clips_now && cellFilled(0, 0);
+                controller.rewindPlayback();
+                valid = valid && transport.bar() == 0;
+            }
             reached("arrangement");
             // ---- mixer ---------------------------------------------------
             valid = valid && item("mixerPanel") != nullptr && item("masterStrip") != nullptr;
@@ -723,6 +1093,428 @@ int main(int argc, char* argv[]) {
             }
 
             reached("export");
+            // ---- session workflow ----------------------------------------
+            // features/session_workflow.feature. Everything here is done in a
+            // pattern and on a track of its own and taken back afterwards, so
+            // the scenarios that follow meet the song as they expect it.
+            {
+                const QString shown_view = window->property("view").toString();
+                valid = valid && window->setProperty("view", "ALL");
+                // A keyboard-only run leaves the editors collapsed; lay them
+                // out again before the grid and roll are asked to take a click.
+                (void)window->grabWindow();
+                QCoreApplication::processEvents();
+                // Delivered as the window system would deliver them, so the
+                // window's shortcuts see them as well as the focused item.
+                const auto mouse_at = [window](QQuickItem* target, QPointF local,
+                                               QEvent::Type type, Qt::MouseButton button,
+                                               Qt::MouseButtons held) {
+                    if (target == nullptr) return;
+                    const QPointF scene = target->mapToScene(local);
+                    QMouseEvent event(type, scene, scene, window->mapToGlobal(scene), button,
+                                      held, Qt::NoModifier);
+                    QCoreApplication::sendEvent(window, &event);
+                };
+                const auto chord_key = [window](Qt::Key key, Qt::KeyboardModifiers modifiers) {
+                    QKeyEvent press(QEvent::KeyPress, key, modifiers);
+                    QCoreApplication::sendEvent(window, &press);
+                    QKeyEvent release(QEvent::KeyRelease, key, modifiers);
+                    QCoreApplication::sendEvent(window, &release);
+                };
+                // Lays the window out as a frame would, so a strip that has just
+                // been created has its real size before it is measured.
+                const auto lay_out = [window] { (void)window->grabWindow(); };
+                const auto settle = [](int milliseconds) {
+                    QEventLoop waiting;
+                    QTimer::singleShot(milliseconds, &waiting, &QEventLoop::quit);
+                    waiting.exec();
+                };
+                if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
+
+                // A fresh pattern to work in. Adding it is itself an edit.
+                const int patterns_before = song.patterns().size();
+                song.addPattern();
+                valid = valid && song.patterns().size() == patterns_before + 1
+                              && pattern.rowCount() == 0 && song.canUndo();
+                reached("workflow: a pattern to work in");
+
+                // A click on an empty step of the rendered grid writes a note in
+                // the octave the tracker types in, not a fixed middle C.
+                auto* step_cell = childNamed(item("stepGrid"), "step14");
+                valid = valid && step_cell != nullptr
+                              && step_cell->width() > 2 && step_cell->height() > 2;
+                if (step_cell != nullptr)
+                    click_at(step_cell, {step_cell->width() / 2, step_cell->height() / 2},
+                             Qt::LeftButton);
+                valid = valid && pattern.hasStep(14) && rendered_step(14)
+                              && pattern.steps().at(14).toMap().value("key").toInt()
+                                     == (window->property("entryOctave").toInt() + 1) * 12;
+                reached("workflow: the grid writes in the entry octave");
+
+                // Ctrl+Z takes the step back and Ctrl+Shift+Z puts it back, in
+                // every projection at once.
+                chord_key(Qt::Key_Z, Qt::ControlModifier);
+                valid = valid && !pattern.hasStep(14) && !rendered_step(14) && song.canRedo();
+                chord_key(Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+                valid = valid && pattern.hasStep(14) && rendered_step(14);
+                chord_key(Qt::Key_Z, Qt::ControlModifier);
+                valid = valid && !pattern.hasStep(14);
+                reached("workflow: undo and redo a step");
+
+                // A stroke across the roll is one edit, so one undo takes the
+                // whole phrase back rather than its last note.
+                auto* roll = named("rollInput");
+                valid = valid && roll != nullptr;
+                if (roll != nullptr) {
+                    const double lane_width = roll->width() / PatternModel::step_count;
+                    const double lane_height =
+                        roll->height() / std::max(1, pattern.highKey() - pattern.lowKey() + 1);
+                    const QPointF from((1 + 0.5) * lane_width, 3.5 * lane_height);
+                    mouse_at(roll, from, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+                    for (int step = 2; step <= 4; ++step)
+                        mouse_at(roll, {(step + 0.5) * lane_width, from.y()},
+                                 QEvent::MouseMove, Qt::NoButton, Qt::LeftButton);
+                    mouse_at(roll, {4.5 * lane_width, from.y()}, QEvent::MouseButtonRelease,
+                             Qt::LeftButton, Qt::NoButton);
+                    valid = valid && pattern.rowCount() == 4 && roll_draws(1) && roll_draws(4);
+                    song.undo();
+                    valid = valid && pattern.rowCount() == 0 && !roll_draws(1);
+                    song.redo();
+                    valid = valid && pattern.rowCount() == 4;
+                }
+                reached("workflow: a stroke is one undo");
+
+                // The roll shows one bar, and the song's playhead is drawn in it
+                // wherever the song is — in bar two as in bar one.
+                auto* roll_head = named("rollPlayhead");
+                valid = valid && roll != nullptr && roll_head != nullptr;
+                if (roll != nullptr && roll_head != nullptr) {
+                    transport.locate(16.0 + 4.0);
+                    const double lane_width = roll->width() / PatternModel::step_count;
+                    valid = valid && std::abs(roll_head->x() - (roll->x() + 4.0 * lane_width)) < 1.0;
+                    transport.locate(6.0);
+                }
+                reached("workflow: the roll's playhead follows the song past bar one");
+
+                // A chord is drawn as each of its voices, not only its root.
+                pattern.placeChord(9, blokkily::Chord{60, {0, 4, 7}, 0, 0, {}});
+                if (auto* chord_item = named("rollNote9")) {
+                    int voices = 0;
+                    for (auto* voice : chord_item->childItems())
+                        if (voice->height() > 0 && voice->width() > 0) ++voices;
+                    valid = valid && voices == 3;
+                } else {
+                    valid = false;
+                }
+                song.undo();
+                reached("workflow: the roll draws every voice of a chord");
+
+                // A copy of the open pattern is a new pattern with the same
+                // steps and a name of its own; renaming and deleting it are
+                // edits like any other.
+                const int events_before_copy = pattern.rowCount();
+                const QString copied_from =
+                    song.patterns().at(song.currentPattern()).toMap().value("name").toString();
+                song.duplicatePattern();
+                const int copy = song.currentPattern();
+                valid = valid && song.patterns().size() == patterns_before + 2
+                              && pattern.rowCount() == events_before_copy
+                              && song.patterns().at(copy).toMap().value("name").toString()
+                                     == copied_from + " 2";
+                song.renamePattern(copy, "  drop  ");
+                valid = valid && song.patterns().at(copy).toMap().value("name").toString() == "DROP"
+                              && item("patternTitle")->property("text").toString() == "DROP";
+                song.clearPattern();
+                valid = valid && pattern.rowCount() == 0;
+                valid = valid && song.deletePattern(copy)
+                              && song.patterns().size() == patterns_before + 1;
+                reached("workflow: duplicate, rename, clear and delete a pattern");
+
+                // Deleting a pattern takes its clips and keeps every other clip
+                // on the pattern it named.
+                {
+                    const int doomed = song.currentPattern();
+                    song.toggleClip(0, 7);
+                    const int clips_with = song.clips().size();
+                    valid = valid && song.hasClip(0, 7);
+                    valid = valid && song.deletePattern(doomed);
+                    valid = valid && song.clips().size() == clips_with - 1 && !song.hasClip(0, 7);
+                    for (const auto& clip : song.clips())
+                        valid = valid && clip.toMap().value("pattern").toInt()
+                                             < song.patterns().size();
+                    song.undo();
+                    valid = valid && song.hasClip(0, 7)
+                                  && song.patterns().size() == patterns_before + 1;
+                    song.undo();
+                    valid = valid && !song.hasClip(0, 7);
+                }
+                reached("workflow: deleting a pattern takes its clips");
+
+                // A track added from the interface has something to play, and
+                // is heard: the bank the session already uses is put on it.
+                const int tracks_before = song.trackCount();
+                if (auto* add = named("addTrackButton"))
+                    click_at(add, {add->width() / 2, add->height() / 2}, Qt::LeftButton);
+                valid = valid && song.trackCount() == tracks_before + 1;
+                const int added = song.trackCount() - 1;
+                valid = valid && song.selectedTrack() == added
+                              && song.tracks().at(added).toMap().value("hasInstrument").toBool();
+                valid = valid && controller.engine() != nullptr
+                              && controller.engine()->has_instrument(static_cast<std::size_t>(added));
+                valid = valid && controller.auditionPitches({{60, 0.0}}, 1.0);
+                if (auto* engine_now = controller.engine()) {
+                    std::vector<float> left(512, 0.0F), right(512, 0.0F);
+                    engine_now->set_playing(false);
+                    float loudest = 0.0F;
+                    for (int block = 0; block < 8; ++block) {
+                        engine_now->process({left, right});
+                        loudest = std::max(loudest, engine_now->track_peak(
+                                                        static_cast<std::size_t>(added)));
+                    }
+                    valid = valid && loudest > 0.001F;
+                }
+                controller.releaseAudition();
+                reached("workflow: an added track is given an instrument");
+
+                // A track is renamed through the rendered field. Return accepts
+                // the name: the transport's Return stands aside while typing.
+                // A popup is an object of the window rather than an item in it.
+                if (auto* popup = window->findChild<QObject*>("renamePopup")) {
+                    QMetaObject::invokeMethod(popup, "ask", Q_ARG(QVariant, "TRACK"),
+                                              Q_ARG(QVariant, added),
+                                              Q_ARG(QVariant, song.tracks().at(added).toMap()
+                                                                  .value("name")));
+                    for (const QChar character : QString("keys two"))
+                        type_key(static_cast<Qt::Key>(character.toUpper().unicode()),
+                                 QString(character));
+                    type_key(Qt::Key_Return, "\r");
+                    valid = valid && song.tracks().at(added).toMap().value("name").toString()
+                                         == "KEYS TWO"
+                                  && !popup->property("visible").toBool();
+                } else {
+                    valid = false;
+                }
+                reached("workflow: rename a track");
+
+                // The strip's meter moves with the engine's meters, not only
+                // when something else about the song changes.
+                {
+                    std::vector<float> levels(static_cast<std::size_t>(song.trackCount()), 0.0F);
+                    levels[static_cast<std::size_t>(added)] = 0.5F;
+                    song.setMeters(levels, 0.5F);
+                    lay_out();
+                    auto* fill = childNamed(item("mixerStrips"), QString("meterFill%1").arg(added));
+                    valid = valid && fill != nullptr && fill->width() > 1.0;
+                    song.setMeters(std::vector<float>(levels.size(), 0.0F), 0.0F);
+                    lay_out();
+                    valid = valid && fill != nullptr && fill->width() < 0.5;
+                }
+                reached("workflow: the track meter moves");
+
+                // However many tracks the song has, every strip can be reached
+                // and the master stays inside the window.
+                {
+                    for (int more = 0; more < 5; ++more) controller.addTrack();
+                    lay_out();
+                    auto* scroller = item("mixerScroll");
+                    auto* master = item("masterStrip");
+                    valid = valid && scroller != nullptr && master != nullptr;
+                    if (scroller != nullptr && master != nullptr) {
+                        const QPointF bottom = master->mapToScene({0, master->height()});
+                        valid = valid && bottom.y() <= window->height() + 0.5;
+                        valid = valid && scroller->property("contentHeight").toDouble()
+                                             > scroller->height();
+                    }
+                    for (int more = 0; more < 5; ++more) song.undo();
+                    valid = valid && song.trackCount() == tracks_before + 1;
+                }
+                reached("workflow: many tracks scroll in the mixer");
+
+                // Deleting a track takes its clips with it and shifts the others.
+                {
+                    song.toggleClip(added, 1);
+                    const int clips_with = song.clips().size();
+                    valid = valid && song.deleteTrack(added);
+                    valid = valid && song.trackCount() == tracks_before
+                                  && song.clips().size() == clips_with - 1;
+                    valid = valid && controller.engine() != nullptr
+                                  && controller.engine()->track_count()
+                                         == static_cast<std::size_t>(tracks_before);
+                }
+                reached("workflow: delete a track");
+
+                // While a text field has the keyboard the arrow keys belong to
+                // it: Down walks the browser and does not transpose a step.
+                if (auto* filter = named("pluginFilter")) {
+                    pattern.selectStep(0);
+                    song.selectPattern(0);
+                    const int key_before = pattern.selected().value("key").toInt();
+                    filter->forceActiveFocus();
+                    type_key(Qt::Key_Down, QString());
+                    valid = valid && pattern.selected().value("key").toInt() == key_before;
+                    if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
+                    type_key(Qt::Key_Down, QString());
+                    valid = valid && pattern.selected().value("key").toInt() == key_before - 1;
+                    type_key(Qt::Key_Up, QString());
+                    valid = valid && pattern.selected().value("key").toInt() == key_before;
+                    song.undo();
+                    song.undo();
+                }
+                reached("workflow: arrows stay with the field being typed in");
+
+                // Return is a rewind of the song, the audio playhead with it.
+                if (auto* running = controller.engine()) {
+                    std::vector<float> left(512, 0.0F), right(512, 0.0F);
+                    running->set_playing(true);
+                    running->seek(9600);
+                    running->process({left, right});
+                    valid = valid && running->sample_position() == 9600 + 512;
+                    type_key(Qt::Key_Return, "\r");
+                    running->process({left, right});
+                    valid = valid && running->sample_position() == 512
+                                  && transport.bar() == 0;
+                    running->set_playing(false);
+                }
+                reached("workflow: Return rewinds the engine");
+
+                // Home is the same rewind from the other end of the keyboard.
+                if (auto* running = controller.engine()) {
+                    std::vector<float> left(512, 0.0F), right(512, 0.0F);
+                    running->set_playing(true);
+                    running->seek(4800);
+                    running->process({left, right});
+                    type_key(Qt::Key_Home, QString());
+                    running->process({left, right});
+                    valid = valid && running->sample_position() == 512
+                                  && transport.bar() == 0;
+                    running->set_playing(false);
+                }
+                reached("workflow: Home rewinds the engine");
+
+                // Ctrl+M and Ctrl+L mute and solo the selected track.
+                {
+                    song.selectTrack(0);
+                    const bool muted_before =
+                        song.tracks().at(0).toMap().value("mute").toBool();
+                    chord_key(Qt::Key_M, Qt::ControlModifier);
+                    valid = valid && song.tracks().at(0).toMap().value("mute").toBool()
+                                         != muted_before;
+                    chord_key(Qt::Key_M, Qt::ControlModifier);
+                    valid = valid && song.tracks().at(0).toMap().value("mute").toBool()
+                                         == muted_before;
+                    chord_key(Qt::Key_L, Qt::ControlModifier);
+                    valid = valid && song.tracks().at(0).toMap().value("solo").toBool();
+                    chord_key(Qt::Key_L, Qt::ControlModifier);
+                    valid = valid && !song.tracks().at(0).toMap().value("solo").toBool();
+                }
+                reached("workflow: mute and solo from the keyboard");
+
+                // A key held on a surface rings for as long as it is held and
+                // stops when it is let go, rather than after a fixed beat.
+                {
+                    const bool recording = keyboard.recording();
+                    if (recording) keyboard.toggleRecording();
+                    auto* key = childNamed(item("keyboardSurface"), "keyboardCell0");
+                    auto* input = key == nullptr ? nullptr : childNamed(key, "keyInput");
+                    valid = valid && input != nullptr;
+                    // Scrolled into view first, as a producer would scroll to
+                    // it: a key below the window cannot be pressed.
+                    auto* editors = item("editorScroll");
+                    double scrolled_from = 0.0;
+                    if (input != nullptr && editors != nullptr) {
+                        scrolled_from = editors->property("contentY").toDouble();
+                        const double overhang =
+                            input->mapToScene({0, input->height()}).y() - (window->height() - 8);
+                        if (overhang > 0)
+                            editors->setProperty("contentY", scrolled_from + overhang);
+                        lay_out();
+                    }
+                    if (input != nullptr) {
+                        const QPointF middle(input->width() / 2, input->height() / 2);
+                        mouse_at(input, middle, QEvent::MouseButtonPress, Qt::LeftButton,
+                                 Qt::LeftButton);
+                        valid = valid && controller.auditioning();
+                        settle(700);   // longer than a tapped key rings
+                        valid = valid && controller.auditioning();
+                        mouse_at(input, middle, QEvent::MouseButtonRelease, Qt::LeftButton,
+                                 Qt::NoButton);
+                        valid = valid && !controller.auditioning();
+                    }
+                    if (editors != nullptr) editors->setProperty("contentY", scrolled_from);
+                    if (recording) keyboard.toggleRecording();
+                }
+                reached("workflow: a held key rings until released");
+
+                // The session knows when it differs from its file: saving makes
+                // it clean, an edit makes it dirty and says so in the title,
+                // and undoing back to the saved state makes it clean again.
+                if (parser.isSet("project")) {
+                    const QString file = parser.value("project") + ".workflow";
+                    valid = valid && controller.saveProject(file) && !song.dirty()
+                                  && controller.projectPath() == file
+                                  && !window->title().startsWith(QChar(0x2022));
+                    pattern.toggleStep(15, 60);
+                    valid = valid && song.dirty() && window->title().startsWith(QChar(0x2022));
+                    valid = valid && controller.saveProjectInPlace() && !song.dirty();
+                    pattern.toggleStep(15, 60);
+                    valid = valid && song.dirty();
+                    song.undo();
+                    valid = valid && !song.dirty();
+                    pattern.clearStep(15);
+                    const auto on_disk = blokkily::ProjectFile::load(file.toStdString());
+                    valid = valid && on_disk.has_value()
+                                  && on_disk->song.patterns.size() == song.song().patterns.size();
+                }
+                reached("workflow: unsaved changes are tracked");
+
+                // Leave the song as the later scenarios expect it: without the
+                // pattern this section added.
+                while (song.patterns().size() > patterns_before)
+                    if (!song.deletePattern(song.patterns().size() - 1)) { valid = false; break; }
+                song.selectPattern(0);
+                song.selectTrack(0);
+                valid = valid && song.trackCount() == tracks_before;
+                if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
+                valid = valid && window->setProperty("view", shown_view);
+            }
+            reached("workflow: the song is left as it was");
+
+            // A device that will not run at the rate asked for sets the rate:
+            // the engine is prepared for what the server negotiated, so a
+            // song on a 44.1 kHz sink plays at its own pitch and tempo.
+            if (parser.isSet("soundfont-fixture")) {
+                SongModel other_song;
+                PatternModel other_pattern(&other_song);
+                Transport other_transport;
+                AppController other(&other_song, &other_pattern, &other_transport, nullptr,
+                    std::make_unique<blokkily::RtAudioOutput>(
+                        blokkily::RtAudioOutput::Mode::deterministic, 44100));
+                const std::filesystem::path fixture =
+                    parser.value("soundfont-fixture").toStdString();
+                (void)other.loadDefaultInstrument({fixture.parent_path()});
+                valid = valid && other.engine() != nullptr
+                              && other.engine()->sample_rate() == 44100.0;
+                // At 120 BPM a bar is two seconds, whatever the rate.
+                valid = valid && other.engine() != nullptr
+                              && other.engine()->song_samples()
+                                     == static_cast<std::uint64_t>(other_song.song().length())
+                                            * 44100 / 960;
+                reached("negotiated sample rate");
+
+                // A new session is one empty pattern on one track, with the
+                // instrument the old first track had, and nothing to save yet.
+                other_song.toggleClip(1, 5);
+                valid = valid && other_song.dirty();
+                other.newProject();
+                valid = valid && other_song.patterns().size() == 1
+                              && other_song.trackCount() == 1
+                              && other_pattern.rowCount() == 0
+                              && !other_song.dirty() && !other_song.canUndo()
+                              && other.projectPath().isEmpty()
+                              && other_song.tracks().first().toMap().value("hasInstrument").toBool()
+                              && other.engine() != nullptr;
+                reached("new session");
+            }
             // ---- keyboards -----------------------------------------------
             // The playable surface is a projection of the song's tuning and
             // scale, and playing it is an edit of the canonical pattern like
@@ -1312,6 +2104,9 @@ int main(int argc, char* argv[]) {
                       << " | " << controller.status().toStdString() << '\n';
             app.exit(valid ? 0 : 3);
         });
+        // The scenario above runs from the event loop and reaches back into
+        // this block for its helpers, so the loop runs while they still exist.
+        return app.exec();
     } else {
         // The session opens with something to hear. A workstation that makes no
         // sound until a plugin has been hunted down is not one a producer can

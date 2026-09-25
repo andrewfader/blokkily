@@ -52,7 +52,11 @@ public:
         unsigned int sample_rate = 0;
         unsigned int buffer_frames = 0;
     };
-    explicit RtAudioOutput(Mode mode = Mode::device);
+    // A deterministic output can stand in for a server that negotiates a rate
+    // other than the one asked for: `negotiated_rate`, when non-zero, is what
+    // open() reports regardless of the request, the way a device locked to
+    // 44.1 kHz answers a request for 48 kHz.
+    explicit RtAudioOutput(Mode mode = Mode::device, unsigned int negotiated_rate = 0);
     ~RtAudioOutput();
     RtAudioOutput(const RtAudioOutput&) = delete;
     RtAudioOutput& operator=(const RtAudioOutput&) = delete;

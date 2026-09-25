@@ -23,9 +23,14 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <optional>
 #include <vector>
 
 namespace {
+// What the device is asked for. It may answer with another rate, and the engine
+// follows the answer rather than the request.
+constexpr unsigned int default_sample_rate = 48000;
+
 QVariantMap plugin_entry(const QString& format, const std::string& name,
                          const std::string& vendor, const std::string& path = {},
                          const std::string& identifier = {}, int index = 0) {
@@ -83,6 +88,27 @@ int pitch_voices(const blokkily::Trigger& trigger) {
     return static_cast<int>(std::get<blokkily::Chord>(trigger.musical_data).intervals.size());
 }
 
+QVariantList voice_keys(const blokkily::Trigger& trigger) {
+    QVariantList keys;
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
+        keys.push_back(static_cast<int>(note->key));
+        return keys;
+    }
+    const auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    for (const auto interval : chord.intervals)
+        keys.push_back(qBound(0, chord.root + interval, 127));
+    return keys;
+}
+
+void transpose_trigger(blokkily::Trigger& trigger, int semitones) {
+    if (auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
+        note->key = static_cast<std::int16_t>(qBound(0, note->key + semitones, 127));
+        return;
+    }
+    auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    chord.root = static_cast<std::int16_t>(qBound(0, chord.root + semitones, 127));
+}
+
 QString lock_text(const blokkily::Trigger& trigger) {
     if (trigger.locks.empty()) return QStringLiteral("---");
     const auto& lock = trigger.locks.front();
@@ -129,6 +155,7 @@ QVariant PatternModel::data(const QModelIndex& index, int role) const {
     case DurationRole: return static_cast<int>(event.duration);
     case VelocityRole: return hex2(velocity_units(note == nullptr ? 0.8F : note->velocity));
     case LockRole: return lock_text(event);
+    case VoiceKeysRole: return voice_keys(event);
     default: return {};
     }
 }
@@ -136,7 +163,8 @@ QVariant PatternModel::data(const QModelIndex& index, int role) const {
 QHash<int, QByteArray> PatternModel::roleNames() const {
     return {{IdRole, "eventId"}, {StepRole, "step"}, {KeyRole, "key"},
             {NameRole, "noteName"}, {DurationRole, "duration"},
-            {VelocityRole, "velocityHex"}, {LockRole, "lockText"}};
+            {VelocityRole, "velocityHex"}, {LockRole, "lockText"},
+            {VoiceKeysRole, "voiceKeys"}};
 }
 
 const blokkily::Trigger* PatternModel::triggerAt(int step) const {
@@ -166,6 +194,8 @@ QVariantList PatternModel::steps() const {
             row["cents"] = 0.0;
             row["voices"] = 0;
             row["ratchets"] = 0;
+            row["duration"] = 0;
+            row["voiceKeys"] = QVariantList{};
         } else {
             const auto* note = std::get_if<blokkily::Note>(&trigger->musical_data);
             const float velocity = note == nullptr ? 0.8F : note->velocity;
@@ -179,6 +209,8 @@ QVariantList PatternModel::steps() const {
             row["cents"] = pitch_cents(*trigger);
             row["voices"] = pitch_voices(*trigger);
             row["ratchets"] = static_cast<int>(trigger->ratchets);
+            row["duration"] = static_cast<int>(trigger->duration);
+            row["voiceKeys"] = voice_keys(*trigger);
         }
         rows.push_back(row);
     }
@@ -201,6 +233,7 @@ QVariantMap PatternModel::selected() const {
     detail["probability"] = static_cast<double>(trigger->probability);
     detail["ratchets"] = static_cast<int>(trigger->ratchets);
     detail["micro"] = static_cast<int>(trigger->micro_offset);
+    detail["duration"] = static_cast<int>(trigger->duration);
     detail["loop"] = static_cast<int>(trigger->play_on_loop);
     detail["hasLock"] = !trigger->locks.empty();
     detail["lockText"] = lock_text(*trigger);
@@ -223,15 +256,32 @@ namespace {
 constexpr int minimum_roll_span = 24; // never show less than two octaves
 }
 
-int PatternModel::lowKey() const {
+namespace {
+// The lowest and highest key any voice of the pattern sounds. A chord is one
+// event, but each of its voices is drawn on its own lane.
+std::pair<int, int> key_range(const blokkily::Pattern& pattern) {
     int lowest = 127;
     int highest = 0;
-    for (const auto& event : pattern().events())
+    for (const auto& event : pattern.events()) {
         if (const auto* note = std::get_if<blokkily::Note>(&event.musical_data)) {
             lowest = std::min(lowest, static_cast<int>(note->key));
             highest = std::max(highest, static_cast<int>(note->key));
+            continue;
         }
-    if (pattern().events().empty()) { lowest = 48; highest = 60; }
+        const auto& chord = std::get<blokkily::Chord>(event.musical_data);
+        for (const auto interval : chord.intervals) {
+            const int key = qBound(0, chord.root + interval, 127);
+            lowest = std::min(lowest, key);
+            highest = std::max(highest, key);
+        }
+    }
+    if (lowest > highest) return {48, 60};
+    return {lowest, highest};
+}
+} // namespace
+
+int PatternModel::lowKey() const {
+    const auto [lowest, highest] = key_range(pattern());
     int low = lowest - 4;
     const int span = (highest + 4) - low;
     if (span < minimum_roll_span) low -= (minimum_roll_span - span) / 2;
@@ -239,18 +289,21 @@ int PatternModel::lowKey() const {
 }
 
 int PatternModel::highKey() const {
-    int lowest = 127;
-    int highest = 0;
-    for (const auto& event : pattern().events())
-        if (const auto* note = std::get_if<blokkily::Note>(&event.musical_data)) {
-            lowest = std::min(lowest, static_cast<int>(note->key));
-            highest = std::max(highest, static_cast<int>(note->key));
-        }
-    if (pattern().events().empty()) highest = 60;
+    const auto highest = key_range(pattern()).second;
     return qBound(lowKey() + minimum_roll_span, highest + 4, 127);
 }
 
 bool PatternModel::hasStep(int step) const { return triggerAt(step) != nullptr; }
+
+int PatternModel::stepDuration(int step) const {
+    const auto* trigger = triggerAt(step);
+    return trigger == nullptr ? 0 : static_cast<int>(trigger->duration);
+}
+
+int PatternModel::stepKey(int step) const {
+    const auto* trigger = triggerAt(step);
+    return trigger == nullptr ? 0 : pitch_key(*trigger);
+}
 
 void PatternModel::selectStep(int step) {
     // Selection is not an edit: the arrangement still plays what it played, so
@@ -260,6 +313,8 @@ void PatternModel::selectStep(int step) {
 }
 
 void PatternModel::toggleStep(int step, int key) {
+    if (step < 0 || step >= step_count) return;
+    song_->checkpoint();
     if (const auto* existing = triggerAt(step)) {
         const auto id = existing->id;
         beginResetModel();
@@ -307,6 +362,7 @@ void PatternModel::setStepKey(int step, int key) {
 void PatternModel::clearStep(int step) {
     const auto* existing = triggerAt(step);
     if (existing == nullptr) return;
+    song_->checkpoint();
     const auto id = existing->id;
     beginResetModel();
     (void)pattern().remove(id);
@@ -315,6 +371,156 @@ void PatternModel::clearStep(int step) {
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
+}
+
+void PatternModel::setStepDuration(int step, int ticks) {
+    const auto bounded = qBound(24, ticks, 1920);
+    const auto* existing = triggerAt(step);
+    if (existing == nullptr || existing->duration == bounded) return;
+    mutate(step, [bounded](blokkily::Trigger& trigger) { trigger.duration = bounded; },
+           QStringLiteral("duration"));
+}
+
+void PatternModel::setSelectedDuration(int ticks) { setStepDuration(selected_step_, ticks); }
+
+void PatternModel::setStepVelocity(int step, double velocity) {
+    selectStep(step);
+    setSelectedVelocity(velocity);
+}
+
+void PatternModel::relocateStep(int from, int to, int semitones) {
+    if (from < 0 || from >= step_count || to < 0 || to >= step_count) return;
+    const auto* existing = triggerAt(from);
+    if (existing == nullptr) return;
+    if (from == to && semitones == 0) return;
+    auto moved = *existing;
+    moved.start = to * ticks_per_step;
+    transpose_trigger(moved, semitones);
+    const auto from_id = existing->id;
+    blokkily::EventId occupant_id = 0;
+    if (from != to)
+        if (const auto* occupant = triggerAt(to)) occupant_id = occupant->id;
+    song_->checkpoint();
+    beginResetModel();
+    if (from != to) {
+        (void)pattern().remove(from_id);
+        if (occupant_id != 0) (void)pattern().remove(occupant_id);
+        (void)pattern().add(moved);
+    } else {
+        (void)pattern().update(from_id, moved);
+    }
+    endResetModel();
+    selected_step_ = to;
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+}
+
+void PatternModel::copySelected() {
+    const auto* existing = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+    has_clipboard_ = true;
+    if (existing != nullptr) clipboard_ = *existing;
+    else clipboard_.reset();
+}
+
+bool PatternModel::pasteSelected() {
+    if (!has_clipboard_ || selected_step_ < 0 || selected_step_ >= step_count) return false;
+    if (!clipboard_) {
+        if (triggerAt(selected_step_) == nullptr) return true;
+        clearStep(selected_step_);
+        return true;
+    }
+    song_->checkpoint();
+    beginResetModel();
+    if (const auto* existing = triggerAt(selected_step_)) (void)pattern().remove(existing->id);
+    auto placed = *clipboard_;
+    placed.start = selected_step_ * ticks_per_step;
+    (void)pattern().add(placed);
+    endResetModel();
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+    return true;
+}
+
+bool PatternModel::duplicateSelected() {
+    if (selected_step_ < 0 || selected_step_ >= step_count - 1) return false;
+    if (triggerAt(selected_step_) == nullptr) return false;
+    copySelected();
+    selectStep(selected_step_ + 1);
+    return pasteSelected();
+}
+
+bool PatternModel::insertStep(int step) {
+    if (step < 0 || step >= step_count) return false;
+    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(step_count));
+    for (int index = 0; index < step_count; ++index)
+        if (const auto* existing = triggerAt(index))
+            held[static_cast<std::size_t>(index)] = *existing;
+
+    song_->checkpoint();
+    beginResetModel();
+    const auto living = pattern().events();
+    std::vector<blokkily::EventId> ids;
+    ids.reserve(living.size());
+    for (const auto& event : living) ids.push_back(event.id);
+    for (const auto id : ids) (void)pattern().remove(id);
+
+    for (int index = 0; index < step; ++index) {
+        if (!held[static_cast<std::size_t>(index)]) continue;
+        auto kept = *held[static_cast<std::size_t>(index)];
+        kept.start = index * ticks_per_step;
+        (void)pattern().add(kept);
+    }
+    // Rows at and after the cursor move down one; the last row falls off.
+    for (int index = step; index < step_count - 1; ++index) {
+        if (!held[static_cast<std::size_t>(index)]) continue;
+        auto moved = *held[static_cast<std::size_t>(index)];
+        moved.start = (index + 1) * ticks_per_step;
+        (void)pattern().add(moved);
+    }
+    endResetModel();
+    selected_step_ = step;
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+    return true;
+}
+
+bool PatternModel::deleteAndShift(int step) {
+    if (step < 0 || step >= step_count) return false;
+    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(step_count));
+    for (int index = 0; index < step_count; ++index)
+        if (const auto* existing = triggerAt(index))
+            held[static_cast<std::size_t>(index)] = *existing;
+
+    song_->checkpoint();
+    beginResetModel();
+    const auto living = pattern().events();
+    std::vector<blokkily::EventId> ids;
+    ids.reserve(living.size());
+    for (const auto& event : living) ids.push_back(event.id);
+    for (const auto id : ids) (void)pattern().remove(id);
+
+    for (int index = 0; index < step; ++index) {
+        if (!held[static_cast<std::size_t>(index)]) continue;
+        auto kept = *held[static_cast<std::size_t>(index)];
+        kept.start = index * ticks_per_step;
+        (void)pattern().add(kept);
+    }
+    // Later rows pull up into the hole; the last row becomes empty.
+    for (int index = step + 1; index < step_count; ++index) {
+        if (!held[static_cast<std::size_t>(index)]) continue;
+        auto moved = *held[static_cast<std::size_t>(index)];
+        moved.start = (index - 1) * ticks_per_step;
+        (void)pattern().add(moved);
+    }
+    endResetModel();
+    selected_step_ = step;
+    emit patternChanged();
+    emit contentChanged();
+    emit selectionChanged();
+    return true;
 }
 
 std::vector<blokkily::TunedPitch> PatternModel::pitchesAt(int step) const {
@@ -346,6 +552,18 @@ void PatternModel::placeNote(int step, const blokkily::Note& note) {
     if (step < 0 || step >= step_count) return;
     auto trigger = played_trigger(step, ticks_per_step);
     trigger.musical_data = note;
+    if (const auto* existing = triggerAt(step);
+        existing != nullptr && std::holds_alternative<blokkily::Note>(existing->musical_data)) {
+        const auto& held = std::get<blokkily::Note>(existing->musical_data);
+        // Writing the pitch a step already has is not an edit, and a drag that
+        // passes back over its starting lane must not fill history with them.
+        if (held.key == note.key && held.cents == note.cents && held.velocity == note.velocity) {
+            selected_step_ = step;
+            emit selectionChanged();
+            return;
+        }
+    }
+    song_->checkpoint();
     beginResetModel();
     if (const auto* existing = triggerAt(step)) {
         // Playing over a step replaces its pitch and keeps everything else the
@@ -367,6 +585,7 @@ void PatternModel::placeChord(int step, const blokkily::Chord& chord) {
     if (step < 0 || step >= step_count) return;
     auto trigger = played_trigger(step, ticks_per_step);
     trigger.musical_data = chord;
+    song_->checkpoint();
     beginResetModel();
     if (const auto* existing = triggerAt(step)) {
         auto replacement = *existing;
@@ -382,11 +601,13 @@ void PatternModel::placeChord(int step, const blokkily::Chord& chord) {
     emit selectionChanged();
 }
 
-void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)>& edit) {
+void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)>& edit,
+                          const QString& merge) {
     const auto* existing = triggerAt(step);
     if (existing == nullptr) return;
     blokkily::Trigger replacement = *existing;
     edit(replacement);
+    song_->checkpoint(merge.isEmpty() ? QString() : QString("%1:%2").arg(merge).arg(step));
     beginResetModel();
     (void)pattern().update(replacement.id, replacement);
     endResetModel();
@@ -397,14 +618,7 @@ void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)
 
 void PatternModel::transposeSelected(int semitones) {
     mutate(selected_step_, [semitones](blokkily::Trigger& trigger) {
-        if (auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
-            note->key = static_cast<std::int16_t>(qBound(0, note->key + semitones, 127));
-            return;
-        }
-        // A chord moves as a whole: its voices are intervals above its root, so
-        // transposing the root carries the harmony with it.
-        auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
-        chord.root = static_cast<std::int16_t>(qBound(0, chord.root + semitones, 127));
+        transpose_trigger(trigger, semitones);
     });
 }
 
@@ -412,13 +626,13 @@ void PatternModel::setSelectedVelocity(double velocity) {
     mutate(selected_step_, [velocity](blokkily::Trigger& trigger) {
         if (auto* note = std::get_if<blokkily::Note>(&trigger.musical_data))
             note->velocity = static_cast<float>(qBound(0.0, velocity, 1.0));
-    });
+    }, QStringLiteral("velocity"));
 }
 
 void PatternModel::setSelectedProbability(double probability) {
     mutate(selected_step_, [probability](blokkily::Trigger& trigger) {
         trigger.probability = static_cast<float>(qBound(0.0, probability, 1.0));
-    });
+    }, QStringLiteral("probability"));
 }
 
 void PatternModel::setSelectedRatchets(int ratchets) {
@@ -430,7 +644,7 @@ void PatternModel::setSelectedRatchets(int ratchets) {
 void PatternModel::setSelectedMicroOffset(int ticks) {
     mutate(selected_step_, [ticks](blokkily::Trigger& trigger) {
         trigger.micro_offset = qBound(-59, ticks, 59);
-    });
+    }, QStringLiteral("micro"));
 }
 
 void PatternModel::setSelectedPlayOnLoop(int loop) {
@@ -444,7 +658,7 @@ void PatternModel::setSelectedLock(int index, double value, bool modulation) {
         trigger.locks = {{"level", qBound(0, index, 15), qBound(0.0, value, 1.0),
                           modulation ? blokkily::ParameterLock::Kind::modulation
                                      : blokkily::ParameterLock::Kind::automation}};
-    });
+    }, QStringLiteral("lock"));
 }
 
 void PatternModel::clearSelectedLock() {
@@ -452,6 +666,7 @@ void PatternModel::clearSelectedLock() {
 }
 
 void PatternModel::replace(blokkily::Pattern replacement) {
+    song_->checkpoint();
     beginResetModel();
     pattern() = std::move(replacement);
     endResetModel();
@@ -614,8 +829,13 @@ void AppController::releaseSoundingNotes() {
     sounding_.clear();
 }
 
+void AppController::releaseAudition() {
+    audition_timer_.stop();
+    releaseSoundingNotes();
+}
+
 bool AppController::auditionPitches(const std::vector<blokkily::TunedPitch>& pitches,
-                                    double velocity) {
+                                    double velocity, bool held) {
     if (song_ == nullptr) return false;
     // A press while an engine exists is heard immediately; without one there is
     // nothing to sound through, and the surface still writes what was played.
@@ -642,7 +862,9 @@ bool AppController::auditionPitches(const std::vector<blokkily::TunedPitch>& pit
             break;
         sounding_.push_back(pitch);
     }
-    audition_timer_.start();
+    // A held key rings until it is let go; the limit only catches a release
+    // that never arrives.
+    audition_timer_.start(held ? 8000 : 450);
     return !sounding_.empty();
 }
 
@@ -1027,6 +1249,35 @@ bool AppController::loadDefaultInstrument() {
     return loadDefaultInstrument(blokkily::SoundFontCatalog::system_paths());
 }
 
+std::filesystem::path AppController::findDefaultBank(
+    const std::vector<std::filesystem::path>& roots) {
+    for (const char* wanted : preferred_banks)
+        for (const auto& root : roots) {
+            std::error_code ignored;
+            const auto candidate = root / wanted;
+            if (std::filesystem::is_regular_file(candidate, ignored)) return candidate;
+        }
+    // No familiar bank installed, so whatever this machine does have will do.
+    const auto found = blokkily::SoundFontCatalog::scan_paths(roots);
+    return found.empty() ? std::filesystem::path{} : found.front();
+}
+
+blokkily::InstrumentSlot AppController::defaultSlot(const std::filesystem::path& bank,
+                                                    const std::string& track_name) {
+    const auto preset = preset_for_track(track_name);
+    blokkily::InstrumentSlot slot;
+    slot.format = "SoundFont";
+    slot.path = bank.string();
+    // The preset travels as the instrument's own state, which is the same road
+    // a saved project takes, so an opening session and a reloaded one reach
+    // the synth through one path.
+    const std::string state = slot.path + '\n' + std::to_string(preset.bank) + '\n' +
+                              std::to_string(preset.program);
+    slot.state.resize(state.size());
+    std::memcpy(slot.state.data(), state.data(), state.size());
+    return slot;
+}
+
 bool AppController::loadDefaultInstrument(const std::vector<std::filesystem::path>& roots) {
     if (song_ == nullptr) return false;
     auto& song = song_->song();
@@ -1035,40 +1286,13 @@ bool AppController::loadDefaultInstrument(const std::vector<std::filesystem::pat
                     [](const blokkily::Track& track) { return !track.instrument.format.empty(); });
     if (anything_loaded) return false;
 
-    std::filesystem::path bank;
-    for (const char* wanted : preferred_banks) {
-        for (const auto& root : roots) {
-            std::error_code ignored;
-            const auto candidate = root / wanted;
-            if (std::filesystem::is_regular_file(candidate, ignored)) { bank = candidate; break; }
-        }
-        if (!bank.empty()) break;
-    }
-    // No familiar bank installed, so whatever this machine does have will do.
+    const auto bank = findDefaultBank(roots);
     if (bank.empty()) {
-        const auto found = blokkily::SoundFontCatalog::scan_paths(roots);
-        if (found.empty()) {
-            soundfont_status_ = "No SoundFont installed — load a plugin to hear the song";
-            emit soundfontStatusChanged();
-            return false;
-        }
-        bank = found.front();
+        soundfont_status_ = "No SoundFont installed — load a plugin to hear the song";
+        emit soundfontStatusChanged();
+        return false;
     }
-
-    for (std::size_t track = 0; track < song.tracks.size(); ++track) {
-        const auto preset = preset_for_track(song.tracks[track].name);
-        blokkily::InstrumentSlot slot;
-        slot.format = "SoundFont";
-        slot.path = bank.string();
-        // The preset travels as the instrument's own state, which is the same
-        // road a saved project takes, so an opening session and a reloaded one
-        // reach the synth through one path.
-        const std::string state = slot.path + '\n' + std::to_string(preset.bank) + '\n' +
-                                  std::to_string(preset.program);
-        slot.state.resize(state.size());
-        std::memcpy(slot.state.data(), state.data(), state.size());
-        song.tracks[track].instrument = slot;
-    }
+    for (auto& track : song.tracks) track.instrument = defaultSlot(bank, track.name);
     song_->refreshStructure();
     soundfont_status_ = QString("%1 · %2 track%3")
                             .arg(QString::fromStdString(bank.stem().string()))
@@ -1076,6 +1300,56 @@ bool AppController::loadDefaultInstrument(const std::vector<std::filesystem::pat
                             .arg(song.tracks.size() == 1 ? "" : "s");
     emit soundfontStatusChanged();
     return engine_ != nullptr;
+}
+
+void AppController::addTrack() {
+    if (song_ == nullptr) return;
+    // The bank the session already plays is the one a new track most likely
+    // wants, and it is already loaded, so it costs nothing to reach for.
+    std::filesystem::path bank;
+    for (const auto& track : song_->song().tracks)
+        if (track.instrument.format == "SoundFont") { bank = track.instrument.path; break; }
+    if (bank.empty()) bank = findDefaultBank(blokkily::SoundFontCatalog::system_paths());
+    // A numbered track names no instrument family, so it opens on the piano.
+    song_->addTrack(bank.empty() ? blokkily::InstrumentSlot{} : defaultSlot(bank, "TRACK"));
+}
+
+QString AppController::projectName() const {
+    return project_path_.isEmpty() ? QStringLiteral("Untitled")
+                                   : QFileInfo(project_path_).completeBaseName();
+}
+
+bool AppController::saveProjectInPlace() {
+    if (project_path_.isEmpty()) return false;
+    return saveProject(project_path_);
+}
+
+void AppController::newProject() {
+    if (song_ == nullptr) return;
+    blokkily::Song blank;
+    blank.patterns.front().name = "PATTERN 1";
+    blank.tracks.front().name = "TRACK 1";
+    // The session keeps the tuning it was written in: a producer working in
+    // nineteen tones starts the next song in nineteen tones too.
+    blank.tuning = song_->song().tuning;
+    blank.scale = song_->song().scale;
+    blank.root_degree = song_->song().root_degree;
+    // The instrument the first track carried stays on it, so a new song
+    // sounds like the last one did until something else is chosen.
+    blank.tracks.front().instrument = song_->song().tracks.front().instrument;
+    if (audio_output_) audio_output_->stop();
+    if (transport_ != nullptr) transport_->stop();
+    forgetSoundingNotes();
+    engine_.reset();
+    song_->replace(std::move(blank));
+    if (song_->song().tracks.front().instrument.format.empty()) (void)loadDefaultInstrument();
+    else (void)rebuildEngine();
+    if (transport_ != nullptr) transport_->rewind();
+    project_path_.clear();
+    project_status_ = "New session";
+    project_detail_ = "Not saved yet";
+    song_->markSaved();
+    emit projectStatusChanged();
 }
 
 bool AppController::rebuildEngine() {
@@ -1110,7 +1384,28 @@ bool AppController::rebuildEngine() {
         next->set_instrument(track, std::move(instrument));
         ++loaded;
     }
-    if (!next->prepare(song, transport_->bpm(), 48000.0, 512, 0, &error)) {
+    // The device is opened before the engine is prepared, because the server
+    // and not this code decides the rate: a sink locked to 44.1 kHz answers a
+    // request for 48 kHz with 44.1 kHz, and an engine built for the rate that
+    // was asked for would then play every note flat and every bar slow. A host
+    // with no device still gets an engine, at the rate a bounce is written at.
+    QString device_failure;
+    if (!audio_output_ || !audio_output_->is_open()) {
+        auto output = audio_output_ ? std::move(audio_output_)
+                                    : std::make_unique<blokkily::RtAudioOutput>();
+        std::string device_error;
+        // Nothing is rendering yet: the stream is opened, not started, so the
+        // callback cannot reach the engine before it is prepared.
+        if (output->open(*next, default_sample_rate, 512, &device_error))
+            audio_output_ = std::move(output);
+        else
+            device_failure = QString::fromStdString(device_error);
+    }
+    const bool device_open = audio_output_ && audio_output_->is_open();
+    const double rate = device_open && audio_output_->device_info().sample_rate != 0
+                            ? static_cast<double>(audio_output_->device_info().sample_rate)
+                            : static_cast<double>(default_sample_rate);
+    if (!next->prepare(song, transport_->bpm(), rate, 512, 0, &error)) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
         emit statusChanged();
         emit activeInstrumentChanged();
@@ -1128,22 +1423,13 @@ bool AppController::rebuildEngine() {
 
     // The engine exists even when the machine has no audio device, so a song
     // can still be arranged and bounced to a file on a silent host.
-    if (!audio_output_ || !audio_output_->is_open()) {
-        auto output = audio_output_ ? std::move(audio_output_)
-                                   : std::make_unique<blokkily::RtAudioOutput>();
-        std::string device_error;
-        if (output->open(*engine_, 48000, 512, &device_error)) {
-            audio_output_ = std::move(output);
-        } else {
-            status_ = QString("Audio device unavailable · %1")
-                          .arg(QString::fromStdString(device_error));
-            emit statusChanged();
-            emit activeInstrumentChanged();
-            return loaded > 0;
-        }
-    } else {
-        audio_output_->rebind(*engine_);
+    if (!device_open) {
+        status_ = QString("Audio device unavailable · %1").arg(device_failure);
+        emit statusChanged();
+        emit activeInstrumentChanged();
+        return loaded > 0;
     }
+    audio_output_->rebind(*engine_);
     engine_->set_playing(resume);
     if (resume && !audio_output_->start(&error)) {
         transport_->stop();
@@ -1261,6 +1547,28 @@ void AppController::rewindPlayback() {
     if (transport_) transport_->rewind();
 }
 
+void AppController::seekToBar(int bar) {
+    if (bar < 0) return;
+    seekToStep(static_cast<double>(bar) * Transport::steps_per_bar);
+}
+
+void AppController::seekToStep(double step) {
+    if (step < 0.0) return;
+    if (transport_ != nullptr) transport_->locate(step);
+    if (engine_ == nullptr || transport_ == nullptr) return;
+    const double bpm = transport_->bpm();
+    const double rate = engine_->sample_rate();
+    if (bpm <= 0.0 || rate <= 0.0) return;
+    // Four sixteenths to the beat, at the tempo the engine was prepared for.
+    const double samples_per_step = rate * 60.0 / (bpm * 4.0);
+    engine_->seek(static_cast<std::uint64_t>(std::llround(step * samples_per_step)));
+}
+
+bool AppController::auditionKey(int key, bool held) {
+    return auditionPitches(
+        {{static_cast<std::int16_t>(qBound(0, key, 127)), 0.0}}, 0.9, held);
+}
+
 void AppController::setTempo(double bpm) {
     if (!transport_) return;
     transport_->setBpm(bpm);
@@ -1284,8 +1592,9 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth) {
     if (audio_output_) audio_output_->stop();
     releaseSoundingNotes();
     // Half a second of tail so the last note's release is part of the file.
+    const auto tail = static_cast<std::uint64_t>(engine_->sample_rate() / 2.0);
     const auto report = bounce_song(*engine_, local_path(path).toStdString(), format,
-                                    24000, &error);
+                                    tail, &error);
     if (resume_device) {
         std::string resume_error;
         if (!audio_output_->start(&resume_error)) {
@@ -1302,7 +1611,8 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth) {
     }
     export_status_ = QString("%1 · %2 s · peak %3 dB%4")
                          .arg(QFileInfo(local_path(path)).fileName())
-                         .arg(static_cast<double>(report->frames) / 48000.0, 0, 'f', 1)
+                         .arg(static_cast<double>(report->frames) / engine_->sample_rate(),
+                              0, 'f', 1)
                          .arg(blokkily::linear_to_db(report->peak), 0, 'f', 1)
                          .arg(report->clipped ? " · CLIPPED" : "");
     emit exportStatusChanged();
@@ -1529,8 +1839,10 @@ bool AppController::verifyBounce(const QString& path) {
         emit exportStatusChanged();
         return false;
     }
-    const bool valid = rendered->channels == 2 && rendered->sample_rate == 48000 &&
-                       rendered->frames == engine_->song_samples() + 24000 &&
+    const bool valid = rendered->channels == 2 &&
+                       rendered->sample_rate == static_cast<std::uint32_t>(engine_->sample_rate()) &&
+                       rendered->frames == engine_->song_samples() +
+                           static_cast<std::uint64_t>(engine_->sample_rate() / 2.0) &&
                        std::any_of(rendered->interleaved.begin(), rendered->interleaved.end(),
                                    [](float sample) { return std::abs(sample) > 0.0001F; });
     if (!valid) {
@@ -1556,6 +1868,10 @@ bool AppController::saveProject(const QString& path) {
     project.song = song;
     std::string error;
     const bool valid = blokkily::ProjectFile::save(project, path.toStdString(), &error);
+    if (valid) {
+        project_path_ = path;
+        song_->markSaved();
+    }
     project_status_ = valid ? "Saved" : "Save failed";
     project_detail_ = valid ? QString("%1 · %2 track%3")
                                   .arg(QFileInfo(path).fileName())
@@ -1584,6 +1900,8 @@ bool AppController::loadProject(const QString& path) {
     const auto patterns = project->song.patterns.size();
     song_->replace(std::move(project->song));
     if (pattern_ != nullptr) pattern_->refresh();
+    project_path_ = path;
+    song_->markSaved();
     project_status_ = QString("Restored from disk");
     project_detail_ = QString("%1 pattern%2 · %3 track%4")
                           .arg(patterns).arg(patterns == 1 ? "" : "s")

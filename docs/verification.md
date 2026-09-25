@@ -13,6 +13,20 @@ ctest --test-dir build -L "mixer|song|export" --output-on-failure
 
 When the end-to-end gate fails it names the scenario group it failed in
 (`BDD FAIL at: mixer`), so a regression points at the behaviour that broke.
+`BLOKKILY_TRACE=1` prints every scenario group as it is reached, so a gate that
+hangs says where.
+
+The verification driver itself is worth running under AddressSanitizer after
+changing it: its scenarios run from the event loop and reach back into the
+block that set them up, and a helper that has gone out of scope reads dead
+stack rather than failing cleanly.
+
+```sh
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer"
+cmake --build build-asan
+ASAN_OPTIONS=detect_leaks=0 ctest --test-dir build-asan -L bdd --output-on-failure
+```
 
 The end-to-end scenario runs the actual application with Qt's offscreen
 platform and, in one process, exercises the whole stack:
@@ -43,8 +57,13 @@ platform and, in one process, exercises the whole stack:
   every disturbance is undone: the pattern, the clip count, the track count,
   the muted strip, and its -7.5 dB fader all come back with their instruments
 - proves the arrangement is a real editor over the song: the timeline lanes
-  report the clips the song holds, clicking a bar places and removes a clip of
-  the pattern currently open, and switching patterns moves every editor
+  report the clips the song holds, clicking an empty bar places a clip of the
+  pattern currently open, right-clicking a clip removes it, clicking a filled
+  clip opens that pattern in every editor and seeks the engine there without
+  removing the clip, lengthening a clip to two bars keeps one clip with
+  `repeats=2` rather than placing a second clip, moving a clip frees the bars
+  it left, clicking the ruler locates the audio engine on that bar, and
+  switching patterns moves every editor
 - proves the mixer moves audio and not only colours: with both tracks open each
   contributes its own level, muting one removes it from the bus, and soloing
   the other leaves only itself, measured at a sample position where the track
@@ -71,15 +90,41 @@ platform and, in one process, exercises the whole stack:
   voices the pad named
 - proves the tracker and the piano roll are inputs and not read-outs: a press
   on a lane of the *rendered* roll writes that lane's pitch onto the column it
-  landed in, the right button erases it, a click on the tracker's note column
-  writes the entry octave's root, and typing X on a row writes D and moves the
-  cursor on — each checked in the step grid, the tracker's own note column and
-  the roll's drawn note, so an editor that stops turning input into an edit, or
-  a projection that stops following it, fails the gate
+  landed in, the right button erases it, dragging a drawn note's right edge
+  lengthens it (the scheduler sounds that duration, the roll draws a wider
+  block, the tracker keeps the note on the row it started on), dragging the
+  body of a note moves it in time and pitch, a click on the tracker's note
+  column writes the entry octave's root, typing X on a row writes D and moves
+  the cursor on, dragging the VEL column changes how loud the row is, Ctrl+C
+  and Ctrl+V copy a step with its length, velocity and lock, Ctrl+D duplicates
+  it onto the next row, Insert pushes later rows down and Shift+Backspace pulls
+  them up, dragging the FX column writes a parameter lock and a right-click
+  clears it, Alt+arrows nudge micro-timing and note length, Ctrl+digit toggles
+  that numbered step, Ctrl-click on
+  the step grid seeks the engine into that column, and a press on
+  the roll's keyboard gutter is heard until it is let go — each checked in the
+  step grid, the tracker's own columns and the roll's drawn note, so an editor
+  that stops turning input into an edit, or a projection that stops following
+  it, fails the gate
 - proves the session opens with something to hear: every track without an
   instrument is given a General MIDI bank, a track named DRUMS is given the
   percussion bank, a session that already carries instruments is left alone,
   and the resulting engine is *rendered* and must not be silent
+- proves the session can be worked on (`features/session_workflow.feature`):
+  a click on the rendered grid writes in the tracker's octave, Ctrl+Z and
+  Ctrl+Shift+Z sent to the window take it back and put it back, a stroke
+  dragged across the rendered roll is one undo, the roll's playhead is drawn in
+  bar two, a chord is drawn as each of its voices, a pattern is duplicated,
+  renamed, cleared and deleted with its clips, +TRK adds a track that renders
+  audible sound, a track is renamed by typing into the rendered field and
+  pressing Return, a strip's meter lights and goes dark with the engine's
+  levels, nine tracks scroll in the mixer with the master still inside the
+  window, the arrow keys stay with a focused text field, Return and Home rewind
+  the engine's own playhead, Ctrl+M and Ctrl+L mute and solo the selected
+  track, a held key still sounds after 700 ms and stops on
+  release, saving makes the session clean and an edit makes the title show it,
+  a device that negotiates 44.1 kHz gets an engine prepared at 44.1 kHz, and a
+  new session is one empty pattern with no history
 - checks panels are usable and not merely present: the tracker and the piano
   roll must have real width and height, so a neighbour cannot squeeze one to
   nothing while it still reports itself visible

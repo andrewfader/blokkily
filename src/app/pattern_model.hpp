@@ -19,6 +19,8 @@
 #include <QVariant>
 #include <QVariantList>
 
+#include <optional>
+
 // The canonical pattern, projected for every editor at once. The step grid, the
 // tracker, and the piano roll all read from this one object; `steps` is the
 // shared row projection the grid and the tracker each render differently.
@@ -38,7 +40,7 @@ public:
     static constexpr int step_count = 16;
     static constexpr blokkily::Tick ticks_per_step = 120;
     enum Role { IdRole = Qt::UserRole + 1, StepRole, KeyRole, NameRole, DurationRole,
-                VelocityRole, LockRole };
+                VelocityRole, LockRole, VoiceKeysRole };
 
     explicit PatternModel(SongModel* song, QObject* parent = nullptr);
     int rowCount(const QModelIndex& parent = {}) const override;
@@ -53,6 +55,8 @@ public:
 
     Q_INVOKABLE void toggleStep(int step, int key = 60);
     Q_INVOKABLE bool hasStep(int step) const;
+    Q_INVOKABLE int stepDuration(int step) const;
+    Q_INVOKABLE int stepKey(int step) const;
     Q_INVOKABLE void selectStep(int step);
     // What the tracker and the piano roll write. Both are editors rather than
     // read-outs, so both put notes on the same canonical pattern the step grid
@@ -63,6 +67,30 @@ public:
     // tracker's clear key and the roll's erase gesture mean. Toggling would put
     // a note back on a step the producer has just emptied.
     Q_INVOKABLE void clearStep(int step);
+    // How long the step sounds, in ticks. The piano roll draws that width and
+    // dragging a note's right edge writes it here, so a long note is a long
+    // note in every editor and in what the engine plays.
+    Q_INVOKABLE void setStepDuration(int step, int ticks);
+    Q_INVOKABLE void setSelectedDuration(int ticks);
+    // Velocity from the tracker's VEL column, which is an input rather than a
+    // readout of the inspector.
+    Q_INVOKABLE void setStepVelocity(int step, double velocity);
+    // Moves a step in time and pitch together, which is what dragging a note
+    // on the piano roll means. `semitones` transposes every voice, so a chord
+    // stays a chord.
+    Q_INVOKABLE void relocateStep(int from, int to, int semitones);
+    // The selected step, as a tracker copies a row: pitch, length, velocity,
+    // locks and the rest. An empty row copies as empty, so pasting it clears.
+    Q_INVOKABLE void copySelected();
+    Q_INVOKABLE bool pasteSelected();
+    // Puts a copy of the selected step onto the next row and moves the cursor
+    // there, which is how a tracker fills a phrase without leaving the keys.
+    Q_INVOKABLE bool duplicateSelected();
+    // Inserts an empty row at the cursor and pushes later rows down; the last
+    // row falls off the end of the pattern. Delete with shift pulls later rows
+    // up into the hole.
+    Q_INVOKABLE bool insertStep(int step);
+    Q_INVOKABLE bool deleteAndShift(int step);
     // The pitches a step sounds, in the tuning it was written in. A chord is
     // one step with several voices, so this answers with all of them.
     [[nodiscard]] std::vector<blokkily::TunedPitch> pitchesAt(int step) const;
@@ -98,11 +126,16 @@ signals:
 
 private:
     const blokkily::Trigger* triggerAt(int step) const;
-    void mutate(int step, const std::function<void(blokkily::Trigger&)>& edit);
+    // `merge` names a control whose moves arrive as a stream, so dragging it
+    // is one step of history.
+    void mutate(int step, const std::function<void(blokkily::Trigger&)>& edit,
+                const QString& merge = {});
 
     blokkily::Pattern& pattern();
     SongModel* song_ = nullptr;
     int selected_step_ = -1;
+    bool has_clipboard_ = false;
+    std::optional<blokkily::Trigger> clipboard_;
 };
 
 // Drives the playhead every editor shares. Playback advances from a monotonic
@@ -173,6 +206,12 @@ class AppController final : public QObject {
     Q_PROPERTY(bool audioReady READ audioReady NOTIFY activeInstrumentChanged)
     Q_PROPERTY(QString exportStatus READ exportStatus NOTIFY exportStatusChanged)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
+    // The file the session was last saved to or opened from, so Save writes
+    // back to it instead of asking again. Empty for a session never saved.
+    Q_PROPERTY(QString projectPath READ projectPath NOTIFY projectStatusChanged)
+    Q_PROPERTY(QString projectName READ projectName NOTIFY projectStatusChanged)
+    // The rate the engine renders at: the one the audio device negotiated.
+    Q_PROPERTY(double sampleRate READ sampleRate NOTIFY activeInstrumentChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -198,6 +237,21 @@ public:
     QString exportStatus() const { return export_status_; }
     bool audioReady() const noexcept { return engine_ != nullptr; }
     bool scanning() const noexcept { return scanning_; }
+    QString projectPath() const { return project_path_; }
+    QString projectName() const;
+    double sampleRate() const noexcept { return engine_ ? engine_->sample_rate() : 0.0; }
+    // A track added from the interface is given something to play: the bank
+    // the session already uses, or the machine's General MIDI bank.
+    Q_INVOKABLE void addTrack();
+    // Writes to the file the session came from. False when there is none yet,
+    // and the interface asks where to save instead.
+    Q_INVOKABLE bool saveProjectInPlace();
+    // A blank session: one empty pattern on one track with the default bank.
+    Q_INVOKABLE void newProject();
+    // Lets go of the notes a surface is holding, for the release of a key that
+    // was held down.
+    Q_INVOKABLE void releaseAudition();
+    bool auditioning() const noexcept { return !sounding_.empty(); }
     // Discovery of the installed plugins. Both return immediately: candidates
     // are described by a helper process, one at a time, and results reach the
     // browser as they arrive, so no plugin can stall the interface.
@@ -221,11 +275,25 @@ public:
     Q_INVOKABLE bool auditionStep(int step);
     Q_INVOKABLE void togglePlayback();
     Q_INVOKABLE void rewindPlayback();
+    // Locates the audio engine and the drawn playhead on a bar of the
+    // arrangement, which is what clicking the timeline ruler means.
+    Q_INVOKABLE void seekToBar(int bar);
+    // Locates both playheads on an absolute step of the song — bar * 16 +
+    // step — so a Ctrl-click on the step grid jumps into that column of the
+    // bar the song is already in.
+    Q_INVOKABLE void seekToStep(double step);
+    // Sounds one twelve-tone key through the selected track, so a press on the
+    // piano roll's keyboard gutter is heard the way a key of the surface is.
+    Q_INVOKABLE bool auditionKey(int key, bool held = false);
     Q_INVOKABLE bool saveProjectFile(const QString& path);
     Q_INVOKABLE bool loadProjectFile(const QString& path);
     // Sounds pitches straight through the running engine, so a keyboard is
     // audible on a stopped song. Returns false when no engine is live.
-    bool auditionPitches(const std::vector<blokkily::TunedPitch>& pitches, double velocity);
+    // `held` notes last until releaseAudition(), with a generous limit so a
+    // release that never arrives cannot leave a voice sounding for ever;
+    // otherwise they are let go after a short beat.
+    bool auditionPitches(const std::vector<blokkily::TunedPitch>& pitches, double velocity,
+                         bool held = false);
     // Bounces the arrangement through the engine the speakers hear.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32");
     Q_INVOKABLE void setTempo(double bpm);
@@ -303,6 +371,11 @@ private:
     void pollMeters();
     void assignInstrument(int track, const blokkily::InstrumentSlot& slot,
                           const QString& label);
+    // The General MIDI bank this machine offers, preferring the familiar ones.
+    static std::filesystem::path findDefaultBank(const std::vector<std::filesystem::path>& roots);
+    // A SoundFont slot on `bank`, set to the preset a track of that name wants.
+    static blokkily::InstrumentSlot defaultSlot(const std::filesystem::path& bank,
+                                                const std::string& track_name);
 
     QString status_ = "Ready — CLAP native";
     QVariantList plugins_;
@@ -311,6 +384,7 @@ private:
     QString project_status_ = "Not saved";
     QString project_detail_ = "No project on disk";
     QString export_status_ = "Not exported";
+    QString project_path_;
     SongModel* song_ = nullptr;
     PatternModel* pattern_ = nullptr;
     Transport* transport_ = nullptr;

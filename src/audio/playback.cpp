@@ -86,6 +86,7 @@ void RealtimePlayback::process(StereoBlock output) noexcept {
 struct RtAudioOutput::Impl {
     std::unique_ptr<RtAudio> audio;
     bool deterministic = false;
+    unsigned int negotiated_rate = 0;
     bool running = false;
     AudioSource* source = nullptr;
     DeviceInfo info;
@@ -118,8 +119,10 @@ unsigned int RtAudioOutput::largest_block() const noexcept {
     return impl_->largest.load(std::memory_order_relaxed);
 }
 
-RtAudioOutput::RtAudioOutput(Mode mode) : impl_(std::make_unique<Impl>()) {
+RtAudioOutput::RtAudioOutput(Mode mode, unsigned int negotiated_rate)
+    : impl_(std::make_unique<Impl>()) {
     impl_->deterministic = mode == Mode::deterministic;
+    impl_->negotiated_rate = negotiated_rate;
     if (!impl_->deterministic) impl_->audio = std::make_unique<RtAudio>();
 }
 RtAudioOutput::~RtAudioOutput() {
@@ -136,7 +139,8 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
         // so the code that follows a server follows this the same way.
         impl_->info.api = "Deterministic";
         impl_->info.device = "Deterministic pump";
-        impl_->info.sample_rate = sample_rate;
+        impl_->info.sample_rate =
+            impl_->negotiated_rate != 0 ? impl_->negotiated_rate : sample_rate;
         impl_->info.buffer_frames = requested_frames;
         return true;
     }

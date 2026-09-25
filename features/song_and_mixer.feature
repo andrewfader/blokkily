@@ -21,13 +21,40 @@ Feature: Arrange patterns into a song across mixer tracks
     And the first track's timeline reports bars 1 through 4 as filled
     When the producer clicks an empty bar on another lane
     Then a clip of the pattern currently open appears there
-    When the producer clicks it again
+    When the producer right-clicks it
     Then the clip is removed
+
+  Scenario: Clicking a clip opens the pattern it plays
+    Given a CHORUS clip on the second track from bar 3
+    When the producer clicks that clip
+    Then CHORUS is the open pattern in every editor
+    And the second track is selected
+    And the audio engine's playhead is at the start of bar 3
+    And the clip is still there
+
+  Scenario: A clip can be lengthened without placing another
+    Given a one-bar VERSE clip on the first track
+    When the producer lengthens it to two bars
+    Then the timeline reports two filled bars of one clip
+    And that clip's repeats are two rather than two separate placements
+
+  Scenario: A clip can be moved along its lane
+    Given a VERSE clip starting at bar 1 on the first track
+    When the producer moves it to start at bar 3
+    Then bar 1 is empty
+    And the clip starts at bar 3 with the same length
 
   Scenario: Each repetition of a clip is the next loop of its pattern
     Given a pattern whose step plays every other loop
     And a clip that repeats that pattern twice
     Then the step sounds in the first repetition and not in the second
+
+  Scenario: Clicking the arrangement ruler locates the song
+    Given an arrangement of several bars
+    When the producer clicks bar 2 of the rendered ruler
+    Then the audio engine's playhead is at the start of bar 2
+    And every editor draws the playhead there
+    And the clip that sat on bar 2 is still the clip that was there
 
   Scenario: Switching the open pattern moves every editor
     Given the arrangement holds a VERSE and a CHORUS pattern

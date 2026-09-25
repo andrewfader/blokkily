@@ -195,7 +195,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_edit_once_see_everywhere PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;clap;vst3;soundfont;project;parameters;mixer;song;export"
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
-            TIMEOUT 20)
+            TIMEOUT 60)
 
         # The playable surfaces, in a tuning that is not twelve tones and on the
         # chord pads, so the screenshot shows what the scenarios claim.
