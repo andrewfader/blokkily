@@ -41,6 +41,21 @@ public:
     bool load_state(std::span<const std::byte> state) override;
     std::string format() const override { return "VST3"; }
 
+    // Plugin boundary v2 (plan F-C). The adapter keeps its automation base in
+    // atomics that JUCE parameter listeners update when the plugin moves a
+    // parameter itself (its own window, a state load), so modulation is always
+    // added to the value the plugin really holds.
+    PluginPorts ports() const override;
+    std::uint32_t latency_samples() const noexcept override;
+    std::uint64_t tail_samples() const noexcept override;
+    bool latency_changed() noexcept override;
+    std::vector<ParameterInfo> parameters() const override;
+    // Edits the listeners queued from the plugin's own threads. Producers take
+    // a mutex (only try_lock on the audio thread); this consumer never locks.
+    std::size_t take_parameter_edits(std::span<ParameterEdit> out) noexcept override;
+    void set_transport(const TransportInfo& transport) noexcept override;
+    void idle() override;
+
 private:
     struct Impl;
     explicit Vst3PluginInstance(std::unique_ptr<Impl> implementation);
