@@ -22,12 +22,12 @@ Feature: Project files keep opening as the program grows
   Scenario: The legacy tempo line is read in every format
     Given a format 4 or format 5 project with a "tempo" line
     When the producer opens it
-    Then the song plays at that tempo
+    Then the project's tempo is the one that line names
 
   Scenario: A file inside the project folder is referenced relative to it
-    Given a project saved in a folder
-    And a file referenced from inside that folder
-    When the reference is written
+    Given a project folder
+    And a file inside that folder
+    When its path is made relative to the project folder
     Then it is stored relative to the project folder
     And reading it back names the same absolute file
     And a file outside the folder keeps its absolute path

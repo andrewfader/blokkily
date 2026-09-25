@@ -164,8 +164,10 @@ int main() {
         check(project && ProjectFile::serialize(*project, "/plugins") ==
                              ProjectFile::serialize(*project),
               "core records ignore base_dir");
-        check(project && ProjectFile::parse(ProjectFile::serialize(*project), &error, "/plugins")
-                                 ->song.tracks[0].instrument.path == "/plugins/a b.clap",
+        const auto reread = project
+            ? ProjectFile::parse(ProjectFile::serialize(*project), &error, "/plugins")
+            : std::nullopt;
+        check(reread && reread->song.tracks[0].instrument.path == "/plugins/a b.clap",
               "instrument paths are not rewritten");
     }
 

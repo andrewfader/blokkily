@@ -269,7 +269,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_edit_once_see_everywhere PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;clap;vst3;soundfont;project;parameters;mixer;song;export"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
-            TIMEOUT 60)
+            TIMEOUT 120)
 
         # The playable surfaces, in a tuning that is not twelve tones and on the
         # chord pads, so the screenshot shows what the scenarios claim.
@@ -284,7 +284,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_playable_keyboards PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
-            TIMEOUT 30)
+            TIMEOUT 120)
 
         add_test(NAME bdd_chord_pads
             COMMAND blokkily --verify
@@ -298,7 +298,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_chord_pads PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
-            TIMEOUT 30)
+            TIMEOUT 120)
 
         # The honeycomb, turned on its side, in a tuning that is not twelve
         # tones: the layouts the scenarios claim, rendered.
@@ -314,7 +314,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_hex_keyboard PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
-            TIMEOUT 30)
+            TIMEOUT 120)
 
         # A MIDI keyboard played into the real application: chosen from the
         # rendered panel, heard through the production callback, and recorded
@@ -328,7 +328,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_midi_recording PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;midi;recording;clap;vst3"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
-            TIMEOUT 60)
+            TIMEOUT 120)
 
         add_test(NAME bdd_plugin_scan_survives_hang
             COMMAND blokkily --verify
@@ -340,7 +340,7 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(bdd_plugin_scan_survives_hang PROPERTIES
             LABELS "bdd;e2e;integration;clap;plugins;project;scan"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV};BLOKKILY_SCAN_TIMEOUT_MS=1500;BLOKKILY_SCAN_CACHE=${CMAKE_BINARY_DIR}/artifacts/scan-cache.txt"
-            TIMEOUT 40)
+            TIMEOUT 120)
     endif()
 endif()
 

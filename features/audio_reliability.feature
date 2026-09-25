@@ -39,5 +39,5 @@ Feature: Audio remains correct at the production callback boundary
   Scenario: Playback does not allocate in the render callback
     Given a song playing through the CLAP fixture with a MIDI input connected and recording
     When the production process call renders a thousand blocks across a seek and loop wraps
-    Then no block allocates or frees heap memory
+    Then no block calls operator new or operator delete
     And the rendered audio still follows the arrangement, the seek, and the keys pressed
