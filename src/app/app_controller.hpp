@@ -15,6 +15,9 @@
 #include "blokkily/midi/midi_input.hpp"
 #include "blokkily/sequencer/take.hpp"
 
+#include "engine_graph.hpp"
+#include "recompile_coalescer.hpp"
+
 #include <QObject>
 #include <QProcess>
 #include <QString>
@@ -180,6 +183,19 @@ public:
     // Every mixer track that carries an instrument.
     std::vector<blokkily::InstrumentSlot> instruments() const;
     blokkily::SongEngine* engine() const noexcept { return engine_.get(); }
+    // Asks for the arrangement to be recompiled into the running engine. Any
+    // number of requests in one turn of the event loop become one recompile of
+    // the song as it is when that turn ends, retried while the engine has no
+    // free arrangement slot.
+    void requestRecompile();
+    // Runs an owed recompile now, for a caller about to depend on the engine
+    // playing the current song.
+    void flushRecompile();
+    // How many recompiles have run, and how many graphs have been built.
+    int recompileCount() const noexcept { return recompiler_.recompiles(); }
+    int rebuildCount() const noexcept { return rebuilds_; }
+    // How many processors the last rebuild carried over from the engine before.
+    int adoptedProcessors() const noexcept { return adopted_processors_; }
 
 signals:
     void statusChanged();
@@ -211,20 +227,21 @@ private:
     QString scanHelperPath() const;
     QString scanCachePath() const;
 
-    // Instantiates one track's instrument through the format adapters.
-    std::unique_ptr<blokkily::PluginInstance> createInstrument(
-        const blokkily::InstrumentSlot& slot, std::string* error) const;
-    // Rebuilds the audio graph for the current arrangement. Mixer moves do not
-    // come through here: they are applied to the running engine.
-    bool rebuildEngine();
+    // What processors are created with: the project folder and asset store.
+    blokkily::ProcessorContext processorContext() const;
+    // Rebuilds the audio graph for the current arrangement, adopting every
+    // processor whose identity is unchanged and creating only what is new.
+    // `remap` says where each old track went, when tracks were removed. Mixer
+    // moves do not come through here: they are applied to the running engine.
+    bool rebuildEngine(const blokkily::TrackRemap* remap = nullptr);
     // Hands an edited arrangement to the engine that is already playing it.
     // Returns false when the change is one the running graph cannot express —
     // a track added, an instrument swapped — and the caller must rebuild.
-    bool refreshArrangement();
-    // Whether the live engine was built from the instruments the song now
-    // names. Only the identity of each slot counts: a plugin's own state moves
+    bool refreshArrangement(std::string* error = nullptr);
+    // Whether the live engine was built from the graph the song now names.
+    // Only the identity of each processor counts: a plugin's own state moves
     // as it is played and is not a reason to rebuild.
-    bool builtFromCurrentInstruments() const;
+    bool builtFromCurrentGraph() const;
     void applyMix();
     // Drops what the keyboard was holding, because the engine that heard the
     // press is about to be replaced.
@@ -276,9 +293,12 @@ private:
     std::vector<blokkily::TakeRecorder> takes_;
     bool take_checkpointed_ = false;
     std::unique_ptr<blokkily::SongEngine> engine_;
-    // The instrument slots the live engine was built from, so an edit that
-    // leaves them alone is handed to the running engine instead of rebuilding.
-    std::vector<blokkily::InstrumentSlot> engine_slots_;
+    // The graph the live engine was built from, so an edit that leaves it
+    // alone is handed to the running engine instead of rebuilding.
+    blokkily::GraphSignature engine_signature_;
+    blokkily::RecompileCoalescer recompiler_;
+    int rebuilds_ = 0;
+    int adopted_processors_ = 0;
     std::unique_ptr<blokkily::RtAudioOutput> audio_output_;
     QTimer meter_timer_;
     // Notes the keyboard is holding, released together when their time is up

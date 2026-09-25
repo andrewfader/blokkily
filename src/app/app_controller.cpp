@@ -45,6 +45,15 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
                              std::unique_ptr<blokkily::MidiInput> midi)
     : QObject(parent), song_(song), pattern_(pattern), transport_(transport),
       midi_input_(midi ? std::move(midi) : std::make_unique<blokkily::MidiInput>()),
+      recompiler_(
+          [this]() -> blokkily::RecompileCoalescer::Outcome {
+              std::string error;
+              if (refreshArrangement(&error)) return {true, {}};
+              return {false, error};
+          },
+          // A turn of the event loop from now, so every request made in this
+          // one shares the recompile.
+          [this](std::function<void()> work) { QTimer::singleShot(0, this, std::move(work)); }),
       audio_output_(std::move(output)) {
     // What the browser lists follows both what the scan found and what the
     // producer has typed, so a plugin arriving mid-scan reaches a filtered
@@ -58,7 +67,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
             // The song keeps going from where it was, on the instruments it
             // already has, and the next block plays the edit.
             if (engine_) {
-                if (builtFromCurrentInstruments()) (void)refreshArrangement();
+                if (builtFromCurrentGraph()) requestRecompile();
                 else (void)rebuildEngine();
             }
         });
@@ -67,13 +76,18 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
             // A clip moved on the timeline is the same kind of change as a
             // step edit. A track added or an instrument swapped is not: that
             // needs a graph the running engine does not have.
-            if (engine_ && builtFromCurrentInstruments()) {
-                (void)refreshArrangement();
+            if (engine_ && builtFromCurrentGraph()) {
+                requestRecompile();
                 return;
             }
             // A track that has just been given an instrument needs an engine
-            // even if none existed: a keyboard must sound before playback.
-            if (engine_ || !instruments().empty()) (void)rebuildEngine();
+            // even if none existed: a keyboard must sound before playback. A
+            // deleted track says where the others went, so each keeps its
+            // own instrument instance.
+            if (engine_ || !instruments().empty()) {
+                const auto* remap = song_->pendingTrackRemap();
+                (void)rebuildEngine(remap);
+            }
         });
         // A fader move only changes gains, so it reaches the running engine
         // without rebuilding the graph or interrupting playback.
@@ -192,25 +206,11 @@ std::vector<blokkily::InstrumentSlot> AppController::instruments() const {
     return assigned;
 }
 
-std::unique_ptr<blokkily::PluginInstance> AppController::createInstrument(
-    const blokkily::InstrumentSlot& slot, std::string* error) const {
-    if (slot.format == "CLAP")
-        return blokkily::ClapPluginInstance::create(slot.path, slot.identifier, error);
-    if (slot.format == "VST3") {
-        std::size_t index = 0;
-        const auto found = blokkily::Vst3PluginInstance::scan(slot.path);
-        for (std::size_t candidate = 0; candidate < found.size(); ++candidate)
-            if (found[candidate].identifier == slot.identifier) { index = candidate; break; }
-        return blokkily::Vst3PluginInstance::create(slot.path, index, error);
-    }
-    if (slot.format == "SoundFont") {
-        auto synth = std::make_unique<blokkily::SoundFontSynth>();
-        if (synth->load(slot.path)) return synth;
-        if (error != nullptr) *error = "could not load SoundFont";
-        return nullptr;
-    }
-    if (error != nullptr) *error = "unknown instrument format";
-    return nullptr;
+blokkily::ProcessorContext AppController::processorContext() const {
+    blokkily::ProcessorContext context;
+    if (!project_path_.isEmpty())
+        context.project_dir = std::filesystem::path(project_path_.toStdString()).parent_path();
+    return context;
 }
 
 void AppController::applyMix() {
@@ -237,33 +237,29 @@ void AppController::pollMeters() {
     song_->setMeters(peaks, engine_->master_peak());
 }
 
-// An instrument is the same instrument when it is the same file loaded through
-// the same format under the same identifier. What it holds inside changes as it
-// is played, and that is not a reason to build the graph again.
-namespace {
-bool same_instrument(const blokkily::InstrumentSlot& left,
-                     const blokkily::InstrumentSlot& right) {
-    return left.format == right.format && left.path == right.path &&
-           left.identifier == right.identifier;
-}
-} // namespace
-
-bool AppController::builtFromCurrentInstruments() const {
+bool AppController::builtFromCurrentGraph() const {
     if (song_ == nullptr) return false;
-    const auto& tracks = song_->song().tracks;
-    if (tracks.size() != engine_slots_.size()) return false;
-    for (std::size_t index = 0; index < tracks.size(); ++index)
-        if (!same_instrument(tracks[index].instrument, engine_slots_[index])) return false;
-    return true;
+    return engine_signature_ == blokkily::graph_signature(song_->song());
 }
 
-bool AppController::refreshArrangement() {
-    if (!engine_ || song_ == nullptr || transport_ == nullptr) return false;
-    if (!builtFromCurrentInstruments()) return false;
+void AppController::requestRecompile() { recompiler_.request(); }
+
+void AppController::flushRecompile() { recompiler_.flush(); }
+
+bool AppController::refreshArrangement(std::string* failure) {
+    if (!engine_ || song_ == nullptr || transport_ == nullptr) return true;
+    // The graph changed between the request and now: that is a rebuild, which
+    // compiles the song itself.
+    if (!builtFromCurrentGraph()) return rebuildEngine();
     std::string error;
     if (!engine_->recompile(song_->song(), transport_->bpm(), 0, &error)) {
-        status_ = QString("Arrangement unchanged · %1").arg(QString::fromStdString(error));
-        emit statusChanged();
+        if (failure != nullptr) *failure = error;
+        // A busy engine is tried again on the next turn; only a refusal that
+        // will not clear by itself is worth telling the producer about.
+        if (error != blokkily::RecompileCoalescer::busy_reason) {
+            status_ = QString("Arrangement unchanged · %1").arg(QString::fromStdString(error));
+            emit statusChanged();
+        }
         return false;
     }
     transport_->setSongBars(song_->bars());
@@ -416,39 +412,45 @@ void AppController::newProject() {
     emit projectStatusChanged();
 }
 
-bool AppController::rebuildEngine() {
+bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     if (song_ == nullptr || transport_ == nullptr) return false;
     const bool resume = transport_->playing();
     auto& song = song_->song();
+    ++rebuilds_;
+    // The new engine compiles the song itself, so an owed recompile is moot.
+    recompiler_.cancel();
 
     // State streams belong to the control thread while the processor is idle.
     if (audio_output_) audio_output_->stop();
 
-    // Carry each instrument's own state across the rebuild, so recompiling the
-    // arrangement never resets a synth a producer has already dialled in.
+    // Every processor whose identity is unchanged is carried into the new
+    // graph as the same instance, so rebuilding never reloads, resets or
+    // re-reads a synth a producer has already dialled in. Its state is copied
+    // into the song too, which is what a save writes.
+    const auto wanted = blokkily::graph_signature(song);
+    std::vector<blokkily::ReleasedProcessor> adopted;
     if (engine_)
-        for (std::size_t track = 0; track < song.tracks.size(); ++track)
-            if (engine_->has_instrument(track) && track < engine_slots_.size() &&
-                same_instrument(song.tracks[track].instrument, engine_slots_[track])) {
-                auto state = engine_->save_track_state(track);
-                if (!state.empty()) song.tracks[track].instrument.state = std::move(state);
-            }
+        adopted = blokkily::adopt_processors(engine_->release_processors(), engine_signature_,
+                                             wanted, remap);
+    for (const auto& kept : adopted) {
+        if (kept.where.kind != blokkily::BusKind::track || !kept.where.instrument() ||
+            kept.where.bus >= song.tracks.size())
+            continue;
+        auto state = kept.instance->save_state();
+        if (!state.empty()) song.tracks[kept.where.bus].instrument.state = std::move(state);
+    }
     forgetSoundingNotes();
     if (engine_) engine_->connect_input(nullptr);
     engine_.reset();
+    engine_signature_ = {};
 
     auto next = std::make_unique<blokkily::SongEngine>();
     std::string error;
-    int loaded = 0;
-    for (std::size_t track = 0; track < song.tracks.size(); ++track) {
-        const auto& slot = song.tracks[track].instrument;
-        if (slot.format.empty()) continue;
-        std::string reason;
-        auto instrument = createInstrument(slot, &reason);
-        if (!instrument) { if (error.empty()) error = reason; continue; }
-        next->set_instrument(track, std::move(instrument));
-        ++loaded;
-    }
+    const auto build = blokkily::populate_graph(*next, song, std::move(adopted),
+                                                processorContext());
+    error = build.error;
+    const int loaded = build.loaded;
+    adopted_processors_ = build.adopted;
     // The device is opened before the engine is prepared, because the server
     // and not this code decides the rate: a sink locked to 44.1 kHz answers a
     // request for 48 kHz with 44.1 kHz, and an engine built for the rate that
@@ -476,18 +478,13 @@ bool AppController::rebuildEngine() {
         emit activeInstrumentChanged();
         return false;
     }
-    for (std::size_t track = 0; track < song.tracks.size(); ++track) {
-        const auto& state = song.tracks[track].instrument.state;
-        if (!state.empty()) (void)next->load_track_state(track, state);
-    }
+    blokkily::load_fresh_state(*next, song, build);
     engine_ = std::move(next);
     // The controller's keys reach whichever engine is live, and a take being
     // recorded carries on into it.
     engine_->connect_input(&midi_input_->queue());
     engine_->set_recording(record_armed_);
-    engine_slots_.clear();
-    engine_slots_.reserve(song.tracks.size());
-    for (const auto& track : song.tracks) engine_slots_.push_back(track.instrument);
+    engine_signature_ = wanted;
     transport_->setSongBars(song_->bars());
 
     // The engine exists even when the machine has no audio device, so a song
@@ -606,6 +603,8 @@ void AppController::togglePlayback() {
     // takes back one pass rather than everything recorded since arming.
     takes_.clear();
     take_checkpointed_ = false;
+    // Play starts on the song as it is now, edits of this turn included.
+    flushRecompile();
     std::string error;
     engine_->set_playing(true);
     if (audio_output_ && !audio_output_->start(&error)) {
@@ -652,7 +651,7 @@ void AppController::setTempo(double bpm) {
     // The tempo readout is dragged, so this arrives once per pointer move. A
     // tempo change is a change to when the arrangement's events fall, not to
     // the instruments playing them, so it goes to the running engine.
-    if (engine_) (void)refreshArrangement();
+    if (engine_) requestRecompile();
 }
 
 bool AppController::exportAudioFile(const QString& path, const QString& depth) {
@@ -664,6 +663,8 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth) {
     const auto format = depth == "PCM16"  ? blokkily::WaveFormat::pcm16
                       : depth == "PCM24"  ? blokkily::WaveFormat::pcm24
                                           : blokkily::WaveFormat::float32;
+    // The bounce is of the song as it is now, edits of this turn included.
+    flushRecompile();
     std::string error;
     const bool resume_device = audio_output_ && audio_output_->is_running();
     if (audio_output_) audio_output_->stop();

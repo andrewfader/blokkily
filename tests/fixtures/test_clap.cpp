@@ -19,6 +19,10 @@
 namespace {
 void (*process_observer)(void*) = nullptr;
 void* observer_context = nullptr;
+// The fixture's lifecycle log: how many instances the host created and
+// destroyed, so a test can prove an instance was adopted and not reloaded.
+std::atomic<long> instances_created{0};
+std::atomic<long> instances_destroyed{0};
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT,
                                     CLAP_PLUGIN_FEATURE_SYNTHESIZER, nullptr};
 constexpr clap_plugin_descriptor_t descriptor{
@@ -163,6 +167,7 @@ void plugin_destroy(const clap_plugin_t* plugin) {
         for (auto*& slot : live)
             if (slot == synth) slot = nullptr;
     }
+    instances_destroyed.fetch_add(1);
     delete synth;
 }
 bool plugin_activate(const clap_plugin_t* plugin, double sample_rate, std::uint32_t,
@@ -424,6 +429,7 @@ const clap_plugin_t* create(const clap_plugin_factory_t*, const clap_host_t* hos
     auto* synth = new (std::nothrow) TestSynth{};
     if (synth == nullptr) return nullptr;
     synth->host = host;
+    instances_created.fetch_add(1);
     synth->plugin = {&descriptor, synth, plugin_init, plugin_destroy, plugin_activate,
                      plugin_deactivate, plugin_start, plugin_stop, plugin_reset,
                      plugin_process, plugin_extension, plugin_main_thread};
@@ -502,4 +508,11 @@ extern "C" CLAP_EXPORT void blokkily_test_transport(double* answers) {
     answers[0] = transport_tempo;
     answers[1] = transport_beats;
     answers[2] = transport_bar;
+}
+
+// The lifecycle log, read by tests that must tell an adopted instance from a
+// reloaded one.
+extern "C" CLAP_EXPORT void blokkily_test_instance_counts(long* created, long* destroyed) {
+    if (created != nullptr) *created = instances_created.load();
+    if (destroyed != nullptr) *destroyed = instances_destroyed.load();
 }

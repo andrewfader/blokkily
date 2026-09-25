@@ -272,7 +272,13 @@ bool SongModel::deleteTrack(int track) {
         if (clip.track > removed) --clip.track;
     if (removed < peaks_.size()) peaks_.erase(peaks_.begin() + track);
     if (selected_track_ >= track && selected_track_ > 0) --selected_track_;
+    // Old track i is new track i, except the one removed and those after it.
+    std::vector<std::optional<std::size_t>> remap(song_.tracks.size() + 1);
+    for (std::size_t old = 0; old < remap.size(); ++old)
+        if (old != removed) remap[old] = old < removed ? old : old - 1;
+    track_remap_ = std::move(remap);
     notifyStructureChanged();
+    track_remap_.reset();
     return true;
 }
 

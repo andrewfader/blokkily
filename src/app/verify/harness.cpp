@@ -98,6 +98,11 @@ void VerifyContext::chord_key(Qt::Key key, Qt::KeyboardModifiers modifiers) cons
 }
 
 float VerifyContext::pump() {
+    // A pump stands for the device running a block later. By then the event
+    // loop has turned and any recompile an edit asked for has been made; a
+    // driver that pumps straight after an edit, without turning the loop,
+    // must still hear it.
+    controller.flushRecompile();
     std::fill(stereo_.begin(), stereo_.end(), 0.0F);
     if (output == nullptr || !output->pump(stereo_)) return -1.0F;
     float peak = 0.0F;
