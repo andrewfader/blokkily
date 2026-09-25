@@ -187,3 +187,25 @@ Feature: Effects process tracks, returns and the master, in time with one anothe
     When the producer exports the song
     Then its first sound is on its first sample, not 64 samples in
     And it runs the song's length plus the tail
+
+  # wave2_bounce_after_playback (regression)
+  Scenario: An export after playback renders the song from silence
+    Given a song whose synth runs through the CLAP effect, the VST3 effect and a delay,
+    And a send into a reverb return and a compressor on the master
+    And the song has played for 7000 frames, so echoes, tails and compensation lines are full
+    When it is exported
+    Then the file read back is sample for sample the export of a freshly prepared engine
+
+  # wave2_bounce_resumes_clean (regression)
+  Scenario: Playback after an export resumes from silence where it was
+    Given the same song playing, 5120 samples in
+    When it is exported
+    Then the transport is playing again at sample 5120
+    And what it plays from there is exactly what a fresh engine plays from sample 5120
+
+  # wave2_serve_every_processor; bdd_effects "effects: an insert's main-thread callback is served" (regression)
+  Scenario: Every insert is served on the main thread
+    Given the CLAP effect on a track, a return and the master, each asking for a main-thread callback
+    When the application's plugin service runs once
+    Then each effect's on_main_thread has run exactly once
+    And in the real application the effect on track 0 is served both directly and by the timer

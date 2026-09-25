@@ -131,3 +131,13 @@ Feature: Record everything, part 1 - armed tracks and on-screen surfaces
     And a track disarmed between undo and redo stays disarmed
     When the right track is set to channel 2 and the song is saved and loaded
     Then both tracks are armed and the right track listens to channel 2
+
+  # wave2_take_on_heard_beat (regression; tests/wave2_fixes_tests.cpp)
+  Scenario: A note struck on an audible beat is written on that beat
+    Given a reference note on beat 2 heard through the CLAP effect's 64 samples of latency
+    And an armed track
+    When a MIDI key and an on-screen key are struck as the beat is heard, 64 samples after its sample
+    Then both are captured on the beat's own sample and tick, not 64 samples late
+    And written into the pattern and played back, they sound together with the beat
+    # Song::record_offset_samples is not applied to notes: it corrects the audio
+    # device's round trip, which a MIDI or on-screen event never takes.

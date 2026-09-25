@@ -36,6 +36,11 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     engine.set_recording(false);
     engine.set_playing(true);
     engine.rewind();
+    // The export is the song from silence: whatever playback left in the
+    // processors, the insert delays and the compensation lines (an echo, a
+    // reverb tail, a held voice) is forgotten before the first block, so
+    // the file is what a freshly prepared engine renders.
+    engine.reset_processing();
 
     const auto block = static_cast<std::size_t>(engine.maximum_block());
     std::vector<float> left(block, 0.0F);
@@ -79,6 +84,9 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
         report.frames += kept;
     }
 
+    // The export's own tail is not left ringing into the session: playback
+    // resumes from silence at the place, and in the state, it was left in.
+    engine.reset_processing();
     engine.set_playing(was_playing);
     engine.seek(resume_at);
     engine.set_recording(was_recording);

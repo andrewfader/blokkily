@@ -620,6 +620,13 @@ void ClapPluginInstance::process(StereoBlock audio,
     impl_->steady_time += static_cast<std::int64_t>(frames);
 }
 
+void ClapPluginInstance::reset() {
+    if (!impl_ || !impl_->plugin || !impl_->active) return;
+    // [audio-thread & active]: the thread calling this processes next.
+    const AudioThreadScope audio_thread;
+    impl_->plugin->reset(impl_->plugin);
+}
+
 std::vector<std::byte> ClapPluginInstance::save_state() {
     std::vector<std::byte> bytes;
     if (!impl_ || !impl_->plugin) return bytes;

@@ -216,6 +216,11 @@ std::vector<ParameterInfo> SamplerInstrument::parameters() const {
     };
 }
 
+void SamplerInstrument::reset() {
+    for (auto& voice : voices_) voice.active = false;
+    for (auto& voice : fading_) voice.active = false;
+}
+
 std::vector<std::byte> SamplerInstrument::save_state() {
     collect();
     SamplerProgram stored = program_;

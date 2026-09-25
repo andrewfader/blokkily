@@ -3,7 +3,9 @@
 // latency, times its Gain parameter (id 0, default 0.25). Gain changes land
 // at the sample offset of their event, and modulation adds to the base. The
 // tail it reports is the 64 samples still in its line once input stops, and
-// its state stream holds a tag and the gain.
+// its state stream holds a tag and the gain. Like an effect that has work for
+// the main thread, it can ask its host for an on_main_thread callback
+// (blokkily_test_effect_request_callback) and counts the ones it receives.
 //
 // Built by the suite and loaded through the official clap_entry, in a
 // directory of its own so that instrument scans never meet it.
@@ -21,7 +23,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <mutex>
 #include <new>
+#include <vector>
 
 namespace {
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr};
@@ -36,6 +41,7 @@ constexpr double default_gain = 0.25;
 
 struct Effect {
     clap_plugin_t plugin{};
+    const clap_host_t* host = nullptr;
     double gain = default_gain;
     double modulation = 0.0;
     // Two ring buffers of exactly `latency` samples: reading the slot about
@@ -45,6 +51,11 @@ struct Effect {
 };
 
 Effect* self(const clap_plugin_t* plugin) { return static_cast<Effect*>(plugin->plugin_data); }
+
+// Every live instance, so a test can ask each one's host for a callback.
+std::mutex live_mutex;
+std::vector<Effect*> live_effects;
+std::atomic<int> main_thread_calls{0};
 
 void apply(Effect& effect, const clap_event_header_t* header) {
     if (header->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
@@ -58,7 +69,13 @@ void apply(Effect& effect, const clap_event_header_t* header) {
 }
 
 bool plugin_init(const clap_plugin_t*) { return true; }
-void plugin_destroy(const clap_plugin_t* plugin) { delete self(plugin); }
+void plugin_destroy(const clap_plugin_t* plugin) {
+    {
+        const std::lock_guard lock(live_mutex);
+        std::erase(live_effects, self(plugin));
+    }
+    delete self(plugin);
+}
 bool plugin_activate(const clap_plugin_t* plugin, double, std::uint32_t, std::uint32_t) {
     auto* effect = self(plugin);
     effect->line = {};
@@ -212,16 +229,22 @@ const void* plugin_extension(const clap_plugin_t*, const char* id) {
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tail_extension;
     return nullptr;
 }
-void plugin_main_thread(const clap_plugin_t*) {}
+void plugin_main_thread(const clap_plugin_t*) { ++main_thread_calls; }
 
 std::uint32_t count(const clap_plugin_factory_t*) { return 1; }
 const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*, std::uint32_t index) {
     return index == 0 ? &descriptor : nullptr;
 }
-const clap_plugin_t* create(const clap_plugin_factory_t*, const clap_host_t*, const char* id) {
+const clap_plugin_t* create(const clap_plugin_factory_t*, const clap_host_t* host,
+                           const char* id) {
     if (id == nullptr || std::strcmp(id, descriptor.id) != 0) return nullptr;
     auto* effect = new (std::nothrow) Effect{};
     if (effect == nullptr) return nullptr;
+    effect->host = host;
+    {
+        const std::lock_guard lock(live_mutex);
+        live_effects.push_back(effect);
+    }
     effect->plugin = {&descriptor, effect, plugin_init, plugin_destroy, plugin_activate,
                       plugin_deactivate, plugin_start, plugin_stop, plugin_reset,
                       plugin_process, plugin_extension, plugin_main_thread};
@@ -234,6 +257,20 @@ const void* get_factory(const char* id) {
     return std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &factory : nullptr;
 }
 } // namespace
+
+// Asks every live instance's host for an on_main_thread callback, as an effect
+// with main-thread work does. Safe from any thread, as request_callback is.
+extern "C" CLAP_EXPORT void blokkily_test_effect_request_callback() {
+    const std::lock_guard lock(live_mutex);
+    for (auto* effect : live_effects) effect->host->request_callback(effect->host);
+}
+// How many live instances there are, and how many on_main_thread callbacks
+// they have received between them.
+extern "C" CLAP_EXPORT int blokkily_test_effect_instances() {
+    const std::lock_guard lock(live_mutex);
+    return static_cast<int>(live_effects.size());
+}
+extern "C" CLAP_EXPORT int blokkily_test_effect_main_thread_calls() { return main_thread_calls; }
 
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry{
     CLAP_VERSION, entry_init, entry_deinit, get_factory};

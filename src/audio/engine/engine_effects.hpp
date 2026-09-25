@@ -42,6 +42,8 @@ struct StereoDelay {
 
     void prepare(std::uint32_t delay);
     void process(StereoBlock block) noexcept;
+    // Forgets what is in flight, keeping the size. Allocates nothing.
+    void clear() noexcept;
 };
 
 // One insert slot. A slot whose plugin failed to load has no instance and
@@ -140,5 +142,12 @@ void process_returns(BusPlayback& buses, std::size_t frames, const TransportInfo
 void apply_master_compensation(BusPlayback& buses, StereoBlock direct) noexcept;
 void run_master_inserts(BusPlayback& buses, StereoBlock direct, const TransportInfo& transport,
                         const EditDrain& drain) noexcept;
+
+// While the render callback is not running (SongEngine::reset_processing):
+// every processor on the chain is reset() and every delay the chain keeps
+// (bypass lines, compensation) is emptied, so it holds no signal.
+void reset_chain(InsertChain& chain);
+// The same for every return's chain and the direct bus's compensation.
+void reset_buses(BusPlayback& buses);
 
 } // namespace blokkily::engine

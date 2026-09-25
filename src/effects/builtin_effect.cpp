@@ -52,6 +52,14 @@ bool BuiltinEffect::activate(double sample_rate, std::uint32_t min_frames,
     return true;
 }
 
+void BuiltinEffect::reset() {
+    if (!active_) return;
+    // As activate() leaves it: no modulation, and the signal state cleared.
+    for (std::size_t id = 0; id < specs_.size(); ++id) modulation_[id] = 0.0;
+    clear();
+    dirty_.store(true, std::memory_order_relaxed);
+}
+
 double BuiltinEffect::base(std::size_t id) const noexcept {
     return id < specs_.size() ? base_[id].load(std::memory_order_relaxed) : 0.0;
 }

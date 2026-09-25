@@ -187,8 +187,12 @@ void AppController::drainTake() {
 void AppController::finishTake() {
     drainTake();
     if (engine_ && song_ != nullptr && engine_->song_samples() > 0) {
-        const auto at = blokkily::tick_at_sample(
-            engine_->published_clock(), engine_->sample_position() % engine_->song_samples());
+        // A key still held is released where the listener had got to, under
+        // the clock the render callback was playing: a recompile published
+        // but not yet picked up (a tempo drag) must not re-read the position,
+        // and the output latency is taken off as it is from every captured
+        // key, so a held note keeps the length that was heard.
+        const auto at = engine_->heard_tick();
         std::vector<std::pair<std::size_t, blokkily::PlayedNote>> released;
         for (std::size_t track = 0; track < takes_.size(); ++track)
             for (const auto& note : takes_[track].finish(at)) released.emplace_back(track, note);

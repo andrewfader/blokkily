@@ -107,3 +107,28 @@ Feature: Audio remains correct at the production callback boundary
     Then it is tried again on each later turn until the engine accepts it
     And a refusal for any other reason is reported and not retried
     And retries stop after a bounded number of turns
+
+  # Wave 2 review fixes: tests/wave2_fixes_tests.cpp and
+  # tests/realtime/wave2_fixes.cpp.
+
+  # wave2_handoff_probe (regression)
+  Scenario: A recompile made while the callback takes an arrangement never overwrites it
+    Given a recompiled arrangement queued for the render callback
+    When another recompile lands at the very moment the callback takes the queued one
+    Then the block that took it plays the queued arrangement
+    And the next block plays the later one
+
+  # wave2_handoff_stress
+  Scenario: Recompiling from another thread while the callback runs plays every arrangement whole
+    Given a clip whose level names the arrangement it belongs to
+    When the control thread recompiles three thousand times while the callback renders
+    Then every block plays one arrangement, never an older one after a newer one
+    And no recompile is refused for want of a free slot, and the last one is what plays
+
+  # realtime_wave2_fixes
+  Scenario: The review fixes keep the real-time rules
+    Given a CLAP synth through the CLAP effect and a delay, a reverb return, and an armed track
+    When a thousand blocks render while another thread recompiles and keys are struck,
+    And the processors are reset halfway, as a bounce resets them
+    Then no block and no reset calls operator new or operator delete
+    And every key-down is stamped 64 samples before the block it arrived in

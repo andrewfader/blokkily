@@ -79,6 +79,32 @@ void StereoDelay::process(StereoBlock block) noexcept {
     }
 }
 
+void StereoDelay::clear() noexcept {
+    left.clear();
+    right.clear();
+}
+
+void reset_chain(InsertChain& chain) {
+    for (auto& slot : chain.slots) {
+        if (slot->instance) slot->instance->reset();
+        slot->through.clear();
+    }
+    chain.compensation.clear();
+}
+
+void reset_buses(BusPlayback& buses) {
+    for (auto& bus : buses.returns) {
+        reset_chain(bus->chain);
+        std::fill(bus->left.begin(), bus->left.end(), 0.0F);
+        std::fill(bus->right.begin(), bus->right.end(), 0.0F);
+        bus->peak.store(0.0F, std::memory_order_relaxed);
+    }
+    reset_chain(buses.master);
+    buses.direct_compensation.clear();
+    std::fill(buses.return_left.begin(), buses.return_left.end(), 0.0F);
+    std::fill(buses.return_right.begin(), buses.return_right.end(), 0.0F);
+}
+
 bool prepare_effects(const Song& song, std::vector<InsertChain*> chains, BusPlayback& buses,
                      double sample_rate, std::uint32_t maximum_block, std::string* error) {
     buses.tail = 0;

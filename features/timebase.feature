@@ -70,6 +70,13 @@ Feature: One timebase for the whole song
     Then the key-down is written on the tick it was heard at under 120 BPM
     And the key-up is written on the tick it was heard at under 60 BPM
 
+  # bdd_midi_recording "a key held when the song stops is released under the clock it played" (regression)
+  Scenario: A key held when the song stops is released under the clock it played
+    Given recording at 120 BPM with a key held down
+    When the tempo is dragged to 60 BPM and recompiled, and the song stops before the callback picks it up
+    Then the held key is written released at the playhead's tick under 120 BPM
+    And not at the tick the same sample would have under 60 BPM
+
   # timebase_seek_to_event_tick (regression); bdd_midi_recording "a seek to a bar at 137 BPM"
   Scenario: A seek to a tick sounds the note on that tick
     Given a song at 137 BPM, where tick 1920 falls at sample 84087.59, with a note on it

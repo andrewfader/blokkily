@@ -23,6 +23,9 @@ public:
     bool activate(double sample_rate, std::uint32_t min_frames,
                   std::uint32_t max_frames) override;
     void process(StereoBlock audio, std::span<const PluginEvent> events) noexcept override;
+    // clap_plugin.reset(), on the calling thread marked as the audio thread
+    // (the one that processes next), while the plugin is active.
+    void reset() override;
     std::vector<std::byte> save_state() override;
     bool load_state(std::span<const std::byte> state) override;
     std::string format() const override { return "CLAP"; }

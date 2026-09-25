@@ -591,6 +591,15 @@ void Vst3PluginInstance::process(StereoBlock audio,
     }
 }
 
+void Vst3PluginInstance::reset() {
+    if (!impl_ || !impl_->plugin) return;
+    impl_->plugin->reset();
+    impl_->midi.clear();
+    impl_->channel_key.fill(-1);
+    // A reactivated plugin may have forgotten the bend range it was told.
+    impl_->announce_bend_range = true;
+}
+
 std::vector<std::byte> Vst3PluginInstance::save_state() {
     juce::MemoryBlock block;
     if (!impl_ || !impl_->plugin) return {};

@@ -132,3 +132,11 @@ Feature: Native plugin windows
     Given the CLAP fixture with its editor open and its timer running
     When a thousand blocks are processed while its knob is turned ten times
     Then nothing is allocated or freed on the audio thread, and every turn is heard
+
+  Scenario: Edits made in plugin windows flow through the engine without allocating
+    # rt (realtime_plugin_windows)
+    Given the CLAP synth with its editor open on track 0 and the VST3 fixture on track 1
+    When their knobs are turned ten times while SongEngine renders a thousand blocks
+    Then nothing is allocated or freed in the production process()
+    And every turn reaches the engine's edit ring with its processor's address,
+    And stamped inside the block it came out of, and the last turns are what both tracks play

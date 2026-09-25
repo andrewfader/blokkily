@@ -41,6 +41,8 @@ public:
     PluginPorts ports() const override { return {2, false}; }
     std::vector<ParameterInfo> parameters() const override;
     void set_transport(const TransportInfo& transport) noexcept override;
+    // Clears every bit of signal state (clear()), keeping the parameters.
+    void reset() override;
 
     [[nodiscard]] const std::string& identifier() const noexcept { return identifier_; }
 
@@ -59,6 +61,9 @@ protected:
     // Control thread, from activate(): size buffers for `sample_rate` and
     // clear every bit of signal state.
     virtual void prepare(double sample_rate) = 0;
+    // While not processing: forget the signal held (lines, filter memories,
+    // envelopes) without resizing anything. Allocates nothing.
+    virtual void clear() noexcept = 0;
     // Audio thread: a parameter or the tempo changed; recompute coefficients.
     virtual void update() noexcept = 0;
     // Audio thread: process `frames` samples in place.

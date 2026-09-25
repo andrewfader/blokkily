@@ -201,4 +201,9 @@ int capture_processor_states(const SongEngine& engine, Song& song,
     return captured;
 }
 
+void serve_processors(const SongEngine& engine) {
+    for (const auto& where : engine.processor_addresses())
+        if (auto* instance = engine.processor(where)) instance->idle();
+}
+
 } // namespace blokkily

@@ -1,9 +1,10 @@
 #pragma once
 
-// One compiled arrangement (private to SongEngine). Three of these are owned
+// One compiled arrangement (private to SongEngine). Four of these are owned
 // for the life of the engine, so a recompile always has a slot to fill that is
-// neither being rendered nor already queued, and publishing one costs a pointer
-// store instead of an allocation the render callback would have to wait for.
+// neither queued, nor being rendered, nor being retired by the callback as it
+// moves onto a new one, and publishing one costs a compare-and-swap on the
+// handoff word instead of an allocation the render callback would wait for.
 
 #include "engine_automation.hpp"
 #include "engine_clips.hpp"

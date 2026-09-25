@@ -84,6 +84,7 @@ public:
 
 protected:
     void prepare(double) override { state_ = {}; }
+    void clear() noexcept override { state_ = {}; }
 
     void update() noexcept override {
         const double rate = sample_rate();

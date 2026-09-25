@@ -112,6 +112,13 @@ public:
     // Control-thread poll: true once after the plugin announced a new latency,
     // which latency_samples() then reports.
     virtual bool latency_changed() noexcept { return false; }
+    // Forgets the signal the processor holds - voices, delay lines, filter
+    // memories, a reverb's tail - keeping its parameters and state, so the
+    // next block starts from silence as it would straight after activate().
+    // Called while process() is not running, on the thread that calls
+    // process() next (a bounce's, with the device stopped). CLAP maps it to
+    // clap_plugin.reset(); VST3 to JUCE's reset. The default holds nothing.
+    virtual void reset() {}
     // Whether load_state may be called while the audio thread is processing.
     virtual bool accepts_state_while_running() const noexcept { return false; }
     // The parameters the plugin exposes (main thread).

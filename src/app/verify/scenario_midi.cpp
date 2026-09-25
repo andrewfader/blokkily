@@ -461,6 +461,54 @@ void run_midi(VerifyContext& ctx) {
     }
     reached("midi: a key held across a tempo drag lands where it was played");
 
+    // features/timebase.feature: a key still held when the song stops is
+    // released where the song had got to under the clock it was playing. The
+    // tempo is dragged to 60 and recompiled while the key is down, and the
+    // song stops before the render callback has picked the new clock up: the
+    // release is at the playhead's tick under 120 BPM (S/50), not the tick the
+    // same sample has under the clock published but never played (S/100).
+    {
+        check(!transport.playing() && controller.recordArmed());
+        const int held_step = empty_step(10);
+        check(held_step >= 0);
+        controller.seekToStep(held_step);
+        controller.togglePlayback();
+        (void)pump();
+        const auto pressed = controller.engine()->sample_position();
+        check(send(0x90, 71, 100));
+        for (int block = 0; block < 4; ++block) check(pump() > 0.05F);
+        const auto stopped_at = controller.engine()->sample_position();
+        controller.setTempo(60.0);
+        controller.flushRecompile();
+        check(song.song().tempo.points.front().bpm == 60.0);
+        // Stopped with the key still down: the take ends here.
+        controller.togglePlayback();
+        (void)pump();
+        check(send(0x80, 71, 0));
+        (void)pump();
+        const int pressed_tick = static_cast<int>(pressed / 50);
+        const int stopped_tick = static_cast<int>(stopped_at / 50);
+        pattern.selectStep(held_step);
+        const bool landed = pattern.hasStep(held_step)
+            && pattern.stepKey(held_step) == 71
+            && pattern.selected().value("micro").toInt()
+                   == pressed_tick - held_step * PatternModel::ticks_per_step
+            && pattern.stepDuration(held_step) == stopped_tick - pressed_tick;
+        check(landed);
+        if (!landed)
+            std::cerr << "REGRESSION: a key held when the song stopped was released under a "
+                         "clock the song never played (duration "
+                      << (pattern.hasStep(held_step) ? pattern.stepDuration(held_step) : -1)
+                      << ", wanted " << stopped_tick - pressed_tick << ")\n";
+        check(song.undo() && !pattern.hasStep(held_step));
+        check(song.undo() && song.song().tempo.points.front().bpm == 120.0);
+        controller.flushRecompile();
+        controller.seekToBar(1);
+        (void)pump();
+        lay_out();
+    }
+    reached("midi: a key held when the song stops is released under the clock it played");
+
     // Left armed with the take in view, and the panel naming the port
     // and the last key, for the screenshot.
     check(send(0x90, 64, 96) && send(0x80, 64, 0));

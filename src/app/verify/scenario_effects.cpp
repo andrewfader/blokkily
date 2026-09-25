@@ -17,6 +17,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <dlfcn.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -276,6 +278,43 @@ void run_effects(VerifyContext& ctx) {
           clap_effect_gain(song.song().tracks.at(0).inserts.at(0).plugin.state) == 0.5);
     check(near(heard(), dialled));
     reached("effects: a saved project plays its effects again");
+
+    // 8b. An effect with work for the main thread is served there: the CLAP
+    // effect on track 0 asks its host for an on_main_thread callback, and the
+    // application's plugin service (the editor timer) runs it, as it does an
+    // instrument's. An insert left unserved would never flush its parameters
+    // while inactive or announce a new tail either.
+    {
+        const auto path = parser.value("clap-effect-fixture").toStdString();
+        void* module = dlopen(path.c_str(), RTLD_NOW | RTLD_NOLOAD);
+        check(module != nullptr);
+        const auto symbol = [module](const char* name) {
+            return module == nullptr ? nullptr : dlsym(module, name);
+        };
+        auto* request = reinterpret_cast<void (*)()>(
+            symbol("blokkily_test_effect_request_callback"));
+        auto* calls = reinterpret_cast<int (*)()>(symbol("blokkily_test_effect_main_thread_calls"));
+        auto* instances = reinterpret_cast<int (*)()>(symbol("blokkily_test_effect_instances"));
+        check(request != nullptr && calls != nullptr && instances != nullptr);
+        if (request != nullptr && calls != nullptr && instances != nullptr) {
+            const int live = instances();
+            check(live == 1);
+            // Served by one turn of the service, called directly...
+            const int before = calls();
+            request();
+            controller.serviceEditors();
+            const int direct = calls() - before;
+            // ...and by the timer that runs it while an engine exists.
+            request();
+            VerifyContext::settle(150);
+            const int timed = calls() - before - direct;
+            check(direct == live && timed == live);
+            std::cerr << "effects: on_main_thread served " << direct << " directly, " << timed
+                      << " by the timer, for " << live << " effect instance(s)\n";
+        }
+        if (module != nullptr) dlclose(module);
+    }
+    reached("effects: an insert's main-thread callback is served");
 
     // 9. The bounce begins where the song does: the compensation is trimmed.
     const QString exported = parser.value("export");

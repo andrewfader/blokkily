@@ -95,9 +95,9 @@ bool AppController::toggleEditor(int track) {
 
 void AppController::serviceEditors() {
     if (!engine_) return;
-    for (std::size_t track = 0; track < engine_->track_count(); ++track)
-        if (auto* instance = engine_->processor(address_of(static_cast<int>(track))))
-            instance->idle();
+    // Every processor, not only the instruments: an insert asks the main
+    // thread for callbacks, flushes and tail rescans as an instrument does.
+    blokkily::serve_processors(*engine_);
     drainPluginEdits();
 }
 

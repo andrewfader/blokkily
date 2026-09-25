@@ -93,4 +93,10 @@ void load_fresh_state(SongEngine& engine, const Song& song, const GraphBuild& bu
 // was built from. Returns how many states were copied. Control thread.
 int capture_processor_states(const SongEngine& engine, Song& song, const GraphSignature& built);
 
+// Serves what every processor in the engine asked of the main thread - a
+// requested callback, a parameter flush while inactive, a new tail - by
+// calling idle() on each: instruments, and the inserts on tracks, returns and
+// the master alike. Main thread, regularly.
+void serve_processors(const SongEngine& engine);
+
 } // namespace blokkily

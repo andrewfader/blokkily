@@ -34,6 +34,11 @@ public:
     std::uint64_t tail_samples() const noexcept override { return 0; }
 
 protected:
+    void clear() noexcept override {
+        release_state_ = 0.0;
+        reduction_ = 0.0;
+    }
+
     void prepare(double) override {
         release_state_ = 0.0;
         reduction_ = 0.0;

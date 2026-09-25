@@ -39,6 +39,9 @@ public:
     bool activate(double sample_rate, std::uint32_t min_frames,
                   std::uint32_t max_frames) override;
     void process(StereoBlock audio, std::span<const PluginEvent> events) noexcept override;
+    // JUCE's reset of the hosted plugin (setProcessing and setActive off and
+    // on, the VST3 way to flush it), with the retuned-note channels freed.
+    void reset() override;
     std::vector<std::byte> save_state() override;
     bool load_state(std::span<const std::byte> state) override;
     std::string format() const override { return "VST3"; }

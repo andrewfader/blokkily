@@ -47,6 +47,10 @@ protected:
         for (auto& line : lines_) line.resize(samples);
     }
 
+    void clear() noexcept override {
+        for (auto& line : lines_) line.clear();
+    }
+
     void update() noexcept override {
         delay_ = delay_samples(value(delay::sync) >= 0.5, value(delay::time_ms),
                                value(delay::beats), bpm(), sample_rate());

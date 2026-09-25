@@ -19,7 +19,12 @@ struct BounceReport {
 // Renders the arrangement to a file through the same SongEngine the speakers
 // hear, so an export is the mix that was auditioned rather than a second
 // rendering path that can drift from it. Runs as fast as the host allows and
-// is deterministic: the same song and seed produce the same bytes.
+// is deterministic: the same song and seed produce the same bytes, however
+// long the engine played before, because every processor and delay line is
+// reset first (SongEngine::reset_processing). Afterwards the transport is put
+// back where it was, playing or not, and the processors are reset again so
+// the export's tail does not ring on. The render callback must not be
+// running (stop the device first): the bounce drives process() itself.
 //
 // `tail_frames` keeps the release of the last note instead of cutting the song
 // off at its final tick; an insert effect's own tail (an echo, a reverb) is

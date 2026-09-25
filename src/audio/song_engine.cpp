@@ -22,6 +22,25 @@ const std::vector<TimedPluginEvent>& empty_timeline() noexcept {
 // The same for the per-arrangement stage data. Built before main(), so the
 // callback never runs its construction.
 const engine::Arrangement nothing_arranged{};
+
+// The arrangement handoff word (SongEngine::handoff_): three four-bit fields
+// naming a slot each, `no_slot` where a field names none.
+constexpr std::uint32_t no_slot = 0xFU;
+constexpr unsigned queued_shift = 0;
+constexpr unsigned rendering_shift = 4;
+constexpr unsigned retiring_shift = 8;
+constexpr std::uint32_t field(std::uint32_t state, unsigned shift) noexcept {
+    return (state >> shift) & no_slot;
+}
+constexpr std::uint32_t with_field(std::uint32_t state, unsigned shift,
+                                   std::uint32_t slot) noexcept {
+    return (state & ~(no_slot << shift)) | ((slot & no_slot) << shift);
+}
+constexpr std::uint32_t handoff_state(std::uint32_t queued, std::uint32_t rendering,
+                                      std::uint32_t retiring) noexcept {
+    return (queued << queued_shift) | (rendering << rendering_shift) |
+           (retiring << retiring_shift);
+}
 } // namespace
 
 SongEngine::SongEngine() : buses_(std::make_unique<engine::BusPlayback>()) {}
@@ -110,6 +129,39 @@ std::vector<engine::InsertChain*> SongEngine::track_chains() const {
     return chains;
 }
 
+std::vector<ProcessorAddress> SongEngine::processor_addresses() const {
+    std::vector<ProcessorAddress> addresses;
+    const auto chain_addresses = [&addresses](const engine::InsertChain& chain, BusKind kind,
+                                              std::uint32_t bus) {
+        for (std::size_t slot = 0; slot < chain.slots.size(); ++slot)
+            if (chain.slots[slot]->instance)
+                addresses.push_back({kind, bus, static_cast<std::int32_t>(slot)});
+    };
+    for (std::size_t index = 0; index < tracks_.size(); ++index) {
+        const auto bus = static_cast<std::uint32_t>(index);
+        if (tracks_[index]->instrument) addresses.push_back(track_instrument(bus));
+        chain_addresses(tracks_[index]->chain, BusKind::track, bus);
+    }
+    for (std::size_t index = 0; index < buses_->returns.size(); ++index)
+        chain_addresses(buses_->returns[index]->chain, BusKind::ret,
+                        static_cast<std::uint32_t>(index));
+    chain_addresses(buses_->master, BusKind::master, 0);
+    return addresses;
+}
+
+void SongEngine::reset_processing() {
+    for (auto& track : tracks_) {
+        if (track->instrument) track->instrument->reset();
+        engine::reset_chain(track->chain);
+        // The instruments have let go of every voice, so nothing is owed a
+        // release any more.
+        track->sounding.fill(0);
+        track->peak.store(0.0F, std::memory_order_relaxed);
+    }
+    engine::reset_buses(*buses_);
+    master_peak_.store(0.0F, std::memory_order_relaxed);
+}
+
 std::uint32_t SongEngine::output_latency() const noexcept {
     return buses_->track_latency + buses_->return_latency + buses_->master.latency;
 }
@@ -170,8 +222,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     // rather than queued for a callback that is not running.
     if (!compile_into(*arrangements_.front(), song, seed, error, assets)) return false;
     live_ = arrangements_.front().get();
-    queued_.store(nullptr, std::memory_order_release);
-    rendering_.store(live_, std::memory_order_release);
+    handoff_.store(handoff_state(no_slot, 0, no_slot), std::memory_order_release);
     song_samples_ = live_->song_samples;
     published_song_samples_.store(song_samples_, std::memory_order_release);
     published_clock_ = live_->clock;
@@ -195,6 +246,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     apply_mix(song);
     sample_position_ = 0;
     published_position_.store(0, std::memory_order_release);
+    heard_tick_.store(0, std::memory_order_release);
     requested_position_.store(no_seek, std::memory_order_release);
     cursors_valid_ = false;
     return true;
@@ -240,7 +292,8 @@ bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* er
         if (error != nullptr) *error = message;
         return false;
     };
-    if (live_ == nullptr && rendering_.load(std::memory_order_acquire) == nullptr)
+    auto state = handoff_.load(std::memory_order_acquire);
+    if (field(state, rendering_shift) == no_slot)
         return fail("prepare the song before recompiling it");
     // A different set of tracks needs instruments this engine was never given,
     // so the caller is told to rebuild rather than being handed a graph that
@@ -248,33 +301,49 @@ bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* er
     if (song.tracks.size() != tracks_.size())
         return fail("the song has a different track list than the prepared graph");
 
-    // Fill a slot the render callback is neither playing nor about to pick up.
-    // The queued slot is read before the rendering one: the callback moves a
-    // slot from queued to rendering, never back, so reading in this order can
-    // only see it in one of the two places and never in neither. Read the
-    // other way round, a take landing between the two reads would leave the
-    // slot it took looking free while the callback plays it.
-    const auto* queued = queued_.load(std::memory_order_acquire);
-    const auto* rendering = rendering_.load(std::memory_order_acquire);
-    Arrangement* target = nullptr;
-    for (auto& slot : arrangements_)
-        if (slot && slot.get() != rendering && slot.get() != queued) {
-            target = slot.get();
+    // Fill a slot the render callback is neither playing, nor about to pick
+    // up, nor still reading while it moves onto another. All three are read
+    // from one word, so a take cannot land between two reads and leave the
+    // slot it took looking free. The callback only ever moves a slot out of
+    // the queued field into the others, and out of the others to free, so a
+    // slot free now stays free until this thread queues it.
+    std::uint32_t target = no_slot;
+    for (std::uint32_t slot = 0; slot < arrangements_.size(); ++slot)
+        if (arrangements_[slot] && slot != field(state, queued_shift) &&
+            slot != field(state, rendering_shift) && slot != field(state, retiring_shift)) {
+            target = slot;
             break;
         }
-    if (target == nullptr) return fail("no free arrangement slot");
-    if (!compile_into(*target, song, seed, error, assets)) return false;
+    if (target == no_slot) return fail("no free arrangement slot");
+    auto& arranged = *arrangements_[target];
+    if (!compile_into(arranged, song, seed, error, assets)) return false;
 
-    published_clock_ = target->clock;
-    published_song_samples_.store(target->song_samples, std::memory_order_release);
-    queued_.store(target, std::memory_order_release);
+    published_clock_ = arranged.clock;
+    published_song_samples_.store(arranged.song_samples, std::memory_order_release);
+    // Queued in place of whatever was queued before and not yet taken, which
+    // the callback never touched and is free again from here.
+    state = handoff_.load(std::memory_order_acquire);
+    while (!handoff_.compare_exchange_weak(state, with_field(state, queued_shift, target),
+                                           std::memory_order_acq_rel,
+                                           std::memory_order_acquire)) {
+    }
     apply_mix(song);
     return true;
 }
 
 void SongEngine::take_queued_arrangement(bool seeked) noexcept {
-    auto* incoming = queued_.exchange(nullptr, std::memory_order_acquire);
-    if (incoming == nullptr) return;
+    // One step claims the queued slot as the one rendering and keeps the one
+    // rendered until now as retiring: both stay out of a recompile's reach
+    // while this function reads them.
+    auto state = handoff_.load(std::memory_order_acquire);
+    do {
+        if (field(state, queued_shift) == no_slot) return;
+    } while (!handoff_.compare_exchange_weak(
+        state,
+        handoff_state(no_slot, field(state, queued_shift), field(state, rendering_shift)),
+        std::memory_order_acq_rel, std::memory_order_acquire));
+    auto* incoming = arrangements_[field(state, queued_shift)].get();
+    if (handoff_probe_ != nullptr) handoff_probe_(handoff_probe_context_);
     // A new tempo is a new place for every tick, not a new place in the music:
     // the playhead stays on the tick it had reached and moves to the sample
     // where that tick now falls. A seek taken in this same block was placed
@@ -290,8 +359,9 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
         published_position_.store(kept, std::memory_order_release);
     }
     live_ = incoming;
-    rendering_.store(incoming, std::memory_order_release);
     song_samples_ = incoming->song_samples;
+    // Done with the old slot: it is free for the next recompile.
+    handoff_.fetch_or(no_slot << retiring_shift, std::memory_order_acq_rel);
     // The events under the playhead are not the ones that were under it a
     // moment ago, so every cursor is found again before the next block.
     cursors_valid_ = false;
@@ -300,6 +370,13 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
     // re-struck by the new timeline either. Both are let go here, so an edit
     // cannot leave a voice held on an instrument for ever.
     release_arrangement_notes_ = true;
+}
+
+std::uint64_t SongEngine::heard_position(std::uint64_t song_position) const noexcept {
+    if (song_samples_ == 0) return song_position;
+    const auto latency = static_cast<std::uint64_t>(output_latency()) % song_samples_;
+    const auto position = song_position % song_samples_;
+    return position >= latency ? position - latency : song_samples_ - (latency - position);
 }
 
 void SongEngine::set_strip(std::size_t track, const MixerStrip& strip, bool any_solo) {
@@ -366,7 +443,7 @@ bool SongEngine::perform(std::size_t track, const PluginEvent& event) noexcept {
 std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                                        std::uint64_t song_position, std::uint64_t end,
                                        bool from_timeline, bool capture,
-                                       Tick capture_tick) noexcept {
+                                       std::uint64_t capture_sample, Tick capture_tick) noexcept {
     auto& events = track.events;
     const auto capacity = events.size();
     const auto& timeline = timeline_for(index);
@@ -394,13 +471,15 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
         events[count] = routed.event;
         events[count].sample_offset = 0;
         ++count;
-        // Captured where it was heard: at the start of this block, which is
-        // where the instrument is told to sound it. A full capture ring loses
-        // the note from the take, never from the speakers.
+        // Captured where it was played: against what the performer heard as
+        // this block began, which the speakers sounded the output latency
+        // after the callback rendered it (capture_sample). A full capture
+        // ring loses the note from the take, never from the speakers.
         // The tick is stamped here, with the clock this block is played
         // under: a recompile published later must not re-read it.
         if (capture)
-            (void)captured_.push({routed.track, song_position, capture_tick, events[count - 1]});
+            (void)captured_.push(
+                {routed.track, capture_sample, capture_tick, events[count - 1]});
     }
     while (from_timeline && track.cursor < timeline.size() &&
            timeline[track.cursor].sample < end) {
@@ -480,7 +559,10 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
                                            incoming_);
     const bool capture = from_timeline && recording_.load(std::memory_order_acquire);
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
-    const Tick capture_tick = capture ? tick_at_sample(arranged.clock, song_position) : 0;
+    // What the performer heard as this block began: the song, the output
+    // latency ago (decision 10 compensates every path to it).
+    const std::uint64_t capture_sample = capture ? heard_position(song_position) : 0;
+    const Tick capture_tick = capture ? tick_at_sample(arranged.clock, capture_sample) : 0;
     // Where the song is for every processor this chunk: a tempo-synced effect
     // follows the tempo map from here (plan C20).
     const TransportInfo transport = transport_at(arranged, song_position, from_timeline);
@@ -495,7 +577,7 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         // 1. Events: owed releases, live, routed input, then the timeline.
         const auto count =
             collect_events(track, index, song_position, end, from_timeline, capture,
-                           capture_tick);
+                           capture_sample, capture_tick);
         // 2. The track's buffer starts silent, with or without an instrument,
         // because the stages after the instrument's still add to it.
         const std::span<float> left{track.left.data(), frames};
@@ -582,6 +664,9 @@ void SongEngine::process(StereoBlock output) noexcept {
                            output.right.subspan(idle, frames)}, resting, false);
             idle += frames;
         }
+        // Stopped, the listener hears the song where the playhead rests.
+        if (live_ != nullptr && song_samples_ > 0)
+            heard_tick_.store(tick_at_sample(live_->clock, resting), std::memory_order_release);
         return;
     }
     std::size_t rendered = 0;
@@ -605,6 +690,11 @@ void SongEngine::process(StereoBlock output) noexcept {
         continuous_from_ = song_position + frames;
     }
     published_position_.store(sample_position_, std::memory_order_release);
+    // What the listener hears now, read with the clock this block was played
+    // under, for a take that ends before the next block (heard_tick()).
+    if (live_ != nullptr)
+        heard_tick_.store(tick_at_sample(live_->clock, heard_position(sample_position_)),
+                          std::memory_order_release);
 }
 
 } // namespace blokkily

@@ -160,6 +160,11 @@ void SoundFontSynth::process(StereoBlock audio,
     render(audio.left.size());
 }
 
+void SoundFontSynth::reset() {
+    if (synth_) fluid_synth_all_sounds_off(synth_.get(), -1);
+    channel_key_.fill(-1);
+}
+
 std::vector<std::byte> SoundFontSynth::save_state() {
     const std::string value = path_.string() + '\n' + std::to_string(bank_) + '\n' +
                               std::to_string(program_);

@@ -20,6 +20,13 @@ struct TestAccess {
         playback.clips.test_source = source;
         playback.clips.test_context = context;
     }
+    // Runs `probe` on the render callback at the moment it takes a queued
+    // arrangement, so a test can act exactly there (a recompile from inside
+    // the handoff). nullptr removes it. Before playback.
+    static void set_handoff_probe(SongEngine& engine, void (*probe)(void*), void* context) {
+        engine.handoff_probe_ = probe;
+        engine.handoff_probe_context_ = context;
+    }
     // The capacity of a track's preallocated event scratch.
     [[nodiscard]] static std::size_t event_capacity(const SongEngine& engine,
                                                     std::size_t track) {

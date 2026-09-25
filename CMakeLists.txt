@@ -388,7 +388,8 @@ foreach(blokkily_feature
         audio_input
         output_recording
         clip_warp
-        metronome)
+        metronome
+        wave2_fixes)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

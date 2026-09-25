@@ -98,6 +98,20 @@ protected:
         }
     }
 
+    void clear() noexcept override {
+        for (auto& channel : combs_)
+            for (auto& comb : channel) {
+                std::fill(comb.buffer.begin(), comb.buffer.end(), 0.0F);
+                comb.index = 0;
+                comb.store = 0.0F;
+            }
+        for (auto& channel : allpasses_)
+            for (auto& allpass : channel) {
+                std::fill(allpass.buffer.begin(), allpass.buffer.end(), 0.0F);
+                allpass.index = 0;
+            }
+    }
+
     void update() noexcept override {
         feedback_ = static_cast<float>(room_feedback(value(reverb::size)));
         damp_ = static_cast<float>(value(reverb::damping) * 0.4);

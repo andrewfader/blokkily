@@ -83,6 +83,19 @@ public:
     // one while it runs. False, and nothing loaded, for any other.
     [[nodiscard]] bool update_processor_state(ProcessorAddress where,
                                               std::span<const std::byte> state);
+    // Every address that holds a processor, in graph order: each track's
+    // instrument then its inserts, each return's inserts, the master inserts.
+    // Control thread; what the main thread serves (idle()) walks this.
+    [[nodiscard]] std::vector<ProcessorAddress> processor_addresses() const;
+    // Makes every processor, delay line and compensation forget the signal it
+    // holds (voices, echoes, reverb tails, what is in flight through plugin
+    // delay compensation), keeping parameters and state, so what renders next
+    // starts from silence exactly as a freshly prepared engine would. A bounce
+    // does this before it renders and again after, so the export is the song
+    // from silence and playback resumes clean. Only while the render callback
+    // is not running (a bounce, with the device stopped); it calls each
+    // processor's reset() on this thread and allocates nothing of its own.
+    void reset_processing();
     // The next parameter edit a processor reported, oldest first. Control
     // thread. A full ring drops edits rather than holding up the callback.
     bool take_plugin_edit(PluginEditEvent& edit) noexcept { return edits_.pop(edit); }
@@ -108,8 +121,9 @@ public:
     // playing it, so the song keeps running through the edit.
     //
     // Safe to call from the control thread while audio runs: the callback only
-    // ever reads, the swap is a single pointer store, and neither side
-    // allocates or blocks to make it. Refuses a song whose track list no longer
+    // ever reads, the handoff is one atomic state word naming the slot queued,
+    // the slot rendering and the slot being retired, and neither side
+    // allocates or blocks to make it. A slot named there is never refilled. Refuses a song whose track list no longer
     // matches the prepared graph, because that needs instruments the engine
     // does not hold; the caller rebuilds for those.
     //
@@ -128,6 +142,14 @@ public:
     // The clock of the arrangement last prepared or recompiled: what the
     // control thread converts ticks and samples with. Control thread only.
     [[nodiscard]] const TickClock& published_clock() const noexcept { return published_clock_; }
+    // The song tick the listener hears now: where the render callback's
+    // playhead was after its last block, less the output latency, read with
+    // the clock that block was played under. A recompile published but not
+    // yet taken by the callback does not change it, so a take ended now is
+    // ended where it was heard. Any thread.
+    [[nodiscard]] Tick heard_tick() const noexcept {
+        return heard_tick_.load(std::memory_order_acquire);
+    }
 
     // A note played from the interface rather than from the arrangement. Safe
     // to call while audio runs: the control thread only ever writes, the audio
@@ -153,8 +175,14 @@ public:
     // does not exist or the queue is full.
     bool perform(std::size_t track, const PluginEvent& event) noexcept;
     // While recording, every input event played with the transport running is
-    // captured with the song position it sounded at, for the control thread
-    // to write into the song. What is recorded is what was heard.
+    // captured with the song position it was played against, for the control
+    // thread to write into the song. What is recorded is what was heard: the
+    // performer hears the song output_latency() samples after the callback
+    // renders it, so an event arriving in the block at position P was played
+    // to what sounded at P - output_latency() (wrapping at the loop point),
+    // and is stamped there, sample and tick. Song::record_offset_samples is
+    // not applied: it corrects the audio device's round trip, which a MIDI or
+    // on-screen event never takes.
     void set_recording(bool recording) noexcept {
         recording_.store(recording, std::memory_order_release);
     }
@@ -226,18 +254,22 @@ private:
     using Arrangement = engine::Arrangement;
     using TrackPlayback = engine::TrackPlayback;
     // One compiled arrangement per slot (src/audio/engine/arrangement.hpp).
-    static constexpr std::size_t arrangement_slots = 3;
+    // At most three are named by the handoff at once (queued, rendering,
+    // retiring), so a recompile always finds a fourth to fill.
+    static constexpr std::size_t arrangement_slots = 4;
 
     // `from_timeline` is false when the transport is stopped: the arrangement
     // contributes nothing, but live notes and ringing tails still do.
     void process_chunk(StereoBlock output, std::uint64_t song_position,
                        bool from_timeline) noexcept;
     // Chunk stage 1: gathers what one track plays this chunk into its scratch.
-    // `capture_tick` is the song tick of `song_position` under the clock being
-    // played, stamped on whatever input is captured.
+    // `capture_sample` is where the listener was as the block began (the
+    // output latency before `song_position`) and `capture_tick` its song tick
+    // under the clock being played; both are stamped on captured input.
     std::size_t collect_events(TrackPlayback& track, std::size_t index,
                                std::uint64_t song_position, std::uint64_t end,
-                               bool from_timeline, bool capture, Tick capture_tick) noexcept;
+                               bool from_timeline, bool capture,
+                               std::uint64_t capture_sample, Tick capture_tick) noexcept;
     // Chunk stage 4: moves what a processor reported into the edit ring.
     void drain_edits(PluginInstance& processor, ProcessorAddress where,
                      std::uint64_t song_position, bool from_timeline) noexcept;
@@ -255,6 +287,9 @@ private:
     // Repoints every track's event cursor after a wrap or a seek, so playback
     // costs one step per event instead of a scan of the song per block.
     void seek_cursors(std::uint64_t position) noexcept;
+    // Where the listener is when the callback renders `song_position`: the
+    // output latency earlier, wrapping at the loop point.
+    [[nodiscard]] std::uint64_t heard_position(std::uint64_t song_position) const noexcept;
     // Installs a queued arrangement, if one is waiting, and keeps the playhead
     // on its tick under the new clock unless `seeked` (a seek was taken in
     // this block). Called by the render callback and by nothing else.
@@ -270,11 +305,20 @@ private:
     std::vector<std::unique_ptr<TrackPlayback>> tracks_;
     std::unique_ptr<engine::BusPlayback> buses_;
     std::array<std::unique_ptr<Arrangement>, arrangement_slots> arrangements_;
-    // Handed from the control thread to the render callback, and back again as
-    // the callback reports what it is reading. A slot named by neither is free
-    // for the next recompile to fill.
-    std::atomic<Arrangement*> queued_{nullptr};
-    std::atomic<Arrangement*> rendering_{nullptr};
+    // The handoff between the control thread and the render callback, one
+    // word so that it changes all at once: the slot queued for the callback,
+    // the slot it renders, and the slot it is retiring (still reading while
+    // it moves the playhead onto the queued one). Only a slot named by none
+    // of the three is free for the next recompile to fill. The control thread
+    // only ever sets the queued field; the callback takes queued -> rendering
+    // -> retiring in one step and clears retiring when it is done reading.
+    std::atomic<std::uint32_t> handoff_{0xFFFU};
+    // A test's probe, run by the callback at the very moment it takes a
+    // queued arrangement (engine::TestAccess). Production never sets it.
+    void (*handoff_probe_)(void* context) = nullptr;
+    void* handoff_probe_context_ = nullptr;
+    // Published by the callback after each block (heard_tick()).
+    std::atomic<Tick> heard_tick_{0};
     std::atomic<std::uint64_t> published_song_samples_{0};
     // The clock of the last arrangement handed to the callback. Control thread.
     TickClock published_clock_;

@@ -25,6 +25,10 @@ public:
     bool activate(double sample_rate, std::uint32_t min_frames,
                   std::uint32_t max_frames) override;
     void process(StereoBlock audio, std::span<const PluginEvent> events) noexcept override;
+    // Every voice stops at once and the retuned channels are freed. What
+    // FluidSynth's own reverb and chorus hold is not reachable through its
+    // API and is left to decay.
+    void reset() override;
     std::vector<std::byte> save_state() override;
     bool load_state(std::span<const std::byte> state) override;
     std::string format() const override { return "SoundFont"; }
