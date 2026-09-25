@@ -76,6 +76,36 @@ inline std::int16_t hits8(std::uint64_t frame) {
     return static_cast<std::int16_t>(std::lrint(32000.0 * decay * sign));
 }
 
+// tones8_48k_pcm16.wav (the sampler's slice source, item 1.9): eight hits,
+// one every tones8_spacing frames from frame 0. Hit i is tones8_hit_length
+// frames of a tones8_hz(i) sine at half scale, silence between, so each slice
+// of the loop names itself by its frequency.
+inline constexpr std::uint32_t tones8_rate = 48000;
+inline constexpr std::uint64_t tones8_frames = 48000;
+inline constexpr std::uint64_t tones8_spacing = 6000;
+inline constexpr std::uint64_t tones8_hit_length = 1440;   // 30 ms
+inline constexpr double tones8_hz(std::uint64_t hit) { return 200.0 * static_cast<double>(hit + 1); }
+inline std::int16_t tones8(std::uint64_t frame) {
+    const std::uint64_t hit = frame / tones8_spacing;
+    const std::uint64_t within = frame % tones8_spacing;
+    if (hit >= 8 || within >= tones8_hit_length) return 0;
+    return static_cast<std::int16_t>(std::lrint(
+        16383.0 * std::sin(two_pi * tones8_hz(hit) * static_cast<double>(within) / tones8_rate)));
+}
+
+// loop480_48k_pcm16.wav: 480 Hz (exactly 100 frames a cycle) at half scale,
+// with a `smpl` chunk naming unity note 71 and a forward loop over a whole
+// number of cycles, frames 1200..3199 inclusive, so the loop seam is smooth.
+inline constexpr std::uint32_t loop480_rate = 48000;
+inline constexpr std::uint64_t loop480_frames = 4800;
+inline constexpr int loop480_root_key = 71;
+inline constexpr std::uint32_t loop480_loop_first = 1200;
+inline constexpr std::uint32_t loop480_loop_last = 3199;
+inline std::int16_t loop480(std::uint64_t frame) {
+    return static_cast<std::int16_t>(
+        std::lrint(16383.0 * std::sin(two_pi * static_cast<double>(frame % 100) / 100.0)));
+}
+
 // truncated_data.wav: a PCM16 mono header promising sine1k_frames frames,
 // followed by only this many.
 inline constexpr std::uint64_t truncated_frames_present = 1000;

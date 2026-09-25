@@ -24,6 +24,8 @@ if(BLOKKILY_BUILD_TESTS)
         extensible_float_48k_stereo.wav
         smpl_loop_44k1_pcm16.wav
         hits8_48k_pcm16.wav
+        tones8_48k_pcm16.wav
+        loop480_48k_pcm16.wav
         truncated_data.wav
         truncated_header.wav
         empty.wav
