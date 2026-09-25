@@ -148,6 +148,9 @@ blokkily::Pattern& PatternModel::pattern() { return song_->editPattern(); }
 const blokkily::Pattern& PatternModel::pattern() const { return song_->editPattern(); }
 
 void PatternModel::refresh() {
+    // A shorter pattern, or another one opened, keeps the cursor on a step
+    // that exists.
+    if (selected_step_ >= stepCount()) selected_step_ = stepCount() - 1;
     beginResetModel();
     endResetModel();
     emit patternChanged();
@@ -194,8 +197,8 @@ const blokkily::Trigger* PatternModel::triggerAt(int step) const {
 // editors can never disagree about what a step contains.
 QVariantList PatternModel::steps() const {
     QVariantList rows;
-    rows.reserve(step_count);
-    for (int step = 0; step < step_count; ++step) {
+    rows.reserve(stepCount());
+    for (int step = 0; step < stepCount(); ++step) {
         const auto* trigger = triggerAt(step);
         QVariantMap row;
         row["active"] = trigger != nullptr;
@@ -325,6 +328,11 @@ int PatternModel::highKey() const {
     return qBound(lowKey() + minimum_roll_span, highest + 4, 127);
 }
 
+int PatternModel::stepCount() const {
+    const auto length = pattern().length();
+    return std::max(1, static_cast<int>((length + ticks_per_step - 1) / ticks_per_step));
+}
+
 bool PatternModel::hasStep(int step) const { return triggerAt(step) != nullptr; }
 
 int PatternModel::stepDuration(int step) const {
@@ -340,12 +348,12 @@ int PatternModel::stepKey(int step) const {
 void PatternModel::selectStep(int step) {
     // Selection is not an edit: the arrangement still plays what it played, so
     // nothing here may reach the engine and interrupt it.
-    selected_step_ = qBound(-1, step, step_count - 1);
+    selected_step_ = qBound(-1, step, stepCount() - 1);
     emit selectionChanged();
 }
 
 void PatternModel::toggleStep(int step, int key) {
-    if (step < 0 || step >= step_count) return;
+    if (step < 0 || step >= stepCount()) return;
     song_->checkpoint();
     if (const auto* existing = triggerAt(step)) {
         const auto id = existing->id;
@@ -375,7 +383,7 @@ void PatternModel::toggleStep(int step, int key) {
 // so the tracker's note column and the piano roll's lanes both come through
 // here rather than each growing an editing path of its own.
 void PatternModel::setStepKey(int step, int key) {
-    if (step < 0 || step >= step_count) return;
+    if (step < 0 || step >= stepCount()) return;
     const int bounded = qBound(0, key, 127);
     // A pitch written in the roll or the tracker is a twelve-tone key, which in
     // a tuning that is not twelve-tone still means the key the instrument is
@@ -427,7 +435,7 @@ void PatternModel::setStepVelocity(int step, double velocity) {
 }
 
 void PatternModel::relocateStep(int from, int to, int semitones) {
-    if (from < 0 || from >= step_count || to < 0 || to >= step_count) return;
+    if (from < 0 || from >= stepCount() || to < 0 || to >= stepCount()) return;
     const auto* existing = triggerAt(from);
     if (existing == nullptr) return;
     if (from == to && semitones == 0) return;
@@ -462,7 +470,7 @@ void PatternModel::copySelected() {
 }
 
 bool PatternModel::pasteSelected() {
-    if (!has_clipboard_ || selected_step_ < 0 || selected_step_ >= step_count) return false;
+    if (!has_clipboard_ || selected_step_ < 0 || selected_step_ >= stepCount()) return false;
     if (!clipboard_) {
         if (triggerAt(selected_step_) == nullptr) return true;
         clearStep(selected_step_);
@@ -482,7 +490,7 @@ bool PatternModel::pasteSelected() {
 }
 
 bool PatternModel::duplicateSelected() {
-    if (selected_step_ < 0 || selected_step_ >= step_count - 1) return false;
+    if (selected_step_ < 0 || selected_step_ >= stepCount() - 1) return false;
     if (triggerAt(selected_step_) == nullptr) return false;
     copySelected();
     selectStep(selected_step_ + 1);
@@ -490,9 +498,9 @@ bool PatternModel::duplicateSelected() {
 }
 
 bool PatternModel::insertStep(int step) {
-    if (step < 0 || step >= step_count) return false;
-    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(step_count));
-    for (int index = 0; index < step_count; ++index)
+    if (step < 0 || step >= stepCount()) return false;
+    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(stepCount()));
+    for (int index = 0; index < stepCount(); ++index)
         if (const auto* existing = triggerAt(index))
             held[static_cast<std::size_t>(index)] = *existing;
 
@@ -511,7 +519,7 @@ bool PatternModel::insertStep(int step) {
         (void)pattern().add(kept);
     }
     // Rows at and after the cursor move down one; the last row falls off.
-    for (int index = step; index < step_count - 1; ++index) {
+    for (int index = step; index < stepCount() - 1; ++index) {
         if (!held[static_cast<std::size_t>(index)]) continue;
         auto moved = *held[static_cast<std::size_t>(index)];
         moved.start = (index + 1) * ticks_per_step;
@@ -526,9 +534,9 @@ bool PatternModel::insertStep(int step) {
 }
 
 bool PatternModel::deleteAndShift(int step) {
-    if (step < 0 || step >= step_count) return false;
-    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(step_count));
-    for (int index = 0; index < step_count; ++index)
+    if (step < 0 || step >= stepCount()) return false;
+    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(stepCount()));
+    for (int index = 0; index < stepCount(); ++index)
         if (const auto* existing = triggerAt(index))
             held[static_cast<std::size_t>(index)] = *existing;
 
@@ -547,7 +555,7 @@ bool PatternModel::deleteAndShift(int step) {
         (void)pattern().add(kept);
     }
     // Later rows pull up into the hole; the last row becomes empty.
-    for (int index = step + 1; index < step_count; ++index) {
+    for (int index = step + 1; index < stepCount(); ++index) {
         if (!held[static_cast<std::size_t>(index)]) continue;
         auto moved = *held[static_cast<std::size_t>(index)];
         moved.start = (index - 1) * ticks_per_step;
@@ -587,7 +595,7 @@ blokkily::Trigger played_trigger(int step, blokkily::Tick ticks_per_step) {
 } // namespace
 
 void PatternModel::placeNote(int step, const blokkily::Note& note) {
-    if (step < 0 || step >= step_count) return;
+    if (step < 0 || step >= stepCount()) return;
     auto trigger = played_trigger(step, ticks_per_step);
     trigger.musical_data = note;
     if (const auto* existing = triggerAt(step);
@@ -625,7 +633,7 @@ void PatternModel::notifyRecorded() {
 }
 
 void PatternModel::placeChord(int step, const blokkily::Chord& chord) {
-    if (step < 0 || step >= step_count) return;
+    if (step < 0 || step >= stepCount()) return;
     auto trigger = played_trigger(step, ticks_per_step);
     trigger.musical_data = chord;
     song_->checkpoint();

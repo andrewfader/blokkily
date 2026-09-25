@@ -170,7 +170,7 @@ void run_midi(VerifyContext& ctx) {
         return played;
     };
     const auto empty_step = [&pattern](int from) {
-        for (int step = from; step < PatternModel::step_count; ++step)
+        for (int step = from; step < pattern.stepCount(); ++step)
             if (!pattern.hasStep(step)) return step;
         return -1;
     };

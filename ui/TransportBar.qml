@@ -133,7 +133,30 @@ ToolBar {
             }
         }
 
-        Label { text: "4 / 4"; color: Theme.muted; font.pixelSize: 12 }
+        // The meter of the bar the playhead is in, read from the song's
+        // meter map; a click offers that bar the other meters.
+        Rectangle {
+            objectName: "meterBox"
+            Layout.preferredWidth: 58; Layout.preferredHeight: 30; radius: 4
+            color: meterMouse.containsMouse ? Theme.raised : "transparent"
+            border.color: Theme.line
+            Label {
+                objectName: "meterReadout"
+                anchors.centerIn: parent
+                text: transport.meter.replace("/", " / ")
+                color: Theme.ink; font.family: "monospace"; font.pixelSize: 12; font.bold: true
+            }
+            MouseArea {
+                id: meterMouse
+                anchors.fill: parent; hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    transportMeterMenu.bar = transport.bar
+                    transportMeterMenu.popup(parent, 0, parent.height)
+                }
+            }
+            MeterMenu { id: transportMeterMenu; objectName: "transportMeterMenu" }
+        }
 
         Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: Theme.line }
         Chip { objectName: "undoButton"; text: "UNDO"; enabled: songModel.canUndo

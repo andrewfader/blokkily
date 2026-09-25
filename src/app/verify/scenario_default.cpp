@@ -112,7 +112,7 @@ struct DefaultScenario {
                 const int high = pattern.highKey();
                 const int lanes = std::max(1, high - pattern.lowKey() + 1);
                 const double lane_height = roll->height() / lanes;
-                const double lane_width = roll->width() / PatternModel::step_count;
+                const double lane_width = roll->width() / pattern.stepCount();
                 const int wanted_key = high - 3;
                 const QPointF spot((3 + 0.5) * lane_width,
                                    (high - wanted_key + 0.5) * lane_height);
@@ -1104,7 +1104,7 @@ struct DefaultScenario {
             auto* roll = named("rollInput");
             valid = valid && roll != nullptr;
             if (roll != nullptr) {
-                const double lane_width = roll->width() / PatternModel::step_count;
+                const double lane_width = roll->width() / pattern.stepCount();
                 const double lane_height =
                     roll->height() / std::max(1, pattern.highKey() - pattern.lowKey() + 1);
                 const QPointF from((1 + 0.5) * lane_width, 3.5 * lane_height);
@@ -1128,7 +1128,7 @@ struct DefaultScenario {
             valid = valid && roll != nullptr && roll_head != nullptr;
             if (roll != nullptr && roll_head != nullptr) {
                 transport.locate(16.0 + 4.0);
-                const double lane_width = roll->width() / PatternModel::step_count;
+                const double lane_width = roll->width() / pattern.stepCount();
                 valid = valid && std::abs(roll_head->x() - (roll->x() + 4.0 * lane_width)) < 1.0;
                 transport.locate(6.0);
             }

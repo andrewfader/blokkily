@@ -177,10 +177,12 @@ void SongModel::addTrack(const blokkily::InstrumentSlot& instrument) {
     notifyStructureChanged();
 }
 
-void SongModel::addPattern() {
+void SongModel::addPattern(int bar) {
     checkpoint();
+    // As long as the bar it is made for, so it fills that bar exactly.
+    const auto length = std::max<blokkily::Tick>(1, barTicks(std::max(0, bar)));
     song_.patterns.push_back({QString("PATTERN %1").arg(song_.patterns.size() + 1).toStdString(),
-                              blokkily::Pattern(1920, 480)});
+                              blokkily::Pattern(length, 480)});
     current_pattern_ = static_cast<int>(song_.patterns.size()) - 1;
     notifyStructureChanged();
 }

@@ -30,6 +30,17 @@ QString Transport::position() const {
     return QString("%1.%2.%3").arg(where.bar + 1).arg(where.beat + 1).arg(where.sixteenth + 1);
 }
 
+QString Transport::meterText() const {
+    const auto& change = meter_.meter_in(meter_.bar_at(whole_tick()));
+    return QString("%1/%2").arg(change.numerator).arg(change.denominator);
+}
+
+double Transport::barStepFraction() const {
+    const auto start = meter_.bar_start(meter_.bar_at(whole_tick()));
+    return std::max(0.0, tick_ - static_cast<double>(start)) /
+           static_cast<double>(ticks_per_step);
+}
+
 double Transport::wrapTick() const {
     return static_cast<double>(meter_.bar_start(std::max(1, bars_)));
 }

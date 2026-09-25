@@ -145,6 +145,12 @@ public:
     // step is 120 ticks), so a Ctrl-click on the step grid jumps into that
     // column of the bar the song is already in.
     Q_INVOKABLE void seekToStep(double step);
+    // Locates both playheads on step `step` of the open pattern where it is
+    // playing now: the pass of the selected track's clip of that pattern under
+    // the playhead, or the bar the playhead is in when no such clip is there.
+    // This is what a Ctrl-click on the step grid means in any meter and for a
+    // pattern of any length.
+    Q_INVOKABLE void seekToPatternStep(int step);
     // Locates both playheads on a tick of the song. The engine is sent to the
     // sample the song's tempo map places that tick at.
     void seekToTick(double tick);

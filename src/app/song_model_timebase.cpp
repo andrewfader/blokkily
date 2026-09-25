@@ -42,6 +42,33 @@ QVariantList SongModel::barLayout() const {
     return layout;
 }
 
+QVariantList SongModel::tempoPoints() const {
+    QVariantList points;
+    for (const auto& point : song_.tempo.points) {
+        QVariantMap entry;
+        entry["at"] = static_cast<qint64>(point.at);
+        entry["bpm"] = point.bpm;
+        entry["ramp"] = point.ramp;
+        entry["bar"] = barAt(point.at);
+        points.push_back(entry);
+    }
+    return points;
+}
+
+bool SongModel::setPatternSteps(int steps) {
+    if (steps < 1 || steps > 64) return false;
+    auto& pattern = editPattern();
+    const auto length = static_cast<blokkily::Tick>(steps) * 120;
+    if (pattern.length() == length) return true;
+    // Clicks on the length spinner arrive one by one; each is its own step.
+    checkpoint();
+    pattern = pattern.with_length(length);
+    // The clips that play this pattern are now a different length, so the
+    // arrangement is recompiled.
+    notifyStructureChanged();
+    return true;
+}
+
 namespace {
 bool tick_in_range(double tick) {
     return std::isfinite(tick) && tick >= 0.0 &&
@@ -81,6 +108,11 @@ bool SongModel::setTempoPoint(double atTick, double bpm, bool ramp) {
     emit timebaseChanged();
     notifyStructureChanged();
     return true;
+}
+
+double SongModel::bpmAt(double atTick) const {
+    if (!tick_in_range(atTick)) return song_.tempo.bpm_at(0);
+    return song_.tempo.bpm_at(static_cast<blokkily::Tick>(atTick));
 }
 
 bool SongModel::removeTempoPoint(double atTick) {

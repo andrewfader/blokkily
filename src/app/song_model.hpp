@@ -36,6 +36,9 @@ class SongModel final : public QObject {
     // shown song, from 0 to 1. Clips, the ruler and automation lanes take
     // their geometry from here, so a 7/8 bar is drawn 7/8 as wide as a 4/4 one.
     Q_PROPERTY(QVariantList barLayout READ barLayout NOTIFY songChanged)
+    // The tempo lane: every point of the tempo map, {at, bpm, ramp}, in tick
+    // order. The first is always at tick 0.
+    Q_PROPERTY(QVariantList tempoPoints READ tempoPoints NOTIFY songChanged)
     Q_PROPERTY(double masterGainDb READ masterGainDb NOTIFY mixChanged)
     Q_PROPERTY(double masterPeak READ masterPeak NOTIFY metersChanged)
     // Each track's meter, as the fraction of its bar to light. Kept apart from
@@ -76,6 +79,7 @@ public:
     int selectedTrack() const noexcept { return selected_track_; }
     int bars() const;
     QVariantList barLayout() const;
+    QVariantList tempoPoints() const;
     // Where bar `bar` starts, and how long it is, in song ticks.
     [[nodiscard]] blokkily::Tick barStart(int bar) const;
     [[nodiscard]] blokkily::Tick barTicks(int bar) const;
@@ -102,7 +106,12 @@ public:
     // A new track that arrives already carrying an instrument, as one edit and
     // one rebuild of the audio graph rather than two.
     void addTrack(const blokkily::InstrumentSlot& instrument);
-    Q_INVOKABLE void addPattern();
+    // A new pattern as long as bar `bar` of the song (the first bar when none
+    // is given), so a pattern made in a 7/8 bar has fourteen steps.
+    Q_INVOKABLE void addPattern(int bar = -1);
+    // Makes the open pattern `steps` sixteenths long (1 to 64). Steps past the
+    // new end are dropped; one step of history.
+    Q_INVOKABLE bool setPatternSteps(int steps);
     // Pattern and track housekeeping. A copy of the open pattern is how a
     // variation is started; a name is how a lane is found again.
     Q_INVOKABLE void duplicatePattern();
@@ -150,6 +159,8 @@ public:
     // the next point.
     Q_INVOKABLE bool setTempoPoint(double atTick, double bpm, bool ramp = false);
     Q_INVOKABLE bool removeTempoPoint(double atTick);
+    // The tempo sounding at a tick of the song, ramps included.
+    Q_INVOKABLE double bpmAt(double atTick) const;
     // Makes num/den take effect from `bar`. Clips and tempo points keep their
     // bar numbers (decision 9).
     Q_INVOKABLE bool setMeter(int bar, int numerator, int denominator);

@@ -72,7 +72,7 @@ void run_chords(VerifyContext& ctx) {
     // An empty step with an empty step after it, so nothing else sounds
     // while the chord is measured from its start.
     int step = -1;
-    for (int candidate = 2; candidate + 1 < PatternModel::step_count; ++candidate)
+    for (int candidate = 2; candidate + 1 < pattern.stepCount(); ++candidate)
         if (!pattern.hasStep(candidate) && !pattern.hasStep(candidate + 1)) {
             step = candidate;
             break;

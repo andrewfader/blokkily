@@ -4,9 +4,21 @@ import QtQuick.Layouts
 
 // The song timeline: one lane per mixer track, one cell per bar.
 // Clicking a cell places the pattern that is currently open, so
-// arranging and editing are the same two clicks.
+// arranging and editing are the same two clicks. Each bar is drawn as
+// wide as it lasts (a 7/8 bar is 7/8 of a 4/4 one), from the song's bar
+// layout, so the ruler, the clips and the tempo lane line up.
 ColumnLayout {
     id: root
+    // The gap between two bar cells, and the width a bar of the song gets:
+    // its share of the room the lanes have once the gaps are taken out.
+    readonly property real barGap: 2
+    readonly property real laneRoom: Math.max(1, arrangementRows.width - 64 - barGap
+                                              - Math.max(0, songModel.bars - 1) * barGap)
+    function barWidth(bar) {
+        var entry = songModel.barLayout[bar]
+        if (entry === undefined) return 1
+        return Math.max(1, (entry.x1 - entry.x0) * laneRoom)
+    }
     // Where the keyboard goes back to after a click on the timeline.
     property Item focusHome: null
     // Naming and the context menus belong to the window, which owns them.
@@ -37,8 +49,9 @@ ColumnLayout {
                 }
             }
         }
+        // A new pattern is as long as the bar the playhead is in.
         Chip { objectName: "addPatternButton"; text: "+PAT"; accent: Theme.blue
-            onClicked: songModel.addPattern() }
+            onClicked: songModel.addPattern(transport.bar) }
         // A variation starts as a copy of what is open.
         Chip { objectName: "duplicatePatternButton"; text: "DUP"; accent: Theme.blue
             onClicked: songModel.duplicatePattern() }
@@ -52,7 +65,7 @@ ColumnLayout {
         // One lane per track plus the frame, so the timeline
         // takes only the room it needs and the editors keep
         // the rest of the window.
-        Layout.preferredHeight: 28 + Math.max(1, songModel.trackCount) * 24
+        Layout.preferredHeight: 28 + 42 + Math.max(1, songModel.trackCount) * 24
         radius: 6; color: Theme.panel; border.color: Theme.line; clip: true
 
         ColumnLayout {
@@ -73,27 +86,81 @@ ColumnLayout {
                     Rectangle {
                         id: rulerCell
                         required property int index
+                        readonly property var entry: songModel.barLayout[index]
+                        // A bar whose meter differs from the one before it
+                        // says so; the rest only carry their number.
+                        readonly property bool meterChanges: entry !== undefined && (index === 0
+                            || songModel.barLayout[index - 1] === undefined
+                            || songModel.barLayout[index - 1].numerator !== entry.numerator
+                            || songModel.barLayout[index - 1].denominator !== entry.denominator)
                         objectName: "rulerBar" + index
-                        Layout.fillWidth: true
+                        Layout.preferredWidth: root.barWidth(index)
                         Layout.preferredHeight: 14
                         radius: 2
                         color: transport.bar === index ? Theme.acid : "transparent"
                         Label {
-                            anchors.centerIn: parent
+                            anchors.left: parent.left; anchors.leftMargin: 3
+                            anchors.verticalCenter: parent.verticalCenter
                             text: (rulerCell.index + 1).toString()
                             color: transport.bar === rulerCell.index ? "#0e0f12" : Theme.muted
                             font.pixelSize: 9; font.bold: true
                             font.family: "monospace"
                         }
+                        Label {
+                            objectName: "rulerMeter" + rulerCell.index
+                            visible: rulerCell.meterChanges && rulerCell.width > 40
+                            anchors.right: parent.right; anchors.rightMargin: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: rulerCell.entry !== undefined
+                                  ? rulerCell.entry.numerator + "/" + rulerCell.entry.denominator : ""
+                            color: transport.bar === rulerCell.index ? "#0e0f12" : Theme.amber
+                            font.pixelSize: 9; font.bold: true
+                            font.family: "monospace"
+                        }
+                        // A click puts the playhead on the bar; the right
+                        // button offers the meters the bar can take.
                         MouseArea {
                             anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                            onClicked: function(mouse) {
                                 root.focusHome.forceActiveFocus()
+                                if (mouse.button === Qt.RightButton) {
+                                    meterMenu.bar = rulerCell.index
+                                    meterMenu.popup(rulerCell, 0, rulerCell.height)
+                                    return
+                                }
                                 appController.seekToBar(rulerCell.index)
                             }
                         }
                     }
+                }
+            }
+
+            // The tempo map, over the same bars as the ruler.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
+                spacing: 2
+                Rectangle {
+                    Layout.preferredWidth: 64; Layout.preferredHeight: 40
+                    radius: 3; color: "transparent"; border.color: Theme.line
+                    Column {
+                        anchors.centerIn: parent
+                        Label { anchors.horizontalCenter: parent.horizontalCenter
+                            text: "TEMPO"; color: Theme.muted
+                            font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.6 }
+                        Label { anchors.horizontalCenter: parent.horizontalCenter
+                            objectName: "laneTempoReadout"
+                            text: transport.bpm.toFixed(1); color: Theme.amber
+                            font.pixelSize: 10; font.bold: true; font.family: "monospace" }
+                    }
+                }
+                TempoLane {
+                    objectName: "tempoLane"
+                    Layout.preferredWidth: root.laneRoom + Math.max(0, songModel.bars - 1) * root.barGap
+                    Layout.preferredHeight: 40
+                    spacing: root.barGap
                 }
             }
 
@@ -151,7 +218,7 @@ ColumnLayout {
                                 songModel.lanes[trackIndex] !== undefined
                                 ? songModel.lanes[trackIndex][index] : undefined
                             property bool filled: cell !== undefined && cell.filled
-                            Layout.fillWidth: true
+                            Layout.preferredWidth: root.barWidth(index)
                             Layout.preferredHeight: 22
                             radius: 3
                             readonly property bool atPlayhead: transport.bar === index
@@ -244,5 +311,10 @@ ColumnLayout {
                 }
             }
         }
+    }
+
+    MeterMenu {
+        id: meterMenu
+        objectName: "meterMenu"
     }
 }

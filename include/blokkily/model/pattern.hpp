@@ -21,6 +21,11 @@ public:
     [[nodiscard]] std::span<const Trigger> events() const noexcept { return events_; }
     [[nodiscard]] Tick length() const noexcept { return length_; }
     [[nodiscard]] Tick ticks_per_beat() const noexcept { return ticks_per_beat_; }
+    // The same pattern made `length` ticks long. Every trigger that still
+    // starts inside it keeps its identifier and everything it carries; a
+    // trigger that no longer fits is dropped. Identifiers are never handed out
+    // again, so a reference to a dropped trigger cannot come to mean another.
+    [[nodiscard]] Pattern with_length(Tick length) const;
 
 private:
     void validate(const Trigger& event) const;
