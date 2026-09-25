@@ -32,7 +32,11 @@ public:
     // named patterns, mixer tracks that own their instrument, and clips.
     // 4 added the song's tuning and scale, and the retune each note and each
     // chord voice carries away from its twelve-tone key.
-    static constexpr int format_version = 4;
+    // 5 changed no record: from here on every feature adds records of its own
+    // (src/project/records_<feature>.cpp), and a file without them loads with
+    // that feature's defaults. Format 4 files therefore still load unchanged.
+    static constexpr int format_version = 5;
+    static constexpr int oldest_readable_version = 4;
 
     [[nodiscard]] static bool save(const Project& project,
                                    const std::filesystem::path& file,
@@ -41,9 +45,15 @@ public:
                                                      std::string* error = nullptr);
 
     // Exposed so that the round-trip can be tested without touching a disk.
-    [[nodiscard]] static std::string serialize(const Project& project);
+    // `base_dir` is the directory the project file lives in (save and load pass
+    // the file's own directory); records that name files write them relative
+    // to it when they lie inside it, and resolve them against it when read.
+    // See blokkily/project/paths.hpp.
+    [[nodiscard]] static std::string serialize(const Project& project,
+                                               const std::filesystem::path& base_dir = {});
     [[nodiscard]] static std::optional<Project> parse(const std::string& text,
-                                                      std::string* error = nullptr);
+                                                      std::string* error = nullptr,
+                                                      const std::filesystem::path& base_dir = {});
 };
 
 } // namespace blokkily

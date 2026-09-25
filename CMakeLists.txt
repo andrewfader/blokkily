@@ -36,6 +36,9 @@ add_library(blokkily_core
     src/model/scale.cpp
     src/model/keyboard.cpp
     src/project/project.cpp
+    src/project/paths.cpp
+    src/project/record_io.cpp
+    src/project/records_core.cpp
     src/plugins/clap_catalog.cpp
     src/plugins/clap_instance.cpp
     src/plugins/plugin_scan.cpp
@@ -149,6 +152,15 @@ if(BLOKKILY_BUILD_TESTS)
     set_tests_properties(blokkily_core PROPERTIES
         LABELS "unit;integration;soundfont;clap;vst3;audio;realtime;project;parameters;mixer;song;export"
         ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
+
+    # The project file policy (plan F-F): old formats open, saves are stable,
+    # and paths inside the project folder are stored relative to it.
+    add_executable(blokkily_project_format_tests tests/project_format_tests.cpp)
+    target_link_libraries(blokkily_project_format_tests PRIVATE blokkily_core)
+    add_test(NAME project_format COMMAND blokkily_project_format_tests)
+    set_tests_properties(project_format PROPERTIES
+        LABELS "unit;bdd;project"
+        ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 30)
 
     add_executable(blokkily_audio_regressions tests/audio_regressions.cpp)
     target_link_libraries(blokkily_audio_regressions PRIVATE blokkily_core)
