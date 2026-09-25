@@ -17,7 +17,10 @@ ColumnLayout {
     }
 
     SectionLabel { text: "DEVICES" }
+    // A sampler's panel names its track itself, so it takes this box's place
+    // and the browser below keeps room to be used.
     Rectangle {
+        visible: appController.sampler.active !== true
         Layout.fillWidth: true; implicitHeight: 56; radius: 6
         color: Theme.panel; border.color: Theme.acid
         RowLayout {
@@ -53,6 +56,8 @@ ColumnLayout {
             }
         }
     }
+
+    SamplerPanel { Layout.fillWidth: true; visible: appController.sampler.active === true }
 
     SectionLabel { text: "MIDI IN" }
     // The keyboard being played, and what it last sent. The light
@@ -236,6 +241,7 @@ ColumnLayout {
         delegate: Rectangle {
             required property var modelData
             required property int index
+            objectName: "pluginRow" + index
             width: ListView.view.width; height: 40; radius: 5
             color: ListView.isCurrentItem || rowMouse.containsMouse ? Theme.raised : Theme.panel
             border.color: ListView.isCurrentItem ? Theme.acid : Theme.line
@@ -255,7 +261,8 @@ ColumnLayout {
                     Layout.preferredWidth: 38; Layout.preferredHeight: 16; radius: 3
                     color: modelData.format === "CLAP" ? Theme.acid
                          : modelData.format === "VST3" ? Theme.blue : Theme.amber
-                    Label { anchors.centerIn: parent; text: modelData.format
+                    Label { anchors.centerIn: parent
+                        text: modelData.format === "Sampler" ? "SMP" : modelData.format
                         color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
                         font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
                 }

@@ -234,6 +234,9 @@ void AppController::completeCandidate(bool ok, const QString& failure,
 void AppController::finishScan() {
     scanning_ = false;
     saveScanCache();
+    // What the application plays itself follows what was found installed.
+    appendInternalInstruments();
+    emit pluginsChanged();
     int clap = 0;
     int vst3 = 0;
     int soundfonts = 0;
@@ -241,7 +244,7 @@ void AppController::finishScan() {
         const auto format = entry.toMap().value("format").toString();
         if (format == "CLAP") ++clap;
         else if (format == "VST3") ++vst3;
-        else ++soundfonts;
+        else if (format == "SF") ++soundfonts;
     }
     status_ = QString("Scan: %1 CLAP, %2 VST3, %3 SoundFont, %4 failure%5")
                   .arg(clap).arg(vst3).arg(soundfonts).arg(scan_failures_)
@@ -271,6 +274,7 @@ void AppController::scanPluginPaths(
     for (const auto& soundfont : soundfonts)
         plugins_.push_back(plugin_entry("SF", soundfont.stem().string(),
                                         soundfont.parent_path().string(), soundfont.string()));
+    appendInternalInstruments();
     soundfont_status_ = QString("%1 installed SoundFont%2")
                             .arg(soundfonts.size()).arg(soundfonts.size() == 1 ? "" : "s");
     status_ = QString("Scan: %1 CLAP, %2 VST3, %3 SoundFont, %4 failure%5")
@@ -280,6 +284,19 @@ void AppController::scanPluginPaths(
     emit pluginsChanged();
     emit soundfontStatusChanged();
     emit statusChanged();
+}
+
+void AppController::appendInternalInstruments() {
+    // The processors the application provides itself come from the factory's
+    // registry, so a browser entry and the processor it creates cannot drift
+    // apart, and no scan is needed to find them.
+    for (const auto& entry : blokkily::internal_catalog()) {
+        if (entry.kind != "instrument") continue;
+        auto fields = plugin_entry(QString::fromStdString(entry.slot.format), entry.name,
+                                   "Blokkily built-in", entry.slot.path, entry.slot.identifier);
+        fields.insert("kind", QString::fromStdString(entry.kind));
+        plugins_.push_back(fields);
+    }
 }
 
 bool AppController::scanClapFile(const QString& path) {

@@ -106,6 +106,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         QObject::connect(song_, &SongModel::songChanged, this, follow);
         QObject::connect(song_, &SongModel::tuningChanged, this, follow);
         follow();
+        connectSampler();
     }
     refreshMidiPorts();
     // A held note is let go on a timer rather than on a second press, so a
@@ -215,6 +216,7 @@ blokkily::ProcessorContext AppController::processorContext() const {
     blokkily::ProcessorContext context;
     if (!project_path_.isEmpty())
         context.project_dir = std::filesystem::path(project_path_.toStdString()).parent_path();
+    context.assets = assets_.get();
     return context;
 }
 
@@ -943,6 +945,9 @@ bool AppController::verifyBounce(const QString& path) {
 bool AppController::saveProject(const QString& path) {
     if (song_ == nullptr) return false;
     auto& song = song_->song();
+    // Samples inside the folder the project is going to are named relative to
+    // it, wherever the session was saved before.
+    rebaseSamplers(std::filesystem::path(path.toStdString()).parent_path());
     // Ask every live instrument what it wants persisted before writing.
     if (engine_)
         for (std::size_t track = 0; track < song.tracks.size(); ++track)
@@ -985,9 +990,11 @@ bool AppController::loadProject(const QString& path) {
     engine_.reset();
     const auto tracks = project->song.tracks.size();
     const auto patterns = project->song.patterns.size();
+    // The project's folder is known before its instruments are created, so a
+    // sample named relative to it is found by the first engine built for it.
+    project_path_ = path;
     song_->replace(std::move(project->song));
     if (pattern_ != nullptr) pattern_->refresh();
-    project_path_ = path;
     song_->markSaved();
     project_status_ = QString("Restored from disk");
     project_detail_ = QString("%1 pattern%2 · %3 track%4")

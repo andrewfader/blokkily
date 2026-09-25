@@ -211,8 +211,11 @@ nothing in the interface pretends otherwise:
 - MIDI input reads notes only. Pitch bend, mod wheel, sustain pedal, other
   controllers and MIDI clock are ignored, and every channel plays the selected
   track.
-- No audio clips and no sampler. A pattern holds notes, chords, and parameter
-  locks; it cannot hold recorded or imported audio.
+- No audio clips. A pattern holds notes, chords, and parameter locks; it
+  cannot hold recorded or imported audio. The built-in Sampler and Drum
+  Sampler play audio files as instruments, but a sample is loaded one file at
+  a time from the panel: there is no multi-sample import, no velocity-layer
+  editor and no waveform view.
 - No effects. A mixer track has gain, pan, mute, and solo into one bus; there
   are no inserts, no sends, and no master chain.
 - Only a MIDI keyboard records against the running transport. Playing an
