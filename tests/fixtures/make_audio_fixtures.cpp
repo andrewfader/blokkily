@@ -222,6 +222,35 @@ int main(int argc, char** argv) {
         }
         ok &= save(dir / "hits8_48k_pcm16.wav", wave(spec));
     }
+    {
+        WaveSpec spec{Tag::pcm, 1, fx::tones8_rate, 16, {}, {}, 0};
+        for (std::uint64_t frame = 0; frame < fx::tones8_frames; ++frame) {
+            put16(spec.data, static_cast<std::uint16_t>(fx::tones8(frame)));
+        }
+        ok &= save(dir / "tones8_48k_pcm16.wav", wave(spec));
+    }
+    {
+        WaveSpec spec{Tag::pcm, 1, fx::loop480_rate, 16, {}, {}, 0};
+        for (std::uint64_t frame = 0; frame < fx::loop480_frames; ++frame) {
+            put16(spec.data, static_cast<std::uint16_t>(fx::loop480(frame)));
+        }
+        Bytes smpl;
+        put32(smpl, 0);                                   // manufacturer
+        put32(smpl, 0);                                   // product
+        put32(smpl, 1000000000U / fx::loop480_rate);      // sample period, ns
+        put32(smpl, static_cast<std::uint32_t>(fx::loop480_root_key));
+        for (int field = 0; field < 3; ++field) put32(smpl, 0);   // fraction, SMPTE
+        put32(smpl, 1);                                   // loops
+        put32(smpl, 0);                                   // sampler data
+        put32(smpl, 0);                                   // cue point id
+        put32(smpl, 0);                                   // type: forward
+        put32(smpl, fx::loop480_loop_first);
+        put32(smpl, fx::loop480_loop_last);               // inclusive
+        put32(smpl, 0);                                   // fraction
+        put32(smpl, 0);                                   // play count: forever
+        spec.extra_chunks.emplace_back("smpl", smpl);
+        ok &= save(dir / "loop480_48k_pcm16.wav", wave(spec));
+    }
 
     // Broken files: each must be refused with a reason, never half-played.
     {
