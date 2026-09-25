@@ -123,6 +123,8 @@ bool Song::consistent(std::string* why) const {
             return refuse(why, "an audio clip's fades are longer than the clip");
         if (!std::isfinite(clip.gain_db))
             return refuse(why, "an audio clip's gain is not finite");
+        if (!clip.warp.valid())
+            return refuse(why, "an audio clip's warp is out of range");
     }
 
     for (std::size_t r = 0; r < returns.size(); ++r) {

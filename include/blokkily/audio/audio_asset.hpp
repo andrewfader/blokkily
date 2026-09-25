@@ -71,8 +71,20 @@ public:
     void adopt(const std::filesystem::path& file, const AudioFileInfo& native,
                AudioAssetPtr asset);
 
-    // Drops every asset nothing outside the cache still holds.
+    // Audio derived from a file rather than decoded from it, such as a warped
+    // clip's rendition (item 3.6), under a key that names everything it was
+    // made from (WarpPlan::key: file, stretch map, pitch, engine rate). Null
+    // when nothing is held under `key`.
+    [[nodiscard]] AudioAssetPtr derived(const std::string& key) const;
+    void insert_derived(const std::string& key, AudioAssetPtr asset);
+    [[nodiscard]] std::size_t derived_count() const noexcept { return derived_.size(); }
+
+    // Drops every asset, decoded or derived, nothing outside the cache still
+    // holds.
     void purge_unused();
+    // Drops only the derived assets nothing outside the cache still holds,
+    // such as the renditions of a clip's earlier warp settings.
+    void purge_unused_derived();
 
     // Files decoded since construction. Lets callers (and tests) see that a
     // cache hit did not decode again.
@@ -93,6 +105,7 @@ private:
     };
 
     std::map<std::filesystem::path, Entry> entries_;
+    std::map<std::string, AudioAssetPtr> derived_;
     std::uint64_t decodes_ = 0;
 };
 

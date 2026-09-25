@@ -77,8 +77,14 @@ neither hears nor records the keyboard.
 
 ## Build
 
-Needs Qt 6.5+, FluidSynth, RtAudio and RtMidi (found through pkg-config), and
-a SoundFont for the verification gates. JUCE and the CLAP headers are vendored
+Needs Qt 6.5+, FluidSynth, RtAudio, RtMidi, libsndfile, libsamplerate and
+Rubber Band 4 (found through pkg-config), and a SoundFont for the verification
+gates.
+
+**Licence note:** clip warp (time-stretching and pitch-shifting audio clips)
+links the Rubber Band Library, which is licensed under the GPL (version 2 or
+later) unless a commercial licence is bought from its authors. A Blokkily
+binary built with it is therefore subject to the GPL. JUCE and the CLAP headers are vendored
 under `third_party/`.
 
 ```sh

@@ -102,6 +102,9 @@ struct RecordModule {
 
 // The metronome and count-in settings (item 3.7): metronome.
 [[nodiscard]] const RecordModule& metronome_records();
+// Clip warp (item 3.6): clipwarp, after the audio clips it names
+// (records_clip_warp.cpp).
+[[nodiscard]] const RecordModule& clip_warp_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

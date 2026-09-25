@@ -213,6 +213,48 @@ struct AudioFileRef {
 
 using AudioClipId = std::uint64_t;
 
+// How an audio clip is stretched and pitched (item 3.6, decision 7). The
+// default changes nothing: the clip plays its file's frames at the file's
+// speed and pitch.
+//
+// With `follow_tempo` on and a `source_bpm` known, the clip follows the
+// song's tempo map: a beat of the recording (60 / source_bpm seconds of it,
+// counted from the clip's first frame) lasts `ratio` beats of the song,
+// across tempo steps and ramps, without its pitch changing. Otherwise
+// `ratio` is a plain stretch: the clip lasts `ratio` times as long as its
+// frames do, whatever the tempo. `semitones` and `cents` shift the pitch
+// without changing the length.
+//
+// A warped clip does not play its file directly: it plays a rendition of it
+// rendered off the audio thread (clip_warp.hpp).
+struct ClipWarp {
+    bool follow_tempo = false;
+    double source_bpm = 0.0;   // 0: not known yet
+    double ratio = 1.0;
+    std::int32_t semitones = 0;
+    double cents = 0.0;
+
+    static constexpr double minimum_ratio = 0.25;
+    static constexpr double maximum_ratio = 4.0;
+    static constexpr std::int32_t maximum_semitones = 24;
+    static constexpr double maximum_cents = 100.0;
+    static constexpr double minimum_source_bpm = 20.0;
+    static constexpr double maximum_source_bpm = 400.0;
+
+    // Following the tempo map: switched on and with a tempo to follow from.
+    [[nodiscard]] bool follows() const noexcept { return follow_tempo && source_bpm > 0.0; }
+    // True when the clip plays a rendition rather than its file.
+    [[nodiscard]] bool active() const noexcept {
+        return follows() || ratio != 1.0 || semitones != 0 || cents != 0.0;
+    }
+    // The frequency factor of the pitch shift: 2 for +12 semitones.
+    [[nodiscard]] double pitch_scale() const noexcept;
+    // Every value finite and inside its range.
+    [[nodiscard]] bool valid() const noexcept;
+
+    friend bool operator==(const ClipWarp&, const ClipWarp&) = default;
+};
+
 // One placement of a stretch of an audio file on a track. `id` is a stable
 // identity (never 0, unique in the song) so a drag keeps hold of its clip
 // while other clips are added or removed. Frames count at the file's own
@@ -228,9 +270,22 @@ struct AudioClip {
     double gain_db = 0.0;
     std::uint64_t fade_in_frames = 0;
     std::uint64_t fade_out_frames = 0;
+    // Stretch and pitch (item 3.6). The frames above always count the file's
+    // own frames at its own rate, warped or not.
+    ClipWarp warp;
 
     friend bool operator==(const AudioClip&, const AudioClip&) = default;
 };
+
+// Where an audio clip's audio sounds in the song, warp included. `seconds`
+// counts the clip's own audio at its file's speed from its first played frame
+// (offset_frames). The tick is fractional. Seconds beyond the clip are
+// extrapolated with the same rule, so trimming can ask where a hidden frame
+// would sound.
+[[nodiscard]] double audio_clip_tick_at(const Song& song, const AudioClip& clip, double seconds);
+// The inverse: how many seconds of the clip's audio have sounded by `tick`
+// (negative before the clip's start).
+[[nodiscard]] double audio_clip_seconds_at(const Song& song, const AudioClip& clip, double tick);
 
 // The arrangement: named patterns, tracks that play them, and the clips that
 // say when. A song with one track, one pattern, and one clip is the pattern

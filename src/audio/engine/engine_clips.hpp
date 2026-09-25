@@ -17,6 +17,7 @@
 // here.
 
 #include "blokkily/audio/audio_asset.hpp"
+#include "blokkily/audio/clip_warp.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/model/timebase.hpp"
 #include "blokkily/plugins/plugin.hpp"
@@ -66,8 +67,13 @@ struct ArrangementClips {
 // is a missing file, whose clips are left out. An asset decoded at another
 // rate than the clock's is left out too, rather than played at the wrong
 // speed.
+//
+// A warped clip (item 3.6) plays the rendition in `renditions` whose key is
+// the plan plan_clip_warp makes for it under `clock`. Until that rendition
+// exists the clip is left out: silent while it renders, never played
+// unstretched.
 void compile_clip_regions(ArrangementClips& target, const Song& song, const TickClock& clock,
-                          const AudioAssets& assets);
+                          const AudioAssets& assets, const ClipRenditions& renditions = {});
 
 // Adds whatever clip regions of track `track` sound in
 // [song_position, song_position + frames) to `buffer`. Overlapping regions

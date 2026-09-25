@@ -219,7 +219,7 @@ LevelSong level_song(float level) {
     made.song.tracks = {Track{}};
     made.song.clips = {{0, 0, 0, 1}};
     made.song.audio_files = {{"level.wav", clip_frames, 48000, 1}};
-    made.song.audio_clips = {{1, 0, 0, 0, 0, clip_frames, 0.0, 0, 0}};
+    made.song.audio_clips = {{1, 0, 0, 0, 0, clip_frames, 0.0, 0, 0, {}}};
     auto asset = std::make_shared<AudioAsset>();
     asset->rate = 48000;
     asset->frames = clip_frames;

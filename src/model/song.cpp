@@ -21,14 +21,14 @@ Tick Song::length() const {
     }
     // An audio clip lasts a number of seconds, not ticks: where it ends in
     // the song depends on the tempo it plays through (plan C14).
-    const Tick resolution = ticks_per_beat();
     for (const auto& clip : audio_clips) {
         if (clip.track >= tracks.size() || clip.file >= audio_files.size()) continue;
         const auto rate = audio_files[clip.file].sample_rate;
         if (rate == 0) continue;
-        const double seconds = tempo.seconds_at(clip.start, resolution) +
-                               static_cast<double>(clip.length_frames) / rate;
-        const double tick = std::ceil(tempo.tick_at_seconds(seconds, resolution) - 1e-6);
+        // Warped or not (item 3.6): the one rule for where its audio sounds.
+        const double tick = std::ceil(
+            audio_clip_tick_at(*this, clip, static_cast<double>(clip.length_frames) / rate) -
+            1e-6);
         if (tick > static_cast<double>(end)) end = static_cast<Tick>(tick);
     }
     if (end > 0) return end;

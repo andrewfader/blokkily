@@ -328,7 +328,7 @@ void rebar_case() {
     Song song = song_of(beats(960, 480, 240, 2), {0, 1920, 3840, 3840 + 480});
     song.tracks.push_back(Track{});
     song.audio_files = {{"/a.wav", 48000, 48000, 1}};
-    song.audio_clips = {{1, 1, 0, 5760 + 1800, 0, 1000, 0.0, 0, 0}};
+    song.audio_clips = {{1, 1, 0, 5760 + 1800, 0, 1000, 0.0, 0, 0, {}}};
     song.tempo.points = {{0, 120.0, false}, {3840, 90.0, false}, {5760 + 240, 100.0, false}};
     const MeterMap before = song.meter;
     song.meter.set({1, 7, 8});
@@ -362,7 +362,7 @@ void song_length_audio() {
     // second in): one second at 120 BPM reaches tick 1920, then one second at
     // 60 BPM is another 480 ticks.
     song.audio_files = {{"/two-seconds.wav", 96000, 48000, 2}};
-    song.audio_clips = {{1, 0, 0, 960, 0, 96000, 0.0, 0, 0}};
+    song.audio_clips = {{1, 0, 0, 960, 0, 96000, 0.0, 0, 0, {}}};
     require(song.length() == 2400,
             "the clip ends at tick 2400, got " + std::to_string(song.length()));
     // Halve the tempo of the first bar too: it now ends a second earlier.

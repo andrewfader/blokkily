@@ -10,6 +10,7 @@
 #include "blokkily/plugins/vst3_instance.hpp"
 #include "blokkily/project/project.hpp"
 #include "blokkily/audio/audio_asset.hpp"
+#include "blokkily/audio/clip_warp.hpp"
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/take_writer.hpp"
@@ -41,6 +42,7 @@
 #include <memory>
 #include <thread>
 #include <optional>
+#include <set>
 #include <span>
 #include <utility>
 #include <vector>
@@ -96,6 +98,10 @@ class AppController final : public QObject {
     Q_PROPERTY(QString importStatus READ importStatus NOTIFY importChanged)
     Q_PROPERTY(qint64 lastImportedClip READ lastImportedClip NOTIFY importChanged)
     Q_PROPERTY(int assetRevision READ assetRevision NOTIFY assetsChanged)
+    // Clip warp (item 3.6): renditions still rendering, and what the warp
+    // worker last reported.
+    Q_PROPERTY(int warpRendersPending READ warpRendersPending NOTIFY warpChanged)
+    Q_PROPERTY(QString warpStatus READ warpStatus NOTIFY warpChanged)
     // Plugin editors (item 2.6): the tracks whose instrument has its own
     // window open, what the last attempt to open one said, and the parameter
     // the last knob turned in an editor moved, as "LEVEL 0.60".
@@ -275,6 +281,21 @@ public:
     // metronome is left out unless `withClick` asks for it (item 3.7).
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
                                      bool withClick = false);
+    // --- Clip warp (app_controller_warp.cpp) ---------------------------------
+    int warpRendersPending() const noexcept { return warp_pending_; }
+    QString warpStatus() const { return warp_status_; }
+    // Switches a clip's tempo following on or off. Switched on for a clip
+    // with no source tempo yet, the tempo is detected from its audio first
+    // (120 when no steady beat is found), in the same step of history.
+    Q_INVOKABLE bool setClipFollowTempo(qint64 id, bool follow);
+    // The tempo of the clip's audio, detected from its onsets, or 0.
+    Q_INVOKABLE double detectClipTempo(qint64 id);
+    // Blocks until every rendition the song needs has been rendered and
+    // handed to the engine. An export does this first, so it never bounces a
+    // clip that is still silent while it renders.
+    Q_INVOKABLE void waitForWarpRenders();
+    // Renditions the warp worker has finished since the controller started.
+    std::uint64_t warpRendered() const noexcept { return warp_ ? warp_->rendered() : 0; }
     // Sets the tempo in effect at the playhead: the tempo readout's edit. The
     // tempo is the song's, so this is an undoable song edit, and the running
     // engine keeps the playhead on its bar.
@@ -408,6 +429,7 @@ signals:
     void samplerChanged();
     void importChanged();
     void assetsChanged();
+    void warpChanged();
     void editorsChanged();
     void editorReadoutChanged();
     void audioTakeChanged();
@@ -418,6 +440,14 @@ private:
     // Decodes the audio every clip of the song plays, at `rate`, through the
     // asset store; flags the files that are missing on the song model.
     blokkily::AudioAssets clipAssets(double rate);
+    // The renditions of the song's warped clips at `rate` that are ready, from
+    // the asset cache. Asks the warp worker for any that are not, drops
+    // requests no clip needs any more, and marks the clips still rendering.
+    // Call after clipAssets(rate), whose sources it renders from.
+    blokkily::ClipRenditions clipRenditions(double rate);
+    // Back on the control thread: moves finished renditions into the cache
+    // and recompiles so the clips waiting for them are heard.
+    void collectWarpRenders();
     // Back on the control thread: places a finished import.
     void finishImport(int ticket, const ImportResult& result);
     // Whether the song needs an engine even without an instrument.
@@ -614,6 +644,15 @@ private:
     std::map<int, std::thread> imports_;
     int next_import_ = 1;
     int imports_pending_ = 0;
+    // Renders warped clips off the control and audio threads (item 3.6).
+    // Created on first use; declared after the cache it renders for, so it
+    // stops before the cache goes.
+    std::unique_ptr<blokkily::WarpRenderer> warp_;
+    int warp_pending_ = 0;
+    // Plans the worker could not render: not asked for again, so a clip
+    // that cannot be rendered stays silent instead of rendering for ever.
+    std::set<std::string> warp_failed_;
+    QString warp_status_ = QStringLiteral("No warped clips");
     QString import_status_ = QStringLiteral("No audio imported");
     qint64 last_imported_clip_ = 0;
     // Plugin editors. Declared last so the windows close while the engine and

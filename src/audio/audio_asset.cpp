@@ -170,7 +170,22 @@ void AudioAssetCache::adopt(const std::filesystem::path& file, const AudioFileIn
     entry.by_rate[rate] = std::move(asset);
 }
 
+AudioAssetPtr AudioAssetCache::derived(const std::string& key) const {
+    const auto found = derived_.find(key);
+    return found == derived_.end() ? nullptr : found->second;
+}
+
+void AudioAssetCache::insert_derived(const std::string& key, AudioAssetPtr asset) {
+    if (!asset) return;
+    derived_[key] = std::move(asset);
+}
+
+void AudioAssetCache::purge_unused_derived() {
+    std::erase_if(derived_, [](const auto& held) { return held.second.use_count() <= 1; });
+}
+
 void AudioAssetCache::purge_unused() {
+    purge_unused_derived();
     for (auto entry = entries_.begin(); entry != entries_.end();) {
         std::erase_if(entry->second.by_rate,
                       [](const auto& held) { return held.second.use_count() <= 1; });
