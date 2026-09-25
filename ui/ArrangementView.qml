@@ -67,7 +67,7 @@ ColumnLayout {
         // One lane per track plus the frame, so the timeline
         // takes only the room it needs and the editors keep
         // the rest of the window.
-        Layout.preferredHeight: 28 + 42 + Math.max(1, songModel.trackCount) * 24
+        Layout.preferredHeight: 28 + 42 + Math.max(1, songModel.trackCount) * 24 + 52
         radius: 6; color: Theme.panel; border.color: Theme.line; clip: true
 
         ColumnLayout {
@@ -310,6 +310,56 @@ ColumnLayout {
                             }
                         }
                     }
+                }
+            }
+
+            // The selected track's automation, over the same bars (item 3.1).
+            RowLayout {
+                objectName: "automationRow"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 48
+                spacing: 2
+                Rectangle {
+                    objectName: "automationHeader"
+                    Layout.preferredWidth: 64; Layout.preferredHeight: 48
+                    radius: 3; color: "transparent"; border.color: Theme.line
+                    readonly property var lanes: songModel.automationLanes
+                    Column {
+                        anchors.centerIn: parent
+                        width: parent.width - 6
+                        spacing: 1
+                        Label { width: parent.width; horizontalAlignment: Text.AlignHCenter
+                            text: "AUTO"; color: Theme.muted
+                            font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.6 }
+                        Label { width: parent.width; horizontalAlignment: Text.AlignHCenter
+                            objectName: "automationLaneName"
+                            elide: Text.ElideRight
+                            text: songModel.selectedLane >= 0
+                                  && songModel.automationLanes[songModel.selectedLane] !== undefined
+                                  ? songModel.automationLanes[songModel.selectedLane].name : "—"
+                            color: Theme.record
+                            font.pixelSize: 10; font.bold: true; font.family: "monospace" }
+                        Label { width: parent.width; horizontalAlignment: Text.AlignHCenter
+                            text: songModel.automationLanes.length > 1
+                                  ? (songModel.selectedLane + 1) + "/" + songModel.automationLanes.length
+                                  : ""
+                            color: Theme.muted; font.pixelSize: 8 }
+                    }
+                    // A click shows the track's next lane.
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            var count = songModel.automationLanes.length
+                            if (count > 0) songModel.selectLane((songModel.selectedLane + 1) % count)
+                        }
+                    }
+                }
+                AutomationLane {
+                    objectName: "automationLane"
+                    Layout.preferredWidth: root.laneRoom + Math.max(0, songModel.bars - 1) * root.barGap
+                    Layout.preferredHeight: 48
+                    spacing: root.barGap
                 }
             }
         }

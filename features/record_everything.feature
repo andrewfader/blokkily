@@ -7,7 +7,7 @@ Feature: Record everything, part 1 - armed tracks and on-screen surfaces
   channel of the keyboard or to all sixteen. Arm and channel are saved with
   the song, but they are how the session is wired rather than the music, so
   undo and redo never change them (plan item 2.5; decisions 3, 4 and 5).
-  Automation arming has its own mode and is not part of this feature.
+  Automation has its own per-track mode and is part 2, features/automation.feature.
 
   The engine and routing scenarios are proved by blokkily_record_tests
   (tests/record_tests.cpp, one CTest test per case: record_<case>) from the

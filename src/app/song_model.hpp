@@ -89,6 +89,15 @@ class SongModel final : public QObject {
     // by a change to the song's structure.
     Q_PROPERTY(QVariantList sendLevels READ sendLevels NOTIFY mixChanged)
     Q_PROPERTY(QVariantList returnMix READ returnMix NOTIFY mixChanged)
+    // Automation (item 3.1; song_model_automation.cpp). The lanes of the
+    // selected track, as the lane editor draws them: {index, name, kind,
+    // minimum, maximum, points: [{at, value}]}, `at` in song ticks. The
+    // lane the editor shows is `selectedLane` (-1 when the track has none).
+    Q_PROPERTY(QVariantList automationLanes READ automationLanes NOTIFY songChanged)
+    Q_PROPERTY(int selectedLane READ selectedLane NOTIFY songChanged)
+    // The modes a track's automation can be in, in the order a click steps
+    // through them.
+    Q_PROPERTY(QStringList automationModes READ automationModes CONSTANT)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -317,6 +326,44 @@ public:
     // when the state did not change.
     bool commitInstrumentState(int track, std::vector<std::byte> state);
 
+    // --- Automation (song_model_automation.cpp) -----------------------------
+    QVariantList automationLanes() const;
+    int selectedLane() const;
+    QStringList automationModes() const;
+    // "OFF", "READ", "TOUCH", "LATCH" or "WRITE" (decision 3). One step of
+    // history; the running engine is recompiled, never rebuilt.
+    Q_INVOKABLE bool setAutomationMode(int track, const QString& mode);
+    Q_INVOKABLE void cycleAutomationMode(int track, int step = 1);
+    Q_INVOKABLE QString automationMode(int track) const;
+    // Whether moves of `track`'s strip and plugins are recorded while the
+    // transport plays: its mode is touch, latch or write.
+    [[nodiscard]] bool captures(int track) const;
+    // Shows lane `lane` of the selected track in the editor.
+    Q_INVOKABLE void selectLane(int lane);
+    // A gain, pan or mute lane ("GAIN", "PAN", "MUTE") on `track`'s strip,
+    // starting flat at the strip's value. Returns the lane's index (the
+    // existing one when the strip already has that lane), or -1.
+    Q_INVOKABLE int addAutomationLane(int track, const QString& kind);
+    Q_INVOKABLE bool removeAutomationLane(int track, int lane);
+    // Lane editing: every edit is one step of history (a drag wrapped in
+    // beginGesture()/endGesture() is one step) and is recompiled into the
+    // running engine. A point is kept between its neighbours' ticks, so the
+    // lane stays in order, and its value inside the lane's range. Each
+    // returns the point's index afterwards, or -1.
+    Q_INVOKABLE int addAutomationPoint(int track, int lane, double tick, double value);
+    Q_INVOKABLE int moveAutomationPoint(int track, int lane, int point, double tick,
+                                        double value);
+    Q_INVOKABLE bool removeAutomationPoint(int track, int lane, int point);
+    // A take (item 3.1): one step of history covers everything recorded
+    // between newTake() and the next newTake() - notes, lanes, and the moves
+    // of the controls that were recorded. checkpointTake() records the song
+    // before the take's first change, once. While `capturing` (the transport
+    // plays), a strip move on a track whose mode records is part of the take
+    // rather than a step of its own.
+    void newTake();
+    void checkpointTake();
+    void setCapturing(bool capturing);
+
 signals:
     void songChanged();
     // Raised only when the arrangement itself changed, so the audio engine is
@@ -341,6 +388,10 @@ signals:
     // A track was armed or disarmed, or its input changed: where played notes
     // go. Also covered by songChanged.
     void inputChanged();
+    // A strip control of `track` was moved from the interface: `control` 0
+    // gain (dB), 1 pan, 2 mute (0/1), from `previous` to `value`. The
+    // controller hands it to the engine, where automation records it.
+    void stripMoved(int track, int control, double value, double previous);
 
 private:
     [[nodiscard]] blokkily::AudioClip* findAudioClip(qint64 id);
@@ -388,6 +439,12 @@ private:
     std::uint64_t state_id_ = 0;
     std::uint64_t saved_id_ = 0;
     std::uint64_t next_id_ = 1;
+    // A strip edit that belongs to the take being recorded, or a step of its
+    // own.
+    void checkpointStrip(int track, const QString& merge);
+    int selected_lane_ = 0;
+    bool take_recorded_ = false;
+    bool capturing_ = false;
     QString last_merge_;
     bool gesture_open_ = false;
     bool gesture_recorded_ = false;

@@ -16,6 +16,7 @@
 #include "blokkily/midi/midi_input.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
 #include "blokkily/sequencer/take.hpp"
+#include "blokkily/sequencer/automation_take.hpp"
 
 #include "editor_gestures.hpp"
 #include "engine_graph.hpp"
@@ -152,6 +153,12 @@ public:
     // Plays from the port at `index` of midiPorts; -1 closes the input.
     Q_INVOKABLE bool selectMidiPort(int index);
     Q_INVOKABLE void toggleRecord();
+    // A strip control of `track` ("gain", "pan" or "mute") taken hold of or
+    // let go in the interface (item 3.1). While held, a move of it overrides
+    // its automation lane in touch mode and is recorded as one pass.
+    Q_INVOKABLE void touchStrip(int track, const QString& control, bool touching);
+    // Whether a strip control is being held.
+    Q_INVOKABLE bool stripHeld(int track, const QString& control) const;
     // Whether a take is being recorded against the running transport: armed
     // and playing. The on-screen surfaces perform into the take then, rather
     // than writing onto the selected step.
@@ -433,6 +440,21 @@ private:
     // Ends the take: whatever is still held is written as released now.
     void finishTake();
     void commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes);
+    // Automation (item 3.1; app_controller_automation.cpp). A strip move from
+    // the song model, handed to the engine.
+    void stripMoved(int track, int control, double value, double previous);
+    // Records the strip moves the engine played into the take's passes.
+    void drainAutomation();
+    // A plugin's own edit, recorded when its track's mode records.
+    void captureParameterEdit(const blokkily::PluginEditEvent& event);
+    // Writes the passes that have closed into the song, as part of the take.
+    void commitAutomation();
+    // Play: a new take, with a pass opened on every lane of a track in write
+    // mode. Stop: every pass closes where the transport stopped.
+    void startAutomationTake();
+    void finishAutomationTake();
+    // The song tick the engine renders now.
+    blokkily::Tick renderTick() const;
     // Hands the song's tempo and meter maps to the transport.
     void syncTimebase();
     void assignInstrument(int track, const blokkily::InstrumentSlot& slot,
@@ -488,7 +510,10 @@ private:
     // track is never paired with a release on another. The first note written
     // checkpoints history, so a take is one step of undo.
     std::vector<blokkily::TakeRecorder> takes_;
-    bool take_checkpointed_ = false;
+    // Automation passes of the take being played (item 3.1), and the strip
+    // controls being held.
+    blokkily::AutomationTake automation_take_;
+    std::vector<std::pair<int, int>> held_controls_;
     std::unique_ptr<blokkily::SongEngine> engine_;
     // The graph the live engine was built from, so an edit that leaves it
     // alone is handed to the running engine instead of rebuilding.

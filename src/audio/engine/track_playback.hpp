@@ -31,7 +31,7 @@ using LiveEvents = SpscQueue<PluginEvent, 128>;
 // there and never a stack frame in the callback.
 inline constexpr std::size_t maximum_events_per_chunk =
     timeline_event_budget + 128 + LiveEvents::capacity() + InputQueue::capacity() +
-    PerformQueue::capacity();
+    PerformQueue::capacity() + automation_event_budget;
 
 struct TrackPlayback {
     std::unique_ptr<PluginInstance> instrument;

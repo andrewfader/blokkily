@@ -2,12 +2,12 @@
 // decision 3).
 //
 //   automode <track> <off|read|touch|latch|write>
-//   automation <track> <parameter|gain|pan> <track|return|master> <bus> <slot>
+//   automation <track> <parameter|gain|pan|mute> <track|return|master> <bus> <slot>
 //              <parameter-index> <parameter-id> <n> [<tick> <value>]*n
 //
 // A lane belongs to the track its record names and targets the processor its
-// address names (slot -1 is the track's instrument, or the strip for gain and
-// pan). `automode` is written only for a mode other than read. Whether every
+// address names (slot -1 is the track's instrument, or the strip for gain, pan
+// and mute). `automode` is written only for a mode other than read. Whether every
 // target exists is checked by Song::consistent once the whole file is read.
 
 #include "records.hpp"
@@ -22,7 +22,7 @@ namespace blokkily::project_io {
 namespace {
 
 constexpr std::array mode_tokens{"off", "read", "touch", "latch", "write"};
-constexpr std::array kind_tokens{"parameter", "gain", "pan"};
+constexpr std::array kind_tokens{"parameter", "gain", "pan", "mute"};
 
 template <typename Enum, std::size_t N>
 std::optional<Enum> token_to_enum(const std::array<const char*, N>& tokens,

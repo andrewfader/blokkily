@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numbers>
 
 namespace blokkily {
 namespace {
@@ -160,6 +161,9 @@ void SongEngine::reset_processing() {
     }
     engine::reset_buses(*buses_);
     master_peak_.store(0.0F, std::memory_order_relaxed);
+    // A bounce plays the lanes, not what was latched while playing before it.
+    for (auto& track : tracks_) engine::release_automation(track->automation);
+    if (live_ != nullptr) engine::release_parameter_holds(live_->automation);
 }
 
 std::uint32_t SongEngine::output_latency() const noexcept {
@@ -217,6 +221,10 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
 
     maximum_block_ = maximum_block_size;
     sample_rate_ = sample_rate;
+    automation_scratch_.assign(engine::automation_event_budget, PluginEvent{});
+    merge_scratch_.assign(engine::maximum_events_per_chunk, PluginEvent{});
+    strips_.assign(song.tracks.size(), MixerStrip{});
+    rolled_ = false;
 
     // Nothing is rendering yet, so the first arrangement is installed directly
     // rather than queued for a callback that is not running.
@@ -234,6 +242,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
         track.right.assign(maximum_block_size, 0.0F);
         // The chunk's events live here rather than on the callback's stack.
         track.events.assign(engine::maximum_events_per_chunk, PluginEvent{});
+        engine::release_automation(track.automation);
         track.peak.store(0.0F, std::memory_order_relaxed);
         if (track.instrument && !track.instrument->activate(sample_rate, 1, maximum_block_size))
             return fail("an instrument refused to activate");
@@ -279,6 +288,9 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     }
     // 5. Audio clips: regions placed by the same clock as the events.
     engine::compile_clip_regions(target.clips, song, clock, assets);
+    // Automation: strip envelopes and parameter lanes, placed by the same
+    // clock (item 3.1).
+    engine::compile_automation(target.automation, song, clock, samples);
     target.song_samples = samples;
     target.clock = std::move(clock);
     target.ticks_per_beat = song.ticks_per_beat();
@@ -381,9 +393,42 @@ std::uint64_t SongEngine::heard_position(std::uint64_t song_position) const noex
 
 void SongEngine::set_strip(std::size_t track, const MixerStrip& strip, bool any_solo) {
     if (track >= tracks_.size()) return;
+    if (strips_.size() < tracks_.size()) strips_.resize(tracks_.size());
+    strips_[track] = strip;
+    any_solo_ = any_solo;
     const auto gain = strip_gain(strip, any_solo);
-    tracks_[track]->gain_left.store(gain.left, std::memory_order_relaxed);
-    tracks_[track]->gain_right.store(gain.right, std::memory_order_relaxed);
+    auto& playback = *tracks_[track];
+    playback.gain_left.store(gain.left, std::memory_order_relaxed);
+    playback.gain_right.store(gain.right, std::memory_order_relaxed);
+    // The same strip, control by control, for an automated track: its lanes
+    // replace some controls and the rest play these (item 3.1). Every
+    // conversion is made here, on the control thread.
+    const double linear = db_to_linear(strip.gain_db);
+    const double angle = (std::clamp(strip.pan, -1.0, 1.0) + 1.0) * 0.25 * std::numbers::pi;
+    auto& automation = playback.automation;
+    automation.fader.store(static_cast<float>(linear), std::memory_order_relaxed);
+    automation.pan_left.store(static_cast<float>(std::cos(angle)), std::memory_order_relaxed);
+    automation.pan_right.store(static_cast<float>(std::sin(angle)), std::memory_order_relaxed);
+    automation.unmuted.store(strip.mute ? 0.0F : 1.0F, std::memory_order_relaxed);
+    automation.solo_gate.store(!any_solo || strip.solo ? 1.0F : 0.0F, std::memory_order_relaxed);
+    // What the post-fader sends take, so a move reaches them too.
+    const bool heard = audible(strip, any_solo);
+    playback.chain.fader.store(heard ? static_cast<float>(linear) : 0.0F,
+                               std::memory_order_relaxed);
+    playback.chain.audible.store(heard, std::memory_order_relaxed);
+}
+
+bool SongEngine::move(const StripMove& move) {
+    if (move.track >= tracks_.size()) return false;
+    if (strips_.size() < tracks_.size()) strips_.resize(tracks_.size());
+    auto strip = strips_[move.track];
+    switch (move.control) {
+    case StripControl::gain: strip.gain_db = move.value; break;
+    case StripControl::pan: strip.pan = std::clamp(move.value, -1.0, 1.0); break;
+    case StripControl::mute: strip.mute = move.value >= 0.5; break;
+    }
+    set_strip(move.track, strip, any_solo_);
+    return moves_.push(move);
 }
 
 void SongEngine::apply_mix(const Song& song) {
@@ -426,6 +471,8 @@ void SongEngine::seek_cursors(std::uint64_t position) noexcept {
             });
         tracks_[index]->cursor = static_cast<std::size_t>(found - timeline.begin());
     }
+    // Every automation lane is chased to the new position (item 3.1).
+    if (live_ != nullptr) engine::seek_automation(live_->automation, position);
 }
 
 bool SongEngine::play_live(std::size_t track, const PluginEvent& event) noexcept {
@@ -481,6 +528,7 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
             (void)captured_.push(
                 {routed.track, capture_sample, capture_tick, events[count - 1]});
     }
+    const std::size_t timeline_begin = count;
     while (from_timeline && track.cursor < timeline.size() &&
            timeline[track.cursor].sample < end) {
         const auto& timed = timeline[track.cursor];
@@ -500,6 +548,33 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
         }
         ++track.cursor;
     }
+    // The instrument's automation lanes (item 3.1), merged into the
+    // timeline's events in sample order: a lane's value on a sample goes
+    // before a note on it, as a parameter lock does.
+    const auto& automation = live_ != nullptr ? live_->automation : nothing_arranged.automation;
+    if (from_timeline && index < automation.instrument_lanes.size() &&
+        automation.instrument_lanes[index] >= 0) {
+        const auto& lanes =
+            automation.processors[static_cast<std::size_t>(automation.instrument_lanes[index])];
+        const auto added = engine::automation_events(lanes, song_position, end,
+                                                     automation_scratch_);
+        if (added > 0) {
+            const auto timed = count - timeline_begin;
+            std::copy_n(events.begin() + static_cast<std::ptrdiff_t>(timeline_begin), timed,
+                        merge_scratch_.begin());
+            std::size_t from_events = 0;
+            std::size_t from_lanes = 0;
+            count = timeline_begin;
+            while (count < capacity && (from_events < timed || from_lanes < added)) {
+                const bool lane_first =
+                    from_lanes < added &&
+                    (from_events >= timed || automation_scratch_[from_lanes].sample_offset <=
+                                                 merge_scratch_[from_events].sample_offset);
+                events[count++] = lane_first ? automation_scratch_[from_lanes++]
+                                             : merge_scratch_[from_events++];
+            }
+        }
+    }
     return count;
 }
 
@@ -514,6 +589,9 @@ void SongEngine::drain_edits(PluginInstance& processor, ProcessorAddress where,
         for (std::size_t index = 0; index < taken; ++index) {
             const auto& edit = edit_scratch_[index];
             (void)edits_.push({where, song_position + edit.sample_offset, from_timeline, edit});
+            // A knob held in the plugin's own window holds its lane (item 3.1).
+            if (from_timeline && live_ != nullptr)
+                engine::note_parameter_edit(live_->automation, where, edit);
         }
         if (taken < edit_scratch_.size()) return;
     }
@@ -525,6 +603,11 @@ struct DrainContext {
     SongEngine* engine;
     std::uint64_t song_position;
     bool rolling;
+    // The chunk's end, what it plays, and where an insert's automation
+    // events are written (item 3.1).
+    std::uint64_t end;
+    const engine::ArrangementAutomation* automation;
+    std::span<PluginEvent> scratch;
 };
 } // namespace
 
@@ -532,6 +615,17 @@ void SongEngine::drain_insert_edits(void* context, PluginInstance& processor,
                                     ProcessorAddress where) noexcept {
     auto& chunk = *static_cast<DrainContext*>(context);
     chunk.engine->drain_edits(processor, where, chunk.song_position, chunk.rolling);
+}
+
+std::span<const PluginEvent> SongEngine::insert_events(void* context,
+                                                       ProcessorAddress where) noexcept {
+    auto& chunk = *static_cast<DrainContext*>(context);
+    if (!chunk.rolling || chunk.automation == nullptr) return {};
+    const auto* lanes = engine::lanes_for(*chunk.automation, where);
+    if (lanes == nullptr) return {};
+    const auto count =
+        engine::automation_events(*lanes, chunk.song_position, chunk.end, chunk.scratch);
+    return chunk.scratch.first(count);
 }
 
 TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_t song_position,
@@ -566,8 +660,10 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
     // Where the song is for every processor this chunk: a tempo-synced effect
     // follows the tempo map from here (plan C20).
     const TransportInfo transport = transport_at(arranged, song_position, from_timeline);
-    DrainContext drain_context{this, song_position, from_timeline};
-    const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context};
+    DrainContext drain_context{this, song_position, from_timeline, end, &arranged.automation,
+                               std::span<PluginEvent>(automation_scratch_)};
+    const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context,
+                                  &SongEngine::insert_events};
     engine::begin_buses(*buses_, frames);
 
     for (std::size_t index = 0; index < tracks_.size(); ++index) {
@@ -602,16 +698,22 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
         engine::run_insert_chain(track.chain, buffer, BusKind::track,
                                  static_cast<std::uint32_t>(index), transport, drain);
         engine::apply_track_compensation(track.chain, buffer);
-        // 9. The strip gain for this chunk.
-        const StripGain gain = engine::chunk_strip_gain(
-            track.automation, arranged.automation,
+        // 9. The strip gain for this chunk: the static gain, or the
+        // automation envelope's ramp times the solo gate.
+        const auto ramp = engine::chunk_strip_gain(
+            track.automation, arranged.automation, index,
             {track.gain_left.load(std::memory_order_relaxed),
              track.gain_right.load(std::memory_order_relaxed)},
             song_position, frames, from_timeline);
-        // 10. Sends.
-        engine::mix_sends(track.chain, *buses_, buffer);
+        // 10. Sends: post-fader ones follow the automated fader.
+        if (ramp.automated)
+            engine::mix_sends_ramp(track.chain, *buses_, buffer, ramp.fader_from, ramp.fader_to,
+                                   ramp.audible_from, ramp.audible_to);
+        else
+            engine::mix_sends(track.chain, *buses_, buffer);
         // 11. Onto the direct bus.
-        const float peak = mix_into(output, left, right, gain);
+        const float peak = ramp.automated ? engine::mix_into_ramp(output, left, right, ramp)
+                                          : mix_into(output, left, right, ramp.from);
         // A block split by the loop point arrives as two chunks; the meter must
         // report the loudest of them, not whichever happened to be last.
         track.peak.store(std::max(track.peak.load(std::memory_order_relaxed), peak),
@@ -636,12 +738,34 @@ void SongEngine::process(StereoBlock output) noexcept {
         cursors_valid_ = false;
         release_arrangement_notes_ = true;
     }
-    if (stop_requested_.exchange(false, std::memory_order_acq_rel))
-        release_arrangement_notes_ = true;
+    const bool stopped = stop_requested_.exchange(false, std::memory_order_acq_rel);
+    if (stopped) release_arrangement_notes_ = true;
     // An edit made while the song was playing is picked up here, at a block
     // boundary, so the arrangement changes underneath the playhead rather than
     // the playhead being sent back to the start of the song.
     take_queued_arrangement(seeked);
+    const bool rolling = is_playing() && song_samples_ > 0;
+    // Stopping ends every latch and every plugin hold; starting to play
+    // chases every lane (item 3.1).
+    if (stopped || (!rolling && rolled_)) {
+        for (auto& track : tracks_) engine::release_automation(track->automation);
+        if (live_ != nullptr) engine::release_parameter_holds(live_->automation);
+    }
+    if (rolling && !rolled_) cursors_valid_ = false;
+    rolled_ = rolling;
+    // Strip moves from the interface: each sets its control's touch bit and,
+    // while the song plays, goes back stamped with where it was heard.
+    StripMove moved;
+    while (moves_.pop(moved)) {
+        if (moved.track < tracks_.size())
+            engine::apply_strip_touch(tracks_[moved.track]->automation,
+                                      static_cast<std::size_t>(moved.control), moved.touching,
+                                      rolling);
+        if (rolling && live_ != nullptr) {
+            const auto at = sample_position_ % song_samples_;
+            (void)strip_moves_.push({moved, at, tick_at_sample(live_->clock, at)});
+        }
+    }
     master_peak_.store(0.0F, std::memory_order_relaxed);
     for (auto& track : tracks_) track->peak.store(0.0F, std::memory_order_relaxed);
     for (auto& bus : buses_->returns) bus->peak.store(0.0F, std::memory_order_relaxed);
@@ -683,6 +807,11 @@ void SongEngine::process(StereoBlock output) noexcept {
             {output.left.size() - rendered, until_wrap, maximum_block_});
         for (std::size_t track = 0; track < tracks_.size(); ++track)
             frames = timeline_window(timeline_for(track), song_position, frames);
+        // An automated strip ramps between two grid points of its envelope,
+        // so a chunk never spans one.
+        if (live_ != nullptr && live_->automation.any_strip)
+            frames = std::min<std::uint64_t>(
+                frames, engine::automation_grid - song_position % engine::automation_grid);
         process_chunk({output.left.subspan(rendered, frames),
                        output.right.subspan(rendered, frames)}, song_position, true);
         rendered += static_cast<std::size_t>(frames);

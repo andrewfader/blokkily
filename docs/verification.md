@@ -243,6 +243,32 @@ The routing underneath (`blokkily_record_tests`, tests `record_*`, and
 `realtime_record_fanout` with 64 armed tracks) is proved from the left and right
 energy of the rendered bus.
 
+`build/artifacts/automation.png` — from the `bdd_automation` gate
+(`blokkily --verify --scenario automation`), part 2 of "record everything",
+`features/automation.feature`. One track plays the CLAP fixture with a key on
+every sixteenth. The AUTO chip on its mixer strip (at least 48 × 18) is
+clicked from READ to TOUCH and right-clicked back and forth; the lane editor
+under the tracks must be at least 300 × 40. With the song playing and
+recording, a key is performed, then the rendered GAIN fader (at least
+100 × 12) is pressed, dragged down in three steps and let go: each step must be
+heard at its gain in the production callback, and on release the touch pass
+must become a gain lane holding the three steps and 0 dB either side, drawn as
+`automationPoint0_*` handles each at least 8 × 8, with the strip heard back on
+the lane at 0 dB. Played again with nothing held, each step sounds as it did.
+Stopped, one undo takes back the note, the lane and the fader together, and
+redo restores them. A double-click on the lane adds a point, dragging its
+handle raises it and a right click removes it, and the lane and the mode
+survive a save and a load. The screenshot shows TOUCH lit on the strip, the
+AUTO GAIN lane stepping down three times across bar 1 and back up at the
+release, and the performed key merged into step 03 (C4+1). The engine side
+(`blokkily_automation_tests`, tests `automation_*`, and `realtime_automation`)
+is proved from rendered audio and bounces read back: a gain ramp's quarters,
+pan and mute lanes, touch and latch overrides without a recompile, recorded
+moves replayed, a plugin's own knob turn becoming a lane that silences the
+bounce, chase on seek for instrument and insert lanes, return and master
+insert lanes, solo against an automated track, and a post-fader send
+following the lane.
+
 `build/artifacts/plugin-windows.png` — from the `bdd_plugin_windows` gate
 (`blokkily --verify --scenario plugin_windows`, offscreen), which runs the
 interface scenarios of `features/plugin_windows.feature`. E on the CLAP strip

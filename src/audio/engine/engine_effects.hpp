@@ -104,11 +104,14 @@ struct BusPlayback {
     std::uint64_t tail = 0;
 };
 
-// How a chain hands each slot's parameter edits to the engine's ring.
+// How a chain hands each slot's parameter edits to the engine's ring, and
+// where it gets the automation events each slot plays this chunk (item 3.1).
 struct EditDrain {
     void (*drain)(void* context, PluginInstance& processor, ProcessorAddress where) noexcept =
         nullptr;
     void* context = nullptr;
+    std::span<const PluginEvent> (*events)(void* context, ProcessorAddress where) noexcept =
+        nullptr;
 };
 
 // Control thread, after the processors are in place: shapes every chain to
@@ -135,6 +138,11 @@ void apply_track_compensation(InsertChain& chain, StereoBlock track) noexcept;
 // signal after the chain, post-fader sends that times the fader (not the
 // pan). An inaudible track sends nothing.
 void mix_sends(InsertChain& chain, BusPlayback& buses, StereoBlock track) noexcept;
+// The same for an automated strip (item 3.1): post-fader sends follow the
+// fader ramp from `fader_from` to `fader_to`, pre-fader sends the mute and
+// solo ramp `audible_from` to `audible_to`, linearly across the chunk.
+void mix_sends_ramp(InsertChain& chain, BusPlayback& buses, StereoBlock track, float fader_from,
+                    float fader_to, float audible_from, float audible_to) noexcept;
 // After every track: each return's chain, compensation and strip, summed.
 void process_returns(BusPlayback& buses, std::size_t frames, const TransportInfo& transport,
                      const EditDrain& drain) noexcept;

@@ -204,6 +204,11 @@ void run_insert_chain(InsertChain& chain, StereoBlock block, BusKind kind, std::
     for (std::size_t index = 0; index < chain.slots.size(); ++index) {
         auto& slot = *chain.slots[index];
         if (!slot.instance) continue;
+        // Taken whether or not the slot is bypassed, so a lane stays where
+        // the song is while its effect sits out.
+        const ProcessorAddress where{kind, bus, static_cast<std::int32_t>(index)};
+        const auto events = drain.events != nullptr ? drain.events(drain.context, where)
+                                                    : std::span<const PluginEvent>{};
         if (slot.bypass.load(std::memory_order_relaxed)) {
             // Bypassed: the input, as late as the plugin would have made it.
             slot.through.process(block);
@@ -215,10 +220,8 @@ void run_insert_chain(InsertChain& chain, StereoBlock block, BusKind kind, std::
                 slot.through.right.write(block.right[frame]);
             }
         slot.instance->set_transport(transport);
-        slot.instance->process(block, {});
-        if (drain.drain != nullptr)
-            drain.drain(drain.context, *slot.instance,
-                        {kind, bus, static_cast<std::int32_t>(index)});
+        slot.instance->process(block, events);
+        if (drain.drain != nullptr) drain.drain(drain.context, *slot.instance, where);
     }
 }
 
@@ -241,6 +244,31 @@ void mix_sends(InsertChain& chain, BusPlayback& buses, StereoBlock track) noexce
         auto& bus = *buses.returns[index];
         add_scaled(bus.left.data(), bus.right.data(), track, gain,
                    std::min(frames, bus.left.size()));
+    }
+}
+
+void mix_sends_ramp(InsertChain& chain, BusPlayback& buses, StereoBlock track, float fader_from,
+                    float fader_to, float audible_from, float audible_to) noexcept {
+    const auto frames = std::min(track.left.size(), track.right.size());
+    if (frames == 0) return;
+    const auto count = std::min(chain.sends.size(), buses.returns.size());
+    const float step = 1.0F / static_cast<float>(frames);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& send = *chain.sends[index];
+        const float level = send.level.load(std::memory_order_relaxed);
+        if (level == 0.0F) continue;
+        const bool pre = send.pre_fader.load(std::memory_order_relaxed);
+        const float from = level * (pre ? audible_from : fader_from);
+        const float to = level * (pre ? audible_to : fader_to);
+        if (from == 0.0F && to == 0.0F) continue;
+        auto& bus = *buses.returns[index];
+        const auto n = std::min(frames, bus.left.size());
+        const float slope = (to - from) * step;
+        for (std::size_t frame = 0; frame < n; ++frame) {
+            const float gain = from + slope * static_cast<float>(frame);
+            bus.left[frame] += track.left[frame] * gain;
+            bus.right[frame] += track.right[frame] * gain;
+        }
     }
 }
 

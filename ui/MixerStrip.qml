@@ -10,13 +10,20 @@ Rectangle {
     // Naming and the track menu belong to the window, which owns them.
     signal renameRequested(int index, string name)
     signal menuRequested(int index, string name)
-    required property var modelData
-    readonly property int trackIndex: modelData.index
-    objectName: "mixerStrip" + modelData.index
+    required property int index
+    readonly property var modelData: songModel.tracks[index] !== undefined
+        ? songModel.tracks[index]
+        : ({index: index, name: "", instrument: "", hasInstrument: false, gainDb: 0,
+            gainText: "", pan: 0, panText: "", mute: false, solo: false, audible: true,
+            selected: false, armed: false, routable: true, channelText: "",
+            automationMode: "READ", inserts: 0})
+    readonly property int trackIndex: index
+    objectName: "mixerStrip" + index
     Layout.fillWidth: true
-    // The arm row is fixed; each send adds a row of its own, sized so its dial
-    // is never squeezed.
-    implicitHeight: 157 + songModel.returns.length * 48
+    // The arm and automation rows are fixed, and so are the faders' grips, so
+    // no row is squeezed to nothing; each send adds a row of its own, sized so
+    // its dial is never squeezed.
+    implicitHeight: 212 + songModel.returns.length * 48
     radius: 6
     color: modelData.selected ? Theme.raised : Theme.panel
     border.color: modelData.selected ? Theme.acid : Theme.line
@@ -75,6 +82,28 @@ Rectangle {
             track: root.modelData
         }
 
+        // Automation (decision 3): whether the track's lanes play (READ),
+        // are ignored (OFF), or record the strip and its plugins while the
+        // song plays (TOUCH while a control is held, LATCH until the stop,
+        // WRITE the whole pass). A click steps forward, a right click back.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 4
+            Label {
+                text: "AUTO"; color: Theme.muted
+                font.pixelSize: 9; font.bold: true; font.letterSpacing: 0.8
+            }
+            Chip {
+                objectName: "automationMode" + root.trackIndex
+                implicitWidth: 64; implicitHeight: 24
+                text: root.modelData.automationMode
+                accent: root.modelData.automationMode === "READ" ? Theme.acid : Theme.record
+                on: root.modelData.automationMode !== "OFF"
+                onClicked: songModel.cycleAutomationMode(root.trackIndex, 1)
+                onRightClicked: songModel.cycleAutomationMode(root.trackIndex, -1)
+            }
+            Item { Layout.fillWidth: true }
+        }
+
         // Peak meter: the last block's loudest sample,
         // laid out over the top 60 dB.
         Rectangle {
@@ -97,21 +126,27 @@ Rectangle {
             }
         }
 
+        // Held, a fader overrides its automation lane in touch mode, and
+        // letting go hands the strip back to the lane.
         ValueDial {
+            objectName: "gainDial" + root.trackIndex
             Layout.fillWidth: true
-            label: "GAIN"; from: -60; to: 6
+            label: "GAIN"; from: -60; to: 6; grip: 18
             value: modelData.gainDb
             readout: modelData.gainText + " dB"
             accent: modelData.audible ? Theme.acid : Theme.muted
             onMoved: function(v) { songModel.setTrackGain(trackIndex, v) }
+            onTouched: function(held) { appController.touchStrip(trackIndex, "gain", held) }
         }
         ValueDial {
+            objectName: "panDial" + root.trackIndex
             Layout.fillWidth: true
-            label: "PAN"; from: -1; to: 1
+            label: "PAN"; from: -1; to: 1; grip: 18
             accent: Theme.blue
             value: modelData.pan
             readout: modelData.panText
             onMoved: function(v) { songModel.setTrackPan(trackIndex, v) }
+            onTouched: function(held) { appController.touchStrip(trackIndex, "pan", held) }
         }
         SendDials {
             id: sendDials

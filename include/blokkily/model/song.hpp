@@ -109,13 +109,14 @@ struct TrackInput {
 
 // --- Automation -------------------------------------------------------------
 
-// What an automation lane drives. `gain` (dB) and `pan` (-1..+1) drive the
-// strip of the bus `processor` names, whose slot must then be -1. `parameter`
+// What an automation lane drives. `gain` (dB), `pan` (-1..+1) and `mute` (0
+// heard, 1 muted; 0.5 and above mutes) drive the strip of the bus `processor`
+// names, whose slot must then be -1. `parameter`
 // drives one parameter of the processor at `processor`: a track's instrument
 // (slot -1) or an insert on any bus. The index and id say which parameter, the
 // same way a ParameterLock does. Parameter values are in the plugin's units.
 struct AutomationTarget {
-    enum class Kind : std::uint8_t { parameter, gain, pan };
+    enum class Kind : std::uint8_t { parameter, gain, pan, mute };
 
     Kind kind = Kind::parameter;
     std::int32_t parameter_index = 0;

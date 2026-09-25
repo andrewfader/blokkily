@@ -31,6 +31,28 @@ struct PluginEditEvent {
     ParameterEdit edit;
 };
 
+// A move of one strip control from the interface (item 3.1): a fader, a pan
+// knob or the mute button of a track. `value` is in the song's units (dB,
+// -1..+1, 0 or 1). `touching` says whether the producer is holding the
+// control: in touch mode a held control overrides its automation lane, and
+// letting go (a move with touching false) hands the strip back to the lane.
+enum class StripControl : std::uint8_t { gain, pan, mute };
+struct StripMove {
+    std::uint32_t track = 0;
+    StripControl control = StripControl::gain;
+    double value = 0.0;
+    bool touching = false;
+};
+// A strip move as the render callback played it, stamped with where the song
+// was: the sample (and its tick, under the clock being played) of the block
+// the move first sounded in. Automation is recorded from these, so a recorded
+// move replays where it was heard.
+struct StripMoveEvent {
+    StripMove move;
+    std::uint64_t song_sample = 0;
+    Tick tick = 0;
+};
+
 // A processor handed back by release_processors(), with the address it had.
 struct ReleasedProcessor {
     ProcessorAddress where;
@@ -210,6 +232,19 @@ public:
     // carries every insert's bypass, every send's level and pre/post, and
     // the return strips (item 2.4): none of those rebuild the graph.
     void set_strip(std::size_t track, const MixerStrip& strip, bool any_solo);
+    // A strip control moved from the interface (item 3.1). The control's live
+    // value changes at once, as set_strip() would change it, and the move is
+    // handed to the render callback through a ring: there it sets or clears
+    // the control's touch bit (touch mode: the live value wins over the lane
+    // while held; latch: from the first touch until the transport stops), and,
+    // while the transport plays, it is stamped with the song position and
+    // passed back through take_strip_move() for recording. Nothing is
+    // recompiled. Control thread; false when the track does not exist or the
+    // ring is full (the value has still changed).
+    bool move(const StripMove& move);
+    // The next strip move the callback played while the transport ran,
+    // oldest first. Control thread only.
+    bool take_strip_move(StripMoveEvent& event) noexcept { return strip_moves_.pop(event); }
     void apply_mix(const Song& song);
     void set_master_gain_db(double decibels);
 
@@ -276,6 +311,9 @@ private:
     // The same, for an insert slot: `context` is the chunk's DrainContext.
     static void drain_insert_edits(void* context, PluginInstance& processor,
                                    ProcessorAddress where) noexcept;
+    // The automation events an insert slot plays this chunk (item 3.1).
+    static std::span<const PluginEvent> insert_events(void* context,
+                                                      ProcessorAddress where) noexcept;
     // Where the song is at `song_position`, for set_transport().
     [[nodiscard]] TransportInfo transport_at(const Arrangement& arranged,
                                              std::uint64_t song_position,
@@ -352,6 +390,22 @@ private:
     // What one processor reported in one call, before it is stamped. Touched
     // by the callback alone.
     std::array<ParameterEdit, 64> edit_scratch_{};
+    // Strip moves from the interface, and the ones played while the transport
+    // ran, stamped, on their way back (item 3.1).
+    SpscQueue<StripMove, 512> moves_;
+    SpscQueue<StripMoveEvent, 2048> strip_moves_;
+    // The strips as the control thread last set them, so a move of one
+    // control keeps the others. Control thread only.
+    std::vector<MixerStrip> strips_;
+    bool any_solo_ = false;
+    // Whether the last block played the arrangement: starting to play chases
+    // every automation lane. Callback only.
+    bool rolled_ = false;
+    // One chunk's automation events for one processor, and a copy of an
+    // instrument's timeline events while the two are merged. Sized by
+    // prepare(); touched by the callback alone.
+    std::vector<PluginEvent> automation_scratch_;
+    std::vector<PluginEvent> merge_scratch_;
     // What the input and the surfaces delivered for the block being rendered,
     // before it is handed to the tracks it names. Touched by the callback alone.
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
