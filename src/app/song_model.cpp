@@ -39,7 +39,8 @@ SongModel::SongModel(QObject* parent) : QObject(parent) {
     song_.tracks = {{"DRUMS", {}, {}}, {"BASS", {}, {-3.0, 0.25, false, false}}};
     // A short arrangement out of the box, so the timeline is something to edit
     // rather than an empty grid that has to be explained.
-    song_.clips = {{0, 0, 0, 2}, {0, 1, 2 * ticks_per_bar, 2}, {1, 1, 2 * ticks_per_bar, 2}};
+    const auto bar_two = song_.meter.bar_start(2);
+    song_.clips = {{0, 0, 0, 2}, {0, 1, bar_two, 2}, {1, 1, bar_two, 2}};
     peaks_.assign(song_.tracks.size(), 0.0F);
 
     // A four-to-the-floor verse with one parameter-locked accent, and a chorus
@@ -75,7 +76,9 @@ const blokkily::Pattern& SongModel::editPattern() const {
 }
 
 int SongModel::bars() const {
-    const auto used = static_cast<int>((song_.length() + ticks_per_bar - 1) / ticks_per_bar);
+    const auto length = song_.length();
+    // Bars the song reaches into, however long each one is.
+    const int used = length > 0 ? barAt(length - 1) + 1 : 0;
     // Always show a spare bar past the end so the song can be extended by
     // clicking, and never fewer than a readable two-phrase window.
     return std::max(minimum_visible_bars, used + 1);
@@ -132,10 +135,11 @@ QVariantList SongModel::clips() const {
         row["track"] = static_cast<int>(clip.track);
         row["pattern"] = static_cast<int>(clip.pattern);
         row["name"] = QString::fromStdString(song_.patterns[clip.pattern].name);
-        row["bar"] = static_cast<int>(clip.start / ticks_per_bar);
+        row["bar"] = barAt(clip.start);
         const auto span = song_.patterns[clip.pattern].pattern.length() *
                           static_cast<blokkily::Tick>(std::max<std::uint32_t>(1, clip.repeats));
-        row["bars"] = std::max(1, static_cast<int>(span / ticks_per_bar));
+        // The bars the clip starts in, counted by the meter it plays through.
+        row["bars"] = std::max(1, barAt(clip.start + span - 1) - barAt(clip.start) + 1);
         rows.push_back(row);
     }
     return rows;
@@ -190,6 +194,7 @@ void SongModel::replace(blokkily::Song song) {
     peaks_.assign(song_.tracks.size(), 0.0F);
     clearHistory();
     emit tuningChanged();
+    emit timebaseChanged();
     notifyStructureChanged();
 }
 

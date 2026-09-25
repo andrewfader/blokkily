@@ -295,6 +295,88 @@ void run_midi(VerifyContext& ctx) {
     }
     reached("midi: keys follow the song's tuning");
 
+    // features/timebase.feature: a take played after a tempo change lands on
+    // the tick that was heard. The song slows to 60 BPM from bar 2; a key
+    // played in bar 2 is read back through the tempo map, not at 120 BPM.
+    {
+        check(song.setTempoPoint(1920.0, 60.0, false));
+        controller.flushRecompile();
+        const auto& clock = controller.engine()->published_clock();
+        // By hand: bar 1 is 50 samples a tick at 48 kHz, then 100.
+        check(clock.sample_at(1920) == 96000.0 && clock.sample_at(2400) == 144000.0);
+        const auto tick_of = [](std::uint64_t sample) {
+            return sample < 96000 ? static_cast<int>(sample / 50)
+                                  : 1920 + static_cast<int>((sample - 96000) / 100);
+        };
+        const int slow_step = empty_step(4);
+        check(slow_step >= 0);
+        const auto played = play_into(16 + slow_step, 65, 8, true);
+        settle(120);
+        lay_out();
+        // The readouts follow the song's own tempo map and meter.
+        check(text_of("tempoReadout") == "60.00" && transport.bar() == 1
+           && text_of("positionReadout").startsWith("2."));
+        controller.togglePlayback();
+        const int pressed = tick_of(played.pressed % controller.engine()->song_samples());
+        const int released = tick_of(played.released % controller.engine()->song_samples());
+        pattern.selectStep(slow_step);
+        const bool landed = pattern.hasStep(slow_step)
+            && pattern.steps().at(slow_step).toMap().value("key").toInt() == 65
+            && pattern.selected().value("micro").toInt()
+                   == pressed - 1920 - slow_step * PatternModel::ticks_per_step
+            && pattern.stepDuration(slow_step) == released - pressed;
+        check(landed && pressed >= 1920);
+        if (!landed)
+            std::cerr << "REGRESSION: a take after a tempo change landed on the wrong tick"
+                      << " (pressed tick " << pressed << ")\n";
+        // One undo takes the take back; the tempo point stays for the
+        // screenshot, the transport showing the slower tempo.
+        check(song.undo() && !pattern.hasStep(slow_step)
+           && song.song().tempo.points.size() == 2);
+        // The ruler's seek places bar 2 with the tempo map: two seconds in.
+        controller.seekToBar(1);
+        (void)pump();
+        lay_out();
+        check(text_of("tempoReadout") == "60.00" && text_of("positionReadout") == "2.1.1"
+           && controller.engine()->sample_position() == 96000);
+
+        // A 7/8 bar 2: the bar layout, the clips, the ruler seek and the
+        // readout all follow the meter map, and one undo puts it back.
+        const auto chorus_bar = [&song] {
+            for (const auto& row : song.clips())
+                if (row.toMap().value("track").toInt() == 0
+                    && row.toMap().value("name").toString() == "CHORUS")
+                    return row.toMap().value("bar").toInt();
+            return -1;
+        };
+        check(chorus_bar() == 2);
+        check(song.setMeter(1, 7, 8));
+        const auto layout = song.barLayout();
+        const auto bar_entry = [&layout](int bar) { return layout.at(bar).toMap(); };
+        check(layout.size() == song.bars()
+           && bar_entry(1).value("ticks").toInt() == 1680
+           && bar_entry(1).value("numerator").toInt() == 7
+           && bar_entry(1).value("denominator").toInt() == 8
+           && bar_entry(2).value("start").toInt() == 3600
+           && std::abs((bar_entry(1).value("x1").toDouble() - bar_entry(1).value("x0").toDouble())
+                       / (bar_entry(0).value("x1").toDouble() - bar_entry(0).value("x0").toDouble())
+                       - 7.0 / 8.0) < 1e-9);
+        // The chorus kept its bar number (decision 9): it now starts at 3600.
+        check(chorus_bar() == 2 && song.song().clips.at(1).start == 3600);
+        controller.seekToBar(2);
+        (void)pump();
+        lay_out();
+        // Tick 3600: 1920 ticks at 50 samples, then 1680 at 100.
+        check(text_of("positionReadout") == "3.1.1"
+           && controller.engine()->sample_position() == 96000 + 168000);
+        check(song.undo() && song.song().meter == blokkily::MeterMap{} && chorus_bar() == 2
+           && song.song().clips.at(1).start == 3840);
+        controller.seekToBar(1);
+        (void)pump();
+        lay_out();
+    }
+    reached("midi: a take across a tempo change lands where it was played");
+
     // Left armed with the take in view, and the panel naming the port
     // and the last key, for the screenshot.
     check(send(0x90, 64, 96) && send(0x80, 64, 0));

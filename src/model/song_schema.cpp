@@ -90,6 +90,10 @@ bool input_ok(const TrackInput& input) {
 bool Song::consistent(std::string* why) const {
     if (patterns.empty()) return refuse(why, "the song has no pattern");
     if (tracks.empty()) return refuse(why, "the song has no track");
+    if (!tempo.valid())
+        return refuse(why, "the tempo map is not sorted from tick 0 or has a tempo out of range");
+    if (!meter.valid())
+        return refuse(why, "the meter map does not start at bar 0 or has an invalid meter");
     for (const auto& clip : clips)
         if (clip.track >= tracks.size() || clip.pattern >= patterns.size() || clip.start < 0)
             return refuse(why, "a clip refers to a track or pattern that does not exist");

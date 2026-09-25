@@ -58,7 +58,7 @@ void live_order() {
     auto song = song_with(std::move(pattern));
     SongEngine engine;
     engine.set_instrument(0, instrument());
-    require(engine.prepare(song, 120, 48000, 512), "prepare song");
+    require(engine.prepare(song, 48000, 512), "prepare song");
     engine.set_playing(true);
     require(engine.play_live(0, {PluginEvent::Type::note_on, 0, 60, 1.0}), "queue live note");
     const auto audio = pump(engine, 512);
@@ -79,7 +79,7 @@ void dense(bool preview) {
         player.set_playing(true);
     } else {
         engine.set_instrument(0, instrument());
-        require(engine.prepare(song, 120, 48000, 1024), "prepare song");
+        require(engine.prepare(song, 48000, 1024), "prepare song");
         engine.set_playing(true);
     }
     const auto audio = pump(preview ? static_cast<AudioSource&>(player)
@@ -108,8 +108,10 @@ void invalid_timing() {
     for (double invalid : {std::numeric_limits<double>::quiet_NaN(),
                            std::numeric_limits<double>::infinity(), 0.0, -1.0}) {
         SongEngine engine;
-        require(!engine.prepare(song, invalid, 48000, 512), "invalid tempo must be refused");
-        require(!engine.prepare(song, 120, invalid, 512), "invalid sample rate must be refused");
+        auto untimed = song;
+        untimed.tempo.points.front().bpm = invalid;
+        require(!engine.prepare(untimed, 48000, 512), "invalid tempo must be refused");
+        require(!engine.prepare(song, invalid, 512), "invalid sample rate must be refused");
         RealtimePlayback player(instrument());
         require(!player.prepare(song.pattern(), invalid, 48000, 512), "invalid preview tempo");
         require(!player.prepare(song.pattern(), 120, invalid, 512), "invalid preview sample rate");
@@ -123,13 +125,13 @@ void density_limit() {
     auto song = song_with(pattern);
     SongEngine engine;
     engine.set_instrument(0, instrument());
-    require(engine.prepare(song, 120, 48000, 512), "256 simultaneous events must fit");
+    require(engine.prepare(song, 48000, 512), "256 simultaneous events must fit");
     engine.set_playing(true);
     auto audio = pump(engine, 128);
     require(audio[0] == 0.25F && audio[100] == 0.0F, "boundary density must release correctly");
     add_note(pattern, 0, 100);
     std::string error;
-    require(!engine.recompile(song_with(pattern), 120, 0, &error) && !error.empty(),
+    require(!engine.recompile(song_with(pattern), 0, &error) && !error.empty(),
             "excess simultaneous events must produce an explicit error");
     engine.rewind();
     audio = pump(engine, 128);

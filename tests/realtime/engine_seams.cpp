@@ -94,7 +94,7 @@ BLOKKILY_REALTIME_CASE(engine_seams) {
     engine.set_processor(track_instrument(2), std::make_unique<EditingInstrument>());
     require(engine.has_instrument(0) && !engine.has_instrument(1) && engine.has_instrument(2),
             "the CLAP fixture must load through the production adapter: " + error);
-    require(engine.prepare(song, 120.0, 48000.0, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, 48000.0, block, 0, &error), "prepare: " + error);
     float level = source_level;
     engine::TestAccess::set_test_source(engine, 1, &dc_source, &level);
     const float right_gain = strip_gain(song.tracks[1].mix, false).right;

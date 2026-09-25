@@ -46,7 +46,7 @@ BLOKKILY_REALTIME_CASE(chord_velocity) {
     engine.set_instrument(0, ClapPluginInstance::create(BLOKKILY_TEST_CLAP_PATH,
                                                         "dev.blokkily.test", &error));
     require(engine.has_instrument(0), "the CLAP fixture must load: " + error);
-    require(engine.prepare(song, 120.0, 48000.0, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, 48000.0, block, 0, &error), "prepare: " + error);
     engine.set_playing(true);
 
     const std::size_t frames = loops * static_cast<std::size_t>(length);

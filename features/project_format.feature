@@ -8,6 +8,7 @@ Feature: Project files keep opening as the program grows
     When the producer opens it
     Then its patterns, triggers, locks, tracks, clips and tuning all come back
     And saving it writes the same records under the format 5 header
+    And its legacy "tempo" line is written as the tempo point it means
 
   Scenario: Saving the same project twice gives the same bytes
     Given a project opened from a format 5 file
@@ -22,7 +23,8 @@ Feature: Project files keep opening as the program grows
   Scenario: The legacy tempo line is read in every format
     Given a format 4 or format 5 project with a "tempo" line
     When the producer opens it
-    Then the project's tempo is the one that line names
+    Then the song's tempo map is one tempo point at tick 0 at that tempo
+    And the "tempo" line is never written back
 
   Scenario: A file inside the project folder is referenced relative to it
     Given a project folder

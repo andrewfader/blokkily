@@ -9,6 +9,7 @@
 #include "engine_clips.hpp"
 
 #include "blokkily/audio/event_timeline.hpp"
+#include "blokkily/model/timebase.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -19,6 +20,9 @@ struct Arrangement {
     // A sample timeline per track.
     std::vector<std::vector<TimedPluginEvent>> timelines;
     std::uint64_t song_samples = 0;
+    // Where every tick of this arrangement falls. The playhead keeps its tick
+    // when an arrangement with another clock replaces this one.
+    TickClock clock;
     ArrangementClips clips;
     ArrangementAutomation automation;
 };

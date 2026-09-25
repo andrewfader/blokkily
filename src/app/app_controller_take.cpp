@@ -106,18 +106,12 @@ void AppController::toggleRecord() {
     emit recordChanged();
 }
 
-double AppController::ticksPerSample() const {
-    if (!engine_ || song_ == nullptr || transport_ == nullptr) return 0.0;
-    const double rate = engine_->sample_rate();
-    if (rate <= 0.0) return 0.0;
-    return transport_->bpm() * static_cast<double>(song_->song().pattern().ticks_per_beat()) /
-           (60.0 * rate);
-}
-
 void AppController::drainTake() {
-    if (!engine_ || song_ == nullptr) return;
-    const double per_sample = ticksPerSample();
-    if (per_sample <= 0.0) return;
+    if (!engine_ || song_ == nullptr || engine_->sample_rate() <= 0.0) return;
+    // Every sample the engine stamped is read back through the song's tempo
+    // map, the one sample-to-tick path, so a take played across a tempo change
+    // lands on the ticks that were heard.
+    const auto& clock = engine_->published_clock();
     // Everything is taken off the engine before anything is written, because
     // writing reaches the engine again and must not find this half done.
     std::vector<blokkily::CapturedEvent> heard;
@@ -129,8 +123,7 @@ void AppController::drainTake() {
     for (const auto& event : heard) {
         const std::size_t track = event.track;
         if (takes_.size() <= track) takes_.resize(track + 1, blokkily::TakeRecorder(length));
-        const auto at = static_cast<blokkily::Tick>(
-            std::floor(static_cast<double>(event.sample) * per_sample));
+        const auto at = blokkily::tick_at_sample(clock, event.sample);
         const auto key = static_cast<std::int16_t>(event.event.key_or_parameter);
         if (event.event.type == blokkily::PluginEvent::Type::note_on) {
             takes_[track].note_on(at, key, static_cast<float>(event.event.value),
@@ -145,9 +138,8 @@ void AppController::drainTake() {
 void AppController::finishTake() {
     drainTake();
     if (engine_ && song_ != nullptr && engine_->song_samples() > 0) {
-        const auto at = static_cast<blokkily::Tick>(std::floor(
-            static_cast<double>(engine_->sample_position() % engine_->song_samples()) *
-            ticksPerSample()));
+        const auto at = blokkily::tick_at_sample(
+            engine_->published_clock(), engine_->sample_position() % engine_->song_samples());
         std::vector<std::pair<std::size_t, blokkily::PlayedNote>> released;
         for (std::size_t track = 0; track < takes_.size(); ++track)
             for (const auto& note : takes_[track].finish(at)) released.emplace_back(track, note);

@@ -90,3 +90,11 @@ Feature: A MIDI keyboard plays the song and records into it
     Then the bounced file is the arrangement alone
     And nothing is recorded from it
     And the key is heard once the bounce hands the engine back
+
+  Scenario: A take played after a tempo change lands where it was heard
+    Given the song slows to 60 BPM from bar 2 and recording is armed
+    When a key is played into bar 2 of the running song
+    Then it is written on the step it was played in, with the micro-timing heard
+    And the transport reads 60.00 BPM and bar 2 there
+    # bdd_midi_recording "midi: a take across a tempo change lands where it
+    # was played"; core proof in features/timebase.feature.

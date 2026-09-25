@@ -9,11 +9,11 @@
 
 namespace blokkily {
 
-// A session: the arrangement plus the tempo it plays at. Everything musical
-// lives in the song, so saving a project and saving a song are the same act.
+// A session: the arrangement and its name. Everything musical, the tempo map
+// included, lives in the song, so saving a project and saving a song are the
+// same act.
 struct Project {
     std::string name = "Untitled";
-    double tempo = 120.0;
     Song song;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return song.pattern(index); }

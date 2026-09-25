@@ -10,7 +10,7 @@
 
 const blokkily::Clip* SongModel::clipAt(int track, int bar) const {
     if (!validTrack(track) || bar < 0) return nullptr;
-    const auto tick = static_cast<blokkily::Tick>(bar) * ticks_per_bar;
+    const auto tick = barStart(bar);
     const auto found = std::find_if(song_.clips.begin(), song_.clips.end(),
         [&](const blokkily::Clip& clip) {
             if (clip.track != static_cast<std::size_t>(track)) return false;
@@ -38,13 +38,10 @@ QVariantList SongModel::lanes() const {
             const auto* clip = clipAt(track, bar);
             QVariantMap cell;
             cell["filled"] = clip != nullptr;
-            cell["start"] = clip != nullptr &&
-                            clip->start == static_cast<blokkily::Tick>(bar) * ticks_per_bar;
+            cell["start"] = clip != nullptr && clip->start == barStart(bar);
             cell["pattern"] = clip == nullptr ? -1 : static_cast<int>(clip->pattern);
             cell["repeats"] = clip == nullptr ? 0 : static_cast<int>(clip->repeats);
-            cell["startBar"] = clip == nullptr
-                                   ? -1
-                                   : static_cast<int>(clip->start / ticks_per_bar);
+            cell["startBar"] = clip == nullptr ? -1 : barAt(clip->start);
             cell["name"] = clip == nullptr
                                ? QString()
                                : QString::fromStdString(song_.patterns[clip->pattern].name);
@@ -60,7 +57,7 @@ void SongModel::placeClip(int track, int bar) {
     checkpoint();
     song_.clips.push_back({static_cast<std::size_t>(track),
                            static_cast<std::size_t>(current_pattern_),
-                           static_cast<blokkily::Tick>(bar) * ticks_per_bar, 1});
+                           barStart(bar), 1});
     notifyStructureChanged();
 }
 
@@ -93,8 +90,10 @@ bool SongModel::setClipRepeats(int track, int bar, int repeats) {
     const int next = qBound(1, repeats, 64);
     if (static_cast<int>(covering->repeats) == next) return true;
     // Extending must not land on another clip of this track.
-    const auto start_bar = static_cast<int>(covering->start / ticks_per_bar);
-    for (int probe = start_bar; probe < start_bar + next; ++probe) {
+    const auto length = song_.patterns[covering->pattern].pattern.length();
+    const int start_bar = barAt(covering->start);
+    const int end_bar = barAt(covering->start + length * next - 1);
+    for (int probe = start_bar; probe <= end_bar; ++probe) {
         const auto* other = static_cast<const SongModel*>(this)->clipAt(track, probe);
         if (other != nullptr && other != covering) return false;
     }
@@ -107,16 +106,18 @@ bool SongModel::setClipRepeats(int track, int bar, int repeats) {
 bool SongModel::moveClip(int track, int bar, int newBar) {
     auto* covering = clipAt(track, bar);
     if (covering == nullptr || newBar < 0) return false;
-    const auto reps = static_cast<int>(std::max<std::uint32_t>(1, covering->repeats));
+    const auto span = song_.patterns[covering->pattern].pattern.length() *
+                      static_cast<blokkily::Tick>(std::max<std::uint32_t>(1, covering->repeats));
     const auto old_start = covering->start;
-    if (old_start == static_cast<blokkily::Tick>(newBar) * ticks_per_bar) return true;
+    const auto new_start = barStart(newBar);
+    if (old_start == new_start) return true;
     // The destination span must be free of every other clip on this track.
-    for (int probe = newBar; probe < newBar + reps; ++probe) {
+    for (int probe = newBar; probe <= barAt(new_start + span - 1); ++probe) {
         const auto* other = static_cast<const SongModel*>(this)->clipAt(track, probe);
         if (other != nullptr && other != covering) return false;
     }
     checkpoint();
-    covering->start = static_cast<blokkily::Tick>(newBar) * ticks_per_bar;
+    covering->start = new_start;
     notifyStructureChanged();
     return true;
 }

@@ -141,10 +141,13 @@ public:
     // Locates the audio engine and the drawn playhead on a bar of the
     // arrangement, which is what clicking the timeline ruler means.
     Q_INVOKABLE void seekToBar(int bar);
-    // Locates both playheads on an absolute step of the song — bar * 16 +
-    // step — so a Ctrl-click on the step grid jumps into that column of the
-    // bar the song is already in.
+    // Locates both playheads on an absolute sixteenth step of the song (a
+    // step is 120 ticks), so a Ctrl-click on the step grid jumps into that
+    // column of the bar the song is already in.
     Q_INVOKABLE void seekToStep(double step);
+    // Locates both playheads on a tick of the song. The engine is sent to the
+    // sample the song's tempo map places that tick at.
+    void seekToTick(double tick);
     // Sounds one twelve-tone key through the selected track, so a press on the
     // piano roll's keyboard gutter is heard the way a key of the surface is.
     Q_INVOKABLE bool auditionKey(int key, bool held = false);
@@ -159,6 +162,9 @@ public:
                          bool held = false);
     // Bounces the arrangement through the engine the speakers hear.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32");
+    // Sets the tempo in effect at the playhead: the tempo readout's edit. The
+    // tempo is the song's, so this is an undoable song edit, and the running
+    // engine keeps the playhead on its bar.
     Q_INVOKABLE void setTempo(double bpm);
     // Scans the given search paths out of process; `scanFinished` reports the
     // empty queue. `forget_cache` retries candidates that previously failed.
@@ -259,8 +265,8 @@ private:
     // Ends the take: whatever is still held is written as released now.
     void finishTake();
     void commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes);
-    // Song ticks per engine sample at the tempo the engine was prepared for.
-    [[nodiscard]] double ticksPerSample() const;
+    // Hands the song's tempo and meter maps to the transport.
+    void syncTimebase();
     void assignInstrument(int track, const blokkily::InstrumentSlot& slot,
                           const QString& label);
     // The General MIDI bank this machine offers, preferring the familiar ones.

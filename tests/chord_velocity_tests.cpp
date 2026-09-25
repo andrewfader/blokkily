@@ -244,7 +244,7 @@ void scheduler_clap_case() {
     SongEngine engine;
     engine.set_instrument(0, clap_fixture());
     std::string error;
-    require(engine.prepare(song, 120.0, 48000.0, 256, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, 48000.0, 256, 0, &error), "prepare: " + error);
     require(engine.song_samples() == 2048, "one tick per sample");
     engine.set_playing(true);
     Pump pump(engine);
@@ -267,7 +267,7 @@ void scheduler_clap_case() {
     auto replacement = *edited.find(id);
     std::get<Chord>(replacement.musical_data).velocities[2] = 0.8F;
     require(edited.update(id, replacement), "edit one voice");
-    require(engine.recompile(song, 120.0, 0, &error), "recompile: " + error);
+    require(engine.recompile(song, 0, &error), "recompile: " + error);
     const auto second = pump.left(2048);
     const float louder = plateau(second, 100, 300, "all three voices after the edit");
     require(near(louder, fixture_level * 2.3F),
@@ -305,7 +305,7 @@ void legacy_chord_case() {
             "a v4 chord has the default velocity and nothing per voice");
     SongEngine engine;
     engine.set_instrument(0, clap_fixture());
-    require(engine.prepare(project->song, 120.0, 48000.0, 256, 0, &error), "prepare: " + error);
+    require(engine.prepare(project->song, 48000.0, 256, 0, &error), "prepare: " + error);
     engine.set_playing(true);
     Pump pump(engine);
     const auto audio = pump.left(2048);
@@ -339,7 +339,7 @@ void soundfont_case() {
         SongEngine engine;
         engine.set_instrument(0, std::move(synth));
         std::string error;
-        require(engine.prepare(song, 120.0, 48000.0, 512, 0, &error), "prepare: " + error);
+        require(engine.prepare(song, 48000.0, 512, 0, &error), "prepare: " + error);
         engine.set_playing(true);
         Pump pump(engine);
         const auto audio = pump.left(24000);

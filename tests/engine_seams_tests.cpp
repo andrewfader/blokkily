@@ -172,7 +172,7 @@ void instrumentless_track() {
     engine.set_instrument(0, create_processor(song.tracks[0].instrument, {}, &error));
     require(engine.has_instrument(0) && !engine.has_instrument(1), "one instrument: " + error);
     float level = 0.5F;
-    require(engine.prepare(song, 120.0, rate, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
     require(engine::TestAccess::event_capacity(engine, 0) >= engine::maximum_events_per_chunk &&
                 engine::TestAccess::event_capacity(engine, 1) >= engine::maximum_events_per_chunk,
             "prepare() sizes every track's event scratch");
@@ -217,7 +217,7 @@ void edit_ring() {
     SongEngine engine;
     engine.set_processor(track_instrument(0), std::make_unique<EditingInstrument>());
     std::string error;
-    require(engine.prepare(song, 120.0, rate, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
 
     // Stopped with the playhead resting at 1000.
     engine.seek(1000);
@@ -258,7 +258,7 @@ Built build(const Song& song, std::vector<ReleasedProcessor> adopted) {
     Built built;
     built.build = populate_graph(*built.engine, song, std::move(adopted), {});
     std::string error;
-    require(built.engine->prepare(song, 120.0, rate, block, 0, &error), "prepare: " + error);
+    require(built.engine->prepare(song, rate, block, 0, &error), "prepare: " + error);
     load_fresh_state(*built.engine, song, built.build);
     require(built.output->open(*built.engine) && built.output->start(), "output must start");
     return built;
@@ -393,7 +393,7 @@ void running_state() {
     require(build.loaded == 3, "the CLAP, VST3 and SoundFont processors load: " + build.error);
     engine.set_processor(track_instrument(3), std::make_unique<EditingInstrument>(true));
     std::string error;
-    require(engine.prepare(song, 120.0, rate, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
     for (std::uint32_t track = 0; track < 3; ++track) {
         auto* processor = engine.processor(track_instrument(track));
         require(processor != nullptr, "the processor is addressable");
@@ -423,7 +423,7 @@ void processor_factory() {
     SongEngine engine;
     auto song = song_of(1);
     engine.set_instrument(0, std::move(synth));
-    require(engine.prepare(song, 120.0, rate, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
     RtAudioOutput output(RtAudioOutput::Mode::deterministic);
     require(output.open(engine) && output.start(), "output must start");
     require(engine.play_live(0, {PluginEvent::Type::note_on, 0, 60, 1.0, 0.0}), "note queued");
@@ -522,7 +522,7 @@ void coalescing() {
         [&]() -> RecompileCoalescer::Outcome {
             ++compiled;
             std::string error;
-            if (built.engine->recompile(song, 120.0, 0, &error)) return {true, {}};
+            if (built.engine->recompile(song, 0, &error)) return {true, {}};
             return {false, error};
         },
         turns.defer());

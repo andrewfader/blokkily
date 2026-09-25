@@ -3,8 +3,13 @@
 #include "blokkily/sequencer/scheduler.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace blokkily {
+
+Tick Song::ticks_per_beat() const {
+    return patterns.empty() ? 480 : patterns.front().pattern.ticks_per_beat();
+}
 
 Tick Song::length() const {
     Tick end = 0;
@@ -13,6 +18,18 @@ Tick Song::length() const {
         const Tick span = patterns[clip.pattern].pattern.length() *
                           static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
         end = std::max(end, clip.start + span);
+    }
+    // An audio clip lasts a number of seconds, not ticks: where it ends in
+    // the song depends on the tempo it plays through (plan C14).
+    const Tick resolution = ticks_per_beat();
+    for (const auto& clip : audio_clips) {
+        if (clip.track >= tracks.size() || clip.file >= audio_files.size()) continue;
+        const auto rate = audio_files[clip.file].sample_rate;
+        if (rate == 0) continue;
+        const double seconds = tempo.seconds_at(clip.start, resolution) +
+                               static_cast<double>(clip.length_frames) / rate;
+        const double tick = std::ceil(tempo.tick_at_seconds(seconds, resolution) - 1e-6);
+        if (tick > static_cast<double>(end)) end = static_cast<Tick>(tick);
     }
     if (end > 0) return end;
     return patterns.empty() ? 1920 : patterns.front().pattern.length();

@@ -27,11 +27,15 @@ std::size_t timeline_window(std::span<const TimedPluginEvent> timeline,
 
 std::vector<TimedPluginEvent> compile_timeline(
     const ScheduledEvents& scheduled, double samples_per_tick, std::uint64_t last_sample) {
+    return compile_timeline(scheduled, TickClock::uniform(samples_per_tick, 0.0), last_sample);
+}
+
+std::vector<TimedPluginEvent> compile_timeline(
+    const ScheduledEvents& scheduled, const TickClock& clock, std::uint64_t last_sample) {
     std::vector<TimedPluginEvent> timeline;
     timeline.reserve(scheduled.parameters.size() + scheduled.notes.size() * 2);
-    const auto at = [samples_per_tick, last_sample](Tick tick) {
-        const auto sample = static_cast<std::uint64_t>(
-            static_cast<double>(std::max<Tick>(0, tick)) * samples_per_tick);
+    const auto at = [&clock, last_sample](Tick tick) {
+        const auto sample = static_cast<std::uint64_t>(clock.sample_at(std::max<Tick>(0, tick)));
         return std::min(sample, last_sample);
     };
     for (const auto& parameter : scheduled.parameters) {

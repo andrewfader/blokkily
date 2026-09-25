@@ -93,7 +93,7 @@ BLOKKILY_REALTIME_CASE(engine_baseline) {
                                                         "dev.blokkily.test", &error));
     require(engine.has_instrument(0) && engine.has_instrument(1),
             "the CLAP fixture must load through the production adapter: " + error);
-    require(engine.prepare(song, 120.0, 48000.0, block, 0, &error), "prepare: " + error);
+    require(engine.prepare(song, 48000.0, block, 0, &error), "prepare: " + error);
     require(engine.song_samples() == static_cast<std::uint64_t>(song_length),
             "the song must be one tick per sample long");
 
