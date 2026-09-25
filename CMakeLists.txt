@@ -1,6 +1,19 @@
 cmake_minimum_required(VERSION 3.25)
 project(blokkily VERSION 0.1.0 LANGUAGES C CXX)
 
+# Rebuilds across many worktrees are dominated by JUCE and Qt, so use ccache
+# whenever it is installed; it is never required. An explicit launcher given
+# on the command line wins.
+find_program(BLOKKILY_CCACHE ccache)
+if(BLOKKILY_CCACHE)
+    if(NOT CMAKE_C_COMPILER_LAUNCHER)
+        set(CMAKE_C_COMPILER_LAUNCHER "${BLOKKILY_CCACHE}")
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_LAUNCHER)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${BLOKKILY_CCACHE}")
+    endif()
+endif()
+
 add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 
 find_package(PkgConfig REQUIRED)
@@ -85,23 +98,12 @@ if(BLOKKILY_BUILD_GUI)
     add_dependencies(blokkily blokkily_scan)
 endif()
 
-if(BLOKKILY_COVERAGE)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        message(FATAL_ERROR "BLOKKILY_COVERAGE requires GCC and gcov")
-    endif()
-    # Measure our sources, excluding vendored frameworks and generated QML.
-    foreach(target blokkily_core blokkily blokkily_scan)
-        if(TARGET ${target})
-            get_target_property(sources ${target} SOURCES)
-            foreach(source IN LISTS sources)
-                if(source MATCHES "^src/.*\\.cpp$")
-                    set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS --coverage)
-                endif()
-            endforeach()
-        endif()
-    endforeach()
-    target_link_options(blokkily_core INTERFACE --coverage)
-endif()
+# Headless tests and offscreen gates must not reach whatever display the
+# developer's session has: once JUCE GUI code is linked in, a stray DISPLAY
+# would make them depend on it. The device checks keep the real environment.
+set(BLOKKILY_HEADLESS_TEST_ENV "ALSA_CONFIG_PATH=/dev/null;DISPLAY=;WAYLAND_DISPLAY=")
+set(BLOKKILY_OFFSCREEN_GATE_ENV
+    "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;${BLOKKILY_HEADLESS_TEST_ENV}")
 
 if(BLOKKILY_BUILD_TESTS)
     enable_testing()
@@ -146,7 +148,7 @@ if(BLOKKILY_BUILD_TESTS)
     add_test(NAME blokkily_core COMMAND blokkily_tests)
     set_tests_properties(blokkily_core PROPERTIES
         LABELS "unit;integration;soundfont;clap;vst3;audio;realtime;project;parameters;mixer;song;export"
-        ENVIRONMENT "ALSA_CONFIG_PATH=/dev/null" TIMEOUT 60)
+        ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
 
     add_executable(blokkily_audio_regressions tests/audio_regressions.cpp)
     target_link_libraries(blokkily_audio_regressions PRIVATE blokkily_core)
@@ -158,7 +160,7 @@ if(BLOKKILY_BUILD_TESTS)
         add_test(NAME audio_${regression} COMMAND blokkily_audio_regressions ${regression})
         set_tests_properties(audio_${regression} PROPERTIES
             LABELS "bdd;integration;audio;realtime;regression"
-            ENVIRONMENT "ALSA_CONFIG_PATH=/dev/null" TIMEOUT 30)
+            ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 30)
     endforeach()
 
     # Plays through whatever audio server is actually running — PipeWire, plain
@@ -212,7 +214,7 @@ if(BLOKKILY_BUILD_TESTS)
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/edit-once-see-everywhere.png)
         set_tests_properties(bdd_edit_once_see_everywhere PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;clap;vst3;soundfont;project;parameters;mixer;song;export"
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 60)
 
         # The playable surfaces, in a tuning that is not twelve tones and on the
@@ -227,7 +229,7 @@ if(BLOKKILY_BUILD_TESTS)
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/playable-keyboards.png)
         set_tests_properties(bdd_playable_keyboards PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 30)
 
         add_test(NAME bdd_chord_pads
@@ -241,7 +243,7 @@ if(BLOKKILY_BUILD_TESTS)
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/chord-pads.png)
         set_tests_properties(bdd_chord_pads PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 30)
 
         # The honeycomb, turned on its side, in a tuning that is not twelve
@@ -257,7 +259,7 @@ if(BLOKKILY_BUILD_TESTS)
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/hex-keyboard.png)
         set_tests_properties(bdd_hex_keyboard PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 30)
 
         # A MIDI keyboard played into the real application: chosen from the
@@ -271,7 +273,7 @@ if(BLOKKILY_BUILD_TESTS)
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/midi-recording.png)
         set_tests_properties(bdd_midi_recording PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;midi;recording;clap;vst3"
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 60)
 
         add_test(NAME bdd_plugin_scan_survives_hang
@@ -283,7 +285,51 @@ if(BLOKKILY_BUILD_TESTS)
                 --scan-fixture ${BLOKKILY_CLAP_FIXTURE_DIR})
         set_tests_properties(bdd_plugin_scan_survives_hang PROPERTIES
             LABELS "bdd;e2e;integration;clap;plugins;project;scan"
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null;BLOKKILY_SCAN_TIMEOUT_MS=1500;BLOKKILY_SCAN_CACHE=${CMAKE_BINARY_DIR}/artifacts/scan-cache.txt"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV};BLOKKILY_SCAN_TIMEOUT_MS=1500;BLOKKILY_SCAN_CACHE=${CMAKE_BINARY_DIR}/artifacts/scan-cache.txt"
             TIMEOUT 40)
     endif()
+endif()
+
+# Each foundation and feature owns one fragment holding its sources, tests,
+# labels and gates, so adding one means adding a file rather than editing this
+# one. The order is fixed; foundations come first.
+foreach(blokkily_feature
+        timebase
+        audio_assets
+        plugin_boundary
+        engine_seams
+        schema
+        chord_velocity
+        builtin_effects
+        sampler
+        tempo_meter_ui
+        audio_clips
+        effects
+        record
+        plugin_windows
+        automation
+        audio_input
+        output_recording
+        clip_warp
+        metronome)
+    include(cmake/feature_${blokkily_feature}.cmake)
+endforeach()
+
+if(BLOKKILY_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "BLOKKILY_COVERAGE requires GCC and gcov")
+    endif()
+    # Measure our sources, excluding vendored frameworks and generated QML.
+    # This runs after the feature fragments so their sources are measured too.
+    foreach(target blokkily_core blokkily blokkily_scan)
+        if(TARGET ${target})
+            get_target_property(sources ${target} SOURCES)
+            foreach(source IN LISTS sources)
+                if(source MATCHES "^src/.*\\.cpp$")
+                    set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS --coverage)
+                endif()
+            endforeach()
+        endif()
+    endforeach()
+    target_link_options(blokkily_core INTERFACE --coverage)
 endif()
