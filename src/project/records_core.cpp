@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <stdexcept>
 
 namespace blokkily::project_io {
@@ -89,7 +90,8 @@ bool parse_name(const Fields& fields, ParseContext& context) {
 // tick 0 (plan C3).
 bool parse_tempo(const Fields& fields, ParseContext& context) {
     const auto value = fields.real(1);
-    if (!fields.count(2) || !value || *value <= 0.0) return context.fail("malformed tempo record");
+    if (!fields.count(2) || !value || !std::isfinite(*value) || *value <= 0.0)
+        return context.fail("malformed tempo record");
     if (context.legacy_tempo) return context.fail("more than one tempo record");
     context.legacy_tempo = *value;
     return true;

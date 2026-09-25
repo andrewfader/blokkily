@@ -65,9 +65,11 @@ bool finish_timebase(ParseContext& context) {
     if (context.legacy_tempo && !context.tempo_points.empty())
         return context.fail("a tempo record cannot be mixed with tempo_point records");
     if (context.legacy_tempo) {
-        if (*context.legacy_tempo < minimum_bpm || *context.legacy_tempo > maximum_bpm)
-            return context.fail("tempo is outside 20 to 300 BPM");
-        song.tempo.points = {TempoPoint{0, *context.legacy_tempo, false}};
+        // A legacy tempo was always clamped into range on load, and files
+        // written before the tempo map existed still open: 400 plays at 300,
+        // 10 at 20. Only tempo_point, which this program writes, is strict.
+        const double bpm = std::clamp(*context.legacy_tempo, minimum_bpm, maximum_bpm);
+        song.tempo.points = {TempoPoint{0, bpm, false}};
     } else if (!context.tempo_points.empty()) {
         auto points = std::move(context.tempo_points);
         std::sort(points.begin(), points.end(),

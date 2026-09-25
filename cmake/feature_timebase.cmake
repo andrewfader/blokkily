@@ -48,7 +48,8 @@ if(BLOKKILY_BUILD_TESTS)
             meter_map
             rebar
             song_length_audio
-            project_records)
+            project_records
+            legacy_tempo_clamped)
         add_test(NAME timebase_${timebase_case}
             COMMAND blokkily_timebase_tests ${timebase_case})
         set_tests_properties(timebase_${timebase_case} PROPERTIES

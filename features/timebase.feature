@@ -91,3 +91,11 @@ Feature: One timebase for the whole song
     Then the maps come back as they were and the file saves byte-identically
     And a legacy "tempo" line is one tempo point at tick 0
     And a file that mixes a "tempo" line with tempo_point records is refused
+
+  # timebase_legacy_tempo_clamped (regression)
+  Scenario: A legacy tempo outside 20 to 300 BPM is clamped, not refused
+    Given a format 4 project whose "tempo" line says 400, or 10
+    When it is loaded
+    Then it opens at 300 BPM, or 20 BPM, as it did before the tempo map
+    And a "tempo" line of zero, a negative number or a word is still refused
+    And a tempo_point outside 20 to 300 BPM is still refused

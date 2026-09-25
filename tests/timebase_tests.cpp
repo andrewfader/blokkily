@@ -673,7 +673,9 @@ void project_records() {
         {"tempo 120\ntempo_point 0 120 step\n", "cannot be mixed"},
         {"tempo_point 0 120 step\ntempo 120\n", "cannot be mixed"},
         {"tempo 120\ntempo 90\n", "more than one tempo"},
-        {"tempo 500\n", "outside 20 to 300"},
+        {"tempo 0\n", "malformed tempo"},
+        {"tempo -90\n", "malformed tempo"},
+        {"tempo fast\n", "malformed tempo"},
         {"tempo_point 480 120 step\n", "not at tick 0"},
         {"tempo_point 0 120 step\ntempo_point 0 90 step\n", "share a tick"},
         {"tempo_point 0 120 glide\n", "unknown tempo_point shape"},
@@ -699,6 +701,45 @@ void project_records() {
             "records in any order load sorted: " + error);
 }
 
+// Scenario: A legacy tempo outside 20 to 300 BPM is clamped, not refused.
+// Regression: before the timebase landed, `tempo 400` loaded as 300 BPM and
+// `tempo 10` as 20; a strict range check made such a project fail to open.
+void legacy_tempo_clamped() {
+    const std::string body = "pattern P 1920 480\ntrack T 0 0 0 0 CLAP /a.clap ~ ~\n";
+    std::string error;
+    for (const auto& [line, bpm] : std::vector<std::pair<std::string, double>>{
+             {"tempo 400", maximum_bpm}, {"tempo 10", minimum_bpm}, {"tempo 300", 300.0},
+             {"tempo 20", 20.0}, {"tempo 0.5", minimum_bpm}}) {
+        error.clear();
+        const auto loaded =
+            ProjectFile::parse("blokkily-project 4\n" + line + "\n" + body, &error);
+        require(loaded.has_value(), "\"" + line + "\" loads in format 4: " + error);
+        require(loaded->song.tempo.points == std::vector<TempoPoint>{{0, bpm, false}},
+                "\"" + line + "\" is clamped to " + std::to_string(bpm) + " BPM, got " +
+                    std::to_string(loaded->song.tempo.points.front().bpm));
+        require(loaded->song.tempo.valid(), "the clamped tempo map is valid");
+        // It saves as the tempo it plays at, and that reloads as it was.
+        const auto again = ProjectFile::parse(ProjectFile::serialize(*loaded), &error);
+        require(again.has_value() && again->song.tempo == loaded->song.tempo,
+                "the clamped tempo saves and reloads: " + error);
+    }
+    // A tempo that is not a tempo at all is still refused, and tempo_point
+    // stays strict: it is written by this program, never by an older one.
+    for (const auto& [records, reason] : std::vector<std::pair<std::string, std::string>>{
+             {"tempo 0\n", "malformed tempo"},
+             {"tempo -120\n", "malformed tempo"},
+             {"tempo nan\n", "malformed tempo"},
+             {"tempo allegro\n", "malformed tempo"},
+             {"tempo_point 0 400 step\n", "outside 20 to 300"},
+             {"tempo_point 0 10 step\n", "outside 20 to 300"}}) {
+        error.clear();
+        const auto refused = ProjectFile::parse("blokkily-project 4\n" + records + body, &error);
+        require(!refused.has_value() && error.find(reason) != std::string::npos,
+                "\"" + records + "\" must be refused with \"" + reason + "\", got \"" + error +
+                    "\"");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -719,6 +760,7 @@ int main(int argc, char** argv) {
         {"soundfont_across_tempo", soundfont_across_tempo},
         {"vst3_across_tempo", vst3_across_tempo},
         {"project_records", project_records},
+        {"legacy_tempo_clamped", legacy_tempo_clamped},
     };
     if (argc != 2 || !cases.contains(argv[1])) {
         std::cerr << "usage: blokkily_timebase_tests <case>\n";
