@@ -32,7 +32,7 @@ public:
     static constexpr int step_count = 16;
     static constexpr blokkily::Tick ticks_per_step = 120;
     enum Role { IdRole = Qt::UserRole + 1, StepRole, KeyRole, NameRole, DurationRole,
-                VelocityRole, LockRole, VoiceKeysRole };
+                VelocityRole, LockRole, VoiceKeysRole, VoiceVelocitiesRole, VoiceLengthsRole };
 
     explicit PatternModel(SongModel* song, QObject* parent = nullptr);
     int rowCount(const QModelIndex& parent = {}) const override;
@@ -98,7 +98,13 @@ public:
     // Step inspector edits. Each one rewrites the selected trigger in place, so
     // every projection updates from the same change.
     Q_INVOKABLE void transposeSelected(int semitones);
+    // On a chord this moves the whole chord: a chord struck as one takes the
+    // velocity, a chord struck voice by voice keeps its balance with its
+    // loudest voice at the velocity.
     Q_INVOKABLE void setSelectedVelocity(double velocity);
+    // One voice of the selected chord, by interval index, as the inspector's
+    // per-voice bars edit it. The other voices keep their velocities.
+    Q_INVOKABLE void setSelectedVoiceVelocity(int voice, double velocity);
     Q_INVOKABLE void setSelectedProbability(double probability);
     Q_INVOKABLE void setSelectedRatchets(int ratchets);
     Q_INVOKABLE void setSelectedMicroOffset(int ticks);

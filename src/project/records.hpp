@@ -75,6 +75,9 @@ struct RecordModule {
 // pattern, trigger, lock, track, clip.
 [[nodiscard]] const RecordModule& core_records();
 
+// Chord velocity and voice length: voicevel, voicelen (records_chord_velocity.cpp).
+[[nodiscard]] const RecordModule& chord_velocity_records();
+
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();
 

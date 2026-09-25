@@ -22,6 +22,21 @@ void Pattern::validate(const Trigger& event) const {
     if (event.ratchets == 0 || event.ratchets > 16) {
         throw std::invalid_argument("ratchets must be in [1, 16]");
     }
+    if (const auto* chord = std::get_if<Chord>(&event.musical_data)) {
+        const auto voices = chord->intervals.size();
+        const auto in_range = [](float velocity) { return velocity >= 0.0F && velocity <= 1.0F; };
+        if (!in_range(chord->velocity))
+            throw std::invalid_argument("chord velocity must be in [0, 1]");
+        if (!chord->velocities.empty() && chord->velocities.size() != voices)
+            throw std::invalid_argument("a chord needs one velocity per voice or none");
+        if (!std::all_of(chord->velocities.begin(), chord->velocities.end(), in_range))
+            throw std::invalid_argument("voice velocity must be in [0, 1]");
+        if (!chord->durations.empty() && chord->durations.size() != voices)
+            throw std::invalid_argument("a chord needs one length per voice or none");
+        if (!std::all_of(chord->durations.begin(), chord->durations.end(),
+                         [](Tick length) { return length > 0; }))
+            throw std::invalid_argument("voice length must be positive");
+    }
 }
 
 EventId Pattern::add(Trigger trigger) {

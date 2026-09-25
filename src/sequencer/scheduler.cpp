@@ -13,10 +13,12 @@ std::uint64_t mix(std::uint64_t value) {
     return value ^ (value >> 31U);
 }
 
+// `length` is how long this voice sounds: the trigger's duration for a note,
+// the voice's own for a chord whose voices were held for different times.
 void emit_note(std::vector<ScheduledNote>& output, const Trigger& event,
-               const Note& note, Tick base_start) {
+               const Note& note, Tick base_start, Tick length) {
     const auto ratchets = static_cast<Tick>(event.ratchets);
-    const Tick slice = std::max<Tick>(1, event.duration / ratchets);
+    const Tick slice = std::max<Tick>(1, length / ratchets);
     for (Tick ratchet = 0; ratchet < ratchets; ++ratchet) {
         output.push_back({event.id, base_start + ratchet * slice, slice,
                           note.key, note.velocity, note.cents});
@@ -50,7 +52,7 @@ ScheduledEvents Scheduler::render(
             result.parameters.push_back({event.id, start, lock.parameter_index,
                                          lock.value, lock.kind});
         if (const auto* note = std::get_if<Note>(&event.musical_data)) {
-            emit_note(output, event, *note, start);
+            emit_note(output, event, *note, start, event.duration);
             continue;
         }
 
@@ -63,9 +65,14 @@ ScheduledEvents Scheduler::render(
             const double retune = static_cast<std::size_t>(source) < chord.cents.size()
                                       ? chord.cents[static_cast<std::size_t>(source)]
                                       : 0.0;
+            // Each voice sounds as hard and as long as it was played; a chord
+            // with neither said sounds every voice at the chord's velocity for
+            // the trigger's length, as chords always have.
+            const auto interval = static_cast<std::size_t>(source);
             Note note{static_cast<std::int16_t>(chord.root + chord.intervals[source] + octave),
-                      0.8F, 0.0F, retune};
-            emit_note(output, event, note, start + voice * chord.strum);
+                      voice_velocity(chord, interval), 0.0F, retune};
+            emit_note(output, event, note, start + voice * chord.strum,
+                      voice_duration(chord, interval, event.duration));
         }
     }
     std::stable_sort(output.begin(), output.end(), [](const auto& a, const auto& b) {

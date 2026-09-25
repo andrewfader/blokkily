@@ -520,6 +520,11 @@ ColumnLayout {
                             required property int step
                             required property int duration
                             required property var voiceKeys
+                            // Each voice of a chord keeps its own length and
+                            // velocity: a bar as long as that voice lasts,
+                            // as strong as it was struck.
+                            required property var voiceLengths
+                            required property var voiceVelocities
                             objectName: "rollNote" + step
                             x: rollArea.gutter + step * rollArea.laneWidth + 1
                             width: Math.max(6, duration / 120 * rollArea.laneWidth - 2)
@@ -528,8 +533,17 @@ ColumnLayout {
                                 model: rollNote.voiceKeys
                                 Rectangle {
                                     required property var modelData
+                                    required property int index
+                                    readonly property real voiceLength:
+                                        rollNote.voiceLengths && index < rollNote.voiceLengths.length
+                                        ? rollNote.voiceLengths[index] : rollNote.duration
+                                    readonly property real voiceVelocity:
+                                        rollNote.voiceVelocities
+                                        && index < rollNote.voiceVelocities.length
+                                        ? rollNote.voiceVelocities[index] : 1
                                     y: rollArea.laneY(modelData)
-                                    width: rollNote.width
+                                    width: Math.max(6, voiceLength / 120 * rollArea.laneWidth - 2)
+                                    opacity: 0.45 + 0.55 * voiceVelocity
                                     height: Math.max(3, rollArea.laneHeight - 1)
                                     radius: 2
                                     color: patternModel.selectedStep === rollNote.step

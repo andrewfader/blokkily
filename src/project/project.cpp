@@ -16,6 +16,7 @@ namespace project_io {
 std::span<const RecordModule* const> record_modules() {
     static const std::array modules{
         &core_records(),
+        &chord_velocity_records(),
     };
     return modules;
 }

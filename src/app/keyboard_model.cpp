@@ -274,6 +274,8 @@ bool KeyboardModel::sound(int index, bool held) {
             chord.root = pitches.front().key;
             chord.inversion = 0;
             chord.strum = 0;
+            // Struck as one, as hard as the pad sounds it.
+            chord.velocity = 0.9F;
             chord.intervals.clear();
             chord.cents.clear();
             for (const auto& pitch : pitches) {
