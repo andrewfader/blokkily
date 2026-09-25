@@ -21,6 +21,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <iostream>
@@ -49,6 +50,7 @@ int main(int argc, char* argv[]) {
     parser.addOption({"surface", "Leave the keyboard on this playable surface.", "name"});
     parser.addOption({"layout", "Leave the isomorphic grid on this layout.", "name"});
     parser.addOption({"orientation", "Leave the surface running ACROSS or DOWN.", "name"});
+    parser.addOption({"scenario", "Run only this scenario group (midi) and exit.", "name"});
     parser.process(app);
 
     // Held for the life of the application, so rebuilding the audio graph
@@ -59,7 +61,12 @@ int main(int argc, char* argv[]) {
     auto output = parser.isSet("verify") ? std::make_unique<blokkily::RtAudioOutput>(
         blokkily::RtAudioOutput::Mode::deterministic) : nullptr;
     auto* verification_output = output.get();
-    AppController controller(&song, &pattern, &transport, nullptr, std::move(output));
+    // Verification plays a MIDI keyboard through the same decode, tuning and
+    // routing path a port's thread runs, without needing one plugged in.
+    auto midi = parser.isSet("verify") ? std::make_unique<blokkily::MidiInput>(
+        blokkily::MidiInput::Mode::deterministic) : nullptr;
+    AppController controller(&song, &pattern, &transport, nullptr, std::move(output),
+                             std::move(midi));
     KeyboardModel keyboard(&song, &pattern, &controller);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
@@ -164,6 +171,325 @@ int main(int argc, char* argv[]) {
                 if (trace) std::cerr << "reached: " << scenario << (valid ? "" : " (failing)") << std::endl;
                 if (!valid && failed.isEmpty()) failed = QString::fromLatin1(scenario);
             };
+            // Renders the real scene and writes it where --screenshot says. The
+            // gate checks dimensions and that pixels vary; a person or an agent
+            // still has to look at it.
+            const auto save_screenshot = [&]() {
+                const QString screenshot = parser.value("screenshot");
+                if (screenshot.isEmpty()) return true;
+                QDir{}.mkpath(QFileInfo(screenshot).absolutePath());
+                const QImage image = window->grabWindow();
+                if (image.isNull() || image.width() != 1280 || image.height() != 800) return false;
+                const auto first = image.pixelColor(0, 0);
+                bool varied = false;
+                for (int y = 0; y < image.height() && !varied; y += 20)
+                    for (int x = 0; x < image.width(); x += 20)
+                        if (image.pixelColor(x, y) != first) { varied = true; break; }
+                return varied && image.save(screenshot, "PNG");
+            };
+            // ------------------------------------------------------------------
+            // features/midi_input_and_recording.feature, run on its own by the
+            // bdd_midi_recording gate. A MIDI keyboard is played into the real
+            // application: the port is chosen from the rendered panel, keys are
+            // heard through the production render callback, and an armed song
+            // writes what was played into the pattern under the playhead, where
+            // every editor shows it and the arrangement plays it back.
+            if (parser.value("scenario") == "midi") {
+                // Every action runs whether or not an earlier check failed, so one
+                // failure cannot leave the song in a state the next scenario
+                // misreads; only the verdict accumulates.
+                const auto check = [&valid](bool ok) { valid = valid && ok; };
+                const auto settle = [](int milliseconds) {
+                    QEventLoop waiting;
+                    QTimer::singleShot(milliseconds, &waiting, &QEventLoop::quit);
+                    waiting.exec();
+                };
+                const auto lay_out = [window] {
+                    (void)window->grabWindow();
+                    QCoreApplication::processEvents();
+                };
+                const auto text_of = [&named](const char* name) {
+                    auto* label = named(QString::fromLatin1(name));
+                    return label == nullptr ? QString() : label->property("text").toString();
+                };
+                auto& midi = controller.midiInput();
+                const auto send = [&midi](std::uint8_t status, int key, int velocity) {
+                    const std::array<std::uint8_t, 3> message{
+                        status, static_cast<std::uint8_t>(key), static_cast<std::uint8_t>(velocity)};
+                    return midi.inject(message);
+                };
+                // One block of the production callback, loudest sample back.
+                std::vector<float> stereo(1024);
+                const auto pump = [&]() -> float {
+                    std::fill(stereo.begin(), stereo.end(), 0.0F);
+                    if (verification_output == nullptr || !verification_output->pump(stereo))
+                        return -1.0F;
+                    float peak = 0.0F;
+                    for (const float sample : stereo) peak = std::max(peak, std::abs(sample));
+                    return peak;
+                };
+
+                // The CLAP fixture on track 0, the VST3 fixture on track 1: real
+                // instruments behind the production adapters.
+                check(controller.verifyClap(parser.value("clap-fixture")));
+                check(controller.verifyVst3(parser.value("vst3-fixture")));
+                check(controller.engine() != nullptr
+                   && song.song().tracks.at(0).instrument.format == "CLAP"
+                   && song.song().tracks.at(1).instrument.format == "VST3");
+                controller.setTempo(120.0);
+                song.selectTrack(0);
+                check(window->setProperty("view", "ALL"));
+                lay_out();
+                reached("midi: instruments");
+
+                // The panel is there, usable, and lists the port.
+                {
+                    auto* panel = named("midiPanel");
+                    check(panel != nullptr && panel->width() >= 120
+                       && panel->height() >= 24);
+                    check(text_of("midiPortName") == "No MIDI input");
+                    check(controller.midiPorts() == QStringList{"Deterministic input"});
+                    if (panel != nullptr)
+                        click_at(panel, {panel->width() / 2, panel->height() / 2}, Qt::LeftButton);
+                    lay_out();
+                    auto* menu = window->findChild<QObject*>("midiMenu");
+                    check(menu != nullptr && menu->property("opened").toBool()
+                       && menu->property("count").toInt() == 2);
+                    // Choose the port by clicking its row of the open menu.
+                    QQuickItem* row = nullptr;
+                    if (menu != nullptr)
+                        QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem*, row),
+                                                  Q_ARG(int, 1));
+                    check(row != nullptr
+                       && row->property("text").toString() == "Deterministic input");
+                    if (row != nullptr)
+                        click_at(row, {row->width() / 2, row->height() / 2}, Qt::LeftButton);
+                    lay_out();
+                    check(controller.midiPort() == "Deterministic input"
+                       && text_of("midiPortName") == "Deterministic input"
+                       && verification_output != nullptr
+                       && verification_output->is_running());
+                }
+                reached("midi: a port is chosen from the rendered panel");
+
+                // A key is heard on a stopped song, and nothing is written.
+                const int events_before = pattern.rowCount();
+                {
+                    check(!transport.playing() && pump() == 0.0F);
+                    check(send(0x90, 60, 100));
+                    const float held = pump();
+                    check(held > 0.05F && controller.engine()->track_peak(0) > 0.05F
+                       && controller.engine()->track_peak(1) == 0.0F);
+                    check(pump() > 0.05F);   // it keeps sounding while held
+                    check(send(0x80, 60, 0));
+                    check(pump() == 0.0F);
+                    // The panel says what arrived, once the interface has polled.
+                    settle(80);
+                    lay_out();
+                    check(controller.midiNotes() == 1
+                       && text_of("midiActivity").endsWith(" · 100")
+                       && text_of("midiActivity").startsWith(song.degreeName(60)));
+                    check(pattern.rowCount() == events_before);
+                }
+                reached("midi: a key is heard on a stopped song");
+
+                // The selected track is the one that sounds.
+                {
+                    song.selectTrack(1);
+                    check(send(0x90, 62, 100));
+                    (void)pump();
+                    const bool second = controller.engine()->track_peak(1) > 0.0F
+                                        && controller.engine()->track_peak(0) == 0.0F;
+                    // Switching back mid-note still releases it on track 1.
+                    song.selectTrack(0);
+                    check(send(0x80, 62, 0));
+                    for (int block = 0; block < 64 && pump() != 0.0F; ++block) {}
+                    check(second && pump() == 0.0F);
+                }
+                reached("midi: the selected track plays");
+
+                // Arming from the rendered button.
+                {
+                    auto* button = named("recordButton");
+                    check(button != nullptr && !button->property("armed").toBool());
+                    if (button != nullptr)
+                        click_at(button, {button->width() / 2, button->height() / 2},
+                                 Qt::LeftButton);
+                    lay_out();
+                    check(controller.recordArmed()
+                       && button != nullptr && button->property("armed").toBool());
+                }
+                reached("midi: recording is armed from the rendered button");
+
+                // Plays a key into the running song for `blocks` callbacks from
+                // the start of `step`, and says where the engine was when the key
+                // went down and came up. `release` false leaves it held.
+                struct Played {
+                    std::uint64_t pressed = 0;
+                    std::uint64_t released = 0;
+                };
+                const auto play_into = [&](int step, int key, int blocks, bool release) {
+                    Played played;
+                    controller.seekToStep(step);
+                    if (!transport.playing()) controller.togglePlayback();
+                    (void)pump();
+                    played.pressed = controller.engine()->sample_position();
+                    check(send(0x90, key, 110));
+                    for (int block = 0; block < blocks; ++block) check(pump() > 0.05F);
+                    played.released = controller.engine()->sample_position();
+                    if (release) {
+                        check(send(0x80, key, 0));
+                        (void)pump();
+                    }
+                    return played;
+                };
+                const auto empty_step = [&pattern](int from) {
+                    for (int step = from; step < PatternModel::step_count; ++step)
+                        if (!pattern.hasStep(step)) return step;
+                    return -1;
+                };
+
+                // The take lands on the step it was played at, while the song is
+                // still running, in every editor.
+                song.selectPattern(0);
+                const int step = empty_step(2);
+                check(step >= 0);
+                // How loud track 0 is over the first two blocks of a step, played
+                // from its start: a seek into the middle of a note does not
+                // strike it, so the step is heard from its beginning.
+                const auto track_zero_over_step = [&](int from) {
+                    controller.seekToStep(from);
+                    controller.togglePlayback();
+                    float loudest = 0.0F;
+                    for (int block = 0; block < 2; ++block) {
+                        (void)pump();
+                        loudest = std::max(loudest, controller.engine()->track_peak(0));
+                    }
+                    controller.togglePlayback();
+                    (void)pump();
+                    return loudest;
+                };
+                {
+                    // Before: nothing sounds on track 0 in that step.
+                    const bool silent_before = track_zero_over_step(step) == 0.0F;
+
+                    const auto played = play_into(step, 64, 12, true);
+                    // The interface polls the engine; the song keeps playing.
+                    settle(120);
+                    lay_out();
+                    check(transport.playing() && pattern.hasStep(step));
+                    const auto row = pattern.steps().at(step).toMap();
+                    const double per_sample = 480.0 * 120.0 / (60.0 * controller.engine()->sample_rate());
+                    const auto pressed_tick = static_cast<int>(std::floor(played.pressed * per_sample));
+                    const auto released_tick = static_cast<int>(std::floor(played.released * per_sample));
+                    pattern.selectStep(step);
+                    check(row.value("key").toInt() == 64
+                       && pattern.selected().value("micro").toInt()
+                              == pressed_tick - step * PatternModel::ticks_per_step
+                       && pattern.stepDuration(step) == released_tick - pressed_tick);
+                    check(rendered_step(step) && roll_draws(step)
+                       && tracker_note(step) == song.pitchName(64, 0.0));
+                    controller.togglePlayback();
+                    (void)pump();
+
+                    // The arrangement plays it back where it was played, with no
+                    // key down: track 0 now sounds in that step.
+                    const bool heard_after = track_zero_over_step(step) > 0.05F;
+                    check(silent_before && heard_after);
+                    if (!silent_before || !heard_after)
+                        std::cerr << "REGRESSION: recorded take not heard back (before="
+                                  << silent_before << " after=" << heard_after << ")\n";
+
+                    // One take, one undo.
+                    check(song.undo() && !pattern.hasStep(step) && !rendered_step(step));
+                    check(song.redo() && pattern.hasStep(step) && rendered_step(step));
+                }
+                reached("midi: a take is written where it was played and heard back");
+
+                // Stopping with a key still down writes it as released there.
+                {
+                    const int held_step = empty_step(step + 2);
+                    check(held_step >= 0);
+                    const auto played = play_into(held_step, 67, 6, false);
+                    controller.togglePlayback();
+                    const double per_sample = 480.0 * 120.0 / (60.0 * controller.engine()->sample_rate());
+                    check(pattern.hasStep(held_step)
+                       && pattern.steps().at(held_step).toMap().value("key").toInt() == 67
+                       && pattern.stepDuration(held_step)
+                              == static_cast<int>(std::floor(played.released * per_sample))
+                                     - static_cast<int>(std::floor(played.pressed * per_sample)));
+                    const int events = pattern.rowCount();
+                    // The release that arrives after the stop writes nothing more.
+                    check(send(0x80, 67, 0));
+                    (void)pump();
+                    settle(80);
+                    check(pattern.rowCount() == events);
+                }
+                reached("midi: stopping ends the take");
+
+                // Unarmed, a playing song records nothing.
+                {
+                    auto* button = named("recordButton");
+                    if (button != nullptr)
+                        click_at(button, {button->width() / 2, button->height() / 2},
+                                 Qt::LeftButton);
+                    check(!controller.recordArmed());
+                    const int events = pattern.rowCount();
+                    const int spare = empty_step(0);
+                    check(spare >= 0);
+                    (void)play_into(std::max(0, spare), 72, 4, true);
+                    settle(80);
+                    controller.togglePlayback();
+                    check(pattern.rowCount() == events && !pattern.hasStep(spare));
+                }
+                reached("midi: an unarmed song records nothing");
+
+                // In nineteen tones the controller's keys are the song's degrees,
+                // and the take keeps the pitch that was heard.
+                {
+                    const QString tuning = song.tuningName();
+                    song.setTuning("19-EDO");
+                    check(song.divisions() == 19);
+                    controller.toggleRecord();
+                    const int tuned_step = empty_step(0);
+                    check(tuned_step >= 0);
+                    (void)play_into(tuned_step, 61, 4, true);
+                    settle(120);
+                    controller.togglePlayback();
+                    const auto pitches = pattern.pitchesAt(tuned_step);
+                    const auto wanted = song.pitchForDegree(61);
+                    check(pitches.size() == 1 && pitches.front().key == wanted.key
+                       && std::abs(pitches.front().cents - wanted.cents) < 0.01
+                       && tracker_note(tuned_step) == song.degreeName(61));
+                    if (pitches.size() != 1 || pitches.front().key != wanted.key)
+                        std::cerr << "REGRESSION: 19-EDO take wrote the wrong pitch\n";
+                    song.undo();
+                    check(!pattern.hasStep(tuned_step));
+                    song.setTuning(tuning);
+                }
+                reached("midi: keys follow the song's tuning");
+
+                // Left armed with the take in view, and the panel naming the port
+                // and the last key, for the screenshot.
+                check(send(0x90, 64, 96) && send(0x80, 64, 0));
+                (void)pump();
+                (void)pump();
+                settle(80);
+                lay_out();
+                check(text_of("midiActivity").endsWith(" · 96"));
+                reached("midi: screenshot state");
+                check(save_screenshot());
+                reached("screenshot");
+                std::cout << (valid ? "BDD PASS" : "BDD FAIL")
+                          << (failed.isEmpty() ? "" : " at: " + failed.toStdString())
+                          << " | midi=" << controller.midiPort().toStdString()
+                          << " | notes=" << controller.midiNotes()
+                          << " | armed=" << controller.recordArmed()
+                          << " | events=" << pattern.rowCount() << '\n';
+                app.exit(valid ? 0 : 3);
+                return;
+            }
+
             reached("demonstration pattern");
             // Startup discovery is exercised with real format fixtures but
             // isolated from plugins installed on the test host.
@@ -418,6 +744,9 @@ int main(int argc, char* argv[]) {
                     reached("shift backspace pulls rows up");
 
                     // The FX column writes a lock the way VEL writes velocity.
+                    // Step 4 already sounds in the demonstration pattern, and
+                    // toggling it would take the note away; start from empty.
+                    pattern.clearStep(4);
                     pattern.toggleStep(4, 60);
                     pattern.selectStep(4);
                     valid = valid && pattern.hasStep(4)
@@ -517,10 +846,17 @@ int main(int argc, char* argv[]) {
                 reached("default instrument");
             }
 
-            if (parser.isSet("clap-fixture"))
-                valid = valid && controller.verifyClap(parser.value("clap-fixture"));
-            if (parser.isSet("vst3-fixture"))
-                valid = valid && controller.verifyVst3(parser.value("vst3-fixture"));
+            // These load the instruments every later scenario plays through, so
+            // they run whether or not something earlier failed: one failure must
+            // not unload the song and make every scenario after it fail too.
+            if (parser.isSet("clap-fixture")) {
+                const bool loaded = controller.verifyClap(parser.value("clap-fixture"));
+                valid = loaded && valid;
+            }
+            if (parser.isSet("vst3-fixture")) {
+                const bool loaded = controller.verifyVst3(parser.value("vst3-fixture"));
+                valid = loaded && valid;
+            }
             if (parser.isSet("clap-fixture") && parser.isSet("vst3-fixture")) {
                 // The browser must present both native formats through one list,
                 // each entry tagged with the format that produced it.
@@ -534,10 +870,13 @@ int main(int argc, char* argv[]) {
                 valid = valid && browser.first().toMap().value("format") == "CLAP"
                               && browser.last().toMap().value("format") == "VST3";
             }
-            if (parser.isSet("clap-fixture"))
-                valid = valid && controller.verifyParameterLocks(parser.value("clap-fixture"));
+            if (parser.isSet("clap-fixture")) {
+                const bool locked = controller.verifyParameterLocks(parser.value("clap-fixture"));
+                valid = locked && valid;
+            }
             if (parser.isSet("soundfont-fixture")) {
-                valid = valid && controller.verifySoundFont(parser.value("soundfont-fixture"));
+                const bool loaded = controller.verifySoundFont(parser.value("soundfont-fixture"));
+                valid = loaded && valid;
             }
 
             reached("instrument formats");
@@ -1010,8 +1349,10 @@ int main(int argc, char* argv[]) {
                 valid = valid && song.setClipRepeats(2, 4, 2);
                 valid = valid && cellFilled(2, 4) && cellFilled(2, 5)
                               && song.clips().size() == clips_now + 1;
-                const auto lane = song.lanes().at(2).toList();
-                valid = valid && lane.at(4).toMap().value("repeats").toInt() == 2
+                const auto lanes = song.lanes();
+                const auto lane = lanes.size() > 2 ? lanes.at(2).toList() : QVariantList{};
+                valid = valid && lane.size() > 5
+                              && lane.at(4).toMap().value("repeats").toInt() == 2
                               && lane.at(5).toMap().value("start").toBool() == false
                               && lane.at(5).toMap().value("repeats").toInt() == 2;
                 // Moving it along the lane keeps the length and frees the old bars.
@@ -1038,6 +1379,10 @@ int main(int argc, char* argv[]) {
             // Clicking the ruler locates the engine, not only the drawing.
             {
                 const int clips_now = song.clips().size();
+                // The ruler's bars were just rebuilt for a new song length; lay
+                // them out before one is clicked, or it is still 0x0 and the
+                // click lands on whatever lies underneath.
+                (void)window->grabWindow();
                 auto* ruler = named("rulerBar1");
                 valid = valid && ruler != nullptr;
                 if (ruler != nullptr)
@@ -2078,20 +2423,7 @@ int main(int argc, char* argv[]) {
             }
 
             reached("plugin discovery");
-            const QString screenshot = parser.value("screenshot");
-            if (!screenshot.isEmpty()) {
-                QDir{}.mkpath(QFileInfo(screenshot).absolutePath());
-                const QImage image = window->grabWindow();
-                valid = valid && !image.isNull() && image.width() == 1280 && image.height() == 800;
-                if (!image.isNull()) {
-                    const auto first = image.pixelColor(0, 0);
-                    bool varied = false;
-                    for (int y = 0; y < image.height() && !varied; y += 20)
-                        for (int x = 0; x < image.width(); x += 20)
-                            if (image.pixelColor(x, y) != first) { varied = true; break; }
-                    valid = valid && varied && image.save(screenshot, "PNG");
-                }
-            }
+            valid = valid && save_screenshot();
             reached("screenshot");
             std::cout << (valid ? "BDD PASS" : "BDD FAIL")
                       << (failed.isEmpty() ? "" : " at: " + failed.toStdString())

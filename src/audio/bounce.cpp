@@ -27,6 +27,13 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // export cannot leave the session playing from somewhere unexpected.
     const bool was_playing = engine.is_playing();
     const auto resume_at = engine.sample_position();
+    // A bounce is the arrangement, not whoever is at the keyboard while it
+    // renders: live input is held back until it is done and nothing is
+    // recorded from it.
+    auto* const input = engine.input();
+    const bool was_recording = engine.is_recording();
+    engine.connect_input(nullptr);
+    engine.set_recording(false);
     engine.set_playing(true);
     engine.rewind();
 
@@ -58,6 +65,8 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
 
     engine.set_playing(was_playing);
     engine.seek(resume_at);
+    engine.set_recording(was_recording);
+    engine.connect_input(input);
     if (!wrote || !writer.close(&writer_error)) return fail(writer_error.c_str());
     report.clipped = report.peak > 1.0F;
     return report;

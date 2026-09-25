@@ -21,6 +21,8 @@ ApplicationWindow {
     readonly property color acid: "#c8ff3d"
     readonly property color blue: "#4d7cff"
     readonly property color amber: "#ffb340"
+    // Recording, and nothing else: a red that means the song is being written.
+    readonly property color record: "#ff4d5e"
 
     // STEP / TRACKER / PIANO focus one editor; ALL keeps every projection on
     // screen at once, which is the point of the instrument.
@@ -204,6 +206,8 @@ ApplicationWindow {
     Shortcut { sequence: StandardKey.Open
                onActivated: root.whenDiscarded(function() { openProjectDialog.open() }) }
     Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
+    Shortcut { sequence: "Ctrl+R"; enabled: !root.typing
+               onActivated: appController.toggleRecord() }
     Shortcut { sequence: "Ctrl+Shift+S"; onActivated: saveProjectDialog.open() }
     Shortcut { sequence: "Ctrl+E"; onActivated: exportDialog.open() }
     // A text field keeps its own undo; everywhere else undo is the song's.
@@ -465,6 +469,19 @@ ApplicationWindow {
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                         onClicked: appController.togglePlayback() }
                 }
+                // Arms recording. While the song plays, what a MIDI keyboard
+                // plays is written into the pattern under the playhead.
+                Rectangle {
+                    objectName: "recordButton"
+                    property bool armed: appController.recordArmed
+                    implicitWidth: 30; implicitHeight: 28; radius: 4
+                    color: armed ? record : raised
+                    border.color: armed ? record : line
+                    Rectangle { anchors.centerIn: parent; width: 10; height: 10; radius: 5
+                        color: parent.armed ? "#0e0f12" : record }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        onClicked: appController.toggleRecord() }
+                }
                 Rectangle {
                     objectName: "rewindButton"
                     implicitWidth: 30; implicitHeight: 28; radius: 4
@@ -669,6 +686,72 @@ ApplicationWindow {
                             Label { Layout.fillWidth: true; text: appController.activeInstrument
                                 color: acid; font.pixelSize: 10; elide: Text.ElideMiddle
                                 visible: appController.activeInstrument !== "Choose an instrument" }
+                        }
+                    }
+                }
+
+                SectionLabel { text: "MIDI IN" }
+                // The keyboard being played, and what it last sent. The light
+                // flashes on every key the port delivers, so a controller that
+                // is not reaching the application is seen not to be.
+                Rectangle {
+                    objectName: "midiPanel"
+                    Layout.fillWidth: true; implicitHeight: 30; radius: 4
+                    color: midiMouse.containsMouse ? raised : panel
+                    border.color: appController.midiPort !== "" ? acid : line
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 9; anchors.rightMargin: 8
+                        spacing: 7
+                        Rectangle {
+                            objectName: "midiLight"
+                            implicitWidth: 8; implicitHeight: 8; radius: 4
+                            color: midiFlash.running ? acid
+                                 : appController.midiPort !== "" ? "#4a5a22" : line
+                        }
+                        Label {
+                            objectName: "midiPortName"
+                            Layout.fillWidth: true
+                            text: appController.midiPort !== "" ? appController.midiPort
+                                                                : "No MIDI input"
+                            color: appController.midiPort !== "" ? ink : muted
+                            font.pixelSize: 10; font.bold: true; elide: Text.ElideRight
+                        }
+                        Label {
+                            objectName: "midiActivity"
+                            visible: appController.midiPort !== ""
+                            text: appController.midiActivity
+                            color: muted; font.pixelSize: 10; font.family: "monospace"
+                        }
+                        Label { text: "\u25be"; color: muted; font.pixelSize: 10 }
+                    }
+                    Timer { id: midiFlash; interval: 120 }
+                    Connections {
+                        target: appController
+                        function onMidiActivityChanged() { midiFlash.restart() }
+                    }
+                    MouseArea {
+                        id: midiMouse; anchors.fill: parent; hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        // A keyboard plugged in after launch is listed the next
+                        // time the list is opened.
+                        onClicked: { appController.refreshMidiPorts(); midiMenu.popup() }
+                    }
+                    Menu {
+                        id: midiMenu
+                        objectName: "midiMenu"
+                        MenuItem { text: "None"; onTriggered: appController.selectMidiPort(-1) }
+                        Instantiator {
+                            model: appController.midiPorts
+                            delegate: MenuItem {
+                                required property var modelData
+                                required property int index
+                                text: modelData
+                                checkable: true
+                                checked: modelData === appController.midiPort
+                                onTriggered: appController.selectMidiPort(index)
+                            }
+                            onObjectAdded: (index, object) => midiMenu.insertItem(index + 1, object)
+                            onObjectRemoved: (index, object) => midiMenu.removeItem(object)
                         }
                     }
                 }

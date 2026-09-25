@@ -142,6 +142,29 @@ cell naming its degree and its retune
 `build/artifacts/chord-pads.png` — Maqam Rast in 24-EDO, one column per chord of
 the scale and one row per inversion
 
+`build/artifacts/midi-recording.png` — from the `bdd_midi_recording` gate
+(`blokkily --verify --scenario midi`), which runs only the MIDI scenarios of
+`features/midi_input_and_recording.feature`: it chooses the port by clicking
+the rendered MIDI IN panel and its menu, plays keys through a deterministic
+MIDI input that runs the same decode, tuning and routing path a port's thread
+does, and hears them through the production render callback on a stopped song
+and on the selected track only. It arms recording from the rendered button,
+holds a key across part of an empty step while the song runs, and checks —
+while the song is still playing — that the step holds that key with the
+micro-timing and length the key was played at, in the step grid, the tracker
+and the piano roll; that the arrangement then sounds on that step with no key
+down where before it was silent; that one undo takes the take back; that
+stopping with a key held writes it released there; that an unarmed song records
+nothing; and that in 19-EDO a recorded key keeps the degree and retune it was
+heard at. The screenshot shows the take in every editor, recording armed, and
+the panel naming the port and the last key.
+
+`midi_device_input` opens a virtual port through the system's MIDI server — the
+way a controller's driver presents one — connects the production input to it by
+name, and fails unless a note sent there is heard through the render callback
+and, with the song armed and playing, captured with its position. It skips
+itself (exit 77) where there is no MIDI server.
+
 `blokkily --verify --view STEP|TRACKER|PIANO|KEYS --screenshot <path>` captures
 a focused editor instead of the combined layout, so each view can be inspected
 on its own after an interface change. `--tuning`, `--scale` and `--surface`

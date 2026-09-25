@@ -9,7 +9,8 @@ namespace {
 // The most events one track can receive in a single block. Enough for dense
 // ratcheted steps at any sane block size, and fixed so the render callback can
 // keep them on the stack.
-constexpr std::size_t maximum_events_per_block = timeline_event_budget + 128 + 128;
+constexpr std::size_t maximum_events_per_block =
+    timeline_event_budget + 128 + 128 + InputQueue::capacity();
 // An engine that has never been prepared still has to render silence rather
 // than reach through a null arrangement.
 const std::vector<TimedPluginEvent>& empty_timeline() noexcept {
@@ -212,15 +213,9 @@ void SongEngine::seek_cursors(std::uint64_t position) noexcept {
 
 bool SongEngine::play_live(std::size_t track, const PluginEvent& event) noexcept {
     if (track >= tracks_.size() || !tracks_[track]) return false;
-    auto& live = tracks_[track]->live;
-    const auto written = live.written.load(std::memory_order_relaxed);
-    const auto read = live.read.load(std::memory_order_acquire);
     // A full queue drops the note rather than waiting: the audio thread must
     // never be held up by a keyboard.
-    if (written - read >= LiveEvents::capacity) return false;
-    live.events[written % LiveEvents::capacity] = event;
-    live.written.store(written + 1, std::memory_order_release);
-    return true;
+    return tracks_[track]->live.push(event);
 }
 
 void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
@@ -229,6 +224,14 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
     std::fill(output.left.begin(), output.left.end(), 0.0F);
     std::fill(output.right.begin(), output.right.end(), 0.0F);
     const auto end = song_position + frames;
+
+    // Whatever a MIDI port delivered since the last block. It is taken once,
+    // before any track renders, and handed to the tracks it names below.
+    incoming_count_ = 0;
+    if (auto* input = input_.load(std::memory_order_acquire))
+        while (incoming_count_ < incoming_.size() && input->pop(incoming_[incoming_count_]))
+            ++incoming_count_;
+    const bool capture = from_timeline && recording_.load(std::memory_order_acquire);
 
     for (std::size_t index = 0; index < tracks_.size(); ++index) {
         auto& track = *tracks_[index];
@@ -247,16 +250,22 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
             }
         }
         // Live events are due now, before any future event in this window.
-        auto& live = track.live;
-        auto read = live.read.load(std::memory_order_relaxed);
-        const auto written = live.written.load(std::memory_order_acquire);
-        while (read != written) {
-            block_events[count] = live.events[read % LiveEvents::capacity];
+        while (count < block_events.size() && track.live.pop(block_events[count])) {
             block_events[count].sample_offset = 0;
             ++count;
-            ++read;
         }
-        live.read.store(read, std::memory_order_release);
+        for (std::size_t arrived = 0; arrived < incoming_count_; ++arrived) {
+            const auto& routed = incoming_[arrived];
+            if (routed.track != index || count >= block_events.size()) continue;
+            block_events[count] = routed.event;
+            block_events[count].sample_offset = 0;
+            ++count;
+            // Captured where it was heard: at the start of this block, which is
+            // where the instrument is told to sound it. A full capture ring
+            // loses the note from the take, never from the speakers.
+            if (capture)
+                (void)captured_.push({routed.track, song_position, block_events[count - 1]});
+        }
         while (from_timeline && track.cursor < timeline.size() &&
                timeline[track.cursor].sample < end) {
             const auto& timed = timeline[track.cursor];

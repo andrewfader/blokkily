@@ -1,6 +1,7 @@
 #pragma once
 
 #include "blokkily/audio/audio_source.hpp"
+#include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/model/song.hpp"
@@ -57,6 +58,28 @@ public:
     // or not the transport is playing, so a keyboard works on a stopped song.
     bool play_live(std::size_t track, const PluginEvent& event) noexcept;
 
+    // Plays whatever arrives on an input — a MIDI port — on the track each
+    // event names, at the start of the next block, whether or not the
+    // transport is running. The queue belongs to the caller and must outlive
+    // the connection; nullptr disconnects. One engine reads a queue at a time.
+    void connect_input(InputQueue* input) noexcept {
+        input_.store(input, std::memory_order_release);
+    }
+    [[nodiscard]] InputQueue* input() const noexcept {
+        return input_.load(std::memory_order_acquire);
+    }
+    // While recording, every input event played with the transport running is
+    // captured with the song position it sounded at, for the control thread
+    // to write into the song. What is recorded is what was heard.
+    void set_recording(bool recording) noexcept {
+        recording_.store(recording, std::memory_order_release);
+    }
+    [[nodiscard]] bool is_recording() const noexcept {
+        return recording_.load(std::memory_order_acquire);
+    }
+    // The next captured event, oldest first. Control thread only.
+    bool take_captured(CapturedEvent& event) noexcept { return captured_.pop(event); }
+
     void set_playing(bool playing) noexcept {
         if (!playing) stop_requested_.store(true, std::memory_order_release);
         playing_.store(playing, std::memory_order_release);
@@ -101,13 +124,8 @@ public:
     [[nodiscard]] bool load_track_state(std::size_t track, std::span<const std::byte> state);
 
 private:
-    // A single-writer, single-reader ring of events waiting for the next block.
-    struct LiveEvents {
-        static constexpr std::size_t capacity = 128;
-        std::array<PluginEvent, capacity> events{};
-        std::atomic<std::size_t> written{0};
-        std::atomic<std::size_t> read{0};
-    };
+    // Events played from the interface, waiting for the next block.
+    using LiveEvents = SpscQueue<PluginEvent, 128>;
 
     // One compiled arrangement: a sample timeline per track and the length they
     // were compiled against. Three of these are owned for the life of the
@@ -179,6 +197,13 @@ private:
     std::atomic<float> master_gain_{1.0F};
     std::atomic<float> master_peak_{0.0F};
     std::atomic<bool> playing_{false};
+    std::atomic<InputQueue*> input_{nullptr};
+    std::atomic<bool> recording_{false};
+    SpscQueue<CapturedEvent, 1024> captured_;
+    // What the input delivered for the block being rendered, before it is
+    // handed to the tracks it names. Touched by the callback alone.
+    std::array<RoutedEvent, InputQueue::capacity()> incoming_{};
+    std::size_t incoming_count_ = 0;
 };
 
 } // namespace blokkily

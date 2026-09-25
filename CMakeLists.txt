@@ -6,6 +6,7 @@ add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
 pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
+pkg_check_modules(RTMIDI REQUIRED IMPORTED_TARGET rtmidi)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,11 +36,14 @@ add_library(blokkily_core
     src/audio/bounce.cpp
     src/plugins/vst3_instance.cpp
     src/sequencer/scheduler.cpp
+    src/sequencer/take.cpp
+    src/midi/midi_input.cpp
 )
 target_include_directories(blokkily_core PUBLIC include PRIVATE third_party/clap/include)
 target_link_libraries(blokkily_core PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(blokkily_core PUBLIC PkgConfig::FLUIDSYNTH)
 target_link_libraries(blokkily_core PUBLIC PkgConfig::RTAUDIO)
+target_link_libraries(blokkily_core PRIVATE PkgConfig::RTMIDI)
 target_link_libraries(blokkily_core PRIVATE juce::juce_audio_processors_headless)
 target_compile_definitions(blokkily_core PRIVATE
     JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LV2=0
@@ -173,6 +177,20 @@ if(BLOKKILY_BUILD_TESTS)
         SKIP_RETURN_CODE 77
         TIMEOUT 30)
 
+    # A note sent through the system's MIDI layer — a virtual port, the way a
+    # controller's driver presents one — must be heard and recorded. The audio
+    # side is the deterministic pump; the MIDI side is real, so the check skips
+    # itself where there is no MIDI server rather than failing.
+    add_executable(blokkily_midi_device_check tests/midi_device_check.cpp)
+    target_link_libraries(blokkily_midi_device_check PRIVATE blokkily_core PkgConfig::RTMIDI)
+    add_dependencies(blokkily_midi_device_check blokkily_test_clap)
+    add_test(NAME midi_device_input
+        COMMAND blokkily_midi_device_check --clap-fixture $<TARGET_FILE:blokkily_test_clap>)
+    set_tests_properties(midi_device_input PROPERTIES
+        LABELS "midi;device;integration;realtime;clap;recording"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 30)
+
     if(BLOKKILY_BUILD_GUI)
         find_file(BLOKKILY_TEST_SF2
             NAMES basic.sf2 TimGM6mb.sf2 FluidR3_GM.sf2
@@ -241,6 +259,20 @@ if(BLOKKILY_BUILD_TESTS)
             LABELS "bdd;e2e;integration;screenshot;keyboard;tuning;scale;clap;vst3;soundfont;project"
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
             TIMEOUT 30)
+
+        # A MIDI keyboard played into the real application: chosen from the
+        # rendered panel, heard through the production callback, and recorded
+        # into the pattern under the playhead, where every editor shows it.
+        add_test(NAME bdd_midi_recording
+            COMMAND blokkily --verify --scenario midi
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/midi-recording.png)
+        set_tests_properties(bdd_midi_recording PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;midi;recording;clap;vst3"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;ALSA_CONFIG_PATH=/dev/null"
+            TIMEOUT 60)
 
         add_test(NAME bdd_plugin_scan_survives_hang
             COMMAND blokkily --verify

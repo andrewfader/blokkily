@@ -63,7 +63,23 @@ numeral and stack a row per inversion. Playing one auditions it through the sele
 even on a stopped transport, and writes it onto the selected step of the
 canonical pattern, where every editor names it in the song's own tuning.
 
+A MIDI keyboard plays the song too. Its keys arrive on the port's own thread
+and reach the render callback through a lock-free queue, so a note is not held
+up behind a busy interface; they sound through the selected track's instrument
+on a stopped song as well as a playing one, and a key of the controller is a
+degree of the song's tuning and scale, the way a key of the on-screen piano is.
+With recording armed, a running song writes what was played into the pattern
+under the playhead: each note lands on its nearest step with how far off the
+grid it was kept as micro-timing, lasts as long as the key was held, and joins
+a note already on that step as a chord. What is written is what the engine
+heard, at the position it heard it, and one take is one step of undo. A bounce
+neither hears nor records the keyboard.
+
 ## Build
+
+Needs Qt 6.5+, FluidSynth, RtAudio and RtMidi (found through pkg-config), and
+a SoundFont for the verification gates. JUCE and the CLAP headers are vendored
+under `third_party/`.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -115,8 +131,9 @@ move and transpose the step cursor, Insert pushes later rows down and
 Shift+Backspace pulls them up, Alt+arrows nudge micro-timing and note length,
 Ctrl+D duplicates the selected step onto
 the next row, Ctrl+1..0 (and Ctrl+Shift+1..6 for the second half of the bar)
-toggles a step, Ctrl+M mutes and Ctrl+L solos the selected track, and Ctrl+E
-bounces the arrangement to disk. Those keys stand aside while a text field has
+toggles a step, Ctrl+M mutes and Ctrl+L solos the selected track, Ctrl+R arms
+recording, and Ctrl+E bounces the arrangement to disk. The MIDI IN panel on the
+left chooses the keyboard, and its light flashes on every key that arrives. Those keys stand aside while a text field has
 the keyboard, so typing a search or a name never moves the song.
 
 Every edit can be taken back: Ctrl+Z undoes and Ctrl+Shift+Z (or Ctrl+Y) redoes
@@ -173,6 +190,10 @@ reports an error and preserves the last playable arrangement.
 - Qt Quick prototype: synchronized custom editors and CLAP/VST3 plugin browser
 - FluidSynth internal instrument: real SF2/SF3 loading and offline rendering
 - Real-time transport and RtAudio hardware-output adapter
+- `MidiInput`: RtMidi port adapter that decodes, tunes, and routes keys to the
+  render callback through a lock-free queue, with a deterministic mode for tests
+- `TakeRecorder`: turns what the engine heard while recording into steps of the
+  pattern under the playhead
 - Next engine layer: Tracktion playback/recording adapter
 - CLAP host adapter: discovery, lifecycle, processing, and state
 - Versioned project file: the whole song plus per-instrument plugin state
@@ -187,14 +208,19 @@ compile it into engine and plugin events, preserving richer sequencer semantics.
 A passing suite says what was proved, not what exists. These are missing, and
 nothing in the interface pretends otherwise:
 
-- No MIDI input. Notes are played from the on-screen surfaces and the computer
-  keyboard; no hardware controller is read.
+- MIDI input reads notes only. Pitch bend, mod wheel, sustain pedal, other
+  controllers and MIDI clock are ignored, and every channel plays the selected
+  track.
 - No audio clips and no sampler. A pattern holds notes, chords, and parameter
   locks; it cannot hold recorded or imported audio.
 - No effects. A mixer track has gain, pan, mute, and solo into one bus; there
   are no inserts, no sends, and no master chain.
-- No recording of a performance. Playing a surface writes onto the step the
-  editors have selected; it is not captured against the running transport.
+- Only a MIDI keyboard records against the running transport. Playing an
+  on-screen surface still writes onto the step the editors have selected, and
+  a MIDI keyboard does not step-enter notes into a stopped song.
+- A recorded note is placed to within one audio block of when it was played
+  (about 10 ms at 512 frames), and a step keeps one velocity, so notes merged
+  into a chord lose their own.
 - No tempo or time-signature changes inside a song.
 - No native plugin windows. A plugin's parameters are reached through the
   step inspector's locks rather than through its own interface.

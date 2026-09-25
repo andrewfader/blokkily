@@ -16,6 +16,8 @@
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/wave_file.hpp"
+#include "blokkily/midi/midi_input.hpp"
+#include "blokkily/sequencer/take.hpp"
 
 #include <algorithm>
 #include <array>
@@ -957,7 +959,10 @@ int main() {
     // Enumeration is what the application itself is allowed to do: it reads
     // directory entries and loads nothing, so a plugin that hangs cannot be
     // reached from the process that owns the window.
-    const auto clap_fixture = std::filesystem::path(BLOKKILY_TEST_CLAP_PATH);
+    // Candidates are named by their canonical path, so a build configured
+    // through a symlinked checkout still finds its own fixture.
+    const auto clap_fixture =
+        std::filesystem::weakly_canonical(std::filesystem::path(BLOKKILY_TEST_CLAP_PATH));
     const auto candidates = enumerate_scan_candidates(
         {clap_fixture.parent_path()}, {BLOKKILY_TEST_VST3_PATH});
     assert(std::any_of(candidates.begin(), candidates.end(),
@@ -1406,6 +1411,260 @@ int main() {
     assert(std::abs(estimate_frequency(live_left, 48000.0, 452.89) - 452.89) < 3.0);
     assert(tuned_engine.sample_position() == 0);
     assert(tuned_engine.play_live(0, {PluginEvent::Type::note_off, 0, 69, 0.0, 50.0}));
+
+    // ---- MIDI input and recording ---------------------------------------
+    // features/midi_input_and_recording.feature. A key of a controller is
+    // decoded, tuned, routed to a track, heard through the engine, and — while
+    // the song plays and records — written into the pattern under the
+    // playhead, which then plays it back where it was played.
+    {
+        using Bytes = std::array<std::uint8_t, 3>;
+        const auto decoded = [](Bytes bytes) { return decode_midi(bytes); };
+        const auto down = decoded({0x91, 64, 100});
+        assert(down && down->kind == MidiNote::Kind::on && down->channel == 1 &&
+               down->key == 64 && down->velocity == 100);
+        // A note-on at velocity zero is how most keyboards say note-off.
+        assert(decoded({0x90, 64, 0})->kind == MidiNote::Kind::off);
+        assert(decoded({0x80, 64, 40})->kind == MidiNote::Kind::off);
+        assert(decoded({0xB0, 123, 0})->kind == MidiNote::Kind::all_off);
+        assert(decoded({0xB0, 120, 0})->kind == MidiNote::Kind::all_off);
+        assert(!decoded({0xB0, 7, 100}));
+        assert(!decoded({0xE0, 0, 64}));
+        const std::array<std::uint8_t, 1> clock{0xF8};
+        assert(!decode_midi(clock));
+
+        // The deterministic input runs the very path a port's callback does.
+        MidiInput input(MidiInput::Mode::deterministic);
+        assert(!input.inject(Bytes{0x90, 60, 100}));   // nothing is open yet
+        assert(input.open(std::size_t{0}) && input.is_open());
+        assert(input.port_name() == "Deterministic input");
+        auto tuned = identity_key_map();
+        tuned[64] = {63, 50.0F};
+        input.set_key_map(tuned);
+        input.set_track(1);
+        assert(input.inject(Bytes{0x90, 64, 127}));
+        // Changing track and tuning while the key is held does not move the
+        // release: it lets go of the voice that was struck.
+        input.set_track(0);
+        input.set_key_map(identity_key_map());
+        assert(input.inject(Bytes{0x80, 64, 0}));
+        RoutedEvent routed;
+        assert(input.queue().pop(routed) && routed.track == 1 &&
+               routed.event.type == PluginEvent::Type::note_on &&
+               routed.event.key_or_parameter == 63 && routed.event.cents == 50.0 &&
+               routed.event.value == 1.0);
+        assert(input.queue().pop(routed) && routed.track == 1 &&
+               routed.event.type == PluginEvent::Type::note_off &&
+               routed.event.key_or_parameter == 63 && routed.event.cents == 50.0);
+        assert(!input.queue().pop(routed));
+        assert(input.notes_received() == 1 && input.last_key() == 64 &&
+               input.last_velocity() == 127);
+        // A release for a key that is not down is not an event.
+        assert(input.inject(Bytes{0x80, 64, 0}) && !input.queue().pop(routed));
+        // A key struck twice is let go before it sounds again, and the panic
+        // message and closing the port both let go of what is held.
+        assert(input.inject(Bytes{0x90, 60, 90}) && input.inject(Bytes{0x90, 60, 90}));
+        assert(input.queue().pop(routed) && routed.event.type == PluginEvent::Type::note_on);
+        assert(input.queue().pop(routed) && routed.event.type == PluginEvent::Type::note_off);
+        assert(input.queue().pop(routed) && routed.event.type == PluginEvent::Type::note_on);
+        assert(input.inject(Bytes{0xB0, 123, 0}));
+        assert(input.queue().pop(routed) && routed.event.type == PluginEvent::Type::note_off &&
+               routed.event.key_or_parameter == 60);
+        assert(input.inject(Bytes{0x90, 62, 90}) && input.queue().pop(routed));
+        input.close();
+        assert(!input.is_open());
+        assert(input.queue().pop(routed) && routed.event.type == PluginEvent::Type::note_off &&
+               routed.event.key_or_parameter == 62);
+        assert(!input.inject(Bytes{0x90, 62, 90}));
+
+        // A take pairs presses with releases, round the loop if it has to.
+        TakeRecorder take(1920);
+        take.note_on(100, 60, 0.5F, 0.0);
+        take.note_on(1800, 64, 0.7F, 0.0);
+        const auto first = take.note_off(340, 60);
+        assert(first && first->start == 100 && first->duration == 240 && first->key == 60);
+        assert(!take.note_off(340, 61));
+        const auto wrapped = take.note_off(60, 64);
+        assert(wrapped && wrapped->start == 1800 && wrapped->duration == 180);
+        take.note_on(500, 67, 0.9F, 25.0);
+        assert(take.holding());
+        const auto released = take.finish(620);
+        assert(released.size() == 1 && released.front().duration == 120 &&
+               released.front().cents == 25.0 && !take.holding());
+
+        // Where a played note belongs: the clip under it, or the open pattern.
+        Song arranged;
+        arranged.patterns = {PatternSlot{"A", Pattern{1920, 480}},
+                             PatternSlot{"B", Pattern{1920, 480}}};
+        arranged.tracks = {Track{}, Track{}};
+        arranged.clips = {{0, 1, 1920, 2}};
+        const auto in_clip = take_target(arranged, 0, 1920 + 1920 + 130, 0);
+        assert(in_clip.pattern == 1 && in_clip.offset == 130);
+        const auto before_clip = take_target(arranged, 0, 100, 0);
+        assert(before_clip.pattern == 0 && before_clip.offset == 100);
+        const auto other_track = take_target(arranged, 1, 1920 + 5, 1);
+        assert(other_track.pattern == 1 && other_track.offset == 5);
+
+        // Writing a played note: the nearest step, with the rest as feel.
+        Pattern written{1920, 480};
+        assert(write_played(written, {485, 56, 62, 0.6F, 0.0}, 120) == 4);
+        assert(written.events().size() == 1);
+        const auto& placed = written.events().front();
+        assert(placed.start == 480 && placed.micro_offset == 5 && placed.duration == 56);
+        assert(std::get<Note>(placed.musical_data).key == 62 &&
+               std::get<Note>(placed.musical_data).velocity == 0.6F);
+        // Just before the downbeat belongs to the downbeat, played early.
+        assert(write_played(written, {1900, 30, 60, 0.8F, 0.0}, 120) == 0);
+        const auto* downbeat = &written.events().front();
+        assert(downbeat->start == 0 && downbeat->micro_offset == -20);
+        // Halfway between two steps is as far as micro-timing reaches.
+        assert(write_played(written, {60, 30, 60, 0.8F, 0.0}, 120) == 1);
+        assert(written.events()[1].start == 120 && written.events()[1].micro_offset == -59);
+        // The pitch a step already sounds is not written twice.
+        assert(write_played(written, {480, 200, 62, 0.9F, 0.0}, 120) == 4);
+        assert(written.events().size() == 3 &&
+               std::holds_alternative<Note>(written.events()[2].musical_data));
+        // Another pitch on the same step makes a chord of both, and the step
+        // keeps what the producer had set on it.
+        {
+            auto locked = written.events()[2];
+            locked.locks = {{"level", 0, 0.5, ParameterLock::Kind::automation}};
+            assert(written.update(locked.id, locked));
+        }
+        assert(write_played(written, {470, 300, 66, 0.9F, 50.0}, 120) == 4);
+        assert(written.events().size() == 3);
+        const auto& chorded = written.events()[2];
+        const auto* chord = std::get_if<Chord>(&chorded.musical_data);
+        assert(chord != nullptr && chord->root == 62 &&
+               chord->intervals == std::vector<std::int16_t>({0, 4}) &&
+               chord->cents == std::vector<double>({0.0, 50.0}));
+        assert(chorded.micro_offset == 5 && chorded.duration == 300 && chorded.locks.size() == 1);
+        const auto voiced = Scheduler{}.render(written, 1, 0).notes;
+        assert(std::count_if(voiced.begin(), voiced.end(), [](const ScheduledNote& note) {
+                   return note.start == 485;
+               }) == 2);
+
+        // Through the engine. The CLAP fixture holds a steady level while a key
+        // is down and is silent otherwise, so what is heard can be read off the
+        // rendered audio block by block.
+        Song song;
+        song.tracks = {Track{}, Track{}};
+        song.clips = {{1, 0, 0, 1}};
+        SongEngine engine;
+        std::string midi_error;
+        engine.set_instrument(1, ClapPluginInstance::create(
+            BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &midi_error));
+        assert(engine.has_instrument(1));
+        assert(engine.prepare(song, 120.0, 48000.0, 256, 0, &midi_error));
+        MidiInput keyboard(MidiInput::Mode::deterministic);
+        assert(keyboard.open(std::size_t{0}));
+        keyboard.set_track(1);
+        engine.connect_input(&keyboard.queue());
+        assert(engine.input() == &keyboard.queue());
+        std::vector<float> left(256), right(256);
+        const auto render = [&] {
+            engine.process({left, right});
+            return *std::max_element(left.begin(), left.end());
+        };
+        assert(render() == 0.0F);
+        // A key sounds on a stopped song, on the track the input names.
+        assert(keyboard.inject(Bytes{0x90, 60, 100}));
+        assert(render() > 0.1F && engine.track_peak(1) > 0.1F && engine.track_peak(0) == 0.0F);
+        assert(render() > 0.1F);   // and keeps sounding while it is held
+        assert(keyboard.inject(Bytes{0x80, 60, 0}));
+        assert(render() == 0.0F);
+        CapturedEvent captured;
+        // Stopped, nothing is recorded; playing but not armed, nothing is.
+        assert(!engine.take_captured(captured));
+        engine.set_playing(true);
+        assert(keyboard.inject(Bytes{0x90, 60, 100}));
+        (void)render();
+        assert(keyboard.inject(Bytes{0x80, 60, 0}));
+        (void)render();
+        assert(!engine.take_captured(captured));
+
+        // Armed and playing: every input event is captured where it sounded.
+        engine.set_recording(true);
+        engine.seek(24000);
+        (void)render();   // the song is now at 24256
+        assert(keyboard.inject(Bytes{0x90, 62, 127}));
+        assert(render() > 0.1F);
+        for (int block = 0; block < 10; ++block) assert(render() > 0.1F);
+        assert(keyboard.inject(Bytes{0x80, 62, 0}));
+        assert(render() == 0.0F);
+        assert(engine.take_captured(captured) && captured.track == 1 &&
+               captured.sample == 24256 &&
+               captured.event.type == PluginEvent::Type::note_on &&
+               captured.event.key_or_parameter == 62 && captured.event.value == 1.0);
+        const auto pressed_at = captured.sample;
+        assert(engine.take_captured(captured) &&
+               captured.event.type == PluginEvent::Type::note_off &&
+               captured.sample == 24256 + 11 * 256);
+        const auto released_at = captured.sample;
+        assert(!engine.take_captured(captured));
+
+        // What was captured becomes a step of the pattern under the playhead,
+        // and the song then plays it back where it was played, with no key
+        // down: proved from the rendered audio, not from the pattern.
+        const double samples_per_tick = 48000.0 * 60.0 / (120.0 * 480.0);
+        TakeRecorder recording(song.length());
+        recording.note_on(static_cast<Tick>(pressed_at / samples_per_tick), 62, 1.0F, 0.0);
+        const auto played = recording.note_off(static_cast<Tick>(released_at / samples_per_tick), 62);
+        assert(played && played->start == 485 && played->duration == 56);
+        const auto target = take_target(song, 1, played->start, 0);
+        assert(target.pattern == 0 && target.offset == 485);
+        auto into_pattern = *played;
+        into_pattern.start = target.offset;
+        assert(write_played(song.pattern(target.pattern), into_pattern, 120) == 4);
+        assert(engine.recompile(song, 120.0, 0, &midi_error));
+        engine.set_recording(false);
+        engine.seek(0);
+        std::vector<float> whole(static_cast<std::size_t>(engine.song_samples()), 0.0F);
+        std::vector<float> whole_right(whole.size(), 0.0F);
+        for (std::size_t at = 0; at < whole.size(); at += 256) {
+            const auto frames = std::min<std::size_t>(256, whole.size() - at);
+            engine.process({std::span<float>{whole.data() + at, frames},
+                            std::span<float>{whole_right.data() + at, frames}});
+        }
+        // Tick 485 is sample 24250: silent before it, sounding for the length
+        // the key was held, silent after.
+        assert(std::all_of(whole.begin(), whole.begin() + 24250,
+                           [](float sample) { return sample == 0.0F; }));
+        assert(std::all_of(whole.begin() + 24250, whole.begin() + 24250 + 56 * 50,
+                           [](float sample) { return sample > 0.1F; }));
+        assert(std::all_of(whole.begin() + 24250 + 56 * 50, whole.end(),
+                           [](float sample) { return sample == 0.0F; }));
+        assert(!engine.take_captured(captured));
+
+        // A bounce is the arrangement, not whoever is at the keyboard: a key
+        // pressed as it starts is neither in the file nor recorded, and is
+        // heard once the bounce hands the engine back.
+        Song silent;
+        silent.tracks = {Track{}, Track{}};
+        SongEngine quiet;
+        quiet.set_instrument(1, ClapPluginInstance::create(
+            BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &midi_error));
+        assert(quiet.prepare(silent, 120.0, 48000.0, 256, 0, &midi_error));
+        engine.connect_input(nullptr);
+        quiet.connect_input(&keyboard.queue());
+        quiet.set_recording(true);
+        assert(keyboard.open(std::size_t{0}));
+        assert(keyboard.inject(Bytes{0x90, 60, 100}));
+        const auto bounced = std::filesystem::path(BLOKKILY_TEST_ARTIFACTS) / "midi-bounce.wav";
+        std::filesystem::create_directories(bounced.parent_path());
+        const auto report = bounce_song(quiet, bounced, WaveFormat::float32, 0, &midi_error);
+        assert(report && report->peak == 0.0F);
+        const auto file = read_wave(bounced);
+        assert(file && file->frames == quiet.song_samples() &&
+               std::all_of(file->interleaved.begin(), file->interleaved.end(),
+                           [](float sample) { return sample == 0.0F; }));
+        assert(quiet.input() == &keyboard.queue() && quiet.is_recording());
+        assert(!quiet.take_captured(captured));
+        std::fill(left.begin(), left.end(), 0.0F);
+        quiet.process({left, right});
+        assert(*std::max_element(left.begin(), left.end()) > 0.1F);
+        std::filesystem::remove(bounced);
+    }
 
 #ifdef BLOKKILY_TEST_SF2_PATH
     SoundFontSynth synth;

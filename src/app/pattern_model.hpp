@@ -10,6 +10,8 @@
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/wave_file.hpp"
+#include "blokkily/midi/midi_input.hpp"
+#include "blokkily/sequencer/take.hpp"
 
 #include <QAbstractListModel>
 #include <QElapsedTimer>
@@ -98,6 +100,10 @@ public:
     // placed on a step of the same canonical pattern every editor projects.
     void placeNote(int step, const blokkily::Note& note);
     void placeChord(int step, const blokkily::Chord& chord);
+    // Says that a recorded take wrote into the song's patterns directly. The
+    // editors redraw and the engine is handed the new arrangement, as for any
+    // other edit.
+    void notifyRecorded();
 
     // Step inspector edits. Each one rewrites the selected trigger in place, so
     // every projection updates from the same change.
@@ -212,11 +218,21 @@ class AppController final : public QObject {
     Q_PROPERTY(QString projectName READ projectName NOTIFY projectStatusChanged)
     // The rate the engine renders at: the one the audio device negotiated.
     Q_PROPERTY(double sampleRate READ sampleRate NOTIFY activeInstrumentChanged)
+    // MIDI input: the ports the system offers, the one being played, and what
+    // it last delivered, so a producer can see a keyboard is reaching the app.
+    Q_PROPERTY(QStringList midiPorts READ midiPorts NOTIFY midiChanged)
+    Q_PROPERTY(QString midiPort READ midiPort NOTIFY midiChanged)
+    Q_PROPERTY(QString midiActivity READ midiActivity NOTIFY midiActivityChanged)
+    Q_PROPERTY(int midiNotes READ midiNotes NOTIFY midiActivityChanged)
+    // Armed, a running song records what is played into the pattern under the
+    // playhead on the selected track.
+    Q_PROPERTY(bool recordArmed READ recordArmed NOTIFY recordChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
                            Transport* transport = nullptr, QObject* parent = nullptr,
-                           std::unique_ptr<blokkily::RtAudioOutput> output = {});
+                           std::unique_ptr<blokkily::RtAudioOutput> output = {},
+                           std::unique_ptr<blokkily::MidiInput> midi = {});
     ~AppController() override;
     QString status() const { return status_; }
     QVariantList plugins() const { return plugins_; }
@@ -240,6 +256,18 @@ public:
     QString projectPath() const { return project_path_; }
     QString projectName() const;
     double sampleRate() const noexcept { return engine_ ? engine_->sample_rate() : 0.0; }
+    QStringList midiPorts() const { return midi_ports_; }
+    QString midiPort() const;
+    QString midiActivity() const { return midi_activity_; }
+    int midiNotes() const noexcept { return static_cast<int>(midi_notes_); }
+    bool recordArmed() const noexcept { return record_armed_; }
+    // Asks the system again which MIDI inputs exist, for a keyboard plugged in
+    // after launch.
+    Q_INVOKABLE void refreshMidiPorts();
+    // Plays from the port at `index` of midiPorts; -1 closes the input.
+    Q_INVOKABLE bool selectMidiPort(int index);
+    Q_INVOKABLE void toggleRecord();
+    blokkily::MidiInput& midiInput() noexcept { return *midi_input_; }
     // A track added from the interface is given something to play: the bank
     // the session already uses, or the machine's General MIDI bank.
     Q_INVOKABLE void addTrack();
@@ -331,6 +359,9 @@ signals:
     void exportStatusChanged();
     void scanningChanged();
     void scanFinished();
+    void midiChanged();
+    void midiActivityChanged();
+    void recordChanged();
 
 private:
     // Drives the scan queue: one helper process per candidate, each with a
@@ -369,6 +400,18 @@ private:
     // Releases what the keyboard is holding, on the track that sounded it.
     void releaseSoundingNotes();
     void pollMeters();
+    // Tells the MIDI input how each key sounds in the song's tuning and scale.
+    void updateKeyMap();
+    // Starts the device if it is idle, so a key played on a stopped song is
+    // heard. False when there is no engine or the device will not start.
+    bool ensureAudioRunning();
+    // Writes what the engine captured since the last call into the song.
+    void drainTake();
+    // Ends the take: whatever is still held is written as released now.
+    void finishTake();
+    void commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes);
+    // Song ticks per engine sample at the tempo the engine was prepared for.
+    [[nodiscard]] double ticksPerSample() const;
     void assignInstrument(int track, const blokkily::InstrumentSlot& slot,
                           const QString& label);
     // The General MIDI bank this machine offers, preferring the familiar ones.
@@ -388,6 +431,18 @@ private:
     SongModel* song_ = nullptr;
     PatternModel* pattern_ = nullptr;
     Transport* transport_ = nullptr;
+    // Declared before the engine and the device so it outlives both: the render
+    // callback reads its queue until the device has stopped.
+    std::unique_ptr<blokkily::MidiInput> midi_input_;
+    QStringList midi_ports_;
+    QString midi_activity_ = QStringLiteral("—");
+    std::uint64_t midi_notes_ = 0;
+    bool record_armed_ = false;
+    // The take being recorded, one recorder per track so a key held on one
+    // track is never paired with a release on another. The first note written
+    // checkpoints history, so a take is one step of undo.
+    std::vector<blokkily::TakeRecorder> takes_;
+    bool take_checkpointed_ = false;
     std::unique_ptr<blokkily::SongEngine> engine_;
     // The instrument slots the live engine was built from, so an edit that
     // leaves them alone is handed to the running engine instead of rebuilding.

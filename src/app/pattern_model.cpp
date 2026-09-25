@@ -581,6 +581,11 @@ void PatternModel::placeNote(int step, const blokkily::Note& note) {
     emit selectionChanged();
 }
 
+void PatternModel::notifyRecorded() {
+    refresh();
+    emit contentChanged();
+}
+
 void PatternModel::placeChord(int step, const blokkily::Chord& chord) {
     if (step < 0 || step >= step_count) return;
     auto trigger = played_trigger(step, ticks_per_step);
@@ -750,8 +755,10 @@ void Transport::tick() {
 }
 
 AppController::AppController(SongModel* song, PatternModel* pattern, Transport* transport,
-                             QObject* parent, std::unique_ptr<blokkily::RtAudioOutput> output)
+                             QObject* parent, std::unique_ptr<blokkily::RtAudioOutput> output,
+                             std::unique_ptr<blokkily::MidiInput> midi)
     : QObject(parent), song_(song), pattern_(pattern), transport_(transport),
+      midi_input_(midi ? std::move(midi) : std::make_unique<blokkily::MidiInput>()),
       audio_output_(std::move(output)) {
     // What the browser lists follows both what the scan found and what the
     // producer has typed, so a plugin arriving mid-scan reaches a filtered
@@ -785,7 +792,17 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // A fader move only changes gains, so it reaches the running engine
         // without rebuilding the graph or interrupting playback.
         QObject::connect(song_, &SongModel::mixChanged, this, &AppController::applyMix);
+        // A controller plays the selected track, in the song's own tuning and
+        // scale, from the next key pressed.
+        const auto follow = [this] {
+            midi_input_->set_track(static_cast<std::size_t>(song_->selectedTrack()));
+            updateKeyMap();
+        };
+        QObject::connect(song_, &SongModel::songChanged, this, follow);
+        QObject::connect(song_, &SongModel::tuningChanged, this, follow);
+        follow();
     }
+    refreshMidiPorts();
     // A held note is let go on a timer rather than on a second press, so a
     // keyboard cannot leave a voice sounding after the finger has left it.
     audition_timer_.setSingleShot(true);
@@ -1167,6 +1184,16 @@ void AppController::applyMix() {
 
 void AppController::pollMeters() {
     if (!engine_ || song_ == nullptr) return;
+    drainTake();
+    const auto received = midi_input_->notes_received();
+    if (received != midi_notes_) {
+        midi_notes_ = received;
+        const int key = midi_input_->last_key();
+        midi_activity_ = QString("%1 · %2")
+                             .arg(song_->degreeName(song_->snapDegree(key)))
+                             .arg(midi_input_->last_velocity());
+        emit midiActivityChanged();
+    }
     if (transport_ != nullptr && transport_->playing())
         transport_->followSamples(engine_->sample_position(), engine_->sample_rate());
     std::vector<float> peaks(engine_->track_count(), 0.0F);
@@ -1340,6 +1367,8 @@ void AppController::newProject() {
     if (audio_output_) audio_output_->stop();
     if (transport_ != nullptr) transport_->stop();
     forgetSoundingNotes();
+    // A take in progress belonged to the song being replaced.
+    takes_.clear();
     engine_.reset();
     song_->replace(std::move(blank));
     if (song_->song().tracks.front().instrument.format.empty()) (void)loadDefaultInstrument();
@@ -1370,6 +1399,7 @@ bool AppController::rebuildEngine() {
                 if (!state.empty()) song.tracks[track].instrument.state = std::move(state);
             }
     forgetSoundingNotes();
+    if (engine_) engine_->connect_input(nullptr);
     engine_.reset();
 
     auto next = std::make_unique<blokkily::SongEngine>();
@@ -1416,6 +1446,10 @@ bool AppController::rebuildEngine() {
         if (!state.empty()) (void)next->load_track_state(track, state);
     }
     engine_ = std::move(next);
+    // The controller's keys reach whichever engine is live, and a take being
+    // recorded carries on into it.
+    engine_->connect_input(&midi_input_->queue());
+    engine_->set_recording(record_armed_);
     engine_slots_.clear();
     engine_slots_.reserve(song.tracks.size());
     for (const auto& track : song.tracks) engine_slots_.push_back(track.instrument);
@@ -1438,6 +1472,8 @@ bool AppController::rebuildEngine() {
         emit statusChanged();
         return false;
     }
+    // A keyboard that was being played is heard through the new engine too.
+    if (midi_input_->is_open()) (void)ensureAudioRunning();
     status_ = QString("Ready · %1 track%2, %3 instrument%4")
                   .arg(song.tracks.size()).arg(song.tracks.size() == 1 ? "" : "s")
                   .arg(loaded).arg(loaded == 1 ? "" : "s");
@@ -1527,8 +1563,14 @@ void AppController::togglePlayback() {
         // and the next key played on the stopped transport.
         transport_->stop();
         pollMeters();
+        // Stopping ends the take: a key still held is written as released.
+        finishTake();
         return;
     }
+    // Every pass the song is played through is a take of its own, so undo
+    // takes back one pass rather than everything recorded since arming.
+    takes_.clear();
+    take_checkpointed_ = false;
     std::string error;
     engine_->set_playing(true);
     if (audio_output_ && !audio_output_->start(&error)) {
@@ -1562,6 +1604,155 @@ void AppController::seekToStep(double step) {
     // Four sixteenths to the beat, at the tempo the engine was prepared for.
     const double samples_per_step = rate * 60.0 / (bpm * 4.0);
     engine_->seek(static_cast<std::uint64_t>(std::llround(step * samples_per_step)));
+}
+
+// ---- MIDI input and recording ------------------------------------------------
+
+QString AppController::midiPort() const {
+    return midi_input_->is_open() ? QString::fromStdString(midi_input_->port_name()) : QString();
+}
+
+void AppController::refreshMidiPorts() {
+    QStringList ports;
+    if (midi_input_->mode() == blokkily::MidiInput::Mode::deterministic) {
+        ports << QStringLiteral("Deterministic input");
+    } else {
+        for (const auto& name : midi_input_->ports()) ports << QString::fromStdString(name);
+    }
+    if (ports == midi_ports_) return;
+    midi_ports_ = ports;
+    emit midiChanged();
+}
+
+bool AppController::selectMidiPort(int index) {
+    if (index < 0) {
+        midi_input_->close();
+        emit midiChanged();
+        return true;
+    }
+    std::string error;
+    if (!midi_input_->open(static_cast<std::size_t>(index), &error)) {
+        status_ = QString("MIDI input unavailable · %1").arg(QString::fromStdString(error));
+        emit statusChanged();
+        emit midiChanged();
+        return false;
+    }
+    // A keyboard is plugged in to be heard: the song gets an engine and the
+    // device runs, so the first key sounds without Play being pressed first.
+    if (!engine_ && !instruments().empty()) (void)rebuildEngine();
+    (void)ensureAudioRunning();
+    meter_timer_.start();
+    status_ = QString("MIDI · %1").arg(midiPort());
+    emit statusChanged();
+    emit midiChanged();
+    return true;
+}
+
+bool AppController::ensureAudioRunning() {
+    if (!engine_ || !audio_output_ || !audio_output_->is_open()) return false;
+    if (audio_output_->is_running()) return true;
+    std::string error;
+    if (!audio_output_->start(&error)) {
+        status_ = QString("Audio start failed · %1").arg(QString::fromStdString(error));
+        emit statusChanged();
+        return false;
+    }
+    meter_timer_.start();
+    return true;
+}
+
+void AppController::updateKeyMap() {
+    if (song_ == nullptr) return;
+    // Key n of the controller is degree n of the song, the way the on-screen
+    // piano lays one key per degree, with auto-scale having its say first.
+    blokkily::KeyMap map{};
+    for (int key = 0; key < static_cast<int>(map.size()); ++key) {
+        const auto pitch = song_->pitchForDegree(song_->snapDegree(key));
+        map[static_cast<std::size_t>(key)] = {pitch.key, static_cast<float>(pitch.cents)};
+    }
+    midi_input_->set_key_map(map);
+}
+
+void AppController::toggleRecord() {
+    // Disarming ends the take where it is; arming starts a new one.
+    if (record_armed_) finishTake();
+    record_armed_ = !record_armed_;
+    takes_.clear();
+    take_checkpointed_ = false;
+    if (engine_) engine_->set_recording(record_armed_);
+    status_ = record_armed_ ? QStringLiteral("Recording armed · play to record")
+                            : QStringLiteral("Recording off");
+    emit statusChanged();
+    emit recordChanged();
+}
+
+double AppController::ticksPerSample() const {
+    if (!engine_ || song_ == nullptr || transport_ == nullptr) return 0.0;
+    const double rate = engine_->sample_rate();
+    if (rate <= 0.0) return 0.0;
+    return transport_->bpm() * static_cast<double>(song_->song().pattern().ticks_per_beat()) /
+           (60.0 * rate);
+}
+
+void AppController::drainTake() {
+    if (!engine_ || song_ == nullptr) return;
+    const double per_sample = ticksPerSample();
+    if (per_sample <= 0.0) return;
+    // Everything is taken off the engine before anything is written, because
+    // writing reaches the engine again and must not find this half done.
+    std::vector<blokkily::CapturedEvent> heard;
+    blokkily::CapturedEvent captured;
+    while (engine_->take_captured(captured)) heard.push_back(captured);
+    if (heard.empty()) return;
+    const auto length = song_->song().length();
+    std::vector<std::pair<std::size_t, blokkily::PlayedNote>> finished;
+    for (const auto& event : heard) {
+        const std::size_t track = event.track;
+        if (takes_.size() <= track) takes_.resize(track + 1, blokkily::TakeRecorder(length));
+        const auto at = static_cast<blokkily::Tick>(
+            std::floor(static_cast<double>(event.sample) * per_sample));
+        const auto key = static_cast<std::int16_t>(event.event.key_or_parameter);
+        if (event.event.type == blokkily::PluginEvent::Type::note_on) {
+            takes_[track].note_on(at, key, static_cast<float>(event.event.value),
+                                  event.event.cents);
+        } else if (event.event.type == blokkily::PluginEvent::Type::note_off) {
+            if (auto note = takes_[track].note_off(at, key)) finished.emplace_back(track, *note);
+        }
+    }
+    if (!finished.empty()) commitTake(std::move(finished));
+}
+
+void AppController::finishTake() {
+    drainTake();
+    if (engine_ && song_ != nullptr && engine_->song_samples() > 0) {
+        const auto at = static_cast<blokkily::Tick>(std::floor(
+            static_cast<double>(engine_->sample_position() % engine_->song_samples()) *
+            ticksPerSample()));
+        std::vector<std::pair<std::size_t, blokkily::PlayedNote>> released;
+        for (std::size_t track = 0; track < takes_.size(); ++track)
+            for (const auto& note : takes_[track].finish(at)) released.emplace_back(track, note);
+        if (!released.empty()) commitTake(std::move(released));
+    }
+    takes_.clear();
+}
+
+void AppController::commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes) {
+    if (song_ == nullptr || notes.empty()) return;
+    auto& song = song_->song();
+    if (!take_checkpointed_) {
+        song_->checkpoint();
+        take_checkpointed_ = true;
+    }
+    const auto open = static_cast<std::size_t>(std::max(0, song_->currentPattern()));
+    for (auto& [track, note] : notes) {
+        if (track >= song.tracks.size()) continue;
+        const auto target = blokkily::take_target(song, track, note.start, open);
+        note.start = target.offset;
+        (void)blokkily::write_played(song.patterns[target.pattern].pattern, note,
+                                     PatternModel::ticks_per_step);
+    }
+    if (pattern_ != nullptr) pattern_->notifyRecorded();
+    else (void)refreshArrangement();
 }
 
 bool AppController::auditionKey(int key, bool held) {
@@ -1894,6 +2085,7 @@ bool AppController::loadProject(const QString& path) {
     }
     if (audio_output_) audio_output_->stop();
     forgetSoundingNotes();
+    takes_.clear();
     engine_.reset();
     if (transport_ != nullptr) transport_->setBpm(project->tempo);
     const auto tracks = project->song.tracks.size();
