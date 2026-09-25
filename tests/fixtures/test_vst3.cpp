@@ -1,5 +1,17 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <algorithm>
+#include <mutex>
+#include <vector>
+
+class TestVst3Processor;
+namespace {
+// Every live processor, so that the exported hook below can reach them the
+// way the plugin's own editor would: from the plugin's message thread.
+std::mutex live_mutex;
+std::vector<TestVst3Processor*> live_processors;
+}
+
 class TestVst3Processor final : public juce::AudioProcessor {
 public:
     TestVst3Processor()
@@ -10,6 +22,22 @@ public:
         // oscillator at the pitch it was played at, bend included, so a
         // retuned note can be proved from the audio itself.
         addParameter(tone_ = new juce::AudioParameterFloat({"tone", 1}, "Tone", 0.0F, 1.0F, 0.0F));
+        const std::lock_guard lock(live_mutex);
+        live_processors.push_back(this);
+    }
+    ~TestVst3Processor() override {
+        const std::lock_guard lock(live_mutex);
+        live_processors.erase(std::remove(live_processors.begin(), live_processors.end(), this),
+                              live_processors.end());
+    }
+
+    // What a knob turn in the plugin's own window does: one gesture around a
+    // value change, which the JUCE wrapper announces to the host through its
+    // IComponentHandler (beginEdit, performEdit, endEdit).
+    void turn_level(float value) {
+        level_->beginChangeGesture();
+        *level_ = value;
+        level_->endChangeGesture();
     }
 
     const juce::String getName() const override { return "Blokkily Test VST3"; }
@@ -89,3 +117,17 @@ private:
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new TestVst3Processor(); }
+
+// Turns the Level knob of every live instance as the plugin's editor would.
+// The wrapper only talks to the host's component handler from the plugin's
+// message thread, so the turn runs there: at once when the caller is that
+// thread (a host whose main thread the plugin adopted, as a headless host's
+// is), otherwise posted to it, in which case it arrives asynchronously.
+extern "C" __attribute__((visibility("default"))) void blokkily_test_vst3_turn(float value) {
+    const auto turn = [value] {
+        const std::lock_guard lock(live_mutex);
+        for (auto* processor : live_processors) processor->turn_level(value);
+    };
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread()) turn();
+    else juce::MessageManager::callAsync(turn);
+}
