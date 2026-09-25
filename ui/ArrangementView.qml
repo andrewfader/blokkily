@@ -57,6 +57,8 @@ ColumnLayout {
             onClicked: songModel.duplicatePattern() }
         Chip { objectName: "addTrackButton"; text: "+TRK"; accent: Theme.blue
             onClicked: appController.addTrack() }
+        Chip { objectName: "addAudioButton"; text: "+AUD"; accent: Theme.amber
+            onClicked: audioClipLane.importToNewTrack() }
     }
 
     Rectangle {
@@ -311,6 +313,7 @@ ColumnLayout {
                 }
             }
         }
+        AudioClipLane { id: audioClipLane; anchors.fill: arrangementRows; rows: arrangementRows }
     }
 
     MeterMenu {

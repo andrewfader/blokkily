@@ -150,6 +150,26 @@ void AudioAssetCache::insert(const std::filesystem::path& file, AudioAsset asset
     entry.by_rate[0] = std::make_shared<const AudioAsset>(std::move(asset));
 }
 
+void AudioAssetCache::adopt(const std::filesystem::path& file, const AudioFileInfo& native,
+                            AudioAssetPtr asset) {
+    if (!asset) return;
+    const auto key = key_of(file);
+    std::optional<Stamp> stamp;
+    {
+        std::error_code failure;
+        const auto size = std::filesystem::file_size(key, failure);
+        const auto written = failure ? std::filesystem::file_time_type{}
+                                     : std::filesystem::last_write_time(key, failure);
+        if (!failure) stamp = Stamp{size, written};
+    }
+    Entry& entry = entries_[key];
+    if (entry.native != native || entry.stamp != stamp) entry = Entry{};
+    entry.native = native;
+    entry.stamp = stamp;
+    const std::uint32_t rate = asset->rate == native.sample_rate ? 0 : asset->rate;
+    entry.by_rate[rate] = std::move(asset);
+}
+
 void AudioAssetCache::purge_unused() {
     for (auto entry = entries_.begin(); entry != entries_.end();) {
         std::erase_if(entry->second.by_rate,

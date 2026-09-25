@@ -33,7 +33,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
+#include <thread>
 #include <optional>
 #include <span>
 #include <utility>
@@ -74,6 +76,14 @@ class AppController final : public QObject {
     // `highKey`, `loop` ("off", "forward", "ping_pong"), `attack`, `decay`,
     // `sustain`, `release` (seconds, level), `trackPitch` and `oneShot`.
     Q_PROPERTY(QVariantMap sampler READ sampler NOTIFY samplerChanged)
+    // Audio clips (app_controller_audio.cpp). Imports decode off the control
+    // thread; `importsPending` counts the ones still decoding, and
+    // `importStatus` says what the last one did. `assetRevision` moves when
+    // the decoded audio behind the clips changes, so waveforms redraw.
+    Q_PROPERTY(int importsPending READ importsPending NOTIFY importChanged)
+    Q_PROPERTY(QString importStatus READ importStatus NOTIFY importChanged)
+    Q_PROPERTY(qint64 lastImportedClip READ lastImportedClip NOTIFY importChanged)
+    Q_PROPERTY(int assetRevision READ assetRevision NOTIFY assetsChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -178,6 +188,28 @@ public:
     // otherwise they are let go after a short beat.
     bool auditionPitches(const std::vector<blokkily::TunedPitch>& pitches, double velocity,
                          bool held = false);
+    // --- Audio clips (app_controller_audio.cpp) -----------------------------
+    int importsPending() const noexcept { return imports_pending_; }
+    QString importStatus() const { return import_status_; }
+    qint64 lastImportedClip() const noexcept { return last_imported_clip_; }
+    int assetRevision() const noexcept { return asset_revision_; }
+    // A new track with no instrument, for audio. Returns its index.
+    Q_INVOKABLE int addAudioTrack();
+    // Imports an audio file as a clip on `track` from `tick`. The file is
+    // referenced where it is (decision 8) and decoded off the control thread
+    // at the engine's rate; the clip is placed, as one step of history, only
+    // once the decode has finished. Returns false when nothing was started.
+    Q_INVOKABLE bool importAudio(const QString& path, int track, double tick);
+    // The import the file dialog makes: onto the selected track, at the start
+    // of the bar the playhead is in.
+    Q_INVOKABLE bool importAudioFile(const QString& path);
+    // The overview of a clip for its waveform: `buckets` min, max pairs over
+    // the stretch of file it plays, relative to the file's loudest sample and
+    // scaled by the clip's gain and fades. Empty for a clip whose file is
+    // missing.
+    Q_INVOKABLE QVariantList clipPeaks(qint64 id, int buckets) const;
+    // The decoded audio store clips and samplers share.
+    blokkily::AudioAssetCache& assetCache() noexcept { return *assets_; }
     // Bounces the arrangement through the engine the speakers hear.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32");
     // Sets the tempo in effect at the playhead: the tempo readout's edit. The
@@ -263,8 +295,18 @@ signals:
     void midiActivityChanged();
     void recordChanged();
     void samplerChanged();
+    void importChanged();
+    void assetsChanged();
 
 private:
+    struct ImportResult;
+    // Decodes the audio every clip of the song plays, at `rate`, through the
+    // asset store; flags the files that are missing on the song model.
+    blokkily::AudioAssets clipAssets(double rate);
+    // Back on the control thread: places a finished import.
+    void finishImport(int ticket, const ImportResult& result);
+    // Whether the song needs an engine even without an instrument.
+    bool hasAudioClips() const;
     // Drives the scan queue: one helper process per candidate, each with a
     // deadline, results appended to the browser as they land.
     void scanNext();
@@ -351,8 +393,9 @@ private:
     SongModel* song_ = nullptr;
     PatternModel* pattern_ = nullptr;
     Transport* transport_ = nullptr;
-    // Decoded audio shared by every processor that plays files (plan F-B).
-    // Declared before the engine so it outlives every sampler reading it.
+    // Decoded audio shared by every processor that plays files and by the
+    // song's audio clips (plan F-B). Declared before the engine so it outlives
+    // every sampler reading it.
     std::unique_ptr<blokkily::AudioAssetCache> assets_ =
         std::make_unique<blokkily::AudioAssetCache>();
     // The sampler zone the panel edits.
@@ -394,4 +437,15 @@ private:
     bool scan_cache_loaded_ = false;
     std::unique_ptr<QProcess> scanner_;
     QTimer scan_deadline_;
+    // What the engine was last given for the song's clips, indexed like
+    // Song::audio_files: the owners of the audio the waveforms draw.
+    blokkily::AudioAssets clip_assets_;
+    int asset_revision_ = 0;
+    // Imports decoding off the control thread, by ticket. Joined when they
+    // report back, and in the destructor, so none outlives the controller.
+    std::map<int, std::thread> imports_;
+    int next_import_ = 1;
+    int imports_pending_ = 0;
+    QString import_status_ = QStringLiteral("No audio imported");
+    qint64 last_imported_clip_ = 0;
 };

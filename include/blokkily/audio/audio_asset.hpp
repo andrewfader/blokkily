@@ -63,6 +63,14 @@ public:
     // at the asset's own rate, or at 0, return it without reading the file.
     void insert(const std::filesystem::path& file, AudioAsset asset);
 
+    // Registers a file decoded somewhere else, such as an import decoded off
+    // the control thread by a cache of its own, so the next load() of that
+    // file at the asset's rate returns it without decoding again. `native` is
+    // the file's own header. The file's size and write time are taken now, so
+    // a later change on disk is noticed exactly as it is for load().
+    void adopt(const std::filesystem::path& file, const AudioFileInfo& native,
+               AudioAssetPtr asset);
+
     // Drops every asset nothing outside the cache still holds.
     void purge_unused();
 

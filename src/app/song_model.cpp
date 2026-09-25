@@ -236,6 +236,7 @@ void SongModel::refreshStructure() { notifyStructureChanged(); }
 void SongModel::notifyStructureChanged() {
     emit structureChanged();
     emit songChanged();
+    emit audioClipsChanged();
 }
 
 namespace {
