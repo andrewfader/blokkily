@@ -101,6 +101,7 @@ void AppController::toggleRecord() {
     takes_.clear();
     if (song_ != nullptr) song_->newTake();
     if (engine_) engine_->set_recording(record_armed_);
+    if (record_armed_) startAudioTake();
     status_ = record_armed_ ? QStringLiteral("Recording armed · play to record")
                             : QStringLiteral("Recording off");
     emit statusChanged();
@@ -203,6 +204,8 @@ void AppController::finishTake() {
         if (!released.empty()) commitTake(std::move(released));
     }
     takes_.clear();
+    // The audio recorded in the same pass joins the notes' step of history.
+    finishAudioTake();
 }
 
 void AppController::commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes) {

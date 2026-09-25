@@ -1,5 +1,6 @@
 #include "song_model.hpp"
 
+#include "blokkily/audio/audio_input.hpp"
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
@@ -130,6 +131,15 @@ QVariantList SongModel::tracks() const {
                                  ? QStringLiteral("ALL")
                                  : QString("CH %1").arg(track.input.midi_channel + 1);
         row["routable"] = index < blokkily::routable_tracks;
+        // Audio input (item 3.2): what the input and monitor chips say.
+        row["inputText"] = audioInputText(track.input);
+        row["monitorText"] = monitorText(track.input);
+        row["takesAudio"] = blokkily::takes_audio(track.input);
+        // Whether the input is heard through the track now.
+        row["monitoring"] = blokkily::takes_audio(track.input) &&
+                            (track.input.monitor == blokkily::TrackInput::Monitor::on ||
+                             (track.input.monitor == blokkily::TrackInput::Monitor::automatic &&
+                              track.input.armed));
         row["inserts"] = static_cast<int>(track.inserts.size());
         rows.push_back(row);
     }

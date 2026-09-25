@@ -115,6 +115,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         QObject::connect(song_, &SongModel::tuningChanged, this, follow);
         follow();
         connectSampler();
+        connectAudioInput();
     }
     refreshMidiPorts();
     // A held note is let go on a timer rather than on a second press, so a
@@ -139,6 +140,13 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
 }
 
 AppController::~AppController() {
+    // A take still being written is abandoned with the session, and so is the
+    // temporary folder of a session that was never saved.
+    discardAudioTake();
+    if (!session_audio_dir_.empty()) {
+        std::error_code ignored;
+        std::filesystem::remove_all(session_audio_dir_, ignored);
+    }
     // An import still decoding reports back to this object: it is waited for
     // here, and what it posts is discarded with the object.
     for (auto& [ticket, worker] : imports_)
@@ -430,6 +438,7 @@ void AppController::newProject() {
     forgetSoundingNotes();
     // A take in progress belonged to the song being replaced.
     takes_.clear();
+    discardAudioTake();
     engine_.reset();
     // The audio the last song played is let go unless the next one plays it.
     clip_assets_.clear();
@@ -494,9 +503,14 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     // was asked for would then play every note flat and every bar slow. A host
     // with no device still gets an engine, at the rate a bounce is written at.
     QString device_failure;
+    // The device opens duplex only while a track takes audio input (item
+    // 3.2), and is opened again when that changes.
+    const bool wants_input = songTakesAudioInput();
+    if (audio_output_ && !audio_output_->opened_for_input(wants_input)) audio_output_->close();
     if (!audio_output_ || !audio_output_->is_open()) {
         auto output = audio_output_ ? std::move(audio_output_)
                                     : std::make_unique<blokkily::RtAudioOutput>();
+        output->set_input_wanted(wants_input);
         std::string device_error;
         // Nothing is rendering yet: the stream is opened, not started, so the
         // callback cannot reach the engine before it is prepared.
@@ -525,6 +539,10 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     // recorded carries on into it.
     engine_->connect_input(&midi_input_->queue());
     engine_->set_recording(record_armed_);
+    // Recorded audio input reaches the take writer through its ring, and
+    // every track hears the inputs it is routed to (item 3.2).
+    engine_->connect_capture(&take_writer_->ring());
+    updateAudioInputs();
     engine_signature_ = wanted;
     transport_->setSongBars(song_->bars());
 
@@ -546,7 +564,8 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
         return false;
     }
     // A keyboard that was being played is heard through the new engine too.
-    if (midi_input_->is_open()) (void)ensureAudioRunning();
+    // So is an armed audio input that is being monitored (item 3.2).
+    if (midi_input_->is_open() || monitorsAudioInput()) (void)ensureAudioRunning();
     // Instruments and effects are counted apart: "3 instruments" must not
     // mean one synth and two inserts.
     int instruments = 0;
@@ -666,6 +685,7 @@ void AppController::togglePlayback() {
     // takes back one pass rather than everything recorded since arming.
     takes_.clear();
     song_->newTake();
+    if (record_armed_) startAudioTake();
     // Play starts on the song as it is now, edits of this turn included.
     flushRecompile();
     startAutomationTake();
@@ -999,6 +1019,9 @@ bool AppController::verifyBounce(const QString& path) {
 
 bool AppController::saveProject(const QString& path) {
     if (song_ == nullptr) return false;
+    // Takes recorded before the first save move into the project's audio
+    // folder, so the project never names a temporary file (decision 8).
+    relocateRecordings(path);
     auto& song = song_->song();
     // Samples inside the folder the project is going to are named relative to
     // it, wherever the session was saved before.
@@ -1041,6 +1064,7 @@ bool AppController::loadProject(const QString& path) {
     if (audio_output_) audio_output_->stop();
     forgetSoundingNotes();
     takes_.clear();
+    discardAudioTake();
     engine_.reset();
     // The audio the last song played is let go unless the next one plays it.
     clip_assets_.clear();

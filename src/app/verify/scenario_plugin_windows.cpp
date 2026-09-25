@@ -50,6 +50,18 @@ void run_plugin_windows(VerifyContext& ctx) {
         (void)ctx.window->grabWindow();
         QCoreApplication::processEvents();
     };
+    // The mixer strips scroll: a strip's button below the fold is scrolled
+    // into view before it is clicked, as a person would.
+    const auto bring_into_view = [&ctx, &lay_out](QQuickItem* item) {
+        auto* mixer = ctx.named("mixerScroll");
+        if (item == nullptr || mixer == nullptr) return;
+        const QPointF top = item->mapToItem(mixer, QPointF(0, 0));
+        if (top.y() >= 0 && top.y() + item->height() <= mixer->height()) return;
+        mixer->setProperty("contentY",
+                           std::max(0.0, mixer->property("contentY").toDouble() + top.y() - 8));
+        VerifyContext::settle(20);
+        lay_out();
+    };
     const auto report = [&clap] {
         std::array<long, gui::report_size> values{};
         values.fill(-1);
@@ -194,6 +206,7 @@ void run_plugin_windows(VerifyContext& ctx) {
         lay_out();
         auto* e_added = ctx.named(QString("editor%1").arg(added));
         check(VerifyContext::usable(e_added, 18, 18));
+        bring_into_view(e_added);
         if (e_added != nullptr)
             ctx.click_at(e_added, {e_added->width() / 2, e_added->height() / 2}, Qt::LeftButton);
         check(windows.isOpen(where) && windows.count() == 2);
@@ -257,6 +270,7 @@ void run_plugin_windows(VerifyContext& ctx) {
     {
         auto* e_vst3 = ctx.named("editor1");
         check(e_vst3 != nullptr && e_vst3->isEnabled());
+        bring_into_view(e_vst3);
         if (e_vst3 != nullptr)
             ctx.click_at(e_vst3, {e_vst3->width() / 2, e_vst3->height() / 2}, Qt::LeftButton);
         lay_out();
@@ -268,6 +282,8 @@ void run_plugin_windows(VerifyContext& ctx) {
     }
 
     song.selectTrack(0);
+    if (auto* mixer = ctx.named("mixerScroll")) mixer->setProperty("contentY", 0.0);
+    VerifyContext::settle(20);
     lay_out();
     reached("plugin windows: screenshot state");
     check(ctx.save_screenshot());

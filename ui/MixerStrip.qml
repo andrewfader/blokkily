@@ -16,14 +16,15 @@ Rectangle {
         : ({index: index, name: "", instrument: "", hasInstrument: false, gainDb: 0,
             gainText: "", pan: 0, panText: "", mute: false, solo: false, audible: true,
             selected: false, armed: false, routable: true, channelText: "",
-            automationMode: "READ", inserts: 0})
+            automationMode: "READ", inserts: 0, inputText: "MIDI", monitorText: "MON AUTO",
+            takesAudio: false, monitoring: false})
     readonly property int trackIndex: index
     objectName: "mixerStrip" + index
     Layout.fillWidth: true
-    // The arm and automation rows are fixed, and so are the faders' grips, so
-    // no row is squeezed to nothing; each send adds a row of its own, sized so
-    // its dial is never squeezed.
-    implicitHeight: 212 + songModel.returns.length * 48
+    // The arm, input and automation rows are fixed, and so are the faders'
+    // grips, so no row is squeezed to nothing; each send adds a row of its
+    // own, sized so its dial is never squeezed.
+    implicitHeight: 243 + songModel.returns.length * 48
     radius: 6
     color: modelData.selected ? Theme.raised : Theme.panel
     border.color: modelData.selected ? Theme.acid : Theme.line
@@ -76,7 +77,7 @@ Rectangle {
             }
         }
 
-        // Arm and channel: where played notes go.
+        // Arm, channel and audio input: where what is played goes.
         TrackInputControls {
             Layout.fillWidth: true
             track: root.modelData

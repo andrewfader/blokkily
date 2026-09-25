@@ -10,6 +10,8 @@
 #include <QVariantMap>
 
 #include <cstddef>
+#include <filesystem>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -73,6 +75,9 @@ class SongModel final : public QObject {
     // How many tracks are armed. With none, what is played goes to the
     // selected track (decision 4).
     Q_PROPERTY(int armedCount READ armedCount NOTIFY songChanged)
+    // How many inputs the audio device offers (item 3.2): the choices a
+    // strip's input chip steps through. Two when the device has fewer.
+    Q_PROPERTY(int audioInputChannels READ audioInputChannels NOTIFY inputChanged)
     // Effects (item 2.4). The rack is the insert chain being edited: the
     // selected track's, a return's, or the master's, as
     // {kind, bus, title, inserts: [{index, name, format, bypass}]}.
@@ -181,6 +186,24 @@ public:
     // Steps the channel through ALL, 1 .. 16 and round, by `step`.
     Q_INVOKABLE void cycleInputChannel(int track, int step = 1);
     int armedCount() const;
+    // --- Audio input (item 3.2; song_model_audio_input.cpp) -----------------
+    // Like arm and channel, saved with the song and never history.
+    int audioInputChannels() const noexcept { return audio_input_channels_; }
+    void setAudioInputChannels(int channels);
+    // What the track records and monitors: `channels` 0 makes it a MIDI
+    // track again; 1 hears device input `first` (0-based), 2 the pair from it.
+    Q_INVOKABLE void setAudioInput(int track, int first, int channels);
+    // Steps the strip's input chip: MIDI, IN 1-2, IN 1, IN 2, IN 3-4, ...
+    Q_INVOKABLE void cycleAudioInput(int track, int step = 1);
+    // Steps the monitor through automatic (while armed), on and off.
+    Q_INVOKABLE void cycleMonitor(int track, int step = 1);
+    // What the chips say: "MIDI", "IN 1-2", "IN 3"; "MON AUTO", "MON", "MON OFF".
+    static QString audioInputText(const blokkily::TrackInput& input);
+    static QString monitorText(const blokkily::TrackInput& input);
+    // Recordings moved into a project's audio folder on save (decision 8):
+    // every file the song, and every step of its history, names at a key of
+    // `moved` now names the value. Not a step of history.
+    void relocateAudioFiles(const std::map<std::filesystem::path, std::filesystem::path>& moved);
     // Arrangement editing. An empty bar takes the open pattern; a filled bar
     // is opened rather than erased — the right button takes a clip away.
     Q_INVOKABLE void placeClip(int track, int bar);
@@ -398,6 +421,7 @@ private:
     [[nodiscard]] const blokkily::AudioClip* findAudioClip(qint64 id) const;
     [[nodiscard]] QVariantMap audioClipRow(const blokkily::AudioClip& clip) const;
     std::vector<bool> missing_audio_;
+    int audio_input_channels_ = 2;
     [[nodiscard]] bool validTrack(int track) const;
     // The insert chain of a bus, or nullptr when there is no such bus.
     std::vector<blokkily::EffectSlot>* chainAt(blokkily::BusKind kind, int bus);

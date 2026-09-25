@@ -1,10 +1,12 @@
 #pragma once
 
 #include "blokkily/audio/audio_asset.hpp"
+#include "blokkily/audio/audio_input.hpp"
 #include "blokkily/audio/audio_source.hpp"
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
+#include "blokkily/audio/sample_ring.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/plugin.hpp"
@@ -225,7 +227,32 @@ public:
     void seek(std::uint64_t sample) noexcept {
         requested_position_.store(sample, std::memory_order_release);
     }
+    // Renders with no device input: what a bounce calls, so an export is the
+    // arrangement and never whatever is plugged into the inputs (item 3.2).
     void process(StereoBlock output) noexcept override;
+    // Renders with what the device's inputs delivered for this block: tracks
+    // that monitor their input hear it, and tracks that record it capture it.
+    // An input block whose length is not the output's is ignored.
+    void process(StereoBlock output, InputBlock input) noexcept override;
+
+    // --- Audio input (item 3.2) ----------------------------------------------
+    // Which device inputs `track` hears and records (see audio_input_routes()).
+    // Control thread, after prepare(), at any time: the callback reads one word.
+    void set_audio_input(std::size_t track, const AudioInputRoute& route) noexcept;
+    [[nodiscard]] AudioInputRoute audio_input(std::size_t track) const noexcept;
+    // Every route at once, indexed like the song's tracks.
+    void set_audio_inputs(const std::vector<AudioInputRoute>& routes) noexcept;
+    // Where recorded input goes. While recording with the transport running,
+    // every chunk of a recording track's raw input is pushed here with the
+    // song sample it was rendered at (chunk stage 6); a full ring drops it and
+    // counts it, never holding up the callback. The ring belongs to the caller
+    // and must outlive the connection; nullptr disconnects.
+    void connect_capture(SampleRing* ring) noexcept {
+        capture_.store(ring, std::memory_order_release);
+    }
+    [[nodiscard]] SampleRing* capture() const noexcept {
+        return capture_.load(std::memory_order_acquire);
+    }
 
     // Live mixer moves. Safe to call from the control thread while audio runs:
     // the audio thread only ever reads the resulting gains. apply_mix() also
@@ -295,7 +322,7 @@ private:
 
     // `from_timeline` is false when the transport is stopped: the arrangement
     // contributes nothing, but live notes and ringing tails still do.
-    void process_chunk(StereoBlock output, std::uint64_t song_position,
+    void process_chunk(StereoBlock output, const InputBlock& input, std::uint64_t song_position,
                        bool from_timeline) noexcept;
     // Chunk stage 1: gathers what one track plays this chunk into its scratch.
     // `capture_sample` is where the listener was as the block began (the
@@ -380,6 +407,7 @@ private:
     std::atomic<bool> playing_{false};
     std::atomic<InputQueue*> input_{nullptr};
     std::atomic<bool> recording_{false};
+    std::atomic<SampleRing*> capture_{nullptr};
     // Every armed track captures its own copy of an input event, so the ring
     // holds a burst of chords into sixty-four armed tracks between drains.
     SpscQueue<CapturedEvent, 8192> captured_;
