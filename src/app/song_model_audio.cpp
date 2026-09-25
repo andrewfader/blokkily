@@ -54,12 +54,10 @@ QVariantMap SongModel::audioClipRow(const blokkily::AudioClip& clip) const {
     const double end = blokkily::audio_clip_end_tick(song_, clip);
     const double seconds = static_cast<double>(clip.length_frames) / std::max(1U, file.sample_rate);
     // Where the fades meet the clip, in ticks: the lane draws them there.
+    // Through the clip's warp, like its end.
     const auto tick_after = [&](std::uint64_t frames) {
-        const auto resolution = song_.ticks_per_beat();
-        return song_.tempo.tick_at_seconds(
-            song_.tempo.seconds_at(clip.start, resolution) +
-                static_cast<double>(frames) / std::max(1U, file.sample_rate),
-            resolution);
+        return blokkily::audio_clip_tick_at(
+            song_, clip, static_cast<double>(frames) / std::max(1U, file.sample_rate));
     };
     row["id"] = static_cast<qint64>(clip.id);
     row["track"] = static_cast<int>(clip.track);
@@ -77,6 +75,15 @@ QVariantMap SongModel::audioClipRow(const blokkily::AudioClip& clip) const {
     row["fadeInFrames"] = static_cast<qint64>(clip.fade_in_frames);
     row["fadeOutFrames"] = static_cast<qint64>(clip.fade_out_frames);
     row["missing"] = clip.file < missing_audio_.size() && missing_audio_[clip.file];
+    // Clip warp (item 3.6).
+    row["follow"] = clip.warp.follow_tempo;
+    row["sourceBpm"] = clip.warp.source_bpm;
+    row["ratio"] = clip.warp.ratio;
+    row["semitones"] = clip.warp.semitones;
+    row["cents"] = clip.warp.cents;
+    row["warped"] = clip.warp.active();
+    row["rendering"] = std::find(rendering_clips_.begin(), rendering_clips_.end(), clip.id) !=
+                       rendering_clips_.end();
     return row;
 }
 
@@ -106,6 +113,32 @@ void SongModel::setMissingAudio(std::vector<bool> missing) {
     if (missing == missing_audio_) return;
     missing_audio_ = std::move(missing);
     emit audioClipsChanged();
+}
+
+void SongModel::setRenderingClips(std::vector<blokkily::AudioClipId> clips) {
+    std::sort(clips.begin(), clips.end());
+    if (clips == rendering_clips_) return;
+    rendering_clips_ = std::move(clips);
+    emit audioClipsChanged();
+}
+
+bool SongModel::setAudioClipWarp(qint64 id, bool follow, double sourceBpm, double ratio,
+                                 int semitones, double cents) {
+    auto* clip = findAudioClip(id);
+    if (clip == nullptr) return false;
+    blokkily::ClipWarp warp;
+    warp.follow_tempo = follow;
+    warp.source_bpm = sourceBpm;
+    warp.ratio = ratio;
+    warp.semitones = semitones;
+    warp.cents = cents;
+    if (!warp.valid()) return false;
+    if (warp == clip->warp) return true;
+    checkpoint();
+    clip = findAudioClip(id);
+    clip->warp = warp;
+    notifyStructureChanged();
+    return true;
 }
 
 int SongModel::addAudioTrack() {
@@ -162,9 +195,8 @@ bool SongModel::trimAudioClipStart(qint64 id, double tick) {
     const auto& file = song_.audio_files.at(clip->file);
     const double wanted = std::max(0.0, tick);
     // Frames the edge moves by: into the clip (positive) hides the file's
-    // start, out of it reveals what lies before.
-    const double moved = blokkily::frames_between(song_, static_cast<double>(clip->start),
-                                                  wanted, file.sample_rate);
+    // start, out of it reveals what lies before. Through the clip's warp.
+    const double moved = blokkily::audio_clip_seconds_at(song_, *clip, wanted) * file.sample_rate;
     auto delta = static_cast<std::int64_t>(std::llround(moved));
     const auto earliest = -static_cast<std::int64_t>(clip->offset_frames);
     const auto latest = static_cast<std::int64_t>(clip->length_frames) - 1;
@@ -172,11 +204,9 @@ bool SongModel::trimAudioClipStart(qint64 id, double tick) {
     if (delta == 0) return true;
     // The new start is the tick where the revealed or hidden frame sounds,
     // so the rest of the clip stays exactly where it was.
-    const auto resolution = song_.ticks_per_beat();
-    const double seconds = song_.tempo.seconds_at(clip->start, resolution) +
-                           static_cast<double>(delta) / file.sample_rate;
-    const auto start = static_cast<blokkily::Tick>(
-        std::llround(std::max(0.0, song_.tempo.tick_at_seconds(seconds, resolution))));
+    const auto start = static_cast<blokkily::Tick>(std::llround(std::max(
+        0.0, blokkily::audio_clip_tick_at(song_, *clip,
+                                          static_cast<double>(delta) / file.sample_rate))));
     checkpoint();
     clip = findAudioClip(id);
     clip->start = start;
@@ -193,8 +223,7 @@ bool SongModel::trimAudioClipEnd(qint64 id, double tick) {
     auto* clip = findAudioClip(id);
     if (clip == nullptr || !tick_in_range(tick)) return false;
     const auto& file = song_.audio_files.at(clip->file);
-    const double frames = blokkily::frames_between(song_, static_cast<double>(clip->start), tick,
-                                                   file.sample_rate);
+    const double frames = blokkily::audio_clip_seconds_at(song_, *clip, tick) * file.sample_rate;
     const std::uint64_t available = file.frames - clip->offset_frames;
     const auto length = std::clamp<std::uint64_t>(whole_frames(frames), 1, available);
     if (length == clip->length_frames) return true;
@@ -211,7 +240,7 @@ bool SongModel::setAudioClipFadeIn(qint64 id, double tick) {
     if (clip == nullptr || !tick_in_range(tick)) return false;
     const auto rate = song_.audio_files.at(clip->file).sample_rate;
     const auto frames = std::min(
-        whole_frames(blokkily::frames_between(song_, static_cast<double>(clip->start), tick, rate)),
+        whole_frames(blokkily::audio_clip_seconds_at(song_, *clip, tick) * rate),
         clip->length_frames - clip->fade_out_frames);
     if (frames == clip->fade_in_frames) return true;
     checkpoint();
@@ -225,7 +254,7 @@ bool SongModel::setAudioClipFadeOut(qint64 id, double tick) {
     auto* clip = findAudioClip(id);
     if (clip == nullptr || !tick_in_range(tick)) return false;
     const auto rate = song_.audio_files.at(clip->file).sample_rate;
-    const double into = blokkily::frames_between(song_, static_cast<double>(clip->start), tick, rate);
+    const double into = blokkily::audio_clip_seconds_at(song_, *clip, tick) * rate;
     const double remaining = static_cast<double>(clip->length_frames) - std::max(0.0, into);
     const auto frames = std::min(whole_frames(remaining),
                                  clip->length_frames - clip->fade_in_frames);

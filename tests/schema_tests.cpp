@@ -55,10 +55,10 @@ Project full_project() {
 
     song.audio_files = {{"/music/kick.wav", 48000, 48000, 1},
                         {"/music/Song/Song.audio/take 1.wav", 96000, 44100, 2}};
-    song.audio_clips = {{7, 0, 0, 0, 0, 48000, -3.5, 10, 20},
-                        {9, 1, 1, 960, 100, 1000, 0.0, 0, 0},
+    song.audio_clips = {{7, 0, 0, 0, 0, 48000, -3.5, 10, 20, {}},
+                        {9, 1, 1, 960, 100, 1000, 0.0, 0, 0, {}},
                         // Overlaps clip 7 on the same track (decision 6).
-                        {3, 0, 0, 480, 0, 24000, 0.0, 0, 0}};
+                        {3, 0, 0, 480, 0, 24000, 0.0, 0, 0, {}}};
 
     ReturnBus reverb;
     reverb.name = "Reverb Bus";
@@ -316,8 +316,8 @@ int main() {
     {
         Song song;
         song.audio_files = {{"/a.wav", 1000, 48000, 2}};
-        song.audio_clips = {{1, 0, 0, 0, 0, 1000, 0, 0, 0}, {2, 0, 0, 100, 0, 1000, 0, 0, 0},
-                            {5, 0, 0, 100, 500, 500, 0, 250, 250}};
+        song.audio_clips = {{1, 0, 0, 0, 0, 1000, 0, 0, 0, {}}, {2, 0, 0, 100, 0, 1000, 0, 0, 0, {}},
+                            {5, 0, 0, 100, 500, 500, 0, 250, 250, {}}};
         std::string why;
         check(song.consistent(&why), "overlapping audio clips on one track are consistent: " + why);
         check(song.next_audio_clip_id() == 6, "the next audio clip id is unused");
@@ -412,9 +412,9 @@ int main() {
         song.returns.resize(2);
         song.clips = {{0, 0, 0, 1}, {1, 1, 0, 1}, {2, 1, 1920, 2}};
         song.audio_files = {{"/a.wav", 1000, 48000, 1}};
-        song.audio_clips = {{1, 0, 0, 0, 0, 100, 0, 0, 0},
-                            {2, 1, 0, 0, 0, 100, 0, 0, 0},
-                            {3, 2, 0, 480, 0, 100, 0, 0, 0}};
+        song.audio_clips = {{1, 0, 0, 0, 0, 100, 0, 0, 0, {}},
+                            {2, 1, 0, 0, 0, 100, 0, 0, 0, {}},
+                            {3, 2, 0, 480, 0, 100, 0, 0, 0, {}}};
         song.tracks[0].sends = {{0, -6.0, false}};
         song.tracks[1].sends = {{0, -3.0, false}};
         song.tracks[2].sends = {{1, -9.0, true}};
@@ -469,7 +469,7 @@ int main() {
         Song song;
         song.audio_files = {{"/a.wav", 100, 48000, 1}, {"/b.wav", 100, 48000, 1},
                             {"/c.wav", 100, 48000, 1}};
-        song.audio_clips = {{1, 0, 2, 0, 0, 10, 0, 0, 0}, {2, 0, 0, 0, 0, 10, 0, 0, 0}};
+        song.audio_clips = {{1, 0, 2, 0, 0, 10, 0, 0, 0, {}}, {2, 0, 0, 0, 0, 10, 0, 0, 0, {}}};
         const auto map = song.prune_audio_files();
         check(map.size() == 3 && map[0] == std::optional<std::size_t>{0} && !map[1] &&
                   map[2] == std::optional<std::size_t>{1},

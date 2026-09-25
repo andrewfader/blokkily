@@ -2,6 +2,7 @@
 
 #include "blokkily/audio/audio_asset.hpp"
 #include "blokkily/audio/audio_source.hpp"
+#include "blokkily/audio/clip_warp.hpp"
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
@@ -113,7 +114,8 @@ public:
     // alive; the render callback reads them through raw pointers only.
     [[nodiscard]] bool prepare(const Song& song, double sample_rate,
                                std::uint32_t maximum_block_size, std::uint64_t seed = 0,
-                               std::string* error = nullptr, const AudioAssets& assets = {});
+                               std::string* error = nullptr, const AudioAssets& assets = {},
+                               const ClipRenditions& renditions = {});
 
     // Recompiles what the arrangement plays and hands it to the render callback
     // without rebuilding the graph, reloading an instrument, or moving the
@@ -137,8 +139,14 @@ public:
     // moving, trimming or fading a clip never interrupts playback, and the
     // audio an older arrangement played is let go on this (control) thread
     // once no slot refers to it.
+    //
+    // Warped clips (item 3.6) play the rendition `renditions` holds for them
+    // (clip_warp.hpp), and are silent while theirs is not there yet; a
+    // rendition arriving is one more recompile, so it swaps in without the
+    // callback noticing anything but new pointers.
     [[nodiscard]] bool recompile(const Song& song, std::uint64_t seed = 0,
-                                 std::string* error = nullptr, const AudioAssets& assets = {});
+                                 std::string* error = nullptr, const AudioAssets& assets = {},
+                                 const ClipRenditions& renditions = {});
     // The clock of the arrangement last prepared or recompiled: what the
     // control thread converts ticks and samples with. Control thread only.
     [[nodiscard]] const TickClock& published_clock() const noexcept { return published_clock_; }
@@ -300,7 +308,8 @@ private:
     // Compiles `song` into `target`. Control thread only.
     [[nodiscard]] bool compile_into(Arrangement& target, const Song& song,
                                     std::uint64_t seed, std::string* error,
-                                    const AudioAssets& assets) const;
+                                    const AudioAssets& assets,
+                                    const ClipRenditions& renditions) const;
 
     std::vector<std::unique_ptr<TrackPlayback>> tracks_;
     std::unique_ptr<engine::BusPlayback> buses_;

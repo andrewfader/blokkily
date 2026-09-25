@@ -249,6 +249,14 @@ public:
     // Which of the song's files the controller could not load as the song
     // expects them, indexed like Song::audio_files.
     void setMissingAudio(std::vector<bool> missing);
+    // Clip warp (item 3.6): follow the tempo map from `sourceBpm` (0: not
+    // known), stretch by `ratio`, shift by `semitones` and `cents`. One step
+    // of history; false, changing nothing, when a value is out of range.
+    Q_INVOKABLE bool setAudioClipWarp(qint64 id, bool follow, double sourceBpm, double ratio,
+                                      int semitones, double cents);
+    // The warped clips whose rendition the controller is still rendering:
+    // each row says `rendering` while it is.
+    void setRenderingClips(std::vector<blokkily::AudioClipId> clips);
 
     // --- Effects (song_model_effects.cpp) -----------------------------------
     QVariantMap rack() const;
@@ -347,6 +355,7 @@ private:
     [[nodiscard]] const blokkily::AudioClip* findAudioClip(qint64 id) const;
     [[nodiscard]] QVariantMap audioClipRow(const blokkily::AudioClip& clip) const;
     std::vector<bool> missing_audio_;
+    std::vector<blokkily::AudioClipId> rendering_clips_;
     [[nodiscard]] bool validTrack(int track) const;
     // The insert chain of a bus, or nullptr when there is no such bus.
     std::vector<blokkily::EffectSlot>* chainAt(blokkily::BusKind kind, int bus);

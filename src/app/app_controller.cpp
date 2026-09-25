@@ -140,6 +140,8 @@ AppController::~AppController() {
     // here, and what it posts is discarded with the object.
     for (auto& [ticket, worker] : imports_)
         if (worker.joinable()) worker.join();
+    // A rendition still rendering is abandoned, and its worker joined, here.
+    warp_.reset();
     if (scanner_) {
         scanner_->kill();
         scanner_->waitForFinished(1000);
@@ -279,7 +281,9 @@ bool AppController::refreshArrangement(std::string* failure) {
     // compiles the song itself.
     if (!builtFromCurrentGraph()) return rebuildEngine();
     std::string error;
-    if (!engine_->recompile(song_->song(), 0, &error, clipAssets(engine_->sample_rate()))) {
+    const auto assets = clipAssets(engine_->sample_rate());
+    if (!engine_->recompile(song_->song(), 0, &error, assets,
+                            clipRenditions(engine_->sample_rate()))) {
         if (failure != nullptr) *failure = error;
         // A busy engine is tried again on the next turn; only a refusal that
         // will not clear by itself is worth telling the producer about.
@@ -506,7 +510,8 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     const double rate = device_open && audio_output_->device_info().sample_rate != 0
                             ? static_cast<double>(audio_output_->device_info().sample_rate)
                             : static_cast<double>(default_sample_rate);
-    if (!next->prepare(song, rate, 512, 0, &error, clipAssets(rate))) {
+    const auto assets = clipAssets(rate);
+    if (!next->prepare(song, rate, 512, 0, &error, assets, clipRenditions(rate))) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
         emit statusChanged();
         emit activeInstrumentChanged();
@@ -737,8 +742,10 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth) {
     const auto format = depth == "PCM16"  ? blokkily::WaveFormat::pcm16
                       : depth == "PCM24"  ? blokkily::WaveFormat::pcm24
                                           : blokkily::WaveFormat::float32;
-    // The bounce is of the song as it is now, edits of this turn included.
+    // The bounce is of the song as it is now, edits of this turn included,
+    // with every warped clip's rendition in it.
     flushRecompile();
+    waitForWarpRenders();
     std::string error;
     const bool resume_device = audio_output_ && audio_output_->is_running();
     if (audio_output_) audio_output_->stop();

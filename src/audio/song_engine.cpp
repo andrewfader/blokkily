@@ -198,7 +198,8 @@ const std::vector<TimedPluginEvent>& SongEngine::timeline_for(std::size_t track)
 
 bool SongEngine::prepare(const Song& song, double sample_rate,
                          std::uint32_t maximum_block_size, std::uint64_t seed,
-                         std::string* error, const AudioAssets& assets) {
+                         std::string* error, const AudioAssets& assets,
+                         const ClipRenditions& renditions) {
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
@@ -220,7 +221,8 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
 
     // Nothing is rendering yet, so the first arrangement is installed directly
     // rather than queued for a callback that is not running.
-    if (!compile_into(*arrangements_.front(), song, seed, error, assets)) return false;
+    if (!compile_into(*arrangements_.front(), song, seed, error, assets, renditions))
+        return false;
     live_ = arrangements_.front().get();
     handoff_.store(handoff_state(no_slot, 0, no_slot), std::memory_order_release);
     song_samples_ = live_->song_samples;
@@ -254,7 +256,8 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
 
 bool SongEngine::compile_into(Arrangement& target, const Song& song,
                               std::uint64_t seed, std::string* error,
-                              const AudioAssets& assets) const {
+                              const AudioAssets& assets,
+                              const ClipRenditions& renditions) const {
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
@@ -278,7 +281,7 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
             return fail("more than 256 simultaneous events on one track");
     }
     // 5. Audio clips: regions placed by the same clock as the events.
-    engine::compile_clip_regions(target.clips, song, clock, assets);
+    engine::compile_clip_regions(target.clips, song, clock, assets, renditions);
     target.song_samples = samples;
     target.clock = std::move(clock);
     target.ticks_per_beat = song.ticks_per_beat();
@@ -287,7 +290,7 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
 }
 
 bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* error,
-                           const AudioAssets& assets) {
+                           const AudioAssets& assets, const ClipRenditions& renditions) {
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
@@ -316,7 +319,7 @@ bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* er
         }
     if (target == no_slot) return fail("no free arrangement slot");
     auto& arranged = *arrangements_[target];
-    if (!compile_into(arranged, song, seed, error, assets)) return false;
+    if (!compile_into(arranged, song, seed, error, assets, renditions)) return false;
 
     published_clock_ = arranged.clock;
     published_song_samples_.store(arranged.song_samples, std::memory_order_release);

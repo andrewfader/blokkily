@@ -31,14 +31,12 @@ AudioAssets load_clip_assets(const Song& song, AudioAssetCache& cache, double en
 }
 
 double audio_clip_end_tick(const Song& song, const AudioClip& clip) {
-    const auto resolution = song.ticks_per_beat();
     const double start = static_cast<double>(clip.start);
     if (clip.file >= song.audio_files.size() || song.audio_files[clip.file].sample_rate == 0)
         return start;
-    const double seconds = song.tempo.seconds_at(clip.start, resolution) +
-                           static_cast<double>(clip.length_frames) /
-                               song.audio_files[clip.file].sample_rate;
-    return song.tempo.tick_at_seconds(seconds, resolution);
+    return audio_clip_tick_at(song, clip,
+                              static_cast<double>(clip.length_frames) /
+                                  song.audio_files[clip.file].sample_rate);
 }
 
 namespace {

@@ -12,7 +12,9 @@ import QtQuick.Shapes
 // tracks), its edges are dragged to trim it, the small squares at its top
 // corners set its fades, and the wheel sets its gain. The right button
 // removes it. Every gesture is committed once, on release, as one step of
-// history, keyed by the clip's id.
+// history, keyed by the clip's id. The W button at a clip's lower left opens
+// its warp panel (item 3.6); a warped clip says how at its lower right, and is
+// veiled while its rendition renders.
 Item {
     id: lane
     objectName: "audioClipLane"
@@ -61,6 +63,16 @@ Item {
     // +AUD: a file first, then a new audio track to put it on, at the bar the
     // playhead is in. Cancelling leaves the song as it was.
     function importToNewTrack() { importDialog.open() }
+
+    // The warp panel, below the clip that asked for it.
+    function openWarp(id, item) {
+        warpPanel.clipId = id
+        var at = item.mapToItem(lane, 0, item.height + 2)
+        warpPanel.x = Math.max(0, Math.min(lane.width - warpPanel.width, at.x))
+        warpPanel.y = at.y
+        warpPanel.open()
+    }
+    ClipWarpPanel { id: warpPanel }
 
     FileDialog {
         id: importDialog
@@ -294,6 +306,59 @@ Item {
                         clipBox.fadeOutDrag = -1
                         Qt.callLater(songModel.setAudioClipFadeOut, clipBox.modelData.id, tick)
                     }
+                }
+            }
+
+            // Clip warp (item 3.6): a veil while the rendition renders (the
+            // clip is silent until it is ready), what the warp does, and the
+            // button that opens the panel.
+            Rectangle {
+                objectName: "renderingVeil" + clipBox.modelData.id
+                anchors.fill: parent
+                visible: clipBox.modelData.rendering === true
+                color: "#b30e0f12"
+                Label {
+                    anchors.centerIn: parent
+                    text: "RENDERING…"
+                    color: Theme.amber
+                    font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
+                }
+            }
+            Label {
+                objectName: "warpBadge" + clipBox.modelData.id
+                anchors.right: parent.right; anchors.rightMargin: 8
+                anchors.bottom: parent.bottom; anchors.bottomMargin: 1
+                visible: clipBox.modelData.warped === true && clipBox.width > 60
+                text: {
+                    var d = clipBox.modelData
+                    var parts = []
+                    if (d.follow && d.sourceBpm > 0) parts.push("\u2669" + Number(d.sourceBpm).toFixed(0))
+                    if (Math.abs(d.ratio - 1) > 1e-9) parts.push("\u00d7" + Number(d.ratio).toFixed(2))
+                    if (d.semitones !== 0 || Math.abs(d.cents) > 1e-9)
+                        parts.push((d.semitones >= 0 ? "+" : "") + d.semitones + "st"
+                                   + (Math.abs(d.cents) > 1e-9 ? " " + Number(d.cents).toFixed(0) + "ct" : ""))
+                    return parts.join(" ")
+                }
+                color: clipBox.modelData.rendering ? Theme.amber : "#0e0f12"
+                font.pixelSize: 8; font.bold: true
+            }
+            Rectangle {
+                objectName: "warpButton" + clipBox.modelData.id
+                visible: !clipBox.modelData.missing
+                x: 8; anchors.bottom: parent.bottom; anchors.bottomMargin: 2
+                width: 16; height: 11; radius: 2
+                color: clipBox.modelData.warped ? "#0e0f12" : "transparent"
+                border.color: "#0e0f12"
+                Label {
+                    anchors.centerIn: parent
+                    text: "W"
+                    color: clipBox.modelData.warped ? Theme.amber : "#0e0f12"
+                    font.pixelSize: 8; font.bold: true
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: lane.openWarp(clipBox.modelData.id, clipBox)
                 }
             }
         }

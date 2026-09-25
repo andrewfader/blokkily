@@ -16,7 +16,7 @@ std::uint64_t to_engine_frames(std::uint64_t frames, double ratio) {
 } // namespace
 
 void compile_clip_regions(ArrangementClips& target, const Song& song, const TickClock& clock,
-                          const AudioAssets& assets) {
+                          const AudioAssets& assets, const ClipRenditions& renditions) {
     // Replacing `held` drops whatever the slot's previous arrangement owned.
     // This runs on the control thread, into a slot the callback is neither
     // playing nor about to pick up, so the last owner of a retired buffer
@@ -32,6 +32,45 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
         const AudioAsset& asset = *assets[clip.file];
         const auto file_rate = song.audio_files[clip.file].sample_rate;
         if (asset.rate != engine_rate || file_rate == 0 || asset.left.empty()) continue;
+
+        if (clip.warp.active()) {
+            // A warped clip plays its rendition from its first frame, or
+            // nothing while the rendition is still being rendered.
+            const auto plan = plan_clip_warp(song, clip, clock, asset.frames);
+            if (!plan) continue;
+            const auto found = renditions.find(plan->key());
+            if (found == renditions.end() || !found->second) continue;
+            const AudioAsset& rendition = *found->second;
+            if (rendition.rate != engine_rate || rendition.left.size() < plan->output_frames)
+                continue;
+            ClipRegion region;
+            region.start = sample_for_tick(clock, static_cast<double>(clip.start));
+            region.frames = plan->output_frames;
+            region.left = rendition.left.data();
+            region.right = rendition.right.size() == rendition.left.size()
+                               ? rendition.right.data() : region.left;
+            region.gain = static_cast<float>(db_to_linear(clip.gain_db));
+            // The fades are frames of the file; they end and begin where the
+            // warp puts those frames.
+            const double to_engine = static_cast<double>(engine_rate) / file_rate;
+            const auto fade_in_at = plan->output_at(
+                std::min(static_cast<double>(plan->source_frames),
+                         static_cast<double>(clip.fade_in_frames) * to_engine));
+            const auto fade_out_at = plan->output_at(std::max(
+                0.0, static_cast<double>(plan->source_frames) -
+                         static_cast<double>(clip.fade_out_frames) * to_engine));
+            region.fade_in = std::min<std::uint64_t>(
+                region.frames, static_cast<std::uint64_t>(std::llround(std::max(0.0, fade_in_at))));
+            region.fade_out = std::min<std::uint64_t>(
+                region.frames - region.fade_in,
+                region.frames - std::min<std::uint64_t>(
+                                    region.frames, static_cast<std::uint64_t>(std::llround(
+                                                       std::max(0.0, fade_out_at)))));
+            target.tracks[clip.track].push_back(region);
+            // Held with the files, and let go the same way (on this thread).
+            target.held.push_back(found->second);
+            continue;
+        }
 
         // The clip counts frames at the file's own rate; the asset holds it
         // resampled to the engine's.
