@@ -1,6 +1,7 @@
 #include "song_model.hpp"
 
 #include "blokkily/audio/mixer.hpp"
+#include "blokkily/instruments/sampler_program.hpp"
 
 #include <QFileInfo>
 #include <QtGlobal>
@@ -14,6 +15,17 @@ namespace {
 // rather than showing a blank, because an empty track is a normal state.
 QString instrument_label(const blokkily::InstrumentSlot& slot) {
     if (slot.format.empty()) return QStringLiteral("no instrument");
+    // The built-in sampler has no file of its own: it is named by what it
+    // plays, the first sample of its program, or by its mode while empty.
+    if (slot.format == "Sampler") {
+        const auto program = blokkily::parse_sampler(slot.state);
+        const bool kit = program ? program->mode == blokkily::SamplerProgram::Mode::kit
+                                 : slot.identifier == "kit";
+        const QString sample = program && !program->zones.empty()
+            ? QFileInfo(QString::fromStdString(program->zones.front().sample)).completeBaseName()
+            : QString();
+        return QString("SMP · %1").arg(sample.isEmpty() ? (kit ? "KIT" : "KEYS") : sample);
+    }
     const QString file = QFileInfo(QString::fromStdString(slot.path)).completeBaseName();
     const QString format = QString::fromStdString(slot.format) == "SoundFont"
                                ? QStringLiteral("SF")
@@ -205,6 +217,18 @@ void SongModel::setInstrument(int track, const blokkily::InstrumentSlot& slot) {
     checkpoint();
     song_.tracks[static_cast<std::size_t>(track)].instrument = slot;
     notifyStructureChanged();
+}
+
+bool SongModel::setInstrumentState(int track, std::vector<std::byte> state,
+                                   const QString& merge) {
+    if (!validTrack(track)) return false;
+    auto& slot = song_.tracks[static_cast<std::size_t>(track)].instrument;
+    if (slot.format.empty()) return false;
+    if (slot.state == state) return true;
+    checkpoint(merge);
+    slot.state = std::move(state);
+    emit songChanged();
+    return true;
 }
 
 void SongModel::refreshStructure() { notifyStructureChanged(); }

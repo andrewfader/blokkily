@@ -1,4 +1,5 @@
 #include "processor_factory.hpp"
+#include "sampler_processor.hpp"
 
 #include "blokkily/instruments/soundfont_synth.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
@@ -27,6 +28,7 @@ std::vector<Registration>& registry() {
     // Built on first use, with what the application always provides.
     static std::vector<Registration> registrations{
         {"SoundFont", &create_soundfont, {}},
+        {sampler_format, &create_sampler, sampler_catalog()},
     };
     return registrations;
 }

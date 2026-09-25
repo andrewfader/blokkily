@@ -9,27 +9,33 @@
 #include "blokkily/plugins/plugin_scan.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 #include "blokkily/project/project.hpp"
+#include "blokkily/audio/audio_asset.hpp"
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/midi/midi_input.hpp"
+#include "blokkily/instruments/sampler_program.hpp"
 #include "blokkily/sequencer/take.hpp"
 
 #include "engine_graph.hpp"
 #include "recompile_coalescer.hpp"
 
+#include <QByteArray>
 #include <QObject>
 #include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
 #include <QVariant>
+#include <QVariantMap>
 #include <QVariantList>
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -62,6 +68,12 @@ class AppController final : public QObject {
     // Armed, a running song records what is played into the pattern under the
     // playhead on the selected track.
     Q_PROPERTY(bool recordArmed READ recordArmed NOTIFY recordChanged)
+    // The built-in sampler on the selected track, as its panel shows it:
+    // `active` (the track carries one), `mode` ("keyed" or "kit"), `zones`,
+    // the selected `zone` and its `sample`, `missing`, `rootKey`, `lowKey`,
+    // `highKey`, `loop` ("off", "forward", "ping_pong"), `attack`, `decay`,
+    // `sustain`, `release` (seconds, level), `trackPitch` and `oneShot`.
+    Q_PROPERTY(QVariantMap sampler READ sampler NOTIFY samplerChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -203,6 +215,34 @@ public:
     // Runs an owed recompile now, for a caller about to depend on the engine
     // playing the current song.
     void flushRecompile();
+    // A new state for the instrument on `track`, as one step of history, handed
+    // to the running processor without rebuilding the graph or recompiling
+    // the arrangement: the engine, the playhead and every other instrument
+    // carry on. A processor that takes state while it runs (the sampler) gets
+    // it through update_processor_state; any other is given it while the
+    // device is briefly stopped. False for a track with no instrument.
+    bool setInstrumentState(int track, std::vector<std::byte> state, const QString& merge = {});
+    Q_INVOKABLE bool setInstrumentState(int track, const QByteArray& state);
+    // The sampler panel's edits (app_controller_sampler.cpp). Each rewrites the
+    // program on the selected track through setInstrumentState, so it is heard
+    // at the next note, and is one step of history; a control dragged or
+    // stepped is one step however many moves it makes.
+    QVariantMap sampler() const;
+    Q_INVOKABLE bool selectSamplerZone(int zone);
+    Q_INVOKABLE bool setSamplerRootKey(int key);
+    Q_INVOKABLE bool setSamplerKeyRange(int low, int high);
+    Q_INVOKABLE bool setSamplerLoop(const QString& mode);
+    // `stage` is "attack", "decay", "release" (seconds) or "sustain" (0..1).
+    Q_INVOKABLE bool setSamplerEnvelope(const QString& stage, double value);
+    // "keyed": zones follow the key's pitch and stop at note-off. "kit": each
+    // zone is a pad that plays its file at its own pitch to the end.
+    Q_INVOKABLE bool setSamplerMode(const QString& mode);
+    // A keyed sampler plays the file across the keyboard from the root key the
+    // file names; a kit gains a pad for it on the next free key from C2.
+    Q_INVOKABLE bool loadSamplerSample(const QString& path);
+    // Chops the selected zone's whole file into `count` equal pads on
+    // consecutive keys from C2 (36); the sampler becomes a kit.
+    Q_INVOKABLE bool sliceSampler(int count);
     // How many recompiles have run, and how many graphs have been built.
     int recompileCount() const noexcept { return recompiler_.recompiles(); }
     int rebuildCount() const noexcept { return rebuilds_; }
@@ -222,6 +262,7 @@ signals:
     void midiChanged();
     void midiActivityChanged();
     void recordChanged();
+    void samplerChanged();
 
 private:
     // Drives the scan queue: one helper process per candidate, each with a
@@ -233,6 +274,9 @@ private:
     void finishScan();
     void appendRecords(const std::vector<blokkily::ScanRecord>& records);
     void reportScanProgress();
+    // Lists the instruments the application provides itself (the sampler) at
+    // the end of the browser.
+    void appendInternalInstruments();
     blokkily::ScanCacheEntry* cachedScan(const blokkily::ScanCandidate& candidate);
     void loadScanCache();
     void saveScanCache() const;
@@ -275,6 +319,21 @@ private:
     void syncTimebase();
     void assignInstrument(int track, const blokkily::InstrumentSlot& slot,
                           const QString& label);
+    // Hands `state` to the processor the running engine has for `track`.
+    // `stop_if_needed` lets a processor that cannot take state while it runs
+    // be given it with the device stopped for the moment of the load.
+    bool pushInstrumentState(int track, std::span<const std::byte> state, bool stop_if_needed);
+    // Wires the sampler panel and undo to the song (app_controller_sampler.cpp).
+    void connectSampler();
+    // The program the sampler on `track` plays, or nullopt when it has none.
+    std::optional<blokkily::SamplerProgram> samplerProgram(int track) const;
+    // Applies `edit` to the selected track's sampler program and, if the
+    // result is valid, makes it the track's state.
+    bool editSampler(const QString& merge,
+                     const std::function<bool(blokkily::SamplerProgram&)>& edit);
+    // Rewrites every sampler's sample paths for a project that now lives in
+    // `directory`, so a Save As elsewhere still finds them.
+    void rebaseSamplers(const std::filesystem::path& directory);
     // The General MIDI bank this machine offers, preferring the familiar ones.
     static std::filesystem::path findDefaultBank(const std::vector<std::filesystem::path>& roots);
     // A SoundFont slot on `bank`, set to the preset a track of that name wants.
@@ -292,6 +351,12 @@ private:
     SongModel* song_ = nullptr;
     PatternModel* pattern_ = nullptr;
     Transport* transport_ = nullptr;
+    // Decoded audio shared by every processor that plays files (plan F-B).
+    // Declared before the engine so it outlives every sampler reading it.
+    std::unique_ptr<blokkily::AudioAssetCache> assets_ =
+        std::make_unique<blokkily::AudioAssetCache>();
+    // The sampler zone the panel edits.
+    int sampler_zone_ = 0;
     // Declared before the engine and the device so it outlives both: the render
     // callback reads its queue until the device has stopped.
     std::unique_ptr<blokkily::MidiInput> midi_input_;

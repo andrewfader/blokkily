@@ -186,6 +186,11 @@ public:
     const blokkily::Pattern& editPattern() const;
     void replace(blokkily::Song song);
     void setInstrument(int track, const blokkily::InstrumentSlot& slot);
+    // A new state for the instrument a track already has, as one step of
+    // history (moves sharing `merge` are one step, as for a fader). The
+    // instrument is the same processor, so this is not a structure change:
+    // the caller hands the state to the running processor itself.
+    bool setInstrumentState(int track, std::vector<std::byte> state, const QString& merge = {});
     // Says that the tracks, their instruments, or the clips over them were
     // changed through `song()` directly. Several such changes made together
     // reach the editors and the engine as one, rather than as one rebuild per
@@ -221,6 +226,12 @@ signals:
     void historyChanged();
     // The tempo or meter map changed. Also covered by songChanged.
     void timebaseChanged();
+    // Undo or redo gave these tracks back an earlier state of the instrument
+    // they still carry (the same format, file and identifier). Raised after
+    // the song holds the restored states and before structureChanged, so the
+    // running processors can be given them while they are still the ones the
+    // engine plays.
+    void instrumentStatesRestored(const QList<int>& tracks);
 
 private:
     [[nodiscard]] bool validTrack(int track) const;

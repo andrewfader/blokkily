@@ -91,10 +91,14 @@ struct DefaultScenario {
         reached("demonstration pattern");
         // Startup discovery is exercised with real format fixtures but
         // isolated from plugins installed on the test host.
-        valid = valid && controller.plugins().size() == 3;
+        // After them come the instruments the application provides itself
+        // (the sampler), listed by the factory without a scan.
+        valid = valid && controller.plugins().size() == 5;
         valid = valid && controller.plugins().at(0).toMap().value("format") == "CLAP";
         valid = valid && controller.plugins().at(1).toMap().value("format") == "VST3";
         valid = valid && controller.plugins().at(2).toMap().value("format") == "SF";
+        valid = valid && controller.plugins().at(3).toMap().value("name") == "Sampler"
+                      && controller.plugins().at(4).toMap().value("name") == "Drum Sampler";
         valid = valid && rendered_step(0) && !rendered_step(1);
         pattern.toggleStep(1, 60);
         valid = valid && pattern.rowCount() == 5 && pattern.hasStep(1);
@@ -2007,7 +2011,8 @@ struct DefaultScenario {
             valid = valid && edited_during_scan;
             // The working plugin is listed; the one that hangs is reported
             // as a failure rather than waited for.
-            valid = valid && controller.plugins().size() == 1
+            // (followed by the built-in instruments, which need no scan)
+            valid = valid && controller.plugins().size() == 3
                           && controller.plugins().first().toMap().value("format") == "CLAP"
                           && controller.plugins().first().toMap().value("name")
                                  == "Blokkily Test Synth";
@@ -2018,7 +2023,7 @@ struct DefaultScenario {
             QElapsedTimer repeat;
             repeat.start();
             valid = valid && run_scan(false);
-            valid = valid && controller.plugins().size() == 1
+            valid = valid && controller.plugins().size() == 3
                           && controller.status().contains("1 failure");
             valid = valid && repeat.elapsed() < 1000;
         }

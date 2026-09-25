@@ -183,6 +183,26 @@ each, and the chord survives a save and a load. The screenshot shows the chord
 selected: the tracker's VEL column at the loudest voice, the piano roll drawing
 each voice at its own length, and the inspector's VOICE VELOCITY bars.
 
+`build/artifacts/sampler.png` — from the `bdd_sampler` gate
+(`blokkily --verify --scenario sampler`), which runs the application scenarios
+of `features/sampler.feature` on files written by
+`blokkily_make_audio_fixtures`. "Sampler" is clicked in the rendered browser; a
+WAV whose `smpl` chunk names note 57 is loaded, and key 69 must be heard at
+880 Hz through the production callback. While the song plays, the panel's root
+key `+` is pressed twelve times: the same engine plays on with no rebuild and no
+recompile, the playhead never jumps, the note already sounding keeps 880 Hz and
+the next beat plays 440 Hz. One undo gives the running sampler root 57 back
+(880 Hz on the next beat) and redo 440 Hz. A Drum Sampler on the second track
+takes a loop of eight tones, CHOP makes eight pads, and pads 36 and 40 must
+sound 200 Hz and 1000 Hz at their steps. The session is saved with the loop
+beside it, the folder is moved, and the project opened from there still plays
+both; the bounce is read back and equals the callback's render sample for
+sample. The screenshot shows the kit's panel in the rail (track PADS, KIT, pad
+2/8 on C#2, loop, envelope, SLICES 8 and CHOP) above a browser that still shows
+Sampler and Drum Sampler. `blokkily_sampler_app_tests` (tests `sampler_app_*`)
+proves the same from the factory and the production SongEngine without the
+interface: a live program swap with a continuous playhead, and bounce parity.
+
 `midi_device_input` opens a virtual port through the system's MIDI server — the
 way a controller's driver presents one — connects the production input to it by
 name, and fails unless a note sent there is heard through the render callback

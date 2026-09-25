@@ -21,6 +21,17 @@ SongModel::Snapshot SongModel::snapshot() const {
 }
 
 void SongModel::restore(Snapshot snapshot) {
+    // Tracks that keep their instrument but get an earlier state of it back.
+    QList<int> restored_states;
+    const auto& before = song_.tracks;
+    const auto& after = snapshot.song.tracks;
+    for (std::size_t track = 0; track < std::min(before.size(), after.size()); ++track) {
+        const auto& was = before[track].instrument;
+        const auto& now = after[track].instrument;
+        if (!now.format.empty() && was.format == now.format && was.path == now.path &&
+            was.identifier == now.identifier && was.state != now.state)
+            restored_states.push_back(static_cast<int>(track));
+    }
     song_ = std::move(snapshot.song);
     current_pattern_ = qBound(0, snapshot.current_pattern,
                               static_cast<int>(song_.patterns.size()) - 1);
@@ -33,6 +44,7 @@ void SongModel::restore(Snapshot snapshot) {
     emit tuningChanged();
     emit mixChanged();
     emit timebaseChanged();
+    if (!restored_states.isEmpty()) emit instrumentStatesRestored(restored_states);
     notifyStructureChanged();
     emit historyChanged();
 }
