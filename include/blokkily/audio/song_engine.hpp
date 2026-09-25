@@ -130,6 +130,13 @@ public:
     [[nodiscard]] InputQueue* input() const noexcept {
         return input_.load(std::memory_order_acquire);
     }
+    // A note played on an on-screen surface - the keyboard panel, the tracker's
+    // note keys - for `track`. It is input like a MIDI port's: it sounds at the
+    // start of the next block, and while recording with the transport running
+    // it is captured into the take the same way. Control thread only (the
+    // queue's one producer); never allocates or blocks. False when the track
+    // does not exist or the queue is full.
+    bool perform(std::size_t track, const PluginEvent& event) noexcept;
     // While recording, every input event played with the transport running is
     // captured with the song position it sounded at, for the control thread
     // to write into the song. What is recorded is what was heard.
@@ -252,15 +259,19 @@ private:
     std::atomic<bool> playing_{false};
     std::atomic<InputQueue*> input_{nullptr};
     std::atomic<bool> recording_{false};
-    SpscQueue<CapturedEvent, 1024> captured_;
+    // Every armed track captures its own copy of an input event, so the ring
+    // holds a burst of chords into sixty-four armed tracks between drains.
+    SpscQueue<CapturedEvent, 8192> captured_;
+    // What the on-screen surfaces performed, waiting for the next block.
+    PerformQueue performed_;
     // Parameter edits the processors reported, stamped with the song sample.
     SpscQueue<PluginEditEvent, 1024> edits_;
     // What one processor reported in one call, before it is stamped. Touched
     // by the callback alone.
     std::array<ParameterEdit, 64> edit_scratch_{};
-    // What the input delivered for the block being rendered, before it is
-    // handed to the tracks it names. Touched by the callback alone.
-    std::array<RoutedEvent, InputQueue::capacity()> incoming_{};
+    // What the input and the surfaces delivered for the block being rendered,
+    // before it is handed to the tracks it names. Touched by the callback alone.
+    std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
 };
 

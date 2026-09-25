@@ -26,11 +26,12 @@ namespace blokkily::engine {
 using LiveEvents = SpscQueue<PluginEvent, 128>;
 
 // The most events one track can receive in a single chunk: the arrangement's
-// releases, live and routed input, and the timeline's budget. The scratch that
+// releases, live, routed and performed input, and the timeline's budget. The scratch that
 // holds them is sized once, in prepare(), so raising a budget costs memory
 // there and never a stack frame in the callback.
 inline constexpr std::size_t maximum_events_per_chunk =
-    timeline_event_budget + 128 + LiveEvents::capacity() + InputQueue::capacity();
+    timeline_event_budget + 128 + LiveEvents::capacity() + InputQueue::capacity() +
+    PerformQueue::capacity();
 
 struct TrackPlayback {
     std::unique_ptr<PluginInstance> instrument;

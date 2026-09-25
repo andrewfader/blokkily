@@ -1,5 +1,6 @@
 #include "song_model.hpp"
 
+#include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/mixer.hpp"
 
 #include <QFileInfo>
@@ -109,6 +110,13 @@ QVariantList SongModel::tracks() const {
         row["peakFraction"] = qBound(0.0, (peak_db + 60.0) / 60.0, 1.0);
         row["gainFraction"] = qBound(0.0, (track.mix.gain_db + 60.0) / 66.0, 1.0);
         row["silent"] = gain.silent();
+        // Arm and input: the strip's R and its channel.
+        row["armed"] = track.input.armed;
+        row["inputChannel"] = track.input.midi_channel + 1;
+        row["channelText"] = track.input.midi_channel < 0
+                                 ? QStringLiteral("ALL")
+                                 : QString("CH %1").arg(track.input.midi_channel + 1);
+        row["routable"] = index < blokkily::routable_tracks;
         rows.push_back(row);
     }
     return rows;

@@ -280,6 +280,11 @@ bool SongEngine::play_live(std::size_t track, const PluginEvent& event) noexcept
     return tracks_[track]->live.push(event);
 }
 
+bool SongEngine::perform(std::size_t track, const PluginEvent& event) noexcept {
+    if (track >= tracks_.size() || !tracks_[track]) return false;
+    return performed_.push({static_cast<std::uint32_t>(track), event});
+}
+
 std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                                        std::uint64_t song_position, std::uint64_t end,
                                        bool from_timeline, bool capture,
@@ -364,12 +369,11 @@ void SongEngine::process_chunk(StereoBlock output, std::uint64_t song_position,
     std::fill(output.right.begin(), output.right.end(), 0.0F);
     const auto end = song_position + frames;
 
-    // Whatever a MIDI port delivered since the last block. It is taken once,
+    // Whatever a MIDI port and the on-screen surfaces delivered since the last
+    // block, one event per track it is routed to. It is taken once,
     // before any track renders, and handed to the tracks it names below.
-    incoming_count_ = 0;
-    if (auto* input = input_.load(std::memory_order_acquire))
-        while (incoming_count_ < incoming_.size() && input->pop(incoming_[incoming_count_]))
-            ++incoming_count_;
+    incoming_count_ = engine::gather_input(input_.load(std::memory_order_acquire), performed_,
+                                           incoming_);
     const bool capture = from_timeline && recording_.load(std::memory_order_acquire);
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
     const Tick capture_tick = capture ? tick_at_sample(arranged.clock, song_position) : 0;

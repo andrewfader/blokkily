@@ -102,6 +102,25 @@ public:
     // Plays from the port at `index` of midiPorts; -1 closes the input.
     Q_INVOKABLE bool selectMidiPort(int index);
     Q_INVOKABLE void toggleRecord();
+    // Whether a take is being recorded against the running transport: armed
+    // and playing. The on-screen surfaces perform into the take then, rather
+    // than writing onto the selected step.
+    Q_INVOKABLE bool recordingLive() const noexcept;
+    // Plays pitches into every track the surfaces are routed to - the armed
+    // tracks, or the selected one with none armed - as input the take records
+    // where it was heard. Only while recordingLive(); false otherwise, and the
+    // caller writes steps the way it does on a stopped song. Each note is
+    // released on the tracks it went down on, by releaseAudition() or, for a
+    // press that is not held, after a short beat.
+    bool performPitches(const std::vector<blokkily::TunedPitch>& pitches, double velocity,
+                        bool held);
+    // A twelve-tone key performed that way: the tracker's note keys.
+    Q_INVOKABLE bool performKey(int key, bool held = true);
+    // Lets go of what the surfaces performed, on the tracks it went down on.
+    Q_INVOKABLE void releasePerformed();
+    // Where a MIDI keyboard's channels are played, from the song's arm and
+    // input settings and the selected track.
+    void updateInputRoutes();
     blokkily::MidiInput& midiInput() noexcept { return *midi_input_; }
     // A track added from the interface is given something to play: the bank
     // the session already uses, or the machine's General MIDI bank.
@@ -311,6 +330,13 @@ private:
     // so a press cannot leave a voice sounding for ever.
     QTimer audition_timer_;
     std::vector<blokkily::TunedPitch> sounding_;
+    // Notes the surfaces performed into a take, with the tracks each went
+    // down on, so the release reaches those tracks whatever is armed by then.
+    struct PerformedNote {
+        blokkily::TunedPitch pitch;
+        std::vector<std::size_t> tracks;
+    };
+    std::vector<PerformedNote> performed_;
     int audition_track_ = 0;
     // Scan state. The queue is what is left to describe; the cache is what
     // earlier scans learned, including which plugins must not be tried again.

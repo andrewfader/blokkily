@@ -97,10 +97,11 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // structureChanged, like any other change to when events fall.
         QObject::connect(song_, &SongModel::timebaseChanged, this, &AppController::syncTimebase);
         syncTimebase();
-        // A controller plays the selected track, in the song's own tuning and
-        // scale, from the next key pressed.
+        // A controller plays the armed tracks - or, with none armed, the
+        // selected one - in the song's own tuning and scale, from the next key
+        // pressed.
         const auto follow = [this] {
-            midi_input_->set_track(static_cast<std::size_t>(song_->selectedTrack()));
+            updateInputRoutes();
             updateKeyMap();
         };
         QObject::connect(song_, &SongModel::songChanged, this, follow);
@@ -137,12 +138,14 @@ AppController::~AppController() {
 // never heard the press.
 void AppController::forgetSoundingNotes() {
     sounding_.clear();
+    performed_.clear();
     audition_timer_.stop();
 }
 
 // Lets go of every note the keyboard is holding, on the track that was told to
 // sound it rather than on whichever one happens to be selected now.
 void AppController::releaseSoundingNotes() {
+    releasePerformed();
     if (engine_ != nullptr)
         for (const auto& held : sounding_)
             (void)engine_->play_live(static_cast<std::size_t>(audition_track_),

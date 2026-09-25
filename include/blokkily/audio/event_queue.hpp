@@ -49,8 +49,25 @@ struct RoutedEvent {
     PluginEvent event{};
 };
 
-// What a MIDI port hands the render callback.
-using InputQueue = SpscQueue<RoutedEvent, 256>;
+// Which tracks an input plays: one bit per track. Input can reach the first
+// `routable_tracks` tracks of a song; a track beyond them is never armed for
+// input, however it is marked.
+using TrackMask = std::uint64_t;
+inline constexpr std::size_t routable_tracks = 64;
+[[nodiscard]] constexpr TrackMask track_bit(std::size_t track) noexcept {
+    return track < routable_tracks ? TrackMask{1} << track : TrackMask{0};
+}
+
+// What a MIDI port hands the render callback. One key reaches every armed
+// track, and the port hands over one event per track it reaches, so the ring
+// holds a sixteen-note chord played into sixty-four armed tracks.
+using InputQueue = SpscQueue<RoutedEvent, 1024>;
+
+// What the on-screen surfaces — the keyboard panel and the tracker's note keys —
+// hand the render callback while the transport runs. It is input like a port's,
+// routed to the same tracks and recorded the same way, but it has its own ring
+// because it has its own producer: the interface thread.
+using PerformQueue = SpscQueue<RoutedEvent, 1024>;
 
 // An input event as the engine played it: the track it sounded on and where
 // the song was when it did. This is what a take is recorded from, so what is
