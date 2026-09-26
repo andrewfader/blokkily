@@ -5,6 +5,8 @@ synchronized editors — a tracker, a piano roll, and a step grid — which are 
 turn one lane of a multi-track song. CLAP is a required native plugin format,
 not a compatibility add-on.
 
+![Blokkily workstation showing an arrangement, synchronized editors, plugin browser, mixer, and keyboard](docs/images/blokkily-session.png)
+
 The framework-independent musical model and the real-time plugin boundary sit
 underneath all of it. The model covers notes, semantic chords, inversions,
 strum, microtiming, probability, ratchets, loop conditions, and parameter locks.
