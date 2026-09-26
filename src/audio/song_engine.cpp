@@ -230,6 +230,8 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     automation_scratch_.assign(engine::automation_event_budget, PluginEvent{});
     merge_scratch_.assign(engine::maximum_events_per_chunk, PluginEvent{});
     strips_.assign(song.tracks.size(), MixerStrip{});
+    tap_left_.assign(maximum_block_size, 0.0F);
+    tap_right_.assign(maximum_block_size, 0.0F);
     rolled_ = false;
 
     // Nothing is rendering yet, so the first arrangement is installed directly
@@ -734,14 +736,40 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         // report the loudest of them, not whichever happened to be last.
         track.peak.store(std::max(track.peak.load(std::memory_order_relaxed), peak),
                          std::memory_order_relaxed);
+        for (std::size_t frame = 0; frame < frames; ++frame) {
+            const float fraction = static_cast<float>(frame) / static_cast<float>(frames);
+            left[frame] *= ramp.from.left + (ramp.to.left - ramp.from.left) * fraction;
+            right[frame] *= ramp.from.right + (ramp.to.right - ramp.from.right) * fraction;
+        }
+        tap_output({BusKind::track, static_cast<std::uint32_t>(index)}, buffer,
+                   song_position, from_timeline);
     }
     release_arrangement_notes_ = false;
     engine::process_returns(*buses_, frames, transport, drain);
+    for (std::size_t index = 0; index < buses_->returns.size(); ++index) {
+        auto& bus = *buses_->returns[index];
+        // Return buffers still hold the pre-strip signal; their summed bus
+        // already contains its gain, so this readout cannot alter the mix.
+        for (std::size_t frame = 0; frame < frames; ++frame) {
+            bus.left[frame] *= bus.gain_left.load(std::memory_order_relaxed);
+            bus.right[frame] *= bus.gain_right.load(std::memory_order_relaxed);
+        }
+        tap_output({BusKind::ret, static_cast<std::uint32_t>(index)},
+                   {{bus.left.data(), frames}, {bus.right.data(), frames}},
+                   song_position, from_timeline);
+    }
     engine::apply_master_compensation(*buses_, output);
     engine::run_master_inserts(*buses_, output, transport, drain);
     const float bus_peak = apply_master(output, master_gain_.load(std::memory_order_relaxed));
     master_peak_.store(std::max(master_peak_.load(std::memory_order_relaxed), bus_peak),
                        std::memory_order_relaxed);
+    // The guide click is added later, outside the song mix. Resampling the
+    // master records the mix, matching the default export.
+    tap_output({BusKind::master, 0}, output, song_position, from_timeline);
+    if (bounce_tap_) {
+        std::copy_n(tap_left_.begin(), frames, output.left.begin());
+        std::copy_n(tap_right_.begin(), frames, output.right.begin());
+    }
 }
 
 void SongEngine::set_audio_input(std::size_t track, const AudioInputRoute& route) noexcept {

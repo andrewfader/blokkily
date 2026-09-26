@@ -42,6 +42,9 @@ struct BounceOptions {
     // live, at the level the session has. Either way the engine's click
     // setting is put back afterwards.
     bool include_metronome = false;
+    // A stem is a post-insert, post-fader/pan bus tap, before downstream
+    // returns/master processing. Empty selects the complete master mix.
+    std::optional<OutputTap> source{};
 };
 
 [[nodiscard]] std::optional<BounceReport> bounce_song(

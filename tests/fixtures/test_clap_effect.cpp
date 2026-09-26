@@ -12,6 +12,7 @@
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
+#include <clap/ext/gui.h>
 #include <clap/ext/latency.h>
 #include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
@@ -43,6 +44,9 @@ struct Effect {
     clap_plugin_t plugin{};
     const clap_host_t* host = nullptr;
     double gain = default_gain;
+    bool editor = false;
+    std::atomic<bool> turn_pending{false};
+    std::atomic<double> turn_value{0.25};
     double modulation = 0.0;
     // Two ring buffers of exactly `latency` samples: reading the slot about
     // to be overwritten yields the input from `latency` samples ago.
@@ -91,11 +95,26 @@ void plugin_reset(const clap_plugin_t* plugin) {
     self(plugin)->cursor = 0;
 }
 
+void emit_turn(Effect& effect, const clap_output_events_t* out) {
+    if (!effect.turn_pending.exchange(false) || out == nullptr) return;
+    effect.gain = effect.turn_value.load();
+    clap_event_param_gesture_t begin{{sizeof(begin), 0, CLAP_CORE_EVENT_SPACE_ID,
+                                     CLAP_EVENT_PARAM_GESTURE_BEGIN, 0}, gain_id};
+    clap_event_param_value_t value{{sizeof(value), 0, CLAP_CORE_EVENT_SPACE_ID,
+                                   CLAP_EVENT_PARAM_VALUE, 0}, gain_id, nullptr, -1, -1, -1, -1, effect.gain};
+    clap_event_param_gesture_t end{{sizeof(end), 0, CLAP_CORE_EVENT_SPACE_ID,
+                                   CLAP_EVENT_PARAM_GESTURE_END, 0}, gain_id};
+    out->try_push(out, &begin.header);
+    out->try_push(out, &value.header);
+    out->try_push(out, &end.header);
+}
+
 clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_process_t* process) {
     if (process->audio_inputs_count != 1 || process->audio_outputs_count != 1 ||
         process->audio_inputs[0].channel_count != 2 || process->audio_outputs[0].channel_count != 2)
         return CLAP_PROCESS_ERROR;
     auto& effect = *self(plugin);
+    emit_turn(effect, process->out_events);
     auto** in = process->audio_inputs[0].data32;
     auto** out = process->audio_outputs[0].data32;
     const std::uint32_t events = process->in_events->size(process->in_events);
@@ -166,7 +185,8 @@ bool params_from_text(const clap_plugin_t*, clap_id id, const char* text, double
     return end != text;
 }
 void params_flush(const clap_plugin_t* plugin, const clap_input_events_t* in,
-                  const clap_output_events_t*) {
+                  const clap_output_events_t* out) {
+    emit_turn(*self(plugin), out);
     for (std::uint32_t index = 0; index < in->size(in); ++index)
         apply(*self(plugin), in->get(in, index));
 }
@@ -220,7 +240,32 @@ bool note_ports_get(const clap_plugin_t*, std::uint32_t, bool, clap_note_port_in
 }
 constexpr clap_plugin_note_ports_t note_ports{note_ports_count, note_ports_get};
 
+bool gui_api(const clap_plugin_t*, const char* api, bool) {
+    return api && std::strcmp(api, CLAP_WINDOW_API_X11) == 0;
+}
+bool gui_preferred(const clap_plugin_t*, const char** api, bool* floating) {
+    *api = CLAP_WINDOW_API_X11; *floating = false; return true;
+}
+bool gui_create(const clap_plugin_t* plugin, const char* api, bool floating) {
+    return self(plugin)->editor = gui_api(plugin, api, floating);
+}
+void gui_destroy(const clap_plugin_t* plugin) { self(plugin)->editor = false; }
+bool gui_scale(const clap_plugin_t*, double) { return true; }
+bool gui_size(const clap_plugin_t*, std::uint32_t* w, std::uint32_t* h) { *w=320; *h=200; return true; }
+bool gui_resize(const clap_plugin_t*) { return false; }
+bool gui_hints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
+bool gui_adjust(const clap_plugin_t*, std::uint32_t* w, std::uint32_t* h) { *w=320; *h=200; return true; }
+bool gui_set_size(const clap_plugin_t*, std::uint32_t, std::uint32_t) { return true; }
+bool gui_parent(const clap_plugin_t* plugin, const clap_window_t* window) {
+    return self(plugin)->editor && window && window->x11 != 0;
+}
+void gui_title(const clap_plugin_t*, const char*) {}
+bool gui_visible(const clap_plugin_t* plugin) { return self(plugin)->editor; }
+const clap_plugin_gui_t gui{gui_api, gui_preferred, gui_create, gui_destroy, gui_scale, gui_size,
+    gui_resize, gui_hints, gui_adjust, gui_set_size, gui_parent, gui_parent, gui_title, gui_visible, gui_visible};
+
 const void* plugin_extension(const clap_plugin_t*, const char* id) {
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audio_ports;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &note_ports;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
@@ -274,3 +319,12 @@ extern "C" CLAP_EXPORT int blokkily_test_effect_main_thread_calls() { return mai
 
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry{
     CLAP_VERSION, entry_init, entry_deinit, get_factory};
+
+// A complete gesture, delivered through the official CLAP output events.
+extern "C" CLAP_EXPORT void blokkily_test_effect_turn(double value) {
+    const std::lock_guard lock(live_mutex);
+    for (auto* effect : live_effects) if (effect->editor) {
+        effect->turn_value.store(value);
+        effect->turn_pending.store(true);
+    }
+}

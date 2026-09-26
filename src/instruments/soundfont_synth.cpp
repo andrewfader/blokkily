@@ -161,7 +161,14 @@ void SoundFontSynth::process(StereoBlock audio,
 }
 
 void SoundFontSynth::reset() {
-    if (synth_) fluid_synth_all_sounds_off(synth_.get(), -1);
+    // This hook is called only with processing stopped (offline export).
+    // all_sounds_off/system_reset leave FluidSynth's buffered output and
+    // oscillator/effect phase behind. Recreate the renderer at its current
+    // rate and reload the same preset, including its per-voice tuning tables,
+    // so a fresh pass cannot contain earlier audio or depend on block phase.
+    // File loading and allocation stay here, never in process().
+    activated_ = false;
+    (void)activate(sample_rate_, 1, 1);
     channel_key_.fill(-1);
 }
 

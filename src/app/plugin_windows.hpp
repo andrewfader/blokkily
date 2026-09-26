@@ -69,7 +69,8 @@ public:
     // where `remap` moved it (entry i is old track i's new index), and one
     // whose address no longer holds its instance is closed.
     void reconcile(const std::vector<std::optional<std::size_t>>* remap,
-                   const std::function<blokkily::PluginInstance*(blokkily::ProcessorAddress)>& at);
+                   const std::function<blokkily::PluginInstance*(blokkily::ProcessorAddress)>& at,
+                   const std::vector<blokkily::ProcessorAddress>& addresses = {});
 
 signals:
     // An editor opened or closed, by the host or by the plugin itself.

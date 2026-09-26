@@ -8,7 +8,7 @@ ColumnLayout {
     id: root
     // Where the keyboard goes back to when the browser lets go of it.
     property Item focusHome: null
-    spacing: 10
+    spacing: 8
 
     // Puts the keyboard in the browser's search field, selecting what is there.
     function findInstrument() {

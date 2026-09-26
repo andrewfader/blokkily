@@ -58,6 +58,7 @@ void SongModel::restore(Snapshot snapshot) {
     emit mixChanged();
     emit timebaseChanged();
     if (!restored_states.isEmpty()) emit instrumentStatesRestored(restored_states);
+    emit processorStatesRestored();
     if (inputs_differ) emit inputChanged();
     notifyStructureChanged();
     emit historyChanged();

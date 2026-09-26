@@ -92,6 +92,7 @@ std::uint64_t AppController::takeCompensation() const {
 }
 
 void AppController::startAudioTake() {
+    startOutputTake();
     if (!engine_ || take_writer_->active() || engine_->sample_rate() <= 0.0) return;
     take_writer_->begin(recordingDirectory(),
                         static_cast<std::uint32_t>(std::lround(engine_->sample_rate())));
@@ -99,10 +100,15 @@ void AppController::startAudioTake() {
 }
 
 void AppController::discardAudioTake() {
+    if (engine_) engine_->disconnect_output_capture();
+    if (output_writer_->active()) (void)output_writer_->finish();
+    output_source_.reset();
+    emit outputRecordingChanged();
     if (take_writer_->active()) (void)take_writer_->finish();
 }
 
 void AppController::finishAudioTake() {
+    finishOutputTake();
     if (!take_writer_->active()) return;
     dropped_input_frames_ = take_writer_->dropped_frames();
     commitAudioTakes(take_writer_->finish());
@@ -152,7 +158,7 @@ void AppController::relocateRecordings(const QString& path) {
                         (project.completeBaseName().toStdString() + ".audio");
     // Listed first, so moving them does not disturb the listing.
     std::vector<std::filesystem::path> recorded;
-    for (const auto& entry : std::filesystem::directory_iterator(session_audio_dir_, failure))
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(session_audio_dir_, failure))
         if (entry.is_regular_file()) recorded.push_back(entry.path());
     std::map<std::filesystem::path, std::filesystem::path> moved;
     for (const auto& file : recorded) {

@@ -1,6 +1,7 @@
 # DAW program plan
 
-Status: design complete; building in waves. The architect's plan follows the
+Status: all three waves implemented; verification and limitations are recorded
+in docs/verification.md and README.md. The architect's plan follows the
 decisions below. **Where the two disagree, the decisions win.** Per-feature
 design detail (designs 1–7) is summarised inside the plan; W0.1 (commit the
 MIDI work) is done: commit 4a8c2ae.

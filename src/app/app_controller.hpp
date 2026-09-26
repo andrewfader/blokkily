@@ -376,6 +376,19 @@ public:
     Q_INVOKABLE void closeEditor(int track);
     Q_INVOKABLE bool toggleEditor(int track);
     Q_INVOKABLE bool editorOpen(int track) const;
+    Q_INVOKABLE bool toggleInsertEditor(const QString& kind, int bus, int slot);
+    Q_INVOKABLE bool insertEditorOpen(const QString& kind, int bus, int slot) const;
+    Q_INVOKABLE QVariantMap parameterRange(const QString& kind, int bus, int slot, int parameter) const;
+    Q_INVOKABLE QVariantList insertParameters(const QString& kind, int bus, int slot) const;
+    Q_INVOKABLE bool automateInsert(const QString& kind, int bus, int slot, int parameter);
+    Q_INVOKABLE bool collectAudio();
+    Q_PROPERTY(bool outputRecordingArmed READ outputRecordingArmed NOTIFY outputRecordingChanged)
+    bool outputRecordingArmed() const { return output_source_.has_value(); }
+    Q_INVOKABLE void toggleRackOutputRecording();
+    Q_INVOKABLE bool bounceRackInPlace(bool muteSource = false);
+    void startOutputTake();
+    void finishOutputTake();
+    bool openProcessorEditor(blokkily::ProcessorAddress where);
     // Whether the instrument on `track` has an editor to open.
     Q_INVOKABLE bool hasEditor(int track) const;
     PluginWindows& pluginWindows();
@@ -431,6 +444,7 @@ signals:
     void assetsChanged();
     void warpChanged();
     void editorsChanged();
+    void outputRecordingChanged();
     void editorReadoutChanged();
     void audioTakeChanged();
     void countInChanged();
@@ -585,6 +599,9 @@ private:
     // What the engine captures recorded input into, and the thread that
     // writes it to disk. Declared before the engine and the device so it
     // outlives both: the callback writes into its ring until the device stops.
+    std::optional<blokkily::OutputTap> output_source_;
+    std::uint32_t output_take_latency_ = 0;
+    std::unique_ptr<blokkily::TakeWriter> output_writer_ = std::make_unique<blokkily::TakeWriter>();
     std::unique_ptr<blokkily::TakeWriter> take_writer_ = std::make_unique<blokkily::TakeWriter>();
     // The session's temporary take folder, made when first needed.
     mutable std::filesystem::path session_audio_dir_;

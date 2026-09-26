@@ -29,6 +29,7 @@ int main(int argc, char* argv[]) {
     parser.addOption({"soundfont-fixture", "Render this SF2/SF3 during verification.", "path"});
     parser.addOption({"clap-effect-fixture", "Scan this CLAP effect during verification.",
                       "path"});
+    parser.addOption({"vst3-effect-fixture", "Load this VST3 effect during verification.", "path"});
     parser.addOption({"project", "Save and reload the verification project here.", "path"});
     parser.addOption({"view", "Leave the interface in this editor view.", "name"});
     parser.addOption({"export", "Bounce the verification arrangement here.", "path"});

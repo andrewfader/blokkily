@@ -205,7 +205,9 @@ int PluginWindows::resizeRequests(blokkily::ProcessorAddress where) const {
 
 void PluginWindows::reconcile(
     const std::vector<std::optional<std::size_t>>* remap,
-    const std::function<blokkily::PluginInstance*(blokkily::ProcessorAddress)>& at) {
+    const std::function<blokkily::PluginInstance*(blokkily::ProcessorAddress)>& at,
+    const std::vector<blokkily::ProcessorAddress>& addresses) {
+    bool moved = false;
     std::vector<blokkily::ProcessorAddress> stale;
     for (auto& editor : editors_) {
         if (remap != nullptr && editor->where.kind == blokkily::BusKind::track) {
@@ -213,7 +215,13 @@ void PluginWindows::reconcile(
             if (bus < remap->size() && (*remap)[bus])
                 editor->where.bus = static_cast<std::uint32_t>(*(*remap)[bus]);
         }
-        if (at(editor->where) != editor->instance) stale.push_back(editor->where);
+        if (at(editor->where) != editor->instance) {
+            const auto found = std::find_if(addresses.begin(), addresses.end(),
+                [&](auto where) { return at(where) == editor->instance; });
+            if (found == addresses.end()) stale.push_back(editor->where);
+            else { editor->where = *found; moved = true; }
+        }
     }
     for (const auto& where : stale) (void)close(where);
+    if (moved) emit changed();
 }

@@ -20,7 +20,17 @@ ColumnLayout {
     signal exportClickToggled()
     spacing: 10
 
-    SectionLabel { text: "PROJECT" }
+    RowLayout {
+        Layout.fillWidth: true; spacing: 4
+        SectionLabel { text: "PROJECT" }
+        Item { Layout.fillWidth: true }
+        Chip {
+            objectName: "collectAudioButton"
+            implicitWidth: 64; implicitHeight: 18
+            text: "COLLECT"
+            onClicked: appController.collectAudio()
+        }
+    }
     // Two rows, because four actions side by side are wider than
     // the rail, and a control row that cannot shrink widens every
     // other row of the rail with it.

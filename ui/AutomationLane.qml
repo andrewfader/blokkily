@@ -20,8 +20,12 @@ Rectangle {
     readonly property var entry: laneIndex >= 0 && songModel.automationLanes[laneIndex] !== undefined
                                  ? songModel.automationLanes[laneIndex] : null
     readonly property var points: entry !== null ? entry.points : []
-    readonly property real low: entry !== null ? entry.minimum : 0
-    readonly property real high: entry !== null ? entry.maximum : 1
+    readonly property var parameterRange: entry !== null && entry.kind === 0 && entry.slot >= 0
+        ? appController.parameterRange(entry.processorKind, entry.bus, entry.slot, entry.parameter) : ({})
+    readonly property real low: parameterRange.minimum !== undefined ? parameterRange.minimum
+                              : entry !== null ? entry.minimum : 0
+    readonly property real high: parameterRange.maximum !== undefined ? parameterRange.maximum
+                               : entry !== null ? entry.maximum : 1
     readonly property int barCount: layout.length
     readonly property real barRoom: Math.max(1, width - Math.max(0, barCount - 1) * spacing)
     readonly property real pad: 6

@@ -23,6 +23,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
         return fail("prepare the song before bouncing it");
     if (engine.sample_rate() <= 0.0) return fail("song has no sample rate");
 
+    if (options.source && !engine.valid_tap(*options.source)) return fail("invalid output source");
     WaveWriter writer;
     std::string writer_error;
     if (!writer.open(file, static_cast<std::uint32_t>(std::llround(engine.sample_rate())),
@@ -31,6 +32,15 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
 
     // Bouncing takes over the transport, then puts it back where it was, so an
     // export cannot leave the session playing from somewhere unexpected.
+    // Timeline locks and automation change plugin parameters while rendering.
+    // Keep the producer's state so an export cannot change the next playback
+    // or the next export. State streams run with the device stopped.
+    std::vector<std::pair<PluginInstance*, std::vector<std::byte>>> states;
+    for (const auto where : engine.processor_addresses())
+        if (auto* instance = engine.processor(where))
+            states.emplace_back(instance, instance->save_state());
+    const auto previous_tap = engine.bounce_tap();
+    engine.set_bounce_tap(options.source);
     const bool was_playing = engine.is_playing();
     const auto resume_at = engine.sample_position();
     // A bounce is the arrangement, not whoever is at the keyboard while it
@@ -62,7 +72,8 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // the song does: the first `latency` frames the engine renders are the
     // compensation, not the song, and are dropped. An insert that keeps
     // sounding after its input stops (an echo, a reverb) gets its whole tail.
-    const std::uint64_t latency = engine.output_latency();
+    const std::uint64_t latency = options.source ? engine.tap_latency(*options.source)
+                                                 : engine.output_latency();
     const std::uint64_t tail = std::max(tail_frames, engine.effect_tail_samples());
     const std::uint64_t total = engine.song_samples() + tail;
     std::uint64_t rendered = 0;
@@ -98,12 +109,18 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // The export's own tail is not left ringing into the session: playback
     // resumes from silence at the place, and in the state, it was left in.
     engine.reset_processing();
+    bool restored = true;
+    for (auto& [instance, state] : states)
+        if (!state.empty()) restored = instance->load_state(state) && restored;
+    engine.set_bounce_tap(previous_tap);
     engine.set_metronome_enabled(had_metronome);
     engine.set_playing(was_playing);
     engine.seek(resume_at);
     engine.set_recording(was_recording);
     engine.connect_input(input);
-    if (!wrote || !writer.close(&writer_error)) return fail(writer_error.c_str());
+    const bool closed = writer.close(&writer_error);
+    if (!wrote || !closed) return fail(writer_error.c_str());
+    if (!restored) return fail("a processor could not restore its state after export");
     report.clipped = report.peak > 1.0F;
     return report;
 }

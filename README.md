@@ -23,7 +23,7 @@ events, renders stereo audio, selects presets, and persists its project state.
 Projects save and reload the whole session: every named pattern with its chords,
 locks, ratchets, microtiming, and loop conditions, the tracks with their channel
 strips and clips, and the opaque state of every CLAP, VST3, and SoundFont
-instrument.
+instrument and effect.
 The allocation-free real-time transport compiles pattern ticks to sample events,
 loops patterns, drives either instrument adapter, and feeds a low-latency
 non-interleaved stereo RtAudio callback.
@@ -203,36 +203,75 @@ reports an error and preserves the last playable arrangement.
 - Next engine layer: Tracktion playback/recording adapter
 - CLAP host adapter: discovery, lifecycle, processing, and state
 - Versioned project file: the whole song plus per-instrument plugin state
-- Next CLAP layer: native plugin GUI embedding and broader port configurations
+- Native CLAP and VST3 plugin windows; stereo plugin ports
 - Additional adapter: VST3 through JUCE
 
 The canonical model deliberately does not use Tracktion MIDI clips. Adapters
 compile it into engine and plugin events, preserving richer sequencer semantics.
 
+## Recording, effects and audio
+
+The tempo lane edits steps and ramps; the ruler edits the meter, keeping clips
+on their bar numbers. Patterns may have different lengths. +AUD imports WAV,
+FLAC or AIFF as waveform clips with trim, fades and gain. Overlaps sum. The
+clip's W control enables tempo following, a manual stretch ratio or pitch
+shift. Rubber Band renders those changes on a worker; a pending rendition is
+silent until it is ready.
+
+Sampler and Drum Sampler appear in the instrument browser. They support keyed
+zones, loops, envelopes, kit pads and slicing. The FX browser adds CLAP, VST3
+or built-in EQ, delay, reverb and compressor inserts to the selected track,
+return or master rack. Sends are post-fader and pre-pan; returns remain audible
+when a source track is soloed. Playback and export both compensate plugin
+latency. E in an insert row opens its native window; A chooses a parameter to
+edit in the selected track's automation lane. A plugin-window gesture is one
+undo step, including gestures on return and master inserts.
+
+Each track's R button arms notes and audio, and its input controls choose MIDI
+channels or device inputs and monitoring. With no track armed, the selected
+track records. The on-screen keyboards and tracker can record while the song
+plays. Chord voices keep their own velocities and lengths. Automation has a
+separate OFF / READ / TOUCH / LATCH / WRITE mode. Notes, automation and audio
+from one pass share one undo step. CLICK follows the tempo and meter, CI counts
+in up to four bars without moving the song, and the click is excluded from
+exports unless + CLICK is enabled.
+
+RESAMPLE in the selected rack arms its track, return or master output for the
+next recording pass. Arm the transport's record button and press Play. The
+output is written off the audio thread into a new audio track when the pass
+ends; the destination cannot feed back into its own recording. The master tap
+excludes the guide click. STEM bounces that rack through the same engine into
+a new audio clip, optionally muting its source. Both actions compensate the
+latency up to the selected tap. A bounced master with its sources muted also
+bypasses the old master inserts and resets its fader, to avoid processing the
+finished mix twice; undo restores all of these changes.
+
+Stems are **bus taps**: a track stem contains its inserts and stereo fader/pan,
+a return stem contains its sends and return processing, and a master stem
+contains the complete mix. Track stems exclude their sends' return signals;
+bounce the returns too when reconstructing the mix. The sum of track and return
+stems is the signal before master processing. A nonlinear master effect cannot
+be distributed among independent stems. Muting a source track also stops its
+sends, so bounce those returns separately if they must be kept.
+
+Imported files stay where they are. Recordings go into `<project>.audio/`, or
+a temporary session folder before the first save. COLLECT copies referenced
+clips and sampler samples into the saved project's audio folder, deduplicates
+shared files, and changes their references as one undoable edit. Save afterwards
+to persist those references. Original files are kept so undo remains playable.
+
 ## What is not here yet
 
-A passing suite says what was proved, not what exists. These are missing, and
-nothing in the interface pretends otherwise:
-
-- MIDI input reads notes only. Pitch bend, mod wheel, sustain pedal, other
-  controllers and MIDI clock are ignored, and every channel plays the selected
-  track.
-- No audio clips. A pattern holds notes, chords, and parameter locks; it
-  cannot hold recorded or imported audio. The built-in Sampler and Drum
-  Sampler play audio files as instruments, but a sample is loaded one file at
-  a time from the panel: there is no multi-sample import, no velocity-layer
-  editor and no waveform view.
-- No effects. A mixer track has gain, pan, mute, and solo into one bus; there
-  are no inserts, no sends, and no master chain.
-- Only a MIDI keyboard records against the running transport. Playing an
-  on-screen surface still writes onto the step the editors have selected, and
-  a MIDI keyboard does not step-enter notes into a stopped song.
-- A recorded note is placed to within one audio block of when it was played
-  (about 10 ms at 512 frames), and a step keeps one velocity, so notes merged
-  into a chord lose their own.
-- A song has a tempo map (steps and ramps) and a meter map, and the engine,
-  the bounce, the transport and recording all follow them, but there is no
-  tempo lane or meter menu to edit them yet: the tempo readout sets the tempo
-  in effect at the playhead, and the time-signature label is not yet live.
-- No native plugin windows. A plugin's parameters are reached through the
-  step inspector's locks rather than through its own interface.
+- MIDI input handles notes; pitch bend, sustain, other controllers and MIDI
+  clock are not recorded. Notes are timestamped to the callback block.
+- Audio is fully decoded into RAM; there is no disk streaming or comping.
+- The sampler panel loads one file at a time; it has no multi-sample import
+  wizard, velocity-layer editor or waveform editing surface.
+- Step parameter locks target the track instrument. Insert parameters use
+  automation lanes; insert-targeted step locks remain outside this release.
+- Output recording chooses one bus per pass. Bounce additional racks for a
+  set of stems. A partial live pass ends when recording stops and does not
+  automatically append effect tails; offline stems include them.
+- Native plugin-window pixels require an X11 display. Offscreen verification
+  checks the embedding lifecycle, while the separate display gate checks
+  real VST3 pixels when an X server is available.

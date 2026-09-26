@@ -104,8 +104,8 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         syncTimebase();
         // Undo or redo put back instrument states: the running instances are
         // given them (a sampler's program, a knob turned in a plugin's window).
-        QObject::connect(song_, &SongModel::instrumentStatesRestored, this,
-                         &AppController::restoreInstrumentStates);
+        QObject::connect(song_, &SongModel::processorStatesRestored, this,
+                         [this] { restoreInstrumentStates({}); });
         // A controller plays the armed tracks - or, with none armed, the
         // selected one - in the song's own tuning and scale, from the next key
         // pressed.
@@ -550,6 +550,8 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     // Recorded audio input reaches the take writer through its ring, and
     // every track hears the inputs it is routed to (item 3.2).
     engine_->connect_capture(&take_writer_->ring());
+    if (output_writer_->active() && output_source_)
+        (void)engine_->configure_output_capture(*output_source_, &output_writer_->ring());
     updateAudioInputs();
     engine_signature_ = wanted;
     transport_->setSongBars(song_->bars());

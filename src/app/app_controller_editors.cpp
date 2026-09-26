@@ -45,36 +45,28 @@ bool AppController::editorOpen(int track) const {
 }
 
 bool AppController::openEditor(int track) {
-    if (song_ == nullptr || track < 0 || track >= song_->trackCount()) return false;
-    const auto report = [this](const QString& message) {
-        editor_status_ = message;
-        emit editorsChanged();
-    };
-    if (!engine_ && !instruments().empty()) (void)rebuildEngine();
-    auto* instance = engine_ ? engine_->processor(address_of(track)) : nullptr;
-    const auto& song = song_->song();
-    const auto& name = song.tracks[static_cast<std::size_t>(track)].name;
-    if (instance == nullptr) {
-        report(QStringLiteral("No instrument on %1").arg(QString::fromStdString(name)));
-        return false;
-    }
-    if (editorOpen(track)) return true;
-    const auto row = song_->tracks().at(track).toMap();
-    const QString title = QStringLiteral("%1 · %2")
-                              .arg(row.value("instrument").toString(), QString::fromStdString(name));
+    if (track < 0) return false;
+    return openProcessorEditor(address_of(track));
+}
+
+bool AppController::openProcessorEditor(blokkily::ProcessorAddress where) {
+    if (song_ == nullptr) return false;
+    if (!engine_) (void)rebuildEngine();
+    auto* instance = engine_ ? engine_->processor(where) : nullptr;
+    auto* slot = blokkily::song_slot(song_->song(), where);
+    if (instance == nullptr || slot == nullptr) return false;
+    if (windows_ && windows_->isOpen(where)) return true;
+    const QString title = QString::fromStdString(slot->identifier);
     QString error;
-    if (!pluginWindows().open(address_of(track), *instance, title, &error)) {
-        report(error);
+    if (!pluginWindows().open(where, *instance, title, &error)) {
+        editor_status_ = error;
+        emit editorsChanged();
         return false;
     }
-    // An instrument the song gave no state plays the plugin's own defaults.
-    // The song records them now, so undoing the first knob turned in this
-    // window has a state to go back to. Nothing about the song changes.
-    auto& slot = song_->song().tracks[static_cast<std::size_t>(track)].instrument;
-    if (slot.state.empty()) slot.state = instance->save_state();
-    // The editor is served from here on, whether or not anything plays.
+    if (slot->state.empty()) slot->state = instance->save_state();
     editor_timer_.start();
-    report(QStringLiteral("Editor open · %1").arg(QString::fromStdString(name)));
+    editor_status_ = QStringLiteral("Editor open · %1").arg(title);
+    emit editorsChanged();
     return true;
 }
 
@@ -111,13 +103,13 @@ void AppController::drainPluginEdits() {
         // mode records (item 3.1).
         captureParameterEdit(event);
         const auto done = gestures_.feed(event);
-        if (!done || done->where.kind != blokkily::BusKind::track || !done->where.instrument())
+        if (!done)
             continue;
         auto* instance = engine_->processor(done->where);
         if (instance == nullptr) continue;
         // The instrument already plays the new value; the song records the
         // state it now holds, and the step before it holds the old one.
-        (void)song_->commitInstrumentState(static_cast<int>(done->where.bus),
+        (void)song_->commitProcessorState(done->where,
                                            instance->save_state());
     }
     if (automation_take_.ready()) commitAutomation();
@@ -131,16 +123,15 @@ void AppController::drainPluginEdits() {
     emit editorReadoutChanged();
 }
 
-void AppController::restoreInstrumentStates(const QList<int>& tracks) {
+void AppController::restoreInstrumentStates(const QList<int>&) {
     if (!engine_ || song_ == nullptr) return;
     const auto& song = song_->song();
     bool stopped = false;
-    for (const int index : tracks) {
-        if (index < 0 || static_cast<std::size_t>(index) >= song.tracks.size()) continue;
-        const auto track = static_cast<std::size_t>(index);
-        const auto where = address_of(index);
+    for (const auto where : engine_->processor_addresses()) {
         auto* instance = engine_->processor(where);
-        const auto& slot = song.tracks[track].instrument;
+        const auto* restored = blokkily::song_slot(song, where);
+        if (restored == nullptr) continue;
+        const auto& slot = *restored;
         const auto* built = engine_signature_.at(where);
         // Only an instance that is the instrument the restored song names; a
         // track whose instrument changed is rebuilt from the song anyway.
@@ -171,5 +162,5 @@ void AppController::reconcileEditors(const blokkily::TrackRemap* remap) {
     if (!windows_) return;
     windows_->reconcile(remap, [this](blokkily::ProcessorAddress where) {
         return engine_ ? engine_->processor(where) : nullptr;
-    });
+    }, engine_ ? engine_->processor_addresses() : std::vector<blokkily::ProcessorAddress>{});
 }

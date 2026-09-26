@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <limits>
 #include <span>
 #include <string>
@@ -83,9 +84,26 @@ struct TestAccess;
 // is delayed to meet them, and the master inserts and gain follow. Every
 // processor is told where the song is (set_transport) before its block. A track without an instrument still runs every
 // stage after the instrument's, so what reaches its strip is heard.
+struct OutputTap {
+    BusKind kind = BusKind::master;
+    std::uint32_t bus = 0;
+    friend bool operator==(const OutputTap&, const OutputTap&) = default;
+};
+
 class SongEngine final : public AudioSource {
 public:
     SongEngine();
+    // Configure with the callback stopped; capture copies into the same
+    // off-thread writer used by audio input. No destination track exists
+    // until the take finishes, so a resample cannot feed back into itself.
+    bool configure_output_capture(OutputTap source, SampleRing* ring) noexcept;
+    void disconnect_output_capture() noexcept { output_capture_.store(nullptr, std::memory_order_release); }
+    [[nodiscard]] std::uint32_t tap_latency(OutputTap source) const noexcept;
+    [[nodiscard]] bool valid_tap(OutputTap source) const noexcept;
+    // Offline bounce only, with the device stopped: selects the block
+    // returned by process(). All buses still render normally.
+    void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
+    [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
     SongEngine& operator=(const SongEngine&) = delete;
@@ -340,6 +358,11 @@ public:
     [[nodiscard]] bool load_track_state(std::size_t track, std::span<const std::byte> state);
 
 private:
+    void tap_output(OutputTap source, StereoBlock block, std::uint64_t position, bool rolling) noexcept;
+    std::atomic<SampleRing*> output_capture_{nullptr};
+    OutputTap capture_source_;
+    std::optional<OutputTap> bounce_tap_;
+    std::vector<float> tap_left_, tap_right_;
     friend struct engine::TestAccess;
     using Arrangement = engine::Arrangement;
     using TrackPlayback = engine::TrackPlayback;

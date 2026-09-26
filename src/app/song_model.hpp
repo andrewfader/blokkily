@@ -377,6 +377,9 @@ public:
     // new state, so nothing is rebuilt or recompiled. False, and no step,
     // when the state did not change.
     bool commitInstrumentState(int track, std::vector<std::byte> state);
+    bool commitProcessorState(blokkily::ProcessorAddress where, std::vector<std::byte> state);
+    void commitSongEdit(blokkily::Song song);
+    int addParameterLane(int owner, blokkily::ProcessorAddress where, int parameter, double value);
 
     // --- Automation (song_model_automation.cpp) -----------------------------
     QVariantList automationLanes() const;
@@ -435,6 +438,7 @@ signals:
     // running processors can be given them while they are still the ones the
     // engine plays.
     void instrumentStatesRestored(const QList<int>& tracks);
+    void processorStatesRestored();
     // The audio clips, or which of their files are missing, changed.
     void audioClipsChanged();
     // A track was armed or disarmed, or its input changed: where played notes

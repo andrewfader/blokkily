@@ -65,6 +65,20 @@ void run_effects(VerifyContext& ctx) {
     };
     const auto click = [&ctx](QQuickItem* item) {
         if (item == nullptr) return false;
+        // Scroll mixer controls into the viewport before sending a click.
+        // The rack leaves less room as its output controls are exposed.
+        if (auto* scroll = ctx.named("mixerScroll")) {
+            bool inside = false;
+            for (auto* parent = item->parentItem(); parent; parent = parent->parentItem())
+                if (parent == scroll) inside = true;
+            if (inside) {
+                const auto y = item->mapToItem(scroll, QPointF(0, 0)).y();
+                const double current = scroll->property("contentY").toDouble();
+                if (y < 0 || y + item->height() > scroll->height())
+                    scroll->setProperty("contentY", std::max(0.0, current + y - scroll->height()/2));
+                QCoreApplication::processEvents();
+            }
+        }
         ctx.click_at(item, {item->width() / 2.0, item->height() / 2.0}, Qt::LeftButton);
         return true;
     };
@@ -198,6 +212,8 @@ void run_effects(VerifyContext& ctx) {
                 if (child->inherits("QQuickSlider")) fader = child;
         check(VerifyContext::usable(fader, 100, 16));
     }
+    if (auto* scroll = ctx.named("mixerScroll")) scroll->setProperty("contentY", 0.0);
+    lay_out();
     auto* send_dial = ctx.named("send0_0");
     check(VerifyContext::usable(send_dial, 100, 16));
     {

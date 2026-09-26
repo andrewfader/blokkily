@@ -151,6 +151,11 @@ QVariantList SongModel::automationLanes() const {
             {"index", static_cast<int>(index)},
             {"name", lane_name(lane.target)},
             {"kind", static_cast<int>(lane.target.kind)},
+            {"processorKind", lane.target.processor.kind == blokkily::BusKind::track ? "track" :
+                 lane.target.processor.kind == blokkily::BusKind::ret ? "return" : "master"},
+            {"bus", static_cast<int>(lane.target.processor.bus)},
+            {"slot", lane.target.processor.slot},
+            {"parameter", lane.target.parameter_index},
             {"minimum", low},
             {"maximum", high},
             {"points", points},

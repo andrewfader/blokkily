@@ -13,7 +13,7 @@ Rectangle {
     readonly property int rows: rack.inserts !== undefined ? rack.inserts.length : 0
     Layout.fillWidth: true
     Layout.minimumHeight: 92
-    implicitHeight: 52 + Math.max(1, rows) * 30
+    implicitHeight: 78 + Math.max(1, rows) * 30
     radius: 6
     color: Theme.panel
     border.color: Theme.line
@@ -40,9 +40,23 @@ Rectangle {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true; spacing: 4
+            Chip { objectName: "recordRackOutput"; text: "RESAMPLE"; implicitHeight: 20
+                on: appController.outputRecordingArmed
+                onClicked: appController.toggleRackOutputRecording() }
+            Chip { objectName: "bounceRackOutput"; text: "STEM"; implicitHeight: 20
+                onClicked: stemMenu.open()
+                Menu { id: stemMenu
+                    MenuItem { text: "Bounce to new track"; onTriggered: appController.bounceRackInPlace(false) }
+                    MenuItem { text: "Bounce and mute source"; onTriggered: appController.bounceRackInPlace(true) }
+                }
+            }
+        }
         Repeater {
             model: root.rack.inserts
             Rectangle {
+                id: insertRow
                 required property var modelData
                 required property int index
                 objectName: "insertRow" + index
@@ -52,7 +66,7 @@ Rectangle {
                 border.color: Theme.line
                 RowLayout {
                     anchors.fill: parent; anchors.leftMargin: 6; anchors.rightMargin: 4
-                    spacing: 5
+                    spacing: 3
                     Rectangle {
                         Layout.preferredWidth: 32; Layout.preferredHeight: 15; radius: 3
                         color: modelData.format === "CLAP" ? Theme.acid
@@ -67,6 +81,31 @@ Rectangle {
                         text: modelData.name
                         color: modelData.bypass ? Theme.muted : Theme.ink
                         font.pixelSize: 10; font.bold: true; elide: Text.ElideRight
+                    }
+                    Chip {
+                        objectName: "insertEditor" + index
+                        text: "E"; implicitHeight: 20; implicitWidth: 22
+                        on: { appController.openEditors; return appController.insertEditorOpen(root.rack.kind, root.rack.bus, index) }
+                        onClicked: appController.toggleInsertEditor(root.rack.kind, root.rack.bus, index)
+                    }
+                    Chip {
+                        objectName: "insertAutomation" + index
+                        text: "A"; implicitHeight: 20; implicitWidth: 22
+                        onClicked: parameters.open()
+                        Menu {
+                            id: parameters
+                            Instantiator {
+                                model: appController.insertParameters(root.rack.kind, root.rack.bus, index)
+                                delegate: MenuItem {
+                                    required property var modelData
+                                    objectName: "insertParameter" + insertRow.index + "_" + modelData.id
+                                    text: modelData.name
+                                    onTriggered: appController.automateInsert(root.rack.kind, root.rack.bus, insertRow.index, modelData.id)
+                                }
+                                onObjectAdded: function(i, item) { parameters.insertItem(i, item) }
+                                onObjectRemoved: function(i, item) { parameters.removeItem(item) }
+                            }
+                        }
                     }
                     Chip {
                         objectName: "bypass" + index

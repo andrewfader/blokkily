@@ -347,3 +347,39 @@ project file. Its audible evidence is
 
 Open and inspect those images after UI changes. A valid exit status alone does
 not prove that layout, contrast, text, and editor projections are usable.
+
+
+## Completing Wave 3
+
+`bdd_cross_feature` opens real CLAP effect editors on a track, return and master,
+passes gestures through the engine edit ring, checks state undo/redo without
+replacing the instances, and hears an effect lane silence and restore the bus.
+It also collects a clip and sampler referencing one file, checks deduplication,
+undo/redo and reopening. Its artifact is `build/artifacts/cross-feature.png`.
+
+`output_recording_stems`, `output_recording_returns` and `output_recording_live`
+read files back and compare aligned audio from actual CLAP processors. They
+prove post-fader/pan taps, track/return stem summing before master processing,
+a master resample identical to the bounce, click exclusion and replacement by
+a recorded audio clip. `realtime_output_recording` covers all taps and a full
+ring under the allocation guard. `bdd_output_recording` drives RESAMPLE in the
+real rack and checks one-step undo, offline placement, muted-source replacement
+and reopening; it writes `build/artifacts/output-recording.png`.
+
+`bdd_session_everything` builds one canonical song with a tempo ramp and 7/8,
+keyed and sliced samplers, CLAP, VST3 and a real SoundFont, a warped clip,
+built-in and CLAP/VST3 effect inserts, a return/send, gain and effect automation,
+and a count-in. It records MIDI on two armed tracks, injected duplex audio and
+a master resample. One undo removes the entire take. It saves, starts a new
+session, reopens and compares the read-back float export sample for sample
+with an independent drive of the same engine. Muting every track in turn must
+change rendered audio. The artifact is `build/artifacts/session-everything.png`.
+
+`output_recording_state` reproduces a parameter-lock export changing the next
+export. `output_recording_soundfont_reset` covers repeated SoundFont rendering.
+Both regression tests were run failing before their fixes.
+
+The optional device tests can run on a machine with no ALSA devices by setting
+`ALSA_CONFIG_PATH=/dev/null` in the test process environment. They then skip
+with code 77; the deterministic production-callback tests still run. Hardware
+and display skips must be reported separately from passing integration tests.
