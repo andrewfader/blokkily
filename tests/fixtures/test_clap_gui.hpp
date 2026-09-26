@@ -14,7 +14,8 @@ enum Report : int {
     shows,
     hides,
     set_parents,
-    last_parent,       // the X11 window handle of the last set_parent
+    last_parent,       // the native window handle of the last set_parent
+    last_parent_wayland, // 1 when the last parent used the Wayland API
     last_floating,     // 1 when the last create asked for a floating window
     open_editors,      // editors created and not yet destroyed
     timer_ticks,       // on_timer calls

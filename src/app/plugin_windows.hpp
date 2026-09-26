@@ -13,9 +13,9 @@
 //    adapter that needs a real display to embed (the VST3 adapter, through
 //    JUCE) refuses it with "Plugin window needs an X11 display", and one that
 //    only records it (the CLAP fixture) embeds.
-//  - On any other platform (Wayland) the editor floats as the plugin's own
-//    X11 top-level through XWayland, when the plugin can float; otherwise it
-//    is refused.
+//  - On Wayland a CLAP editor that supports the Wayland API is embedded in a
+//    Qt Wayland surface. An X11-only editor floats as the plugin's own X11
+//    top-level through XWayland when it can; otherwise it is refused.
 //
 // The editor sizes itself in physical pixels, so the host window is made
 // that size divided by the device pixel ratio. An editor whose instance is

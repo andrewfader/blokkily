@@ -88,7 +88,10 @@ bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInsta
 
     const QString platform = QGuiApplication::platformName();
     const bool x11_parent = platform == QLatin1String("xcb") || platform == QLatin1String("offscreen");
-    const bool embed = x11_parent && instance.supports_editor(WindowApi::x11, false);
+    const bool wayland_parent = platform.startsWith(QLatin1String("wayland"));
+    const WindowApi parent_api = wayland_parent ? WindowApi::wayland : WindowApi::x11;
+    const bool embed = (x11_parent || wayland_parent) &&
+                       instance.supports_editor(parent_api, false);
     if (!embed && !instance.supports_editor(WindowApi::x11, true))
         return fail(QStringLiteral("Plugin window needs an X11 display"));
 
@@ -104,7 +107,7 @@ bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInsta
         editor->window->setTitle(title);
         editor->window->resize(320, 200);
         editor->window->create();
-        const blokkily::NativeParent parent{WindowApi::x11,
+        const blokkily::NativeParent parent{parent_api,
                                             static_cast<std::uintptr_t>(editor->window->winId()),
                                             editor->window->devicePixelRatio()};
         if (!instance.open_editor(&parent, *editor, &size, &reason)) {

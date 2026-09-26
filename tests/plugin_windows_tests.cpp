@@ -107,6 +107,7 @@ std::unique_ptr<ClapPluginInstance> clap_instance() {
 }
 
 const NativeParent parent{WindowApi::x11, fake_window, 1.5};
+const NativeParent wayland_parent{WindowApi::wayland, fake_window, 1.5};
 
 // features/plugin_windows.feature: Scenario: The run loop serves plugin timers and descriptors
 void run_loop_manual() {
@@ -160,8 +161,8 @@ void clap_editor_embed() {
     require(plugin->has_editor(), "the fixture has an editor");
     require(plugin->supports_editor(WindowApi::x11, false) &&
                 plugin->supports_editor(WindowApi::x11, true) &&
-                !plugin->supports_editor(WindowApi::wayland, false),
-            "the fixture's editor is X11, embedded or floating");
+                plugin->supports_editor(WindowApi::wayland, false),
+            "the fixture's editor supports embedded X11 and Wayland hosting");
     const auto before = report();
     clear_log();
     RecordingHost host;
@@ -194,6 +195,23 @@ void clap_editor_embed() {
     require(gui_log() == "create-embedded,scale,size,parent,show,set-size,hide,destroy",
             "closing hides and destroys the editor; got " + gui_log());
     require(report()[gui::open_editors] == before[gui::open_editors], "no editor is left open");
+}
+
+// features/plugin_windows.feature: Scenario: A CLAP editor is embedded in a Wayland surface
+void clap_editor_wayland_embed() {
+    auto plugin = clap_instance();
+    RecordingHost host;
+    std::string error;
+    clear_log();
+    require(plugin->open_editor(&wayland_parent, host, nullptr, &error),
+            "the Wayland editor opens: " + error);
+    const auto opened = report();
+    require(opened[gui::last_parent] == static_cast<long>(fake_window) &&
+                opened[gui::last_parent_wayland] == 1 && opened[gui::last_floating] == 0,
+            "the editor receives the host's native Wayland surface");
+    require(gui_log() == "create-embedded,scale,size,parent,show",
+            "the Wayland editor is embedded and shown; got " + gui_log());
+    plugin->close_editor();
 }
 
 // features/plugin_windows.feature: Scenario: A CLAP editor can float on its own
@@ -504,6 +522,7 @@ int main(int argc, char** argv) {
     const std::map<std::string, void (*)()> cases{
         {"run_loop", run_loop_manual},
         {"clap_embed", clap_editor_embed},
+        {"clap_wayland_embed", clap_editor_wayland_embed},
         {"clap_floating", clap_editor_floating},
         {"clap_requests", clap_editor_requests},
         {"clap_timer", clap_timer_support},

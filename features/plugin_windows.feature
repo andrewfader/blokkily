@@ -26,6 +26,12 @@ Feature: Native plugin windows
     And the editor is 320 x 200 physical pixels
     And closing it hides and destroys it
 
+  Scenario: A CLAP editor is embedded in a Wayland surface
+    # core: clap_wayland_embed
+    Given the CLAP fixture and a native Wayland host surface
+    When its editor is opened
+    Then it is created, parented to that surface through the Wayland API, and shown
+
   Scenario: A CLAP editor can float on its own
     # core: clap_floating
     Given the CLAP fixture

@@ -56,6 +56,7 @@ if(BLOKKILY_BUILD_TESTS)
     foreach(window_case
             run_loop
             clap_embed
+            clap_wayland_embed
             clap_floating
             clap_requests
             clap_timer

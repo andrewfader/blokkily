@@ -453,12 +453,14 @@ std::uint32_t tail_get(const clap_plugin_t*) { return tail_samples; }
 constexpr clap_plugin_tail_t tail_extension{tail_get};
 
 // --- clap.gui ------------------------------------------------------------------
-// An X11 editor, embedded or floating. It records what the host asks and the
-// window it was given rather than drawing, so it works without a display.
+// An X11 or Wayland editor, embedded or floating. It records what the host
+// asks and the window it was given rather than drawing, so it works without a
+// display.
 namespace gui_report_field = blokkily::test_clap_gui;
 
 bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool) {
-    return api != nullptr && std::strcmp(api, CLAP_WINDOW_API_X11) == 0;
+    return api != nullptr && (std::strcmp(api, CLAP_WINDOW_API_X11) == 0 ||
+                              std::strcmp(api, CLAP_WINDOW_API_WAYLAND) == 0);
 }
 bool gui_get_preferred_api(const clap_plugin_t*, const char** api, bool* is_floating) {
     *api = CLAP_WINDOW_API_X11;
@@ -549,11 +551,15 @@ bool gui_set_size(const clap_plugin_t* plugin, std::uint32_t width, std::uint32_
 bool gui_set_parent(const clap_plugin_t* plugin, const clap_window_t* window) {
     const auto* synth = self(plugin);
     if (!synth->gui_created || synth->gui_floating || window == nullptr || window->api == nullptr ||
-        std::strcmp(window->api, CLAP_WINDOW_API_X11) != 0)
+        !gui_is_api_supported(plugin, window->api, false))
         return false;
     gui_record("parent");
     gui_count(gui_report_field::set_parents);
-    gui_set(gui_report_field::last_parent, static_cast<long>(window->x11));
+    const bool wayland = std::strcmp(window->api, CLAP_WINDOW_API_WAYLAND) == 0;
+    gui_set(gui_report_field::last_parent, static_cast<long>(
+        wayland ? reinterpret_cast<std::uintptr_t>(window->ptr)
+                : static_cast<std::uintptr_t>(window->x11)));
+    gui_set(gui_report_field::last_parent_wayland, wayland ? 1 : 0);
     return true;
 }
 bool gui_set_transient(const clap_plugin_t*, const clap_window_t*) { return true; }
