@@ -28,6 +28,7 @@ namespace blokkily {
 
 class DiskStream;
 class ModulationMatrix;
+class SceneLauncherEngine;
 
 // A parameter edit a processor made, stamped on the audio thread with where in
 // the song it happened (plan F-D). `rolling` is whether the transport was
@@ -111,6 +112,8 @@ public:
     void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
     void set_modulation_matrix(ModulationMatrix* modulations) noexcept { modulations_ = modulations; }
     [[nodiscard]] ModulationMatrix* modulation_matrix() const noexcept { return modulations_; }
+    void set_scene_launcher(SceneLauncherEngine* launcher) noexcept { scene_launcher_ = launcher; }
+    [[nodiscard]] SceneLauncherEngine* scene_launcher() const noexcept { return scene_launcher_; }
 
     void set_sidechain_route(ProcessorAddress target, std::size_t source_track);
     void clear_sidechain_routes();
@@ -515,6 +518,7 @@ private:
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
     ModulationMatrix* modulations_ = nullptr;
+    SceneLauncherEngine* scene_launcher_ = nullptr;
     std::vector<SidechainRoute> sidechains_;
     std::vector<MultiOutputRoute> multi_outs_;
     std::vector<std::size_t> render_order_;

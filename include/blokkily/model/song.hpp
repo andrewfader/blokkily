@@ -4,6 +4,7 @@
 #include "blokkily/model/pattern.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/scale.hpp"
+#include "blokkily/model/scene_launcher.hpp"
 #include "blokkily/model/timebase.hpp"
 #include "blokkily/model/tuning.hpp"
 
@@ -319,6 +320,8 @@ struct Song {
     // The click and the count-in (item 3.7): session settings saved with the
     // song, kept as they are by undo.
     MetronomeSettings metronome;
+    // The non-linear clip / scene launcher matrix (Item 5).
+    SceneMatrix launcher;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return patterns.at(index).pattern; }
     [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {

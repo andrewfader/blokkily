@@ -99,6 +99,15 @@ bool Song::consistent(std::string* why) const {
         if (clip.track >= tracks.size() || clip.pattern >= patterns.size() || clip.start < 0)
             return refuse(why, "a clip refers to a track or pattern that does not exist");
 
+    for (const auto& scene : launcher.scenes) {
+        for (std::size_t t = 0; t < scene.slots.size(); ++t) {
+            if (scene.slots[t].has_value()) {
+                if (t >= tracks.size() || scene.slots[t]->pattern >= patterns.size())
+                    return refuse(why, "a launcher slot refers to a track or pattern that does not exist");
+            }
+        }
+    }
+
     for (const auto& file : audio_files)
         if (file.path.empty() || file.frames == 0 || file.sample_rate == 0 || file.channels == 0)
             return refuse(why, "an audio file has no path, frames, rate or channels");
@@ -183,6 +192,7 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
     };
 
     tracks.erase(tracks.begin() + static_cast<std::ptrdiff_t>(index));
+    launcher.remove_track(index);
     std::erase_if(clips, [index](const Clip& clip) { return clip.track == index; });
     for (auto& clip : clips) clip.track = moved(clip.track);
     std::erase_if(audio_clips, [index](const AudioClip& clip) { return clip.track == index; });

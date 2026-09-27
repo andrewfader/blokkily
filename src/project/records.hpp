@@ -105,6 +105,8 @@ struct RecordModule {
 // Clip warp (item 3.6): clipwarp, after the audio clips it names
 // (records_clip_warp.cpp).
 [[nodiscard]] const RecordModule& clip_warp_records();
+// Non-linear clip/scene launcher matrix (Item 5): scene, sceneslot.
+[[nodiscard]] const RecordModule& scene_launcher_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

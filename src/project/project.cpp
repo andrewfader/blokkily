@@ -24,6 +24,7 @@ std::span<const RecordModule* const> record_modules() {
         &automation_records(),
         &metronome_records(),
         &clip_warp_records(),
+        &scene_launcher_records(),
     };
     return modules;
 }

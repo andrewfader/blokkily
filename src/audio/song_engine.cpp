@@ -1,4 +1,5 @@
 #include "blokkily/audio/modulator.hpp"
+#include "blokkily/audio/scene_launcher_engine.hpp"
 #include "blokkily/audio/sidechain.hpp"
 #include "blokkily/audio/song_engine.hpp"
 
@@ -547,24 +548,33 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                 {routed.track, capture_sample, capture_tick, events[count - 1]});
     }
     const std::size_t timeline_begin = count;
-    while (from_timeline && track.cursor < timeline.size() &&
-           timeline[track.cursor].sample < end) {
-        const auto& timed = timeline[track.cursor];
-        if (timed.sample >= song_position && count < capacity) {
-            events[count] = timed.event;
-            events[count].sample_offset = static_cast<std::uint32_t>(timed.sample - song_position);
-            const auto key = timed.event.key_or_parameter;
-            if (key >= 0 && key < static_cast<std::int32_t>(track.sounding.size())) {
-                auto& held = track.sounding[static_cast<std::size_t>(key)];
-                if (timed.event.type == PluginEvent::Type::note_on) {
-                    if (held < 255) ++held;
-                } else if (timed.event.type == PluginEvent::Type::note_off && held > 0) {
-                    --held;
+    const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
+    if (scene_launcher_ != nullptr && (scene_launcher_->is_playing(index) || scene_launcher_->is_queued(index))) {
+        const std::size_t added = scene_launcher_->process_track(
+            index, song_position, static_cast<std::size_t>(end - song_position),
+            arranged.clock, arranged.meter, std::span<PluginEvent>(events.data(), capacity),
+            count, capacity);
+        count += added;
+    } else {
+        while (from_timeline && track.cursor < timeline.size() &&
+               timeline[track.cursor].sample < end) {
+            const auto& timed = timeline[track.cursor];
+            if (timed.sample >= song_position && count < capacity) {
+                events[count] = timed.event;
+                events[count].sample_offset = static_cast<std::uint32_t>(timed.sample - song_position);
+                const auto key = timed.event.key_or_parameter;
+                if (key >= 0 && key < static_cast<std::int32_t>(track.sounding.size())) {
+                    auto& held = track.sounding[static_cast<std::size_t>(key)];
+                    if (timed.event.type == PluginEvent::Type::note_on) {
+                        if (held < 255) ++held;
+                    } else if (timed.event.type == PluginEvent::Type::note_off && held > 0) {
+                        --held;
+                    }
                 }
+                ++count;
             }
-            ++count;
+            ++track.cursor;
         }
-        ++track.cursor;
     }
     // The instrument's automation lanes (item 3.1), merged into the
     // timeline's events in sample order: a lane's value on a sample goes
@@ -708,6 +718,11 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context,
                                   &SongEngine::insert_events, &SongEngine::sidechain_input};
     engine::begin_buses(*buses_, frames);
+
+    if (scene_launcher_ != nullptr) {
+        const Tick start_tick = static_cast<Tick>(arranged.clock.tick_at(static_cast<double>(song_position)));
+        scene_launcher_->begin_chunk(start_tick, arranged.meter);
+    }
 
     const auto render_tracks = render_order_.size() == tracks_.size() ? std::span{render_order_} : std::span<const std::size_t>{};
     for (std::size_t i = 0; i < tracks_.size(); ++i) {
