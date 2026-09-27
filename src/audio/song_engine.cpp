@@ -1,3 +1,4 @@
+#include "blokkily/audio/modulator.hpp"
 #include "blokkily/audio/song_engine.hpp"
 
 #include "engine/arrangement.hpp"
@@ -590,6 +591,12 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
             }
         }
     }
+    if (modulations_ != nullptr && count < capacity) {
+        const auto mod_added = modulations_->generate_events_for(
+            track_instrument(static_cast<std::uint32_t>(index)),
+            std::span{events.data() + count, capacity - count});
+        count += mod_added;
+    }
     return count;
 }
 
@@ -635,11 +642,18 @@ void SongEngine::drain_insert_edits(void* context, PluginInstance& processor,
 std::span<const PluginEvent> SongEngine::insert_events(void* context,
                                                        ProcessorAddress where) noexcept {
     auto& chunk = *static_cast<DrainContext*>(context);
-    if (!chunk.rolling || chunk.automation == nullptr) return {};
-    const auto* lanes = engine::lanes_for(*chunk.automation, where);
-    if (lanes == nullptr) return {};
-    const auto count =
-        engine::automation_events(*lanes, chunk.song_position, chunk.end, chunk.scratch);
+    std::size_t count = 0;
+    if (chunk.rolling && chunk.automation != nullptr) {
+        const auto* lanes = engine::lanes_for(*chunk.automation, where);
+        if (lanes != nullptr) {
+            count = engine::automation_events(*lanes, chunk.song_position, chunk.end, chunk.scratch);
+        }
+    }
+    if (chunk.engine->modulation_matrix() != nullptr && count < chunk.scratch.size()) {
+        const auto mod_count = chunk.engine->modulation_matrix()->generate_events_for(
+            where, chunk.scratch.subspan(count));
+        count += mod_count;
+    }
     return chunk.scratch.first(count);
 }
 
@@ -660,6 +674,11 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     std::fill(output.left.begin(), output.left.end(), 0.0F);
     std::fill(output.right.begin(), output.right.end(), 0.0F);
     const auto end = song_position + frames;
+
+    if (modulations_ != nullptr) {
+        const double bpm = live_ != nullptr ? live_->clock.bpm_at_sample(static_cast<double>(song_position)) : 120.0;
+        modulations_->process(output, sample_rate_, bpm, frames);
+    }
 
     // Whatever a MIDI port and the on-screen surfaces delivered since the last
     // block, one event per track it is routed to. It is taken once,

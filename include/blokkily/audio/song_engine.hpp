@@ -26,6 +26,7 @@
 namespace blokkily {
 
 class DiskStream;
+class ModulationMatrix;
 
 // A parameter edit a processor made, stamped on the audio thread with where in
 // the song it happened (plan F-D). `rolling` is whether the transport was
@@ -107,6 +108,8 @@ public:
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
     void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
+    void set_modulation_matrix(ModulationMatrix* modulations) noexcept { modulations_ = modulations; }
+    [[nodiscard]] ModulationMatrix* modulation_matrix() const noexcept { return modulations_; }
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
     SongEngine& operator=(const SongEngine&) = delete;
@@ -499,6 +502,7 @@ private:
     // before it is handed to the tracks it names. Touched by the callback alone.
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
+    ModulationMatrix* modulations_ = nullptr;
 };
 
 } // namespace blokkily

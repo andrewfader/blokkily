@@ -386,6 +386,7 @@ foreach(blokkily_feature
         record
         plugin_windows
         automation
+        dynamic_modulation
         audio_input
         output_recording
         clip_warp
