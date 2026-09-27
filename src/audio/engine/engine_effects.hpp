@@ -112,6 +112,7 @@ struct EditDrain {
     void* context = nullptr;
     std::span<const PluginEvent> (*events)(void* context, ProcessorAddress where) noexcept =
         nullptr;
+    StereoBlock (*sidechain)(void* context, ProcessorAddress where) noexcept = nullptr;
 };
 
 // Control thread, after the processors are in place: shapes every chain to

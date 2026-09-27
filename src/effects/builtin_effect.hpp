@@ -41,6 +41,7 @@ public:
     PluginPorts ports() const override { return {2, false}; }
     std::vector<ParameterInfo> parameters() const override;
     void set_transport(const TransportInfo& transport) noexcept override;
+    void set_sidechain(StereoBlock sidechain) noexcept override { sidechain_ = sidechain; }
     // Clears every bit of signal state (clear()), keeping the parameters.
     void reset() override;
 
@@ -48,6 +49,8 @@ public:
 
 protected:
     BuiltinEffect(std::string identifier, std::span<const ParameterSpec> specs);
+
+    StereoBlock sidechain_{};
 
     // The value a parameter has now: its automation base plus modulation,
     // clamped to its range. Audio thread (inside prepare/update/render).

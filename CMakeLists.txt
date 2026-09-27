@@ -391,6 +391,7 @@ foreach(blokkily_feature
         output_recording
         clip_warp
         metronome
+        sidechain
         wave2_fixes
         cross_feature)
     include(cmake/feature_${blokkily_feature}.cmake)

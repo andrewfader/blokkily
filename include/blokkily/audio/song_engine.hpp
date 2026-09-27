@@ -8,6 +8,7 @@
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/audio/sample_ring.hpp"
+#include "blokkily/audio/sidechain.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/plugin.hpp"
@@ -110,6 +111,15 @@ public:
     void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
     void set_modulation_matrix(ModulationMatrix* modulations) noexcept { modulations_ = modulations; }
     [[nodiscard]] ModulationMatrix* modulation_matrix() const noexcept { return modulations_; }
+
+    void set_sidechain_route(ProcessorAddress target, std::size_t source_track);
+    void clear_sidechain_routes();
+    void set_multi_output_route(std::size_t dest_track, std::size_t source_track, std::uint32_t aux_bus = 1, float gain = 1.0F);
+    void clear_multi_output_routes();
+    [[nodiscard]] std::span<const std::size_t> track_render_order() const noexcept { return render_order_; }
+
+    StereoBlock get_sidechain_for(ProcessorAddress where) const noexcept;
+
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
     SongEngine& operator=(const SongEngine&) = delete;
@@ -398,6 +408,8 @@ private:
     // The automation events an insert slot plays this chunk (item 3.1).
     static std::span<const PluginEvent> insert_events(void* context,
                                                       ProcessorAddress where) noexcept;
+    // Sidechain audio input for an insert slot
+    static StereoBlock sidechain_input(void* context, ProcessorAddress where) noexcept;
     // Begins a count-in of `bars` bars from where the playhead rests, and
     // starts the song once it is over, capturing the notes still held into
     // it. Render callback.
@@ -503,6 +515,9 @@ private:
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
     ModulationMatrix* modulations_ = nullptr;
+    std::vector<SidechainRoute> sidechains_;
+    std::vector<MultiOutputRoute> multi_outs_;
+    std::vector<std::size_t> render_order_;
 };
 
 } // namespace blokkily

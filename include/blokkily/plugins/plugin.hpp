@@ -132,6 +132,8 @@ public:
     }
     // AUDIO thread, before process(): the transport the next block plays in.
     virtual void set_transport(const TransportInfo& transport) noexcept { (void)transport; }
+    // AUDIO thread, before process(): sidechain key input audio for this block.
+    virtual void set_sidechain(StereoBlock sidechain) noexcept { (void)sidechain; }
     // Main thread, regularly: services what the plugin asked of the main
     // thread (callbacks, flushes, rescans).
     virtual void idle() {}

@@ -220,6 +220,9 @@ void run_insert_chain(InsertChain& chain, StereoBlock block, BusKind kind, std::
                 slot.through.right.write(block.right[frame]);
             }
         slot.instance->set_transport(transport);
+        if (drain.sidechain != nullptr) {
+            slot.instance->set_sidechain(drain.sidechain(drain.context, where));
+        }
         slot.instance->process(block, events);
         if (drain.drain != nullptr) drain.drain(drain.context, *slot.instance, where);
     }

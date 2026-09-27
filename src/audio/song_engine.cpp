@@ -1,4 +1,5 @@
 #include "blokkily/audio/modulator.hpp"
+#include "blokkily/audio/sidechain.hpp"
 #include "blokkily/audio/song_engine.hpp"
 
 #include "engine/arrangement.hpp"
@@ -270,6 +271,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     heard_tick_.store(0, std::memory_order_release);
     requested_position_.store(no_seek, std::memory_order_release);
     cursors_valid_ = false;
+    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
     return true;
 }
 
@@ -657,6 +659,11 @@ std::span<const PluginEvent> SongEngine::insert_events(void* context,
     return chunk.scratch.first(count);
 }
 
+StereoBlock SongEngine::sidechain_input(void* context, ProcessorAddress where) noexcept {
+    auto& chunk = *static_cast<DrainContext*>(context);
+    return chunk.engine->get_sidechain_for(where);
+}
+
 TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_t song_position,
                                        bool playing) const noexcept {
     const auto sample = static_cast<double>(song_position);
@@ -699,10 +706,12 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     DrainContext drain_context{this, song_position, from_timeline, end, &arranged.automation,
                                std::span<PluginEvent>(automation_scratch_)};
     const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context,
-                                  &SongEngine::insert_events};
+                                  &SongEngine::insert_events, &SongEngine::sidechain_input};
     engine::begin_buses(*buses_, frames);
 
-    for (std::size_t index = 0; index < tracks_.size(); ++index) {
+    const auto render_tracks = render_order_.size() == tracks_.size() ? std::span{render_order_} : std::span<const std::size_t>{};
+    for (std::size_t i = 0; i < tracks_.size(); ++i) {
+        const std::size_t index = render_tracks.empty() ? i : render_tracks[i];
         auto& track = *tracks_[index];
         // A track added after prepare() has no buffers yet and is not played.
         if (track.left.size() < frames || track.right.size() < frames) continue;
@@ -717,6 +726,17 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         std::fill(left.begin(), left.end(), 0.0F);
         std::fill(right.begin(), right.end(), 0.0F);
         const StereoBlock buffer{left, right};
+
+        for (const auto& mo : multi_outs_) {
+            if (mo.dest_track == index && mo.source_track < tracks_.size() && tracks_[mo.source_track]) {
+                const auto& src = *tracks_[mo.source_track];
+                const auto copy_frames = std::min(frames, src.left.size());
+                for (std::size_t f = 0; f < copy_frames; ++f) {
+                    buffer.left[f] += src.left[f] * mo.gain;
+                    buffer.right[f] += src.right[f] * mo.gain;
+                }
+            }
+        }
         if (track.instrument) {
             // 3. The instrument renders in place.
             track.instrument->set_transport(transport);
@@ -961,6 +981,42 @@ void SongEngine::set_track_disk_stream(std::size_t track, DiskStream* stream) no
     if (track < tracks_.size() && tracks_[track]) {
         tracks_[track]->clips.stream = stream;
     }
+}
+
+void SongEngine::set_sidechain_route(ProcessorAddress target, std::size_t source_track) {
+    std::erase_if(sidechains_, [&](const SidechainRoute& r) { return r.target == target; });
+    sidechains_.push_back({source_track, target});
+    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
+}
+
+void SongEngine::clear_sidechain_routes() {
+    sidechains_.clear();
+    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
+}
+
+void SongEngine::set_multi_output_route(std::size_t dest_track, std::size_t source_track,
+                                       std::uint32_t aux_bus, float gain) {
+    std::erase_if(multi_outs_, [&](const MultiOutputRoute& r) { return r.dest_track == dest_track; });
+    multi_outs_.push_back({source_track, aux_bus, dest_track, gain});
+    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
+}
+
+void SongEngine::clear_multi_output_routes() {
+    multi_outs_.clear();
+    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
+}
+
+StereoBlock SongEngine::get_sidechain_for(ProcessorAddress where) const noexcept {
+    for (const auto& sc : sidechains_) {
+        if (sc.target == where && sc.source_track < tracks_.size() && tracks_[sc.source_track]) {
+            const auto& src = *tracks_[sc.source_track];
+            return StereoBlock{
+                std::span<float>(const_cast<float*>(src.left.data()), src.left.size()),
+                std::span<float>(const_cast<float*>(src.right.data()), src.right.size())
+            };
+        }
+    }
+    return StereoBlock{};
 }
 
 } // namespace blokkily

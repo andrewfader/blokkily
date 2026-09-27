@@ -55,8 +55,11 @@ protected:
 
     void render(float* left, float* right, std::size_t frames) noexcept override {
         constexpr double db_to_ln = std::numbers::ln10 / 20.0;
+        const bool has_sc = sidechain_.left.size() >= frames && sidechain_.right.size() >= frames;
         for (std::size_t frame = 0; frame < frames; ++frame) {
-            const double level = std::max(std::abs(left[frame]), std::abs(right[frame]));
+            const double level = has_sc
+                ? std::max(std::abs(sidechain_.left[frame]), std::abs(sidechain_.right[frame]))
+                : std::max(std::abs(left[frame]), std::abs(right[frame]));
             const double level_db = level > 1e-9 ? 20.0 * std::log10(level) : -180.0;
             const double target = std::max(0.0, level_db - threshold_db_) * slope_;
             release_state_ = std::max(target, release_ * release_state_ + (1.0 - release_) * target);
