@@ -25,6 +25,8 @@
 
 namespace blokkily {
 
+class DiskStream;
+
 // A parameter edit a processor made, stamped on the audio thread with where in
 // the song it happened (plan F-D). `rolling` is whether the transport was
 // playing the arrangement at the time.
@@ -104,6 +106,7 @@ public:
     // returned by process(). All buses still render normally.
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
+    void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
     SongEngine& operator=(const SongEngine&) = delete;

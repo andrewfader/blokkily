@@ -26,6 +26,10 @@
 #include <cstdint>
 #include <vector>
 
+namespace blokkily {
+class DiskStream;
+}
+
 namespace blokkily::engine {
 
 // A test-only stand-in source on the clip stage, so that a track with no
@@ -39,6 +43,7 @@ using TestSourceFunction = void (*)(void* context, StereoBlock track,
 struct ClipPlayback {
     TestSourceFunction test_source = nullptr;
     void* test_context = nullptr;
+    DiskStream* stream = nullptr;
 };
 
 // One clip as the render callback plays it. Every count is in frames at the

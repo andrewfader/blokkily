@@ -938,4 +938,10 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
                           std::memory_order_release);
 }
 
+void SongEngine::set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept {
+    if (track < tracks_.size() && tracks_[track]) {
+        tracks_[track]->clips.stream = stream;
+    }
+}
+
 } // namespace blokkily

@@ -1,5 +1,6 @@
 #include "engine_clips.hpp"
 
+#include "blokkily/audio/disk_stream.hpp"
 #include "blokkily/audio/mixer.hpp"
 
 #include <algorithm>
@@ -103,6 +104,8 @@ void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std
     if (!from_timeline) return;
     if (playback.test_source != nullptr)
         playback.test_source(playback.test_context, buffer, song_position);
+    if (playback.stream != nullptr)
+        playback.stream->read_and_sum(buffer);
     if (track >= clips.tracks.size()) return;
 
     const auto frames = std::min(buffer.left.size(), buffer.right.size());

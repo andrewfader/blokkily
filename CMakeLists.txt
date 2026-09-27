@@ -381,6 +381,7 @@ foreach(blokkily_feature
         sampler
         tempo_meter_ui
         audio_clips
+        disk_streaming
         effects
         record
         plugin_windows
