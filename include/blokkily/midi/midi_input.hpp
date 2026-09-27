@@ -111,6 +111,8 @@ public:
     [[nodiscard]] std::uint64_t notes_received() const noexcept;
     [[nodiscard]] int last_key() const noexcept;
     [[nodiscard]] int last_velocity() const noexcept;
+    // Whether the sustain pedal (CC 64) is currently pressed on `channel`.
+    [[nodiscard]] bool is_sustain_active(std::uint8_t channel = 0) const noexcept;
 
     // Delivered by the port thread, or by inject(). Public only so the
     // backend callback can reach it.

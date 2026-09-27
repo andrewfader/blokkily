@@ -18,7 +18,7 @@ if(BLOKKILY_BUILD_TESTS)
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>")
     add_dependencies(blokkily_record_tests blokkily_test_clap)
     foreach(record_case routes armed_tracks channel_masks release_follows_note_on
-                        pending_release nothing_armed perform_queue project)
+                        pending_release nothing_armed perform_queue project sustain_pedal)
         add_test(NAME record_${record_case}
             COMMAND blokkily_record_tests ${record_case})
         set_tests_properties(record_${record_case} PROPERTIES
@@ -27,7 +27,7 @@ if(BLOKKILY_BUILD_TESTS)
             TIMEOUT 60)
     endforeach()
     foreach(audio_case armed_tracks channel_masks release_follows_note_on pending_release
-                       nothing_armed perform_queue)
+                       nothing_armed perform_queue sustain_pedal)
         set_property(TEST record_${audio_case} APPEND PROPERTY LABELS "integration;audio;clap;mixer")
     endforeach()
     set_property(TEST record_project APPEND PROPERTY LABELS "project")

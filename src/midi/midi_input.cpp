@@ -55,8 +55,10 @@ struct MidiInput::Impl {
         TrackMask owed = 0;
         TunedKey pitch{};
         TunedKey owed_pitch{};
+        bool sustained = false;
     };
     std::array<std::array<Held, 128>, 16> held{};
+    std::array<std::atomic<bool>, 16> sustain_active{};
     // Whether any release is owed, so the next message need not look at every
     // key to find out. Written by the producer; read by release_pending().
     std::atomic<bool> any_owed{false};
@@ -118,8 +120,12 @@ struct MidiInput::Impl {
     }
 
     void release_everything() noexcept {
+        for (auto& active : sustain_active) active.store(false, std::memory_order_relaxed);
         for (auto& channel : held)
-            for (auto& key : channel) release(key);
+            for (auto& key : channel) {
+                key.sustained = false;
+                release(key);
+            }
     }
 };
 
@@ -281,33 +287,76 @@ void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
     if (!impl_->open.load(std::memory_order_acquire)) return;
     // Releases the queue had no room for go before anything newer.
     impl_->retry_owed();
+    if (message.size() >= 3) {
+        const std::uint8_t status = message[0];
+        const auto kind = static_cast<std::uint8_t>(status & 0xF0U);
+        const auto channel = static_cast<std::uint8_t>(status & 0x0FU);
+        const auto first = static_cast<std::uint8_t>(message[1] & 0x7FU);
+        const auto second = static_cast<std::uint8_t>(message[2] & 0x7FU);
+        if (kind == 0xB0 && first == 64) {
+            // Sustain pedal (CC 64): >= 64 is down, < 64 is up
+            const bool down = second >= 64;
+            impl_->sustain_active[channel].store(down, std::memory_order_release);
+            if (!down) {
+                auto& chan_held = impl_->held[channel];
+                for (auto& k : chan_held) {
+                    if (k.sustained && k.sounding != 0) {
+                        impl_->release(k);
+                        k.sustained = false;
+                    }
+                }
+            }
+            return;
+        }
+    }
     const auto note = decode_midi(message);
     if (!note) return;
-    auto& channel = impl_->held[note->channel & 0x0FU];
+    const auto ch = static_cast<std::uint8_t>(note->channel & 0x0FU);
+    auto& channel = impl_->held[ch];
     if (note->kind == MidiNote::Kind::all_off) {
-        for (auto& held : channel) impl_->release(held);
+        impl_->sustain_active[ch].store(false, std::memory_order_release);
+        for (auto& held : channel) {
+            held.sustained = false;
+            impl_->release(held);
+        }
         return;
     }
     auto& held = channel[note->key];
     if (note->kind == MidiNote::Kind::off) {
+        // If the sustain pedal is currently pressed on this channel, hold the
+        // note sounding until the pedal is released.
+        if (impl_->sustain_active[ch].load(std::memory_order_acquire) && held.sounding != 0) {
+            held.sustained = true;
+            return;
+        }
+        held.sustained = false;
         // The tracks it went down on, not the ones the routes name now.
         impl_->release(held);
         return;
     }
     // A key struck again without a release in between is let go first, so
     // the instrument never holds two voices for one key of the keyboard.
-    if (held.sounding != 0) impl_->release(held);
+    if (held.sounding != 0) {
+        held.sustained = false;
+        impl_->release(held);
+    }
     const auto pitch = impl_->key_map[note->key].load(std::memory_order_acquire);
     // A track still owed this key's release is not struck again: its release
     // would arrive after the new note and silence it.
     const auto tracks =
-        impl_->routes[note->channel & 0x0FU].load(std::memory_order_acquire) & ~held.owed;
+        impl_->routes[ch].load(std::memory_order_acquire) & ~held.owed;
     held.sounding = impl_->push_to(
         tracks, {PluginEvent::Type::note_on, 0, pitch.key, note->velocity / 127.0, pitch.cents});
     held.pitch = pitch;
+    held.sustained = false;
     impl_->received.fetch_add(1, std::memory_order_relaxed);
     impl_->last_key.store(note->key, std::memory_order_relaxed);
     impl_->last_velocity.store(note->velocity, std::memory_order_relaxed);
+}
+
+bool MidiInput::is_sustain_active(std::uint8_t channel) const noexcept {
+    return channel < impl_->sustain_active.size() &&
+           impl_->sustain_active[channel].load(std::memory_order_acquire);
 }
 
 InputQueue& MidiInput::queue() noexcept { return impl_->queue; }

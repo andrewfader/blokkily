@@ -394,6 +394,52 @@ void project_case() {
     require(ProjectFile::serialize(*loaded) == text, "byte-identical round trip");
 }
 
+// Scenario: Sustain pedal (CC 64) holds notes until the pedal is released.
+void sustain_pedal_case() {
+    Rig rig;
+    rig.arm(0, true);
+    require(!rig.keyboard.is_sustain_active(0), "sustain initially inactive");
+
+    // 1. Play note 60 down on track 0.
+    rig.send(0x90, 60, 100);
+    const auto sounding = rig.render();
+    require(only_left(sounding), "key down sounds: " + describe(sounding));
+
+    // 2. Press sustain pedal down (CC 64 = 127).
+    rig.send(0xB0, 64, 127);
+    require(rig.keyboard.is_sustain_active(0), "sustain pedal is active");
+
+    // 3. Release key 60 physically (finger up).
+    rig.send(0x80, 60, 0);
+
+    // 4. Note must STILL be sounding through the synth!
+    const auto sustained = rig.render();
+    require(only_left(sustained), "key sustained by pedal after physical release: " + describe(sustained));
+
+    // 5. Release sustain pedal (CC 64 = 0).
+    rig.send(0xB0, 64, 0);
+    require(!rig.keyboard.is_sustain_active(0), "sustain pedal released");
+
+    // 6. Now the note must be released and silent.
+    (void)rig.render(1024);
+    const auto stopped = rig.render();
+    require(neither(stopped), "releasing sustain pedal releases the sustained note: " + describe(stopped));
+
+    // 7. Test re-striking while sustained: note on, pedal down, note off, note on again.
+    rig.send(0x90, 62, 100);
+    rig.send(0xB0, 64, 127);
+    rig.send(0x80, 62, 0);
+    rig.send(0x90, 62, 110);
+    const auto restruck = rig.render();
+    require(only_left(restruck), "restruck key sounds: " + describe(restruck));
+    rig.send(0xB0, 64, 0);
+    const auto still_held = rig.render();
+    require(only_left(still_held), "key still physically held continues sounding: " + describe(still_held));
+    rig.send(0x80, 62, 0);
+    (void)rig.render(1024);
+    require(neither(rig.render()), "key release silences the note");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -408,6 +454,7 @@ int main(int argc, char** argv) {
         else if (name == "nothing_armed") nothing_armed_case();
         else if (name == "perform_queue") perform_queue_case();
         else if (name == "project") project_case();
+        else if (name == "sustain_pedal") sustain_pedal_case();
         else throw std::runtime_error("unknown case " + name);
         std::cout << name << " passed\n";
         return 0;
