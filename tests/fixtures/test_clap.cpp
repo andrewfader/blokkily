@@ -267,6 +267,15 @@ void emit_turn(TestSynth& synth, const clap_output_events_t* out) {
     out->try_push(out, &end.header);
 }
 
+std::array<std::uint8_t, 3> last_midi_seen{};
+void record_midi(const std::uint8_t* data) {
+    if (data != nullptr) {
+        last_midi_seen[0] = data[0];
+        last_midi_seen[1] = data[1];
+        last_midi_seen[2] = data[2];
+    }
+}
+
 clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_process_t* process) {
     if (process_observer) process_observer(observer_context);
     auto* synth = self(plugin);
@@ -334,6 +343,14 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             const auto* expression = reinterpret_cast<const clap_event_note_expression_t*>(header);
             if (expression->expression_id == CLAP_NOTE_EXPRESSION_TUNING)
                 synth->tuning_semitones = expression->value;
+        } else if (header->type == CLAP_EVENT_MIDI) {
+            const auto* midi = reinterpret_cast<const clap_event_midi_t*>(header);
+            record_midi(midi->data);
+            const auto status = static_cast<std::uint8_t>(midi->data[0] & 0xF0U);
+            if (status == 0xE0) {
+                const int bend = static_cast<int>(midi->data[1]) | (static_cast<int>(midi->data[2]) << 7);
+                synth->tuning_semitones = (bend - 8192) / 8192.0 * 2.0;
+            }
         } else {
             apply_parameter(*synth, header);
         }
@@ -765,4 +782,12 @@ extern "C" CLAP_EXPORT void blokkily_test_gui_request_close() {
     for_each_live([](TestSynth& synth) {
         if (synth.gui_created && synth.host_gui != nullptr) synth.host_gui->closed(synth.host, true);
     });
+}
+
+extern "C" CLAP_EXPORT void blokkily_test_last_midi_bytes(std::uint8_t* out) {
+    if (out != nullptr) {
+        out[0] = last_midi_seen[0];
+        out[1] = last_midi_seen[1];
+        out[2] = last_midi_seen[2];
+    }
 }

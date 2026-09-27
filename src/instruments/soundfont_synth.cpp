@@ -155,6 +155,21 @@ void SoundFontSynth::process(StereoBlock audio,
             const int channel = release_channel(event.key_or_parameter);
             fluid_synth_noteoff(synth_.get(), channel < 0 ? shared_channel : channel,
                                 event.key_or_parameter);
+        } else if (event.type == PluginEvent::Type::midi_raw) {
+            const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
+            const auto status = static_cast<std::uint8_t>(raw & 0xFFU);
+            const auto first = static_cast<std::uint8_t>((raw >> 8) & 0xFFU);
+            const auto second = static_cast<std::uint8_t>((raw >> 16) & 0xFFU);
+            const auto kind = static_cast<std::uint8_t>(status & 0xF0U);
+            const auto channel = static_cast<int>(status & 0x0FU);
+            if (kind == 0xE0) {
+                const int bend = static_cast<int>(first) | (static_cast<int>(second) << 7);
+                fluid_synth_pitch_bend(synth_.get(), channel, bend);
+            } else if (kind == 0xB0) {
+                fluid_synth_cc(synth_.get(), channel, first, second);
+            } else if (kind == 0xD0) {
+                fluid_synth_channel_pressure(synth_.get(), channel, first);
+            }
         }
     }
     render(audio.left.size());

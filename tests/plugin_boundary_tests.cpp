@@ -459,6 +459,28 @@ void vst3_parameters() {
             "a transport-carrying block renders normally");
 }
 
+void clap_midi_raw() {
+    const auto loaded = keep_clap_loaded();
+    const auto last_midi = clap_hook<void (*)(std::uint8_t*)>("blokkily_test_last_midi_bytes");
+    auto plugin = clap();
+    // Raw MIDI Pitch Bend message: 0xE0, 0x00, 0x40 (center bend)
+    const std::uint32_t bend_raw = 0xE0U | (0x00U << 8) | (0x40U << 16);
+    const PluginEvent bend_event{PluginEvent::Type::midi_raw, 0, static_cast<std::int32_t>(bend_raw), 0.0, 0.0};
+    (void)render(*plugin, std::span{&bend_event, 1});
+    std::array<std::uint8_t, 3> bytes{};
+    last_midi(bytes.data());
+    require(bytes[0] == 0xE0 && bytes[1] == 0x00 && bytes[2] == 0x40,
+            "raw pitch bend reaches CLAP plugin through CLAP_EVENT_MIDI");
+
+    // Raw MIDI Mod Wheel CC 1: 0xB0, 0x01, 0x7F
+    const std::uint32_t cc_raw = 0xB0U | (0x01U << 8) | (0x7FU << 16);
+    const PluginEvent cc_event{PluginEvent::Type::midi_raw, 0, static_cast<std::int32_t>(cc_raw), 0.0, 0.0};
+    (void)render(*plugin, std::span{&cc_event, 1});
+    last_midi(bytes.data());
+    require(bytes[0] == 0xB0 && bytes[1] == 0x01 && bytes[2] == 0x7F,
+            "raw CC reaches CLAP plugin through CLAP_EVENT_MIDI");
+}
+
 const std::map<std::string, std::function<void()>> cases{
     {"clap_parameters", clap_parameters},
     {"clap_gui_turn", clap_gui_turn},
@@ -468,6 +490,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"clap_state", clap_state},
     {"clap_latency_tail", clap_latency_tail},
     {"clap_transport", clap_transport},
+    {"clap_midi_raw", clap_midi_raw},
     {"vst3_load_state_base", vst3_load_state_base},
     {"vst3_turn_base", vst3_turn_base},
     {"vst3_turn_edits", vst3_turn_edits},

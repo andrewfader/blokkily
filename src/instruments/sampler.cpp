@@ -498,6 +498,8 @@ void SamplerInstrument::process(StereoBlock audio, std::span<const PluginEvent> 
             if (event.key_or_parameter >= 0 && index < modulation_.size())
                 modulation_[index] = std::clamp(event.value, -1.0, 1.0);
             break;
+        case PluginEvent::Type::midi_raw:
+            break;
         }
     }
     render(audio, cursor, frames);

@@ -294,6 +294,7 @@ union EventStorage {
     clap_event_note_expression_t expression;
     clap_event_param_value_t value;
     clap_event_param_mod_t modulation;
+    clap_event_midi_t midi;
 };
 
 struct InputEvents {
@@ -562,11 +563,19 @@ void ClapPluginInstance::process(StereoBlock audio,
             header.type = CLAP_EVENT_PARAM_VALUE;
             converted[count++].value = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
                                       -1, -1, -1, -1, source.value};
-        } else {
+        } else if (source.type == PluginEvent::Type::parameter_modulation) {
             header.size = sizeof(clap_event_param_mod_t);
             header.type = CLAP_EVENT_PARAM_MOD;
             converted[count++].modulation = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
                                            -1, -1, -1, -1, source.value};
+        } else if (source.type == PluginEvent::Type::midi_raw) {
+            header.size = sizeof(clap_event_midi_t);
+            header.type = CLAP_EVENT_MIDI;
+            const auto raw = static_cast<std::uint32_t>(source.key_or_parameter);
+            converted[count++].midi = {header, 0,
+                {static_cast<std::uint8_t>(raw & 0xFFU),
+                 static_cast<std::uint8_t>((raw >> 8) & 0xFFU),
+                 static_cast<std::uint8_t>((raw >> 16) & 0xFFU)}};
         }
     }
     InputEvents input{};

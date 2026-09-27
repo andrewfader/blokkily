@@ -19,7 +19,7 @@ struct StereoBlock {
 };
 
 struct PluginEvent {
-    enum class Type { note_on, note_off, parameter_value, parameter_modulation };
+    enum class Type { note_on, note_off, parameter_value, parameter_modulation, midi_raw };
     Type type;
     std::uint32_t sample_offset;
     std::int32_t key_or_parameter;

@@ -287,12 +287,13 @@ void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
     if (!impl_->open.load(std::memory_order_acquire)) return;
     // Releases the queue had no room for go before anything newer.
     impl_->retry_owed();
-    if (message.size() >= 3) {
+    if (message.size() >= 2) {
         const std::uint8_t status = message[0];
         const auto kind = static_cast<std::uint8_t>(status & 0xF0U);
         const auto channel = static_cast<std::uint8_t>(status & 0x0FU);
         const auto first = static_cast<std::uint8_t>(message[1] & 0x7FU);
-        const auto second = static_cast<std::uint8_t>(message[2] & 0x7FU);
+        const auto second = message.size() >= 3 ? static_cast<std::uint8_t>(message[2] & 0x7FU)
+                                                : std::uint8_t{0};
         if (kind == 0xB0 && first == 64) {
             // Sustain pedal (CC 64): >= 64 is down, < 64 is up
             const bool down = second >= 64;
@@ -306,6 +307,19 @@ void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
                     }
                 }
             }
+            return;
+        }
+        // Continuous controllers (CC), Pitch Bend (0xE0), Channel Pressure (0xD0),
+        // and Poly Pressure (0xA0):
+        if (kind == 0xE0 || (kind == 0xB0 && first != 120 && first != 123) ||
+            kind == 0xD0 || kind == 0xA0) {
+            const std::uint32_t raw = static_cast<std::uint32_t>(status) |
+                                      (static_cast<std::uint32_t>(first) << 8) |
+                                      (static_cast<std::uint32_t>(second) << 16);
+            const auto tracks = impl_->routes[channel].load(std::memory_order_acquire);
+            (void)impl_->push_to(tracks, {PluginEvent::Type::midi_raw, 0,
+                                          static_cast<std::int32_t>(raw), 0.0, 0.0});
+            impl_->received.fetch_add(1, std::memory_order_relaxed);
             return;
         }
     }

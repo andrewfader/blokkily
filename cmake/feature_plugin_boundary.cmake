@@ -34,6 +34,7 @@ if(BLOKKILY_BUILD_TESTS)
             clap_state
             clap_latency_tail
             clap_transport
+            clap_midi_raw
             vst3_load_state_base
             vst3_turn_base
             vst3_turn_edits

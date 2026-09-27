@@ -581,6 +581,12 @@ void Vst3PluginInstance::process(StereoBlock audio,
                     }
                 impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, event.key_or_parameter,
                                      static_cast<float>(event.value)), position);
+            } else if (event.type == PluginEvent::Type::midi_raw) {
+                const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
+                impl_->midi.addEvent(juce::MidiMessage(static_cast<int>(raw & 0xFFU),
+                                                       static_cast<int>((raw >> 8) & 0xFFU),
+                                                       static_cast<int>((raw >> 16) & 0xFFU)),
+                                     position);
             }
         }
 
