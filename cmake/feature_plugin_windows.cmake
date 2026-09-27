@@ -128,7 +128,7 @@ if(BLOKKILY_BUILD_TESTS)
         add_test(NAME plugin_window_display_check COMMAND blokkily_plugin_window_display_check)
         set_tests_properties(plugin_window_display_check PROPERTIES
             LABELS "integration;screenshot;display;plugins;windows;vst3"
-            ENVIRONMENT "QT_QPA_PLATFORM=xcb;ALSA_CONFIG_PATH=/dev/null;WAYLAND_DISPLAY="
+            ENVIRONMENT "QT_QPA_PLATFORM=xcb;ALSA_CONFIG_PATH=/dev/null;WAYLAND_DISPLAY=;GDK_BACKEND=x11"
             SKIP_RETURN_CODE 77
             TIMEOUT 60)
     endif()

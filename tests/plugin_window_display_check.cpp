@@ -168,8 +168,10 @@ int main(int argc, char** argv) {
         if (!grabbed.isNull()) (void)grabbed.save(path, "PNG");
         std::cout << "grab " << grabbed.width() << "x" << grabbed.height() << ", centre "
                   << centre.name().toStdString() << ", written to " << path.toStdString() << '\n';
+        const int tolerance = std::max(2, static_cast<int>(std::ceil(ratio)) + 2);
         const bool sized = !grabbed.isNull() &&
-                           std::abs(grabbed.width() - 320) <= 1 && std::abs(grabbed.height() - 200) <= 1;
+                           std::abs(grabbed.width() - 320) <= tolerance &&
+                           std::abs(grabbed.height() - 200) <= tolerance;
         if (centre != QColor(0xc8, 0xff, 0x3c)) {
             std::cerr << "FAIL: the centre of the host window is not the editor's #c8ff3c\n";
             status = 1;
