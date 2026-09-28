@@ -84,7 +84,7 @@ Feature: A metronome and a count-in to play along to
 
   # bdd_metronome "metronome: the transport offers CLICK, a count-in and a level, each usable"
   Scenario: The transport has the metronome's controls
-    Given the app open on a 1280 by 800 window
+    Given the app open on a 1280 by 1080 window
     Then the transport shows CLICK, the count-in chip reading "NO CI" and the level slider reading "-6.0"
     And the export heading shows "+ CLICK"
     And each is big enough to use, and the transport still fits the window to RESCAN PLUGINS

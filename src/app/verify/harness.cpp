@@ -137,7 +137,9 @@ bool VerifyContext::save_screenshot_to(const QString& path) const {
     if (path.isEmpty()) return true;
     QDir{}.mkpath(QFileInfo(path).absolutePath());
     const QImage image = window->grabWindow();
-    if (image.isNull() || image.width() != 1280 || image.height() != 800) return false;
+    // The main window starts at 1280x1080 so the inspector below the step
+    // editor fits without scrolling on first launch.
+    if (image.isNull() || image.width() != 1280 || image.height() != 1080) return false;
     const auto first = image.pixelColor(0, 0);
     bool varied = false;
     for (int y = 0; y < image.height() && !varied; y += 20)

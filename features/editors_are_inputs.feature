@@ -153,7 +153,6 @@ Feature: Write music in whichever editor is open
     Then nothing is replaced
 
   Scenario: The inspector remains reachable in the combined view
-    Given the window is 1280 by 800 with all editors visible
-    When the producer scrolls down to the step inspector
-    Then the complete inspector fits inside the visible window
+    Given the window is 1280 by 1080 with all editors visible
+    Then the complete step inspector fits inside the visible window
     And its controls retain a usable size

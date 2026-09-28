@@ -7,7 +7,11 @@ import "Format.js" as Format
 ApplicationWindow {
     id: root
     objectName: "mainWindow"
-    width: 1280; height: 800; visible: true
+    // Tall enough that on first launch the inspector below the step editor
+    // and keyboard panel fit without scrolling. The previous 800 forced a
+    // scroll just to see the inspector at all, which is the canonical
+    // "lacks sufficient vertical space" cutoff users reported.
+    width: 1280; height: 1080; visible: true
     // The session's name, and a dot while it holds changes that are not on disk.
     title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + " \u2014 Blokkily"
     color: Theme.bg

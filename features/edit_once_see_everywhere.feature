@@ -11,7 +11,7 @@ Feature: Edit a musical pattern through synchronized projections
     And step 3 is not lit
     And the tracker is backed by the same canonical pattern
     And the piano roll is backed by the same canonical pattern
-    And a non-empty 1280 by 800 screenshot is captured
+    And a non-empty 1280 by 1080 screenshot is captured
 
   Scenario: Every editor agrees about the selected step
     Given the producer selects step 9, which carries a note and a parameter lock
