@@ -34,6 +34,9 @@ public:
     QGuiApplication& app;
     QCommandLineParser& parser;
     QQuickWindow* window;
+    // The size the window opened at on its screen, before the driver pinned
+    // the canonical 1280 x 1080 every gate renders at.
+    QSize opened_size;
     SongModel& song;
     PatternModel& pattern;
     Transport& transport;

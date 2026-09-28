@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QLibrary>
 #include <QMetaObject>
+#include <QScreen>
 #include <QTimer>
 #include <QVariantMap>
 
@@ -96,6 +97,21 @@ struct DefaultScenario {
     // The demonstration pattern, discovery of the fixtures, and the piano
     // roll as an input.
     void demonstration_and_piano_roll() {
+        {
+            // The offscreen platform's screen is smaller than the design
+            // size, so this is the small-screen case: the window must have
+            // opened inside the free area rather than past its bottom edge.
+            const auto free = ctx.window->screen()->availableGeometry().size();
+            const auto opened = ctx.opened_size;
+            const bool fits = !opened.isEmpty() && opened.width() <= free.width() &&
+                              opened.height() <= free.height();
+            if (!fits)
+                std::cerr << "REGRESSION: the window opened at " << opened.width() << 'x'
+                          << opened.height() << " on a screen with " << free.width() << 'x'
+                          << free.height() << " free\n";
+            valid = fits && valid;
+        }
+        reached("the window opens inside the screen");
         reached("demonstration pattern");
         // Startup discovery is exercised with real format fixtures but
         // isolated from plugins installed on the test host.

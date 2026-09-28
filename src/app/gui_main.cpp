@@ -89,11 +89,16 @@ int main(int argc, char* argv[]) {
             {parser.value("soundfont-fixture").toStdString()});
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().front());
         if (window == nullptr) return 2;
+        // Gates render one canonical frame whatever screen the run has;
+        // what the window chose for itself is kept for the gate to judge.
+        const QSize opened = window->size();
+        window->resize(1280, 1080);
         // The scenario group runs from the event loop and reads this block's
         // objects through the context, so the loop runs while they still exist.
         blokkily::verify::VerifyContext context(app, parser, window, song, pattern, transport,
                                                 controller, keyboard, llm,
                                                 verification_output);
+        context.opened_size = opened;
         blokkily::verify::schedule(context, parser.value("scenario"));
         return app.exec();
     } else {

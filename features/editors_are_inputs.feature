@@ -152,6 +152,13 @@ Feature: Write music in whichever editor is open
     When the default instrument is offered
     Then nothing is replaced
 
+  Scenario: The window opens inside the screen it is shown on
+    Given a screen whose free area is smaller than the 1280 by 1080 layout
+    When Blokkily starts
+    Then the window opens no larger than the screen's free area
+    And the editor column scrolls to whatever does not fit
+    Checked by the default gate at "the window opens inside the screen".
+
   Scenario: The inspector remains reachable in the combined view
     Given the window is 1280 by 1080 with all editors visible
     Then the complete step inspector fits inside the visible window

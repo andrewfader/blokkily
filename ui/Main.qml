@@ -7,11 +7,16 @@ import "Format.js" as Format
 ApplicationWindow {
     id: root
     objectName: "mainWindow"
-    // Tall enough that on first launch the inspector below the step editor
-    // and keyboard panel fit without scrolling. The previous 800 forced a
-    // scroll just to see the inspector at all, which is the canonical
-    // "lacks sufficient vertical space" cutoff users reported.
-    width: 1280; height: 1080; visible: true
+    // The window opens at the size the layout is designed for — every editor,
+    // the keyboard and the inspector without scrolling — unless the screen's
+    // free area is smaller, in which case it opens filling that area and the
+    // editor column scrolls. A window taller than the screen would hide its
+    // own bottom edge behind the panel.
+    width: Math.min(1280, Screen.desktopAvailableWidth)
+    height: Math.min(1080, Screen.desktopAvailableHeight)
+    minimumWidth: Math.min(960, Screen.desktopAvailableWidth)
+    minimumHeight: Math.min(600, Screen.desktopAvailableHeight)
+    visible: true
     // The session's name, and a dot while it holds changes that are not on disk.
     title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + " \u2014 Blokkily"
     color: Theme.bg
