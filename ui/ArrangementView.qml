@@ -40,6 +40,10 @@ ColumnLayout {
                 required property var modelData
                 objectName: "patternChip" + modelData.index
                 text: modelData.name
+                // Long pattern names ellipsis rather than push their
+                // siblings off the right edge of the toolbar.
+                Layout.preferredWidth: implicitWidth
+                Layout.maximumWidth: 160
                 on: modelData.current
                 onClicked: songModel.selectPattern(modelData.index)
                 onDoubleClicked: root.renameRequested("PATTERN", modelData.index,

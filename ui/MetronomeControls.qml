@@ -16,7 +16,10 @@ ColumnLayout {
         Chip {
             objectName: "clickButton"
             text: "CLICK"
-            implicitWidth: 44; implicitHeight: 22
+            // Wide enough to render "CLICK" / "NO CI" without eliding at
+            // the standard UI font size; the surrounding transport row
+            // lives with this width in pixels.
+            implicitWidth: 56; implicitHeight: 22
             on: songModel.metronomeOn
             onClicked: songModel.toggleMetronome()
         }
@@ -24,8 +27,8 @@ ColumnLayout {
         // wraps round from 4 bars to none.
         Chip {
             objectName: "countInButton"
-            implicitWidth: 44; implicitHeight: 22
             text: songModel.countInBars === 0 ? "NO CI" : "CI " + songModel.countInBars
+            implicitWidth: 56; implicitHeight: 22
             accent: Theme.record
             on: appController.countingIn
             onClicked: songModel.cycleCountIn(1)

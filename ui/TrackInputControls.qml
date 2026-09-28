@@ -70,7 +70,9 @@ ColumnLayout {
         }
         Chip {
             objectName: "monitor" + root.track.index
-            implicitWidth: 78
+            // Bumped from 78 to fit "MON AUTO" without ellipsis. The mixer
+            // strip measured against this width in earlier screenshot tests.
+            implicitWidth: 84
             text: root.track.monitorText
             accent: Theme.amber
             // Lit while the input is actually heard.

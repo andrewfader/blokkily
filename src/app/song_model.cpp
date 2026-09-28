@@ -40,9 +40,14 @@ QString gain_readout(double decibels) {
     return QString("%1%2").arg(decibels > 0.0 ? "+" : "").arg(decibels, 0, 'f', 1);
 }
 
+// Pan position, formatted consistently. Center is "C 0", full-left is
+// "L100", small offsets show one digit ("R25") so the readout stays
+// aligned with the other mixer labels instead of dropping the number at
+// center and breaking the scan pattern.
 QString pan_readout(double pan) {
-    if (std::abs(pan) < 0.01) return QStringLiteral("C");
-    return QString("%1%2").arg(pan < 0 ? "L" : "R").arg(qRound(std::abs(pan) * 100.0));
+    const int pct = static_cast<int>(std::lround(std::abs(pan) * 100.0));
+    if (pct == 0) return QStringLiteral("C 0");
+    return QString("%1%2").arg(pan < 0 ? "L" : "R").arg(pct);
 }
 
 } // namespace

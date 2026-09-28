@@ -26,7 +26,9 @@ ColumnLayout {
         Item { Layout.fillWidth: true }
         Chip {
             objectName: "collectAudioButton"
-            implicitWidth: 64; implicitHeight: 18
+            // Bumped from 64 because "COLLECT" was reading as "COLLE...".
+            // 72 fits "COLLECT" on one line at the standard UI font.
+            implicitWidth: 72; implicitHeight: 18
             text: "COLLECT"
             onClicked: appController.collectAudio()
         }

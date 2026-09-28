@@ -1,6 +1,7 @@
 #include "blokkily/model/pattern.hpp"
 
 #include <algorithm>
+#include <numeric>
 #include <stdexcept>
 
 namespace blokkily {
@@ -88,9 +89,29 @@ Pattern Pattern::with_length(Tick length) const {
 }
 
 void Pattern::sort() {
-    std::stable_sort(events_.begin(), events_.end(), [](const Trigger& a, const Trigger& b) {
-        return a.start < b.start || (a.start == b.start && a.id < b.id);
-    });
+    // GCC 16's libstdc++ false-positives -Wmaybe-uninitialized inside the
+    // insertion-sort path of std::stable_sort whenever the value type holds
+    // a std::variant (note: the diagnostic escapes a #pragma diagnostic
+    // ignored because the warning is raised inside an inlined destructor
+    // in <bits/move.h>, not at the call site). Sort an index permutation
+    // instead — behaviourally identical because id is unique and already
+    // breaks ties, and avoids the move-construction codegen the warning
+    // tracks.
+    const auto n = events_.size();
+    if (n < 2) return;
+    std::vector<std::size_t> order(n);
+    std::iota(order.begin(), order.end(), 0U);
+    std::stable_sort(order.begin(), order.end(),
+        [this](std::size_t a, std::size_t b) {
+            const auto& x = events_[a];
+            const auto& y = events_[b];
+            if (x.start != y.start) return x.start < y.start;
+            return x.id < y.id;
+        });
+    std::vector<Trigger> reordered;
+    reordered.reserve(n);
+    for (auto i : order) reordered.push_back(std::move(events_[i]));
+    events_ = std::move(reordered);
 }
 
 } // namespace blokkily

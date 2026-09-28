@@ -157,6 +157,18 @@ if(BLOKKILY_BUILD_GUI)
         Qt6::QuickShapes)
     # The application looks for the scan helper beside itself.
     add_dependencies(blokkily blokkily_scan)
+
+    # Install the GUI app, the headless scan helper it forks, and the desktop
+    # integration files (icon + .desktop entry). DESTDIR is honoured so the
+    # same rule works for packaging and for `cmake --install` into a prefix.
+    include(GNUInstallDirs)
+    install(TARGETS blokkily blokkily_scan RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    install(FILES resources/blokkily.svg
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps"
+        OPTIONAL)
+    install(FILES resources/blokkily.desktop
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+        OPTIONAL)
 endif()
 
 # Headless tests and offscreen gates must not reach whatever display the
