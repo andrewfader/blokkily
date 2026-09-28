@@ -7,6 +7,13 @@ not a compatibility add-on.
 
 ![Blokkily workstation showing an arrangement, synchronized editors, plugin browser, mixer, and keyboard](docs/images/blokkily-session.png)
 
+The workstation screenshot is the rendered `bdd_session_everything` session: a
+song with a tempo ramp, a 7/8 bar, keyed and sliced samplers, CLAP, VST3 and
+SoundFont instruments, a warped audio clip, built-in and CLAP/VST3 effects, a
+return/send bus, gain and effect automation, a count-in, and two armed tracks
+that took MIDI from a deterministic input. Above the editors is the prompt bar
+of the LLM composition assistant (described below).
+
 The framework-independent musical model and the real-time plugin boundary sit
 underneath all of it. The model covers notes, semantic chords, inversions,
 strum, microtiming, probability, ratchets, loop conditions, and parameter locks.
@@ -77,6 +84,17 @@ a note already on that step as a chord. What is written is what the engine
 heard, at the position it heard it, and one take is one step of undo. A bounce
 neither hears nor records the keyboard.
 
+A prompt bar above the editors asks an LLM composition assistant to write into
+the open pattern: a line like "a minor pentatonic ascending" or "offbeat hats"
+is sent to a chosen backend (a local Ollama model by default, a Gemini or
+MiniMax endpoint when keyed), the reply is parsed and clamped like any other
+input, and the result sits as a proposal on the bar until the producer clicks
+Apply — nothing reaches the song before then, and one generation is one undo
+step. The assistant is on the GUI thread only; the audio thread never sees an
+LLM call. See `docs/llm-assistant.md` for the wire dialect, backends, and the
+`bdd_llm_assistant` gate that drives the rendered bar end to end without a
+network.
+
 ## Build
 
 Needs Qt 6.5+, FluidSynth, RtAudio, RtMidi, libsndfile, libsamplerate and
@@ -140,9 +158,11 @@ Shift+Backspace pulls them up, Alt+arrows nudge micro-timing and note length,
 Ctrl+D duplicates the selected step onto
 the next row, Ctrl+1..0 (and Ctrl+Shift+1..6 for the second half of the bar)
 toggles a step, Ctrl+M mutes and Ctrl+L solos the selected track, Ctrl+R arms
-recording, and Ctrl+E bounces the arrangement to disk. The MIDI IN panel on the
-left chooses the keyboard, and its light flashes on every key that arrives. Those keys stand aside while a text field has
-the keyboard, so typing a search or a name never moves the song.
+recording, Ctrl+E bounces the arrangement to disk, and Ctrl+K focuses the
+assistant prompt bar (Escape hands the keys back to the editors). The MIDI IN
+panel on the left chooses the keyboard, and its light flashes on every key that
+arrives. Those keys stand aside while a text field has the keyboard, so typing
+a search or a name never moves the song.
 
 Every edit can be taken back: Ctrl+Z undoes and Ctrl+Shift+Z (or Ctrl+Y) redoes
 steps, strokes, clips, tracks, patterns, fader moves and the tuning, and a drag —
@@ -266,7 +286,11 @@ to persist those references. Original files are kept so undo remains playable.
 
 - MIDI input handles notes; pitch bend, sustain, other controllers and MIDI
   clock are not recorded. Notes are timestamped to the callback block.
-- Audio is fully decoded into RAM; there is no disk streaming or comping.
+- Long audio files stream from disk through lock-free ring buffers on a
+  background worker rather than consuming RAM; an underrun softly fades to
+  silence rather than clicking. RAM decoding remains the path for short
+  files and sampler playback. Comping (taking alternate passes of a recorded
+  lane) is not here yet.
 - The sampler panel loads one file at a time; it has no multi-sample import
   wizard, velocity-layer editor or waveform editing surface.
 - Step parameter locks target the track instrument. Insert parameters use

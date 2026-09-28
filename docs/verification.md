@@ -375,6 +375,20 @@ session, reopens and compares the read-back float export sample for sample
 with an independent drive of the same engine. Muting every track in turn must
 change rendered audio. The artifact is `build/artifacts/session-everything.png`.
 
+`bdd_llm_assistant` drives the rendered prompt bar end to end with a scripted
+backend (the JSONL prompt-reply fixture at `tests/fixtures/llm_script.jsonl`),
+no network involved. The bar starts idle, a typed prompt reaches a proposal
+with the field locked and Apply/Discard visible, Apply writes the triggers into
+the canonical pattern (one undo step), Discard leaves the pattern untouched,
+the keyboard's Ctrl+K focus and Escape handoff are exercised, and undo/redo
+move the whole generation as one. Three screenshots are saved:
+`build/artifacts/llm-assistant-idle.png`, `build/artifacts/llm-assistant-proposal.png`,
+and `build/artifacts/llm-assistant.png` (end of scenario). The wire format,
+prose rejection, clamping, out-of-pattern triggers and round trip are proved
+from canned replies by `blokkily_llm_tests` (`ctest -L llm`); the backends'
+HTTP plumbing is proved by captured `QNetworkAccessManager` requests so the
+gate never depends on a server.
+
 `output_recording_state` reproduces a parameter-lock export changing the next
 export. `output_recording_soundfont_reset` covers repeated SoundFont rendering.
 Both regression tests were run failing before their fixes.
