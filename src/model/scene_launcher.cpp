@@ -14,12 +14,12 @@ std::size_t SceneMatrix::add_scene(std::string name, std::optional<double> bpm) 
     const std::size_t idx = scenes.size();
     std::size_t track_count = 0;
     if (!scenes.empty()) {
-        track_count = scenes.front().slots.size();
+        track_count = scenes.front().cells.size();
     }
     scenes.push_back(Scene{
         .name = std::move(name),
         .bpm = bpm,
-        .slots = std::vector<std::optional<SceneSlot>>(track_count, std::nullopt)
+        .cells = std::vector<std::optional<SceneSlot>>(track_count, std::nullopt)
     });
     return idx;
 }
@@ -27,13 +27,13 @@ std::size_t SceneMatrix::add_scene(std::string name, std::optional<double> bpm) 
 void SceneMatrix::insert_scene(std::size_t index, std::string name, std::optional<double> bpm) {
     std::size_t track_count = 0;
     if (!scenes.empty()) {
-        track_count = scenes.front().slots.size();
+        track_count = scenes.front().cells.size();
     }
     const auto it = scenes.begin() + std::min(index, scenes.size());
     scenes.insert(it, Scene{
         .name = std::move(name),
         .bpm = bpm,
-        .slots = std::vector<std::optional<SceneSlot>>(track_count, std::nullopt)
+        .cells = std::vector<std::optional<SceneSlot>>(track_count, std::nullopt)
     });
 }
 
@@ -46,17 +46,17 @@ bool SceneMatrix::remove_scene(std::size_t index) {
 void SceneMatrix::set_slot(std::size_t scene_index, std::size_t track_index, SceneSlot slot) {
     if (scene_index >= scenes.size()) return;
     auto& scene = scenes[scene_index];
-    if (track_index >= scene.slots.size()) {
-        scene.slots.resize(track_index + 1, std::nullopt);
+    if (track_index >= scene.cells.size()) {
+        scene.cells.resize(track_index + 1, std::nullopt);
     }
-    scene.slots[track_index] = slot;
+    scene.cells[track_index] = slot;
 }
 
 void SceneMatrix::clear_slot(std::size_t scene_index, std::size_t track_index) {
     if (scene_index >= scenes.size()) return;
     auto& scene = scenes[scene_index];
-    if (track_index < scene.slots.size()) {
-        scene.slots[track_index] = std::nullopt;
+    if (track_index < scene.cells.size()) {
+        scene.cells[track_index] = std::nullopt;
     }
 }
 
@@ -64,20 +64,20 @@ const std::optional<SceneSlot>& SceneMatrix::slot(std::size_t scene_index,
                                                   std::size_t track_index) const noexcept {
     if (scene_index >= scenes.size()) return empty_slot;
     const auto& scene = scenes[scene_index];
-    if (track_index >= scene.slots.size()) return empty_slot;
-    return scene.slots[track_index];
+    if (track_index >= scene.cells.size()) return empty_slot;
+    return scene.cells[track_index];
 }
 
 void SceneMatrix::adjust_for_tracks(std::size_t track_count) {
     for (auto& scene : scenes) {
-        scene.slots.resize(track_count, std::nullopt);
+        scene.cells.resize(track_count, std::nullopt);
     }
 }
 
 void SceneMatrix::remove_track(std::size_t track_index) {
     for (auto& scene : scenes) {
-        if (track_index < scene.slots.size()) {
-            scene.slots.erase(scene.slots.begin() + static_cast<std::ptrdiff_t>(track_index));
+        if (track_index < scene.cells.size()) {
+            scene.cells.erase(scene.cells.begin() + static_cast<std::ptrdiff_t>(track_index));
         }
     }
 }
@@ -168,7 +168,7 @@ std::optional<std::size_t> SceneMatrix::resolve_follow_action(FollowAction actio
         case FollowAction::random: {
             std::size_t populated_count = 0;
             for (std::size_t s = 0; s < scenes.size(); ++s) {
-                if (track_index < scenes[s].slots.size() && scenes[s].slots[track_index].has_value()) {
+                if (track_index < scenes[s].cells.size() && scenes[s].cells[track_index].has_value()) {
                     ++populated_count;
                 }
             }
@@ -176,7 +176,7 @@ std::optional<std::size_t> SceneMatrix::resolve_follow_action(FollowAction actio
             const std::size_t choice = static_cast<std::size_t>(seed % populated_count);
             std::size_t current = 0;
             for (std::size_t s = 0; s < scenes.size(); ++s) {
-                if (track_index < scenes[s].slots.size() && scenes[s].slots[track_index].has_value()) {
+                if (track_index < scenes[s].cells.size() && scenes[s].cells[track_index].has_value()) {
                     if (current == choice) return s;
                     ++current;
                 }

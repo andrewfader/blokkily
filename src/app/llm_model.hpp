@@ -18,16 +18,6 @@
 #include <QString>
 #include <QStringList>
 
-// `slots` is a Qt keyword macro that Qt sets as soon as QObject is on screen.
-// SongModel's header drags in blokkily/model/scene_launcher.hpp, which uses
-// `slots` as the name of a struct field. Without this undef the field token
-// is replaced with Q_SLOTS once Qt has been seen, and the build fails with
-// "declaration does not declare anything" in the model layer. This is the
-// single header that brings the model headers and Qt together; undefining
-// here (and only here) is the smallest reliable fix.
-#ifdef slots
-#  undef slots
-#endif
 
 #include <memory>
 
@@ -84,6 +74,9 @@ signals:
 private:
     [[nodiscard]] QString contextJson() const;
     void setStatus(const QString& status);
+    // Drops the answer still on its way, if any, and hands the bar back:
+    // whatever that backend says later no longer applies.
+    void abandonPending();
     void finishProposal(blokkily::llm::ParseResult parsed);
     // Bends every pitch of `triggers` onto the session's scale when
     // auto-scale is on; returns how many moved.

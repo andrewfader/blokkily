@@ -1,6 +1,7 @@
 # Feature fragment: the LLM composition assistant. A producer describes what
 # they want in musical words; the assistant shows the session to a model
-# (local Ollama by default, Gemini on request), checks the reply, and writes
+# (local Ollama by default; Gemini, MiniMax, ChatGPT or OpenRouter on
+# request), checks the reply, and writes
 # the approved proposal into the canonical pattern as one undo step.
 # features/llm_assistant.feature maps each scenario to a check below.
 #
@@ -16,16 +17,9 @@ if(BLOKKILY_BUILD_GUI)
         src/llm/trigger_json.hpp
         src/llm/llm_backend.hpp
         src/llm/llm_backend.cpp
-        src/llm/openai_compatible_backend.hpp
         src/llm/openai_compatible_backend.cpp
         src/llm/ollama_backend.cpp
         src/llm/gemini_backend.cpp
-        src/llm/minimax_backend.cpp
-        src/llm/minimax_backend.hpp
-        src/llm/openai_backend.cpp
-        src/llm/openai_backend.hpp
-        src/llm/openrouter_backend.cpp
-        src/llm/openrouter_backend.hpp
         src/llm/scripted_backend.cpp
         src/llm/scripted_backend.hpp
         src/llm/system_prompt.cpp
@@ -44,7 +38,8 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
     # The wire format against canned replies: valid JSON of each mode,
     # prose-wrapped replies, out-of-range fields, triggers outside the
     # pattern, and a serialize/parse round trip; plus the scripted backend
-    # the e2e gate runs on. Applying, undo and scale snapping are verified
+    # the e2e gate runs on; and every live backend's request, reply and
+    # error path against a capturing network. Applying, undo and scale snapping are verified
     # end to end against the live models by bdd_llm_assistant, the way every
     # GUI-model behavior in this suite is. No server, no network.
     add_executable(blokkily_llm_tests tests/llm_assistant_tests.cpp
@@ -54,42 +49,31 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
         src/llm/scripted_backend.cpp
         src/llm/system_prompt.cpp
         src/llm/ollama_backend.cpp
-        src/llm/gemini_backend.cpp
-        src/llm/minimax_backend.cpp
-        src/llm/minimax_backend.hpp
-        src/llm/openai_backend.cpp
-        src/llm/openai_backend.hpp
-        src/llm/openrouter_backend.cpp
-        src/llm/openrouter_backend.hpp)
+        src/llm/gemini_backend.cpp)
     target_include_directories(blokkily_llm_tests PRIVATE src/llm tests)
     target_link_libraries(blokkily_llm_tests PRIVATE blokkily_core
         Qt6::Core Qt6::Network)
     target_compile_options(blokkily_llm_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    foreach(llm_case
-            parse_replace
-            parse_add_and_modify
-            parse_fenced_and_padded
-            parse_rejects_prose
-            parse_clamps_and_repairs
-            parse_drops_out_of_pattern
-            roundtrip_triggers
-            scripted_backend_answers
-            prompt_documents_schema
-            minimax_backend_builds_request
-            minimax_backend_parses_reply
-            minimax_backend_missing_key_errors
-            minimax_backend_network_error_is_readable
-            minimax_backend_server_error_is_readable
-            minimax_backend_uses_custom_url_and_model
-            openai_backend_builds_request
-            openai_backend_missing_key_errors
-            openai_backend_network_error_is_readable
-            openai_backend_server_error_is_readable
-            openrouter_backend_builds_request
-            openrouter_backend_missing_key_errors
-            openrouter_backend_network_error_is_readable
-            openrouter_backend_server_error_is_readable)
+    # Each live backend runs every scenario that applies to it: a keyless
+    # Ollama has no missing-key case, Gemini's endpoint has no URL override.
+    set(llm_backend_cases builds_request parses_reply network_error_is_readable
+        server_error_is_readable)
+    set(llm_cases parse_replace parse_add_and_modify parse_fenced_and_padded
+        parse_rejects_prose parse_clamps_and_repairs parse_drops_out_of_pattern
+        roundtrip_triggers scripted_backend_answers prompt_documents_schema)
+    foreach(vendor minimax openai openrouter gemini ollama)
+        foreach(backend_case ${llm_backend_cases})
+            list(APPEND llm_cases ${vendor}_backend_${backend_case})
+        endforeach()
+        if(NOT vendor STREQUAL "ollama")
+            list(APPEND llm_cases ${vendor}_backend_missing_key_errors)
+        endif()
+        if(NOT vendor STREQUAL "gemini")
+            list(APPEND llm_cases ${vendor}_backend_uses_custom_url_and_model)
+        endif()
+    endforeach()
+    foreach(llm_case ${llm_cases})
         add_test(NAME llm_${llm_case}
             COMMAND blokkily_llm_tests ${llm_case})
         set_tests_properties(llm_${llm_case} PROPERTIES

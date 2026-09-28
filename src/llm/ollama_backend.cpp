@@ -29,10 +29,10 @@ QString conversationText(const Request& request) {
 
 class OllamaBackend final : public LlmBackend {
 public:
-    explicit OllamaBackend(QObject* parent = nullptr)
-        : LlmBackend(parent), network_(new QNetworkAccessManager(this)) {
+    explicit OllamaBackend(QObject* parent = nullptr) : LlmBackend(parent) {
         const auto url = qEnvironmentVariable("BLOKKILY_OLLAMA_URL");
         base_ = url.isEmpty() ? QStringLiteral("http://localhost:11434") : url;
+        while (base_.endsWith('/')) base_.chop(1);
         const auto model = qEnvironmentVariable("BLOKKILY_OLLAMA_MODEL");
         model_ = model.isEmpty() ? QStringLiteral("llama3.1") : model;
     }
@@ -48,17 +48,20 @@ public:
         QNetworkRequest netRequest(QUrl(base_ + QStringLiteral("/api/generate")));
         netRequest.setHeader(QNetworkRequest::ContentTypeHeader,
                              QStringLiteral("application/json"));
-        auto* reply = network_->post(netRequest, QJsonDocument(body).toJson());
+        auto* reply = network()->post(netRequest, QJsonDocument(body).toJson());
         connect(reply, &QNetworkReply::finished, this, [reply, completion = std::move(completion)] {
             reply->deleteLater();
+            const auto bytes = reply->readAll();
             Reply answer;
-            if (reply->error() != QNetworkReply::NoError) {
+            // Ollama names a missing model in the body of its 404.
+            if (const auto said = providerError(bytes); !said.isEmpty()) {
+                answer.error = QStringLiteral("Ollama error: %1").arg(said);
+            } else if (reply->error() != QNetworkReply::NoError) {
                 answer.error = QStringLiteral("Ollama did not answer: %1 (is `ollama serve` "
                                               "running?)")
                                    .arg(reply->errorString());
             } else {
-                const auto document = QJsonDocument::fromJson(reply->readAll());
-                answer.text = document.object().value("response").toString();
+                answer.text = QJsonDocument::fromJson(bytes).object().value("response").toString();
                 answer.ok = !answer.text.isEmpty();
                 if (!answer.ok)
                     answer.error = QStringLiteral("Ollama answered with an empty response");
@@ -72,7 +75,6 @@ public:
     }
 
 private:
-    QNetworkAccessManager* network_;
     QString base_;
     QString model_;
 };

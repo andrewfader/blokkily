@@ -94,29 +94,44 @@ void run_llm(VerifyContext& ctx) {
     save_phase(ctx, QStringLiteral("idle"));
     ctx.reached("idle: ready, no proposal");
 
-    // Switching the backend must drop any in-flight answer and re-name the
-    // status, so a producer who changes backends never sees a stale proposal
-    // answered by a backend they have already moved on from. The scripted
-    // backend lives behind setBackendForTesting, so the public switch
-    // exercise uses the two named backends.
+    // Switching the backend while a prompt is on its way must hand the bar
+    // back at once — not leave it locked waiting for an answer the new
+    // backend will never give — and the old backend's answer must be
+    // dropped rather than proposed.
+    const auto before = trigger_count(ctx.song);
+    check(before == 4); // the default VERSE pattern: four drum triggers
+    ctx.llm.ask(QStringLiteral("pentatonic"));
+    check(ctx.llm.busy());
     ctx.llm.setBackend(QStringLiteral("ollama"));
+    check(!ctx.llm.busy());
+    check(field->property("enabled").toBool());
     check(ctx.llm.backendKey() == QStringLiteral("ollama"));
     check(ctx.llm.statusText().contains(QStringLiteral("Ready")));
     check(ctx.llm.backendName().contains(QStringLiteral("Ollama")));
-    ctx.llm.setBackend(QStringLiteral("gemini"));
+    ctx.settle(100);
+    check(!ctx.llm.hasProposal());
+    ctx.reached("switching mid-request unlocks the bar and drops the answer");
+
+    // Switching the rendered picker while a proposal is held drops it: the
+    // producer never applies an answer from a backend they have left.
+    ctx.llm.setBackendForTesting(std::make_unique<blokkily::llm::ScriptedBackend>());
+    ctx.llm.ask(QStringLiteral("pentatonic"));
+    for (int i = 0; i < 40 && !ctx.llm.hasProposal(); ++i) ctx.settle(50);
+    check(ctx.llm.hasProposal());
+    const auto gemini = ctx.llm.backendNames().indexOf(QStringLiteral("gemini"));
+    check(gemini >= 0);
+    QMetaObject::invokeMethod(picker, "activated", Q_ARG(int, gemini));
+    ctx.settle(50);
     check(ctx.llm.backendKey() == QStringLiteral("gemini"));
-    check(ctx.llm.statusText().contains(QStringLiteral("Ready")));
-    check(ctx.llm.backendName().contains(QStringLiteral("Gemini")));
-    // Leave the scripted backend in place for the rest of the scenario:
-    // the gate's script is what answers the prompts, and switching away
-    // would make every reply come back as an error.
+    check(!ctx.llm.hasProposal());
+    check(!apply->property("visible").toBool());
+    check(!discard->property("visible").toBool());
+    check(ctx.llm.statusText().contains(QStringLiteral("Gemini")));
+    check(trigger_count(ctx.song) == before);
+    // The rest of the scenario is answered by the gate's script.
     ctx.llm.setBackendForTesting(std::make_unique<blokkily::llm::ScriptedBackend>());
     check(ctx.llm.backendKey() == QStringLiteral("scripted"));
-    ctx.reached("backend switch is reflected in the bar");
-
-    // The session opens on the default VERSE pattern: four drum triggers.
-    const auto before = trigger_count(ctx.song);
-    check(before == 4);
+    ctx.reached("switching the picker drops a held proposal");
 
     // A prompt typed into the bar is answered with a proposal — which must
     // not touch the pattern before Apply.

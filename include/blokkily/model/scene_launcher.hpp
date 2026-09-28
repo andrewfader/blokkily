@@ -45,7 +45,7 @@ struct SceneSlot {
 struct Scene {
     std::string name;
     std::optional<double> bpm = std::nullopt;    // Optional scene tempo change
-    std::vector<std::optional<SceneSlot>> slots; // Indexed by track index
+    std::vector<std::optional<SceneSlot>> cells; // Indexed by track index
 
     friend bool operator==(const Scene&, const Scene&) = default;
 };

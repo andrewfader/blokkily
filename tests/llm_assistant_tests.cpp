@@ -7,9 +7,6 @@
 // features/llm_assistant.feature names the scenario each case executes.
 
 #include "scripted_backend.hpp"
-#include "minimax_backend.hpp"
-#include "openai_backend.hpp"
-#include "openrouter_backend.hpp"
 #include "system_prompt.hpp"
 #include "trigger_json.hpp"
 
@@ -17,7 +14,9 @@
 
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -248,7 +247,7 @@ void prompt_documents_schema_case() {
     require(prompt.contains("16 steps long"), "the prompt must say the pattern's length");
 }
 
-// The MiniMax backend lives in the network. The unit tests stand up a
+// The live backends live in the network. The unit tests stand up a
 // QNetworkAccessManager subclass that intercepts the POST, captures the
 // outgoing bytes, and returns whatever response the case wants — no live
 // server, no key on disk (AGENTS.md: tests must not depend on a network
@@ -329,6 +328,7 @@ Request sampleRequest() {
     r.systemPrompt = QStringLiteral("system");
     r.context = QStringLiteral("{\"track\":\"drums\"}");
     r.prompt = QStringLiteral("four-on-the-floor hats");
+    r.history.push_back({QStringLiteral("an earlier line"), QStringLiteral("4 triggers (replace)")});
     return r;
 }
 
@@ -347,323 +347,258 @@ void runBackend(LlmBackend* backend, Request request, Reply& out) {
     loop.exec();
 }
 
-// Scenario: the MiniMax backend builds the request shape the OpenAI chat
-// dialect expects when the key is present.
-void minimax_backend_builds_request_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_MINIMAX_KEY", "test-key");
-    qunsetenv("BLOKKILY_MINIMAX_URL");
-    qunsetenv("BLOKKILY_MINIMAX_MODEL");
-    auto* backend = makeMinimaxBackendForTesting(&app);
-    std::unique_ptr<MinimaxBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"choices":[{"message":{"content":"{\"mode\":\"replace\",\"triggers\":[]}"}}]})";
-    setMinimaxBackendNetworkForTesting(backend, nam);
+// Every live backend, described once so each scenario runs against all of
+// the backends it applies to. `dialect` picks the wire shape: the
+// OpenAI-compatible chat endpoint, Gemini's generateContent, or Ollama's
+// generate.
+enum class Dialect { chat, gemini, ollama };
 
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(reply.ok, "a happy-path reply must succeed: " + reply.error.toStdString());
+struct Vendor {
+    const char* name;       // the picker key, and the case-name prefix
+    Dialect dialect;
+    QString label;          // what the picker and the errors call it
+    const char* keyVar;     // nullptr when the backend needs no key
+    const char* urlVar;     // nullptr when the endpoint is fixed
+    const char* modelVar;
+    QString endpoint;       // the default request URL
+    QString model;          // the default model id
+};
 
-    // The URL hits the documented default endpoint + path.
-    require(nam->capture.request.url().toString() ==
-                "https://api.minimax.io/v1/chat/completions",
-            "request must hit the default chat completions endpoint");
-    // Bearer key in the Authorization header.
-    require(nam->capture.request.rawHeader("Authorization") ==
-                QByteArray("Bearer test-key"),
-            "Authorization must be a Bearer of the key");
-
-    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
-    require(body.value("model").toString() == "MiniMax-M3",
-            "default model id must be sent");
-    require(body.value("response_format").toObject().value("type").toString() ==
-                "json_object",
-            "response_format must force JSON so the wire dialect survives");
-    const auto messages = body.value("messages").toArray();
-    require(!messages.isEmpty(), "messages must not be empty");
-    require(messages.first().toObject().value("role").toString() == "system",
-            "first message must be the system prompt");
-    require(messages.last().toObject().value("content").toString()
-                .contains("four-on-the-floor hats"),
-            "the producer's prompt must be in the last user turn");
+const std::vector<Vendor>& vendors() {
+    static const std::vector<Vendor> all{
+        {"minimax", Dialect::chat, "MiniMax", "BLOKKILY_MINIMAX_KEY", "BLOKKILY_MINIMAX_URL",
+         "BLOKKILY_MINIMAX_MODEL", "https://api.minimax.io/v1/chat/completions", "MiniMax-M3"},
+        {"openai", Dialect::chat, "ChatGPT", "BLOKKILY_OPENAI_KEY", "BLOKKILY_OPENAI_URL",
+         "BLOKKILY_OPENAI_MODEL", "https://api.openai.com/v1/chat/completions", "gpt-4o-mini"},
+        {"openrouter", Dialect::chat, "OpenRouter", "BLOKKILY_OPENROUTER_KEY",
+         "BLOKKILY_OPENROUTER_URL", "BLOKKILY_OPENROUTER_MODEL",
+         "https://openrouter.ai/api/v1/chat/completions", "openai/gpt-4o-mini"},
+        {"gemini", Dialect::gemini, "Gemini", "BLOKKILY_GEMINI_KEY", nullptr,
+         "BLOKKILY_GEMINI_MODEL",
+         "https://generativelanguage.googleapis.com/v1beta/models/"
+         "gemini-2.5-flash:generateContent",
+         "gemini-2.5-flash"},
+        {"ollama", Dialect::ollama, "Ollama", nullptr, "BLOKKILY_OLLAMA_URL",
+         "BLOKKILY_OLLAMA_MODEL", "http://localhost:11434/api/generate", "llama3.1"},
+    };
+    return all;
 }
 
-// Scenario: the model's `content` field is what reaches parseResponse.
-void minimax_backend_parses_reply_case() {
+// The picker names ChatGPT "chatgpt"; the test cases say "openai".
+QString pickerName(const Vendor& vendor) {
+    return QLatin1String(vendor.name) == QLatin1String("openai") ? QStringLiteral("chatgpt")
+                                                                 : QString::fromLatin1(vendor.name);
+}
+
+// A fresh backend with defaults, a key when it takes one, and the capturing
+// network in place of a live one.
+std::unique_ptr<LlmBackend> standUp(const Vendor& vendor, CapturingNetworkAccessManager*& nam,
+                                    QObject* parent) {
+    if (vendor.keyVar) qputenv(vendor.keyVar, "test-key");
+    if (vendor.urlVar) qunsetenv(vendor.urlVar);
+    qunsetenv(vendor.modelVar);
+    auto backend = makeBackend(pickerName(vendor), parent);
+    require(backend != nullptr, std::string("no backend named ") + vendor.name);
+    nam = new CapturingNetworkAccessManager;
+    backend->setNetworkForTesting(nam);
+    return backend;
+}
+
+// The provider's successful answer carrying `content` as the model's text.
+QByteArray successBody(Dialect dialect, const QString& content) {
+    QJsonObject root;
+    switch (dialect) {
+    case Dialect::chat:
+        root["choices"] = QJsonArray{
+            QJsonObject{{"message", QJsonObject{{"role", "assistant"}, {"content", content}}}}};
+        break;
+    case Dialect::gemini:
+        root["candidates"] = QJsonArray{QJsonObject{
+            {"content", QJsonObject{{"parts", QJsonArray{QJsonObject{{"text", content}}}}}}}};
+        break;
+    case Dialect::ollama: root["response"] = content; break;
+    }
+    return QJsonDocument(root).toJson();
+}
+
+// The provider's refusal, shaped the way that provider shapes it.
+QByteArray errorBody(Dialect dialect, const QString& message) {
+    if (dialect == Dialect::ollama) return QJsonDocument(QJsonObject{{"error", message}}).toJson();
+    return QJsonDocument(QJsonObject{{"error", QJsonObject{{"message", message}, {"code", 401}}}})
+        .toJson();
+}
+
+const QString oneNote = QStringLiteral(
+    R"({"mode":"replace","triggers":[{"step":0,"length_steps":1,"note":{"key":60,"velocity":0.8}}]})");
+
+// Scenario: each backend builds the request its provider expects — the
+// endpoint, the credentials, the model, a JSON-only answer, the standing
+// instructions, and the conversation with each turn said exactly once.
+void backend_builds_request_case(const Vendor& vendor) {
     QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_MINIMAX_KEY", "test-key");
-    auto* backend = makeMinimaxBackendForTesting(&app);
-    std::unique_ptr<MinimaxBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    // The mock reply's content is the wire-dialect JSON the parser expects,
-    // nested exactly the way the OpenAI chat-completions endpoint delivers
-    // it. Built as one raw string so the embedded quotes stay literal.
-    nam->capture.response_body =
-        "{\"choices\":[{\"message\":{\"content\":\"{\\\"mode\\\":\\\"replace\\\","
-        "\\\"triggers\\\":[{\\\"step\\\":0,\\\"length_steps\\\":1,"
-        "\\\"note\\\":{\\\"key\\\":60,\\\"velocity\\\":0.8}}]}\"}}]}";
-    setMinimaxBackendNetworkForTesting(backend, nam);
-
+    CapturingNetworkAccessManager* nam = nullptr;
+    auto backend = standUp(vendor, nam, &app);
+    nam->capture.response_body = successBody(vendor.dialect, oneNote);
     Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(reply.ok, "reply must succeed: " + reply.error.toStdString());
+    runBackend(backend.get(), sampleRequest(), reply);
+    require(reply.ok, "a happy-path reply must succeed: " + reply.error.toStdString());
 
+    const auto& sent = nam->capture.request;
+    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
+    const auto everything = QString::fromUtf8(nam->capture.body);
+    require(sent.url().toString() == vendor.endpoint,
+            "wrong endpoint: " + sent.url().toString().toStdString());
+    require(!sent.url().toString().contains("test-key"), "the key must never ride in the URL");
+    require(everything.count("an earlier line") == 1,
+            "an earlier turn must be sent exactly once");
+    require(everything.contains("four-on-the-floor hats"), "the prompt must be sent");
+    require(everything.contains("\\\"track\\\":\\\"drums\\\""),
+            "the session context must be sent");
+
+    switch (vendor.dialect) {
+    case Dialect::chat: {
+        require(sent.rawHeader("Authorization") == "Bearer test-key",
+                "Authorization must be a Bearer of the key");
+        require(body.value("model").toString() == vendor.model, "default model id must be sent");
+        require(body.value("response_format").toObject().value("type").toString() ==
+                    "json_object",
+                "response_format must force JSON so the wire dialect survives");
+        const auto messages = body.value("messages").toArray();
+        // system, the earlier turn and its outcome, then the new line.
+        require(messages.size() == 4, "system + one earlier exchange + the new line");
+        require(messages.first().toObject().value("role").toString() == "system" &&
+                    messages.first().toObject().value("content").toString() == "system",
+                "first message must be the system prompt");
+        require(messages.last().toObject().value("content").toString().contains(
+                    "four-on-the-floor hats"),
+                "the producer's prompt must be in the last user turn");
+        break;
+    }
+    case Dialect::gemini:
+        require(sent.rawHeader("x-goog-api-key") == "test-key",
+                "the Gemini key must travel in its header");
+        require(body.value("generationConfig").toObject().value("response_mime_type").toString() ==
+                    "application/json",
+                "Gemini must be asked for JSON");
+        require(body.value("system_instruction").toObject().value("parts").toArray().first()
+                        .toObject().value("text").toString() == "system",
+                "the system prompt must be Gemini's system instruction");
+        break;
+    case Dialect::ollama:
+        require(body.value("model").toString() == vendor.model, "default model id must be sent");
+        require(body.value("format").toString() == "json", "Ollama must be asked for JSON");
+        require(body.value("system").toString() == "system", "the system prompt must be sent");
+        require(!body.value("stream").toBool(true), "Ollama must answer in one piece");
+        break;
+    }
+}
+
+// Scenario: the model's text is what reaches the wire-dialect parser.
+void backend_parses_reply_case(const Vendor& vendor) {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    CapturingNetworkAccessManager* nam = nullptr;
+    auto backend = standUp(vendor, nam, &app);
+    nam->capture.response_body = successBody(vendor.dialect, oneNote);
+    Reply reply;
+    runBackend(backend.get(), sampleRequest(), reply);
+    require(reply.ok, "reply must succeed: " + reply.error.toStdString());
     const auto parsed = parseResponse(reply.text, tps, steps, key_limit);
     require(parsed.ok, "the reply must parse: " + parsed.error.toStdString());
-    require(parsed.response.triggers.size() == 1, "one trigger expected");
-    require(as_note(parsed.response.triggers[0]).key == 60,
+    require(parsed.response.triggers.size() == 1 &&
+                as_note(parsed.response.triggers[0]).key == 60,
             "the model-chosen key must reach the parser");
 }
 
-// Scenario: no key means a readable error, never a crash and never silence.
-void minimax_backend_missing_key_errors_case() {
+// Scenario: no key means a readable error naming the variable to set.
+void backend_missing_key_errors_case(const Vendor& vendor) {
     QCoreApplication app(dummy_argc, dummy_argv);
-    qunsetenv("BLOKKILY_MINIMAX_KEY");
-    auto backend = makeMinimaxBackend();
-    require(backend->displayName().contains("MiniMax"),
-            "the picker must label this backend as MiniMax");
+    require(vendor.keyVar != nullptr, "this backend takes no key");
+    qunsetenv(vendor.keyVar);
+    auto backend = makeBackend(pickerName(vendor), &app);
+    require(backend->displayName().contains(vendor.label),
+            "the picker must label this backend " + vendor.label.toStdString());
     Reply reply;
     runBackend(backend.get(), sampleRequest(), reply);
     require(!reply.ok, "no key must mean no success");
-    require(reply.error.contains("BLOKKILY_MINIMAX_KEY"),
-            "the error must name the env var to set");
+    require(reply.error.contains(QLatin1String(vendor.keyVar)),
+            "the error must name the variable to set");
 }
 
-// Scenario: a transport-level failure surfaces with the network's reason.
-void minimax_backend_network_error_is_readable_case() {
+// Scenario: a transport failure surfaces with the backend's name.
+void backend_network_error_is_readable_case(const Vendor& vendor) {
     QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_MINIMAX_KEY", "test-key");
-    auto* backend = makeMinimaxBackendForTesting(&app);
-    std::unique_ptr<MinimaxBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
+    CapturingNetworkAccessManager* nam = nullptr;
+    auto backend = standUp(vendor, nam, &app);
     nam->capture.error = QNetworkReply::ConnectionRefusedError;
-    setMinimaxBackendNetworkForTesting(backend, nam);
-
     Reply reply;
-    runBackend(backend, sampleRequest(), reply);
+    runBackend(backend.get(), sampleRequest(), reply);
     require(!reply.ok, "a refused connection must not succeed");
-    require(reply.error.contains("MiniMax did not answer"),
-            "the error must say MiniMax was the one that didn't answer");
+    require(reply.error.contains(vendor.label + " did not answer"),
+            "the error must say which backend did not answer: " + reply.error.toStdString());
 }
 
-// Scenario: the provider's JSON `error` field is shown to the producer.
-void minimax_backend_server_error_is_readable_case() {
+// Scenario: the provider's own explanation reaches the producer. Providers
+// send it in the body of an HTTP error (401 bad key, 402 no credit, 404
+// unknown model), so the reply is both an HTTP failure and a JSON body.
+void backend_server_error_is_readable_case(const Vendor& vendor) {
     QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_MINIMAX_KEY", "test-key");
-    auto* backend = makeMinimaxBackendForTesting(&app);
-    std::unique_ptr<MinimaxBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"error":{"message":"insufficient credits","type":"billing_error"}})";
-    setMinimaxBackendNetworkForTesting(backend, nam);
-
+    CapturingNetworkAccessManager* nam = nullptr;
+    auto backend = standUp(vendor, nam, &app);
+    nam->capture.error = QNetworkReply::AuthenticationRequiredError;
+    nam->capture.response_body = errorBody(vendor.dialect, "Incorrect API key provided");
     Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(!reply.ok, "an error envelope must not succeed");
-    require(reply.error.contains("insufficient credits"),
-            "the provider's message must reach the producer: " +
-                reply.error.toStdString());
+    runBackend(backend.get(), sampleRequest(), reply);
+    require(!reply.ok, "an error answer must not succeed");
+    require(reply.error.contains("Incorrect API key provided") &&
+                reply.error.contains(vendor.label),
+            "the provider's message must reach the producer: " + reply.error.toStdString());
 }
 
-// Scenario: BLOKKILY_MINIMAX_URL / _MODEL override the defaults.
-void minimax_backend_uses_custom_url_and_model_case() {
+// Scenario: the URL and model variables override the defaults.
+void backend_uses_custom_url_and_model_case(const Vendor& vendor) {
     QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_MINIMAX_KEY", "test-key");
-    qputenv("BLOKKILY_MINIMAX_URL", "https://example.test/minimax");
-    qputenv("BLOKKILY_MINIMAX_MODEL", "minimax-test-1");
-    auto* backend = makeMinimaxBackendForTesting(&app);
-    std::unique_ptr<MinimaxBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"choices":[{"message":{"content":"{\"mode\":\"replace\",\"triggers\":[]}"}}]})";
-    setMinimaxBackendNetworkForTesting(backend, nam);
-
+    require(vendor.urlVar != nullptr, "this backend's endpoint is fixed");
+    if (vendor.keyVar) qputenv(vendor.keyVar, "test-key");
+    qputenv(vendor.urlVar, "https://example.test/llm/");
+    qputenv(vendor.modelVar, "custom-model-1");
+    auto backend = makeBackend(pickerName(vendor), &app);
+    auto* nam = new CapturingNetworkAccessManager;
+    backend->setNetworkForTesting(nam);
+    nam->capture.response_body = successBody(vendor.dialect, oneNote);
     Reply reply;
-    runBackend(backend, sampleRequest(), reply);
+    runBackend(backend.get(), sampleRequest(), reply);
     require(reply.ok, "reply must succeed: " + reply.error.toStdString());
-    require(nam->capture.request.url().toString() ==
-                "https://example.test/minimax/v1/chat/completions",
-            "custom URL must be honoured");
-    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
-    require(body.value("model").toString() == "minimax-test-1",
-            "custom model must be honoured");
-    qunsetenv("BLOKKILY_MINIMAX_URL");
-    qunsetenv("BLOKKILY_MINIMAX_MODEL");
+    // The override replaces the API root; the backend's own path follows it.
+    const auto path = vendor.dialect == Dialect::ollama ? QStringLiteral("/api/generate")
+                                                        : QStringLiteral("/v1/chat/completions");
+    require(nam->capture.request.url().toString() == "https://example.test/llm" + path,
+            "the custom URL must be honoured: " +
+                nam->capture.request.url().toString().toStdString());
+    require(QJsonDocument::fromJson(nam->capture.body).object().value("model").toString() ==
+                "custom-model-1",
+            "the custom model must be honoured");
+    require(backend->displayName().contains("custom-model-1"),
+            "the picker must name the model in use");
 }
 
-// Scenario: the ChatGPT backend builds the request shape OpenAI's chat
-// endpoint expects when the key is present.
-void openai_backend_builds_request_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_OPENAI_KEY", "test-key");
-    qunsetenv("BLOKKILY_OPENAI_URL");
-    qunsetenv("BLOKKILY_OPENAI_MODEL");
-    auto* backend = makeOpenAiBackendForTesting(&app);
-    std::unique_ptr<OpenAiBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"choices":[{"message":{"content":"{\"mode\":\"replace\",\"triggers\":[]}"}}]})";
-    setOpenAiBackendNetworkForTesting(backend, nam);
-
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(reply.ok, "a happy-path reply must succeed: " + reply.error.toStdString());
-
-    require(nam->capture.request.url().toString() ==
-                "https://api.openai.com/v1/chat/completions",
-            "request must hit the default chat completions endpoint");
-    require(nam->capture.request.rawHeader("Authorization") ==
-                QByteArray("Bearer test-key"),
-            "Authorization must be a Bearer of the key");
-
-    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
-    require(body.value("model").toString() == "gpt-4o-mini",
-            "default model id must be sent");
-    require(body.value("response_format").toObject().value("type").toString() ==
-                "json_object",
-            "response_format must force JSON so the wire dialect survives");
-    const auto messages = body.value("messages").toArray();
-    require(!messages.isEmpty(), "messages must not be empty");
-    require(messages.first().toObject().value("role").toString() == "system",
-            "first message must be the system prompt");
-}
-
-// Scenario: no ChatGPT key means a readable error, never a crash and
-// never silence.
-void openai_backend_missing_key_errors_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qunsetenv("BLOKKILY_OPENAI_KEY");
-    auto backend = makeOpenAiBackend();
-    require(backend->displayName().contains("ChatGPT"),
-            "the picker must label this backend as ChatGPT");
-    Reply reply;
-    runBackend(backend.get(), sampleRequest(), reply);
-    require(!reply.ok, "no key must mean no success");
-    require(reply.error.contains("BLOKKILY_OPENAI_KEY"),
-            "the error must name the env var to set");
-}
-
-// Scenario: a ChatGPT transport-level failure surfaces with the network's
-// reason.
-void openai_backend_network_error_is_readable_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_OPENAI_KEY", "test-key");
-    auto* backend = makeOpenAiBackendForTesting(&app);
-    std::unique_ptr<OpenAiBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.error = QNetworkReply::ConnectionRefusedError;
-    setOpenAiBackendNetworkForTesting(backend, nam);
-
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(!reply.ok, "a refused connection must not succeed");
-    require(reply.error.contains("ChatGPT did not answer"),
-            "the error must say ChatGPT was the one that didn't answer");
-}
-
-// Scenario: the OpenAI JSON `error` field is shown to the producer.
-void openai_backend_server_error_is_readable_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_OPENAI_KEY", "test-key");
-    auto* backend = makeOpenAiBackendForTesting(&app);
-    std::unique_ptr<OpenAiBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}})";
-    setOpenAiBackendNetworkForTesting(backend, nam);
-
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(!reply.ok, "an error envelope must not succeed");
-    require(reply.error.contains("Incorrect API key provided"),
-            "the provider's message must reach the producer: " +
-                reply.error.toStdString());
-}
-
-// Scenario: the OpenRouter backend builds the request shape the OpenRouter
-// chat endpoint expects when the key is present.
-void openrouter_backend_builds_request_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_OPENROUTER_KEY", "test-key");
-    qunsetenv("BLOKKILY_OPENROUTER_URL");
-    qunsetenv("BLOKKILY_OPENROUTER_MODEL");
-    auto* backend = makeOpenRouterBackendForTesting(&app);
-    std::unique_ptr<OpenRouterBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"choices":[{"message":{"content":"{\"mode\":\"replace\",\"triggers\":[]}"}}]})";
-    setOpenRouterBackendNetworkForTesting(backend, nam);
-
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(reply.ok, "a happy-path reply must succeed: " + reply.error.toStdString());
-
-    require(nam->capture.request.url().toString() ==
-                "https://openrouter.ai/api/v1/chat/completions",
-            "request must hit the default OpenRouter endpoint");
-    require(nam->capture.request.rawHeader("Authorization") ==
-                QByteArray("Bearer test-key"),
-            "Authorization must be a Bearer of the key");
-
-    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
-    require(body.value("model").toString() == "openai/gpt-4o-mini",
-            "default model id must be sent");
-    require(body.value("response_format").toObject().value("type").toString() ==
-                "json_object",
-            "response_format must force JSON so the wire dialect survives");
-}
-
-// Scenario: no OpenRouter key means a readable error, never a crash and
-// never silence.
-void openrouter_backend_missing_key_errors_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qunsetenv("BLOKKILY_OPENROUTER_KEY");
-    auto backend = makeOpenRouterBackend();
-    require(backend->displayName().contains("OpenRouter"),
-            "the picker must label this backend as OpenRouter");
-    Reply reply;
-    runBackend(backend.get(), sampleRequest(), reply);
-    require(!reply.ok, "no key must mean no success");
-    require(reply.error.contains("BLOKKILY_OPENROUTER_KEY"),
-            "the error must name the env var to set");
-}
-
-// Scenario: an OpenRouter transport-level failure surfaces with the
-// network's reason.
-void openrouter_backend_network_error_is_readable_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_OPENROUTER_KEY", "test-key");
-    auto* backend = makeOpenRouterBackendForTesting(&app);
-    std::unique_ptr<OpenRouterBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.error = QNetworkReply::ConnectionRefusedError;
-    setOpenRouterBackendNetworkForTesting(backend, nam);
-
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(!reply.ok, "a refused connection must not succeed");
-    require(reply.error.contains("OpenRouter did not answer"),
-            "the error must say OpenRouter was the one that didn't answer");
-}
-
-// Scenario: the OpenRouter JSON `error` field is shown to the producer.
-void openrouter_backend_server_error_is_readable_case() {
-    QCoreApplication app(dummy_argc, dummy_argv);
-    qputenv("BLOKKILY_OPENROUTER_KEY", "test-key");
-    auto* backend = makeOpenRouterBackendForTesting(&app);
-    std::unique_ptr<OpenRouterBackend> owner(backend);
-    auto* nam = new CapturingNetworkAccessManager(&app);
-    nam->capture.response_body =
-        R"({"error":{"message":"No cookie auth credentials found","code":401}})";
-    setOpenRouterBackendNetworkForTesting(backend, nam);
-
-    Reply reply;
-    runBackend(backend, sampleRequest(), reply);
-    require(!reply.ok, "an error envelope must not succeed");
-    require(reply.error.contains("No cookie auth credentials found"),
-            "the provider's message must reach the producer: " +
-                reply.error.toStdString());
+// Runs "<vendor>_backend_<scenario>"; false when the name is not one.
+bool runBackendCase(const std::string& name) {
+    const auto marker = name.find("_backend_");
+    if (marker == std::string::npos) return false;
+    const auto prefix = name.substr(0, marker);
+    const auto scenario = name.substr(marker + 9);
+    for (const auto& vendor : vendors()) {
+        if (prefix != vendor.name) continue;
+        if (scenario == "builds_request") backend_builds_request_case(vendor);
+        else if (scenario == "parses_reply") backend_parses_reply_case(vendor);
+        else if (scenario == "missing_key_errors") backend_missing_key_errors_case(vendor);
+        else if (scenario == "network_error_is_readable") backend_network_error_is_readable_case(vendor);
+        else if (scenario == "server_error_is_readable") backend_server_error_is_readable_case(vendor);
+        else if (scenario == "uses_custom_url_and_model") backend_uses_custom_url_and_model_case(vendor);
+        else return false;
+        return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -681,21 +616,7 @@ int main(int argc, char** argv) {
         else if (name == "roundtrip_triggers") roundtrip_triggers_case();
         else if (name == "scripted_backend_answers") scripted_backend_answers_case(argc, argv);
         else if (name == "prompt_documents_schema") prompt_documents_schema_case();
-        else if (name == "minimax_backend_builds_request") minimax_backend_builds_request_case();
-        else if (name == "minimax_backend_parses_reply") minimax_backend_parses_reply_case();
-        else if (name == "minimax_backend_missing_key_errors") minimax_backend_missing_key_errors_case();
-        else if (name == "minimax_backend_network_error_is_readable") minimax_backend_network_error_is_readable_case();
-        else if (name == "minimax_backend_server_error_is_readable") minimax_backend_server_error_is_readable_case();
-        else if (name == "minimax_backend_uses_custom_url_and_model") minimax_backend_uses_custom_url_and_model_case();
-        else if (name == "openai_backend_builds_request") openai_backend_builds_request_case();
-        else if (name == "openai_backend_missing_key_errors") openai_backend_missing_key_errors_case();
-        else if (name == "openai_backend_network_error_is_readable") openai_backend_network_error_is_readable_case();
-        else if (name == "openai_backend_server_error_is_readable") openai_backend_server_error_is_readable_case();
-        else if (name == "openrouter_backend_builds_request") openrouter_backend_builds_request_case();
-        else if (name == "openrouter_backend_missing_key_errors") openrouter_backend_missing_key_errors_case();
-        else if (name == "openrouter_backend_network_error_is_readable") openrouter_backend_network_error_is_readable_case();
-        else if (name == "openrouter_backend_server_error_is_readable") openrouter_backend_server_error_is_readable_case();
-        else throw std::runtime_error("unknown case " + name);
+        else if (!runBackendCase(name)) throw std::runtime_error("unknown case " + name);
         std::cout << name << " passed\n";
         return 0;
     } catch (const std::exception& error) {

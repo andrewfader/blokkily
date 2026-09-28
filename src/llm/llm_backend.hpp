@@ -7,6 +7,7 @@
 // exercise the whole path without touching a network (AGENTS.md: tests must
 // not depend on a network connection).
 
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -14,6 +15,8 @@
 #include <functional>
 #include <memory>
 #include <vector>
+
+class QNetworkAccessManager;
 
 namespace blokkily::llm {
 
@@ -47,7 +50,27 @@ public:
     virtual void complete(const Request& request, Completion completion) = 0;
     // What the prompt bar calls this backend.
     [[nodiscard]] virtual QString displayName() const = 0;
+
+    // Test seam: the unit tests hand in a network access manager that
+    // captures the request and answers with canned bytes, so every live
+    // backend's request, reply and error path runs without a server. The
+    // backend takes ownership.
+    void setNetworkForTesting(QNetworkAccessManager* network);
+
+protected:
+    // The backend's network access, created on first use. The scripted
+    // backend never asks for one.
+    [[nodiscard]] QNetworkAccessManager* network();
+
+private:
+    QNetworkAccessManager* network_ = nullptr;
 };
+
+// The provider's own explanation in an HTTP answer's body, when it gave one:
+// {"error": {"message": "..."}} (OpenAI-compatible vendors and Gemini) or
+// {"error": "..."} (Ollama). Providers send it with a 4xx/5xx status, so a
+// backend reads it before falling back on the transport's reason.
+[[nodiscard]] QString providerError(const QByteArray& body);
 
 [[nodiscard]] std::unique_ptr<LlmBackend> makeOllamaBackend(QObject* parent = nullptr);
 [[nodiscard]] std::unique_ptr<LlmBackend> makeGeminiBackend(QObject* parent = nullptr);
@@ -65,7 +88,7 @@ public:
 //   BLOKKILY_GEMINI_KEY        API key; the Gemini backend is offered
 //                              without one but answers every request with
 //                              an error
-//   BLOKKILY_GEMINI_MODEL      (default gemini-2.0-flash)
+//   BLOKKILY_GEMINI_MODEL      (default gemini-2.5-flash)
 //   BLOKKILY_MINIMAX_KEY       API key for the OpenAI-compatible chat
 //                              endpoint at BLOKKILY_MINIMAX_URL; the
 //                              backend is offered without one but answers

@@ -47,7 +47,7 @@ void LlmModel::setBackend(const QString& name) {
     backend_.reset();
     backend_ = blokkily::llm::makeBackend(name, this);
     backend_name_ = name;
-    ++generation_; // an answer from the old backend no longer applies
+    abandonPending();
     proposed_.reset();
     emit proposalChanged();
     emit backendChanged();
@@ -62,7 +62,9 @@ void LlmModel::setBackendForTesting(std::unique_ptr<blokkily::llm::LlmBackend> b
     backend_ = std::move(backend);
     backend_->setParent(this);
     backend_name_ = QStringLiteral("scripted");
-    ++generation_;
+    abandonPending();
+    proposed_.reset();
+    emit proposalChanged();
     emit backendChanged();
 }
 
@@ -93,6 +95,13 @@ QString LlmModel::contextJson() const {
         blokkily::llm::triggersToJson(events, PatternModel::ticks_per_step);
     return QString::fromUtf8(
         QJsonDocument(context).toJson(QJsonDocument::Compact));
+}
+
+void LlmModel::abandonPending() {
+    ++generation_;
+    if (!busy_) return;
+    busy_ = false;
+    emit busyChanged();
 }
 
 void LlmModel::setStatus(const QString& status) {
@@ -223,6 +232,6 @@ void LlmModel::discardProposal() {
 
 void LlmModel::clearHistory() {
     history_.clear();
-    ++generation_;
+    abandonPending();
     setStatus(QStringLiteral("Conversation cleared."));
 }

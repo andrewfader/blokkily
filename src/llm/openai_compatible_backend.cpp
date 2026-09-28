@@ -1,165 +1,152 @@
-// The shared implementation for every backend that talks the OpenAI
-// chat-completions dialect: MiniMax, ChatGPT, OpenRouter, and any future
-// vendor that adopts the same JSON shape. The subclasses only describe
-// who they are and which env vars to read — every line of HTTP and JSON
-// plumbing lives here so it stays consistent across providers.
+// Every backend that speaks the OpenAI chat-completions dialect — MiniMax,
+// ChatGPT and OpenRouter — is this one class with a different description:
+// a label for the picker and error text, the environment variables it reads,
+// and the defaults it falls back on. The HTTP and JSON plumbing lives here
+// once so the vendors cannot drift apart.
 //
-// The key, when set, is sent as a Bearer token; the response body is
-// parsed for `choices[0].message.content`; the provider's `error.message`
-// is shown verbatim when present; transport failures carry the network's
-// reason. A backend without a key stays selectable in the picker (matching
-// the Gemini shape — AGENTS.md / docs/llm-assistant.md: backends must
-// not silently disappear).
+// The request is Authorization: Bearer <key>, POST <url>/v1/chat/completions,
+// with the conversation as chat turns and response_format json_object so
+// the reply stays in the wire dialect trigger_json.cpp reads. The answer is
+// choices[0].message.content. A backend without a key stays in the picker
+// and says which variable to set, rather than vanishing.
 
-#include "openai_compatible_backend.hpp"
+#include "llm_backend.hpp"
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
 
 namespace blokkily::llm {
-
 namespace {
 
-QString chatText(const Request& request) {
-    // Flatten the conversation into one readable block; the system prompt
-    // already carries the schema so we keep the user turn as prose.
-    QString text;
-    for (const auto& turn : request.history) {
-        text += QStringLiteral("Producer: %1\nAssistant applied: %2\n\n")
-                    .arg(turn.prompt, turn.summary);
-    }
-    text += QStringLiteral("Current session context (JSON):\n%1\n\nProducer: %2\n")
-                .arg(request.context, request.prompt);
-    return text;
+struct Vendor {
+    QString label;       // what the picker and the error text call it
+    const char* keyVar;
+    const char* urlVar;
+    QString defaultUrl;  // the API root; /v1/chat/completions follows it
+    const char* modelVar;
+    QString defaultModel;
+};
+
+QString envOr(const char* name, const QString& fallback) {
+    const auto value = qEnvironmentVariable(name);
+    return value.isEmpty() ? fallback : value;
 }
+
+class OpenAiCompatibleBackend final : public LlmBackend {
+public:
+    OpenAiCompatibleBackend(Vendor vendor, QObject* parent)
+        : LlmBackend(parent), vendor_(std::move(vendor)),
+          base_(envOr(vendor_.urlVar, vendor_.defaultUrl)),
+          model_(envOr(vendor_.modelVar, vendor_.defaultModel)),
+          key_(qEnvironmentVariable(vendor_.keyVar)) {
+        while (base_.endsWith('/')) base_.chop(1);
+    }
+
+    void complete(const Request& request, Completion completion) override {
+        if (key_.isEmpty()) {
+            Reply answer;
+            answer.error = QStringLiteral("No %1 API key: set %2 and ask again, or "
+                                          "switch to the local Ollama backend.")
+                               .arg(vendor_.label, QLatin1String(vendor_.keyVar));
+            completion(answer);
+            return;
+        }
+
+        // The earlier turns as chat history, then the session and the new
+        // line as the latest user turn — each said exactly once.
+        QJsonArray messages{QJsonObject{{"role", "system"}, {"content", request.systemPrompt}}};
+        for (const auto& turn : request.history) {
+            messages.append(QJsonObject{{"role", "user"}, {"content", turn.prompt}});
+            messages.append(QJsonObject{
+                {"role", "assistant"},
+                {"content", QStringLiteral("(applied: %1)").arg(turn.summary)}});
+        }
+        messages.append(QJsonObject{
+            {"role", "user"},
+            {"content", QStringLiteral("Current session context (JSON):\n%1\n\n%2")
+                            .arg(request.context, request.prompt)}});
+        const QJsonObject body{
+            {"model", model_},
+            {"messages", messages},
+            {"temperature", 0.4},
+            {"response_format", QJsonObject{{"type", "json_object"}}},
+        };
+
+        QNetworkRequest netRequest(QUrl(base_ + QStringLiteral("/v1/chat/completions")));
+        netRequest.setHeader(QNetworkRequest::ContentTypeHeader,
+                             QStringLiteral("application/json"));
+        netRequest.setRawHeader("Authorization", "Bearer " + key_.toUtf8());
+        auto* reply = network()->post(netRequest, QJsonDocument(body).toJson());
+        connect(reply, &QNetworkReply::finished, this,
+                [reply, label = vendor_.label, completion = std::move(completion)] {
+                    reply->deleteLater();
+                    const auto bytes = reply->readAll();
+                    Reply answer;
+                    // Providers explain a refusal (bad key, no credit, unknown
+                    // model) in the body of a 4xx answer; that beats Qt's
+                    // generic transport reason.
+                    if (const auto said = providerError(bytes); !said.isEmpty()) {
+                        answer.error = QStringLiteral("%1 error: %2").arg(label, said);
+                    } else if (reply->error() != QNetworkReply::NoError) {
+                        answer.error = QStringLiteral("%1 did not answer: %2")
+                                           .arg(label, reply->errorString());
+                    } else {
+                        const auto choices =
+                            QJsonDocument::fromJson(bytes).object().value("choices").toArray();
+                        answer.text = choices.first()
+                                          .toObject()
+                                          .value("message")
+                                          .toObject()
+                                          .value("content")
+                                          .toString();
+                        answer.ok = !answer.text.isEmpty();
+                        if (!answer.ok)
+                            answer.error = QStringLiteral("%1 answered with no content").arg(label);
+                    }
+                    completion(answer);
+                });
+    }
+
+    [[nodiscard]] QString displayName() const override {
+        return QStringLiteral("%1 (%2)").arg(vendor_.label, model_);
+    }
+
+private:
+    Vendor vendor_;
+    QString base_;
+    QString model_;
+    QString key_;
+};
 
 } // namespace
 
-OpenAiCompatibleBackend::OpenAiCompatibleBackend(Config config, QObject* parent)
-    : LlmBackend(parent),
-      config_(std::move(config)),
-      network_(new QNetworkAccessManager(this)) {
-    if (!config_.urlEnvVar.isEmpty()) {
-        const auto url = qEnvironmentVariable(config_.urlEnvVar.toUtf8().constData());
-        base_ = url.isEmpty() ? config_.defaultUrl : url;
-    } else {
-        base_ = config_.defaultUrl;
-    }
-    while (base_.endsWith('/')) base_.chop(1);
-
-    if (!config_.modelEnvVar.isEmpty()) {
-        const auto model = qEnvironmentVariable(config_.modelEnvVar.toUtf8().constData());
-        model_ = model.isEmpty() ? config_.defaultModel : model;
-    } else {
-        model_ = config_.defaultModel;
-    }
-
-    key_ = qEnvironmentVariable(config_.keyEnvVar.toUtf8().constData());
+std::unique_ptr<LlmBackend> makeMinimaxBackend(QObject* parent) {
+    return std::make_unique<OpenAiCompatibleBackend>(
+        Vendor{QStringLiteral("MiniMax"), "BLOKKILY_MINIMAX_KEY", "BLOKKILY_MINIMAX_URL",
+               QStringLiteral("https://api.minimax.io"), "BLOKKILY_MINIMAX_MODEL",
+               QStringLiteral("MiniMax-M3")},
+        parent);
 }
 
-void OpenAiCompatibleBackend::complete(const Request& request, Completion completion) {
-    if (key_.isEmpty()) {
-        Reply answer;
-        answer.error = QStringLiteral(
-            "No %1 API key: set %2 and ask again, or switch "
-            "to the local Ollama backend.")
-            .arg(config_.label, config_.keyEnvVar);
-        completion(answer);
-        return;
-    }
-
-    QJsonArray messages;
-    messages.append(QJsonObject{{"role", "system"},
-                                {"content", request.systemPrompt}});
-    for (const auto& turn : request.history) {
-        messages.append(QJsonObject{{"role", "user"},
-                                    {"content", turn.prompt}});
-        messages.append(QJsonObject{
-            {"role", "assistant"},
-            {"content", QStringLiteral("(applied: %1)").arg(turn.summary)}});
-    }
-    messages.append(QJsonObject{{"role", "user"},
-                                {"content", chatText(request)}});
-
-    QJsonObject body{
-        {"model", model_},
-        {"messages", messages},
-        {"temperature", 0.4},
-        // Force JSON so the existing parser path keeps working unchanged
-        // — the wire dialect is JSON, and free-form prose would fail
-        // llm_parse_rejects_prose.
-        {"response_format", QJsonObject{{"type", "json_object"}}},
-    };
-
-    QNetworkRequest netRequest(QUrl(base_ + config_.chatPath));
-    netRequest.setHeader(QNetworkRequest::ContentTypeHeader,
-                         QStringLiteral("application/json"));
-    netRequest.setRawHeader("Authorization",
-                            QByteArray("Bearer ") + key_.toUtf8());
-    auto* reply = network_->post(netRequest, QJsonDocument(body).toJson());
-    connect(reply, &QNetworkReply::finished, this,
-            [reply, label = config_.label, completion = std::move(completion)] {
-                reply->deleteLater();
-                Reply answer;
-                if (reply->error() != QNetworkReply::NoError) {
-                    answer.error = QStringLiteral("%1 did not answer: %2")
-                                       .arg(label, reply->errorString());
-                    completion(answer);
-                    return;
-                }
-                const auto document = QJsonDocument::fromJson(reply->readAll());
-                const auto root = document.object();
-                if (const auto error = root.value("error").toObject();
-                    !error.isEmpty()) {
-                    answer.error = QStringLiteral("%1 error: %2")
-                                       .arg(label, error.value("message").toString());
-                    completion(answer);
-                    return;
-                }
-                const auto choices = root.value("choices").toArray();
-                if (choices.isEmpty()) {
-                    answer.error = QStringLiteral(
-                        "%1 answered with no choices").arg(label);
-                    completion(answer);
-                    return;
-                }
-                const auto message = choices.first()
-                                         .toObject()
-                                         .value("message")
-                                         .toObject();
-                answer.text = message.value("content").toString();
-                answer.ok = !answer.text.isEmpty();
-                if (!answer.ok)
-                    answer.error = QStringLiteral(
-                        "%1 answered with empty content").arg(label);
-                completion(answer);
-            });
+std::unique_ptr<LlmBackend> makeOpenAiBackend(QObject* parent) {
+    return std::make_unique<OpenAiCompatibleBackend>(
+        Vendor{QStringLiteral("ChatGPT"), "BLOKKILY_OPENAI_KEY", "BLOKKILY_OPENAI_URL",
+               QStringLiteral("https://api.openai.com"), "BLOKKILY_OPENAI_MODEL",
+               QStringLiteral("gpt-4o-mini")},
+        parent);
 }
 
-QString OpenAiCompatibleBackend::displayName() const {
-    return QStringLiteral("%1 (%2)").arg(config_.label, model_);
-}
-
-void OpenAiCompatibleBackend::setNetworkForTesting(QNetworkAccessManager* nam) {
-    if (network_ != nam) {
-        if (network_) network_->deleteLater();
-        network_ = nam;
-        network_->setParent(this);
-    }
-}
-
-OpenAiCompatibleBackend* makeOpenAiCompatibleBackendForTesting(
-    OpenAiCompatibleBackend::Config config, QObject* parent) {
-    return new OpenAiCompatibleBackend(std::move(config), parent);
-}
-
-void setOpenAiCompatibleBackendNetworkForTesting(OpenAiCompatibleBackend* backend,
-                                                 QNetworkAccessManager* nam) {
-    backend->setNetworkForTesting(nam);
+std::unique_ptr<LlmBackend> makeOpenRouterBackend(QObject* parent) {
+    return std::make_unique<OpenAiCompatibleBackend>(
+        Vendor{QStringLiteral("OpenRouter"), "BLOKKILY_OPENROUTER_KEY",
+               "BLOKKILY_OPENROUTER_URL", QStringLiteral("https://openrouter.ai/api"),
+               "BLOKKILY_OPENROUTER_MODEL", QStringLiteral("openai/gpt-4o-mini")},
+        parent);
 }
 
 } // namespace blokkily::llm

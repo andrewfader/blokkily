@@ -100,9 +100,9 @@ bool Song::consistent(std::string* why) const {
             return refuse(why, "a clip refers to a track or pattern that does not exist");
 
     for (const auto& scene : launcher.scenes) {
-        for (std::size_t t = 0; t < scene.slots.size(); ++t) {
-            if (scene.slots[t].has_value()) {
-                if (t >= tracks.size() || scene.slots[t]->pattern >= patterns.size())
+        for (std::size_t t = 0; t < scene.cells.size(); ++t) {
+            if (scene.cells[t].has_value()) {
+                if (t >= tracks.size() || scene.cells[t]->pattern >= patterns.size())
                     return refuse(why, "a launcher slot refers to a track or pattern that does not exist");
             }
         }

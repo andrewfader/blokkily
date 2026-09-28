@@ -19,9 +19,9 @@ void write_scene_launcher(const Project& project, WriteContext& context) {
         }
         context.out << '\n';
 
-        for (std::size_t t = 0; t < scene.slots.size(); ++t) {
-            if (scene.slots[t].has_value()) {
-                const auto& slot = *scene.slots[t];
+        for (std::size_t t = 0; t < scene.cells.size(); ++t) {
+            if (scene.cells[t].has_value()) {
+                const auto& slot = *scene.cells[t];
                 context.out << "sceneslot " << s << ' ' << t << ' '
                             << slot.pattern << ' ' << slot.repeats << ' '
                             << static_cast<int>(slot.quantization) << ' '

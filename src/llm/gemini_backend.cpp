@@ -13,7 +13,6 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
-#include <QUrlQuery>
 
 namespace blokkily::llm {
 namespace {
@@ -24,11 +23,10 @@ QJsonObject textPart(const QString& text) {
 
 class GeminiBackend final : public LlmBackend {
 public:
-    explicit GeminiBackend(QObject* parent = nullptr)
-        : LlmBackend(parent), network_(new QNetworkAccessManager(this)) {
+    explicit GeminiBackend(QObject* parent = nullptr) : LlmBackend(parent) {
         key_ = qEnvironmentVariable("BLOKKILY_GEMINI_KEY");
         const auto model = qEnvironmentVariable("BLOKKILY_GEMINI_MODEL");
-        model_ = model.isEmpty() ? QStringLiteral("gemini-2.0-flash") : model;
+        model_ = model.isEmpty() ? QStringLiteral("gemini-2.5-flash") : model;
     }
 
     void complete(const Request& request, Completion completion) override {
@@ -59,24 +57,26 @@ public:
             {"generationConfig",
              QJsonObject{{"response_mime_type", "application/json"}}},
         };
-        QUrl url(QStringLiteral(
+        // The key travels in a header, not the query string, so it never
+        // lands in a URL that a proxy or a log might keep.
+        QNetworkRequest netRequest(QUrl(QStringLiteral(
             "https://generativelanguage.googleapis.com/v1beta/models/%1:generateContent")
-                     .arg(model_));
-        QUrlQuery query;
-        query.addQueryItem(QStringLiteral("key"), key_);
-        url.setQuery(query);
-        QNetworkRequest netRequest(url);
+                                            .arg(model_)));
         netRequest.setHeader(QNetworkRequest::ContentTypeHeader,
                              QStringLiteral("application/json"));
-        auto* reply = network_->post(netRequest, QJsonDocument(body).toJson());
+        netRequest.setRawHeader("x-goog-api-key", key_.toUtf8());
+        auto* reply = network()->post(netRequest, QJsonDocument(body).toJson());
         connect(reply, &QNetworkReply::finished, this, [reply, completion = std::move(completion)] {
             reply->deleteLater();
+            const auto bytes = reply->readAll();
             Reply answer;
-            if (reply->error() != QNetworkReply::NoError) {
+            if (const auto said = providerError(bytes); !said.isEmpty()) {
+                answer.error = QStringLiteral("Gemini error: %1").arg(said);
+            } else if (reply->error() != QNetworkReply::NoError) {
                 answer.error = QStringLiteral("Gemini did not answer: %1")
                                    .arg(reply->errorString());
             } else {
-                const auto document = QJsonDocument::fromJson(reply->readAll());
+                const auto document = QJsonDocument::fromJson(bytes);
                 const auto candidates = document.object().value("candidates").toArray();
                 if (!candidates.isEmpty()) {
                     const auto parts = candidates.first()
@@ -101,7 +101,6 @@ public:
     }
 
 private:
-    QNetworkAccessManager* network_;
     QString key_;
     QString model_;
 };

@@ -1,22 +1,34 @@
-// The LlmBackend abstract QObject base. Provides the vtable and Q_OBJECT
-// linkage that every concrete backend relies on; the test binary otherwise
-// cannot link (undefined vtable / staticMetaObject for LlmBackend).
-// Also the registry: the names the picker offers, and the factory that
-// turns a name into a concrete backend.
+// The LlmBackend base: the network seam every live backend shares, the
+// provider-error reader, and the registry — the names the picker offers and
+// the factory that turns a name into a concrete backend.
 
 #include "llm_backend.hpp"
+
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
 
 namespace blokkily::llm {
 
 LlmBackend::~LlmBackend() = default;
 
-// Forward declarations so this translation unit does not have to include
-// the network-bearing backend sources just to expose their factories.
-std::unique_ptr<LlmBackend> makeOllamaBackend(QObject* parent);
-std::unique_ptr<LlmBackend> makeGeminiBackend(QObject* parent);
-std::unique_ptr<LlmBackend> makeMinimaxBackend(QObject* parent);
-std::unique_ptr<LlmBackend> makeOpenAiBackend(QObject* parent);
-std::unique_ptr<LlmBackend> makeOpenRouterBackend(QObject* parent);
+void LlmBackend::setNetworkForTesting(QNetworkAccessManager* network) {
+    if (network_ == network) return;
+    delete network_;
+    network_ = network;
+    network_->setParent(this);
+}
+
+QNetworkAccessManager* LlmBackend::network() {
+    if (network_ == nullptr) network_ = new QNetworkAccessManager(this);
+    return network_;
+}
+
+QString providerError(const QByteArray& body) {
+    const auto error = QJsonDocument::fromJson(body).object().value("error");
+    if (error.isString()) return error.toString();
+    return error.toObject().value("message").toString();
+}
 
 QStringList backendNames() {
     return {QStringLiteral("ollama"), QStringLiteral("gemini"),
