@@ -191,6 +191,9 @@ ApplicationWindow {
                                                   root.exportClick)
     }
 
+    // Ctrl+K goes to the assistant's prompt bar, the way a command palette
+    // answers Ctrl+K elsewhere; Escape there hands the keyboard back.
+    Shortcut { sequence: "Ctrl+K"; onActivated: promptBar.focusPrompt() }
     // Space plays, arrows move the step cursor, and Ctrl with the number row
     // toggles a step, so the grid can be driven without leaving the keyboard.
     // Bare digits are reserved for the tracker's upper-octave note keys.
@@ -438,6 +441,12 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         Label { text: "SPACE play  |  HOME rewind  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
                             color: Theme.muted; font.pixelSize: 10 }
+                    }
+
+                    PromptBar {
+                        id: promptBar
+                        Layout.fillWidth: true
+                        focusHome: noteEntry
                     }
 
                     ArrangementView {

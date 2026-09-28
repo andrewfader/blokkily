@@ -1,7 +1,10 @@
 #include "keyboard_model.hpp"
 #include "app_controller.hpp"
+#include "llm_model.hpp"
 #include "plugin_run_loop_qt.hpp"
 #include "verify/harness.hpp"
+
+#include "../llm/scripted_backend.hpp"
 
 #include <QGuiApplication>
 
@@ -64,12 +67,18 @@ int main(int argc, char* argv[]) {
     AppController controller(&song, &pattern, &transport, nullptr, std::move(output),
                              std::move(midi));
     KeyboardModel keyboard(&song, &pattern, &controller);
+    LlmModel llm(&song, &pattern);
+    // Verification answers prompts from a script, not a server: the gate
+    // drives the same ask → propose → apply path with bytes it controls.
+    if (parser.isSet("verify"))
+        llm.setBackendForTesting(std::make_unique<blokkily::llm::ScriptedBackend>());
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
     engine.rootContext()->setContextProperty("patternModel", &pattern);
     engine.rootContext()->setContextProperty("appController", &controller);
     engine.rootContext()->setContextProperty("transport", &transport);
     engine.rootContext()->setContextProperty("keyboardModel", &keyboard);
+    engine.rootContext()->setContextProperty("llmModel", &llm);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 
@@ -83,7 +92,8 @@ int main(int argc, char* argv[]) {
         // The scenario group runs from the event loop and reads this block's
         // objects through the context, so the loop runs while they still exist.
         blokkily::verify::VerifyContext context(app, parser, window, song, pattern, transport,
-                                                controller, keyboard, verification_output);
+                                                controller, keyboard, llm,
+                                                verification_output);
         blokkily::verify::schedule(context, parser.value("scenario"));
         return app.exec();
     } else {

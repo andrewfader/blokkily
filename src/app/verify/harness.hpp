@@ -8,6 +8,7 @@
 
 #include "keyboard_model.hpp"
 #include "app_controller.hpp"
+#include "llm_model.hpp"
 
 #include <QCommandLineParser>
 #include <QGuiApplication>
@@ -27,7 +28,7 @@ class VerifyContext {
 public:
     VerifyContext(QGuiApplication& app, QCommandLineParser& parser, QQuickWindow* window,
                   SongModel& song, PatternModel& pattern, Transport& transport,
-                  AppController& controller, KeyboardModel& keyboard,
+                  AppController& controller, KeyboardModel& keyboard, LlmModel& llm,
                   blokkily::RtAudioOutput* output);
 
     QGuiApplication& app;
@@ -38,6 +39,7 @@ public:
     Transport& transport;
     AppController& controller;
     KeyboardModel& keyboard;
+    LlmModel& llm;
     // The deterministic device the production render callback feeds.
     blokkily::RtAudioOutput* output;
 
@@ -87,6 +89,10 @@ public:
     // checks dimensions and that pixels vary; a person or an agent still has
     // to look at it.
     bool save_screenshot() const;
+    // Same as save_screenshot, but to a path the scenario chooses — used
+    // by scenario groups that capture the bar at several phases (idle,
+    // proposal, applied) for visual inspection beyond the gate's end frame.
+    bool save_screenshot_to(const QString& path) const;
 
     // Readings of the rendered editors, not of the model behind them: a
     // projection that stops following the canonical pattern must fail.

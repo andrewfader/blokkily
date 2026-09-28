@@ -93,7 +93,7 @@ add_executable(blokkily_scan src/app/scan_main.cpp)
 target_link_libraries(blokkily_scan PRIVATE blokkily_core)
 
 if(BLOKKILY_BUILD_GUI)
-    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 QuickShapes)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 QuickShapes Network)
     qt_standard_project_setup(REQUIRES 6.5)
     qt_policy(SET QTP0004 NEW)
     qt_add_executable(blokkily
@@ -394,6 +394,7 @@ foreach(blokkily_feature
         sidechain
         scene_launcher
         wave2_fixes
+        llm_assistant
         cross_feature)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()

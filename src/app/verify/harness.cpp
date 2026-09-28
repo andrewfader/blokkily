@@ -39,9 +39,11 @@ QQuickItem* find_item(QQuickItem* from, const QString& name) {
 VerifyContext::VerifyContext(QGuiApplication& app, QCommandLineParser& parser,
                              QQuickWindow* window, SongModel& song, PatternModel& pattern,
                              Transport& transport, AppController& controller,
-                             KeyboardModel& keyboard, blokkily::RtAudioOutput* output)
+                             KeyboardModel& keyboard, LlmModel& llm,
+                             blokkily::RtAudioOutput* output)
     : app(app), parser(parser), window(window), song(song), pattern(pattern),
-      transport(transport), controller(controller), keyboard(keyboard), output(output),
+      transport(transport), controller(controller), keyboard(keyboard), llm(llm),
+      output(output),
       trace_(qEnvironmentVariableIsSet("BLOKKILY_TRACE")), stereo_(1024) {}
 
 QQuickItem* VerifyContext::named(const QString& name) const {
@@ -128,9 +130,12 @@ bool VerifyContext::usable(const QQuickItem* item, double width, double height) 
 }
 
 bool VerifyContext::save_screenshot() const {
-    const QString screenshot = parser.value("screenshot");
-    if (screenshot.isEmpty()) return true;
-    QDir{}.mkpath(QFileInfo(screenshot).absolutePath());
+    return save_screenshot_to(parser.value("screenshot"));
+}
+
+bool VerifyContext::save_screenshot_to(const QString& path) const {
+    if (path.isEmpty()) return true;
+    QDir{}.mkpath(QFileInfo(path).absolutePath());
     const QImage image = window->grabWindow();
     if (image.isNull() || image.width() != 1280 || image.height() != 800) return false;
     const auto first = image.pixelColor(0, 0);
@@ -138,7 +143,7 @@ bool VerifyContext::save_screenshot() const {
     for (int y = 0; y < image.height() && !varied; y += 20)
         for (int x = 0; x < image.width(); x += 20)
             if (image.pixelColor(x, y) != first) { varied = true; break; }
-    return varied && image.save(screenshot, "PNG");
+    return varied && image.save(path, "PNG");
 }
 
 bool VerifyContext::rendered_step(int step) const {
