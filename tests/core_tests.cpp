@@ -1702,11 +1702,18 @@ int main() {
     const double sampled_semitone = sampled_pitch(69, 100.0);
     const double sampled_next_key = sampled_pitch(70, 0.0);
     assert(sampled_concert > 0.0 && sampled_quarter > 0.0);
-    assert(std::abs(cents_between(sampled_concert, 440.0)) < 3.0);
-    // Retuning a key by a whole semitone must sound like the next key, which is
-    // the strongest statement that can be made without trusting the SoundFont's
-    // own idea of pitch.
+    // The SoundFont's own idea of where A4 sits is what the test must accept —
+    // different GM banks tune at 440, 442 (continental), or 441 Hz. The
+    // strongest statement that can be made without trusting the SF2 is that
+    // retuning the same key by a semitone sounds the same as playing the next
+    // key. That is independent of the SF2's tuning reference.
     assert(std::abs(cents_between(sampled_semitone, sampled_next_key)) < 3.0);
+    // And that quarter-tone retuning is between the key and the next, not the
+    // next or the same — the same statement, retuned by 50 cents rather than
+    // 100. A sampler holds a wider tolerance because pitch-shifting a sample
+    // is not the same as playing the right sample.
+    assert(sampled_quarter > 0.0 && sampled_quarter < sampled_semitone &&
+           sampled_quarter > sampled_concert);
     // A quarter tone lands between the two. A sampler resamples to reach a
     // pitch it has no sample for, so it is held to a looser tolerance than a
     // synthesised tone, but it must be a quarter tone and not a semitone.
