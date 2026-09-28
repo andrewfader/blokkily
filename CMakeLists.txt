@@ -92,6 +92,12 @@ target_link_libraries(blokkily_cli PRIVATE blokkily_core)
 add_executable(blokkily_scan src/app/scan_main.cpp)
 target_link_libraries(blokkily_scan PRIVATE blokkily_core)
 
+# The command-line tool and the scan helper install with or without the GUI.
+# DESTDIR is honoured, so the same rules serve packaging and
+# `cmake --install` into a prefix.
+include(GNUInstallDirs)
+install(TARGETS blokkily_cli blokkily_scan RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
 if(BLOKKILY_BUILD_GUI)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 QuickShapes Network)
     qt_standard_project_setup(REQUIRES 6.5)
@@ -158,17 +164,12 @@ if(BLOKKILY_BUILD_GUI)
     # The application looks for the scan helper beside itself.
     add_dependencies(blokkily blokkily_scan)
 
-    # Install the GUI app, the headless scan helper it forks, and the desktop
-    # integration files (icon + .desktop entry). DESTDIR is honoured so the
-    # same rule works for packaging and for `cmake --install` into a prefix.
-    include(GNUInstallDirs)
-    install(TARGETS blokkily blokkily_scan RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    # The GUI app and its desktop integration (icon + .desktop entry).
+    install(TARGETS blokkily RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
     install(FILES resources/blokkily.svg
-        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps"
-        OPTIONAL)
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
     install(FILES resources/blokkily.desktop
-        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
-        OPTIONAL)
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
 endif()
 
 # Headless tests and offscreen gates must not reach whatever display the
@@ -222,6 +223,9 @@ if(BLOKKILY_BUILD_TESTS)
         BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
         BLOKKILY_TEST_ARTIFACTS="${CMAKE_BINARY_DIR}/artifacts"
     )
+    # The core suite checks with assert(): a Release build's NDEBUG would
+    # compile every check away and leave a test that cannot fail.
+    target_compile_options(blokkily_tests PRIVATE -UNDEBUG)
     add_dependencies(blokkily_tests blokkily_test_clap blokkily_test_vst3_VST3)
     add_test(NAME blokkily_core COMMAND blokkily_tests)
     set_tests_properties(blokkily_core PROPERTIES
@@ -429,3 +433,26 @@ if(BLOKKILY_COVERAGE)
     endforeach()
     target_link_options(blokkily_core INTERFACE --coverage)
 endif()
+
+# Binary and source packaging with CPack
+set(CPACK_PACKAGE_NAME "blokkily")
+set(CPACK_PACKAGE_VENDOR "Blokkily")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "An experimental pattern-first DAW")
+set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+set(CPACK_GENERATOR "TGZ;TXZ")
+set(CPACK_SOURCE_GENERATOR "TGZ;TXZ")
+# Every local build tree (build, build-asan, build_dbg ...), ctest output and
+# agent worktrees stay out of the source package.
+set(CPACK_SOURCE_IGNORE_FILES
+    "/\\\\.git/"
+    "^${CMAKE_SOURCE_DIR}/build[^/]*/"
+    "^${CMAKE_SOURCE_DIR}/Testing/"
+    "^${CMAKE_SOURCE_DIR}/\\\\.claude/"
+    "^${CMAKE_SOURCE_DIR}/\\\\.cache/"
+    "\\\\.DS_Store$"
+)
+include(CPack)
