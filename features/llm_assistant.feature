@@ -99,6 +99,56 @@ Feature: LLM composition assistant
     Then the request URL and the body's model field honour the overrides
     Checked by llm_minimax_backend_uses_custom_url_and_model.
 
+  Scenario: The ChatGPT backend builds the OpenAI chat-completions request
+    Given a ChatGPT backend with a key and a captured network access manager
+    When the producer sends a prompt
+    Then the request hits /v1/chat/completions with a Bearer key, the default
+      model id, a system message, and response_format json_object
+    Checked by llm_openai_backend_builds_request.
+
+  Scenario: Missing ChatGPT key means a readable error, not silence
+    Given a ChatGPT backend with no key
+    When the producer sends a prompt
+    Then the reply is not ok and the error names BLOKKILY_OPENAI_KEY
+    Checked by llm_openai_backend_missing_key_errors.
+
+  Scenario: A ChatGPT transport failure surfaces readably
+    Given a ChatGPT backend whose network refused the connection
+    When the producer sends a prompt
+    Then the reply is not ok and the error mentions ChatGPT
+    Checked by llm_openai_backend_network_error_is_readable.
+
+  Scenario: A ChatGPT server-side error envelope reaches the producer
+    Given a ChatGPT reply holding {"error":{"message":…}}
+    When the producer sends a prompt
+    Then the reply is not ok and the error carries the provider's message
+    Checked by llm_openai_backend_server_error_is_readable.
+
+  Scenario: The OpenRouter backend builds the OpenAI chat-completions request
+    Given an OpenRouter backend with a key and a captured network access manager
+    When the producer sends a prompt
+    Then the request hits /v1/chat/completions on openrouter.ai with a Bearer
+      key, the default model id, and response_format json_object
+    Checked by llm_openrouter_backend_builds_request.
+
+  Scenario: Missing OpenRouter key means a readable error, not silence
+    Given an OpenRouter backend with no key
+    When the producer sends a prompt
+    Then the reply is not ok and the error names BLOKKILY_OPENROUTER_KEY
+    Checked by llm_openrouter_backend_missing_key_errors.
+
+  Scenario: An OpenRouter transport failure surfaces readably
+    Given an OpenRouter backend whose network refused the connection
+    When the producer sends a prompt
+    Then the reply is not ok and the error mentions OpenRouter
+    Checked by llm_openrouter_backend_network_error_is_readable.
+
+  Scenario: An OpenRouter server-side error envelope reaches the producer
+    Given an OpenRouter reply holding {"error":{"message":…}}
+    When the producer sends a prompt
+    Then the reply is not ok and the error carries the provider's message
+    Checked by llm_openrouter_backend_server_error_is_readable.
+
   Scenario: A proposal is previewed, applied, and undone — end to end
     Given the application with a scripted backend
     When the producer types a prompt in the prompt bar, sees the proposal,

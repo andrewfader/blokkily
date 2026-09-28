@@ -52,23 +52,36 @@ public:
 [[nodiscard]] std::unique_ptr<LlmBackend> makeOllamaBackend(QObject* parent = nullptr);
 [[nodiscard]] std::unique_ptr<LlmBackend> makeGeminiBackend(QObject* parent = nullptr);
 [[nodiscard]] std::unique_ptr<LlmBackend> makeMinimaxBackend(QObject* parent = nullptr);
+[[nodiscard]] std::unique_ptr<LlmBackend> makeOpenAiBackend(QObject* parent = nullptr);
+[[nodiscard]] std::unique_ptr<LlmBackend> makeOpenRouterBackend(QObject* parent = nullptr);
 
 // The names the backend picker offers, in the order it offers them.
 [[nodiscard]] QStringList backendNames();
-// Builds the backend `name` selects. "ollama", "gemini" and "minimax" are
-// live; any other name is an empty optional. Configuration comes from the
-// environment:
-//   BLOKKILY_OLLAMA_URL     (default http://localhost:11434)
-//   BLOKKILY_OLLAMA_MODEL   (default llama3.1)
-//   BLOKKILY_GEMINI_KEY     API key; the Gemini backend is offered without
-//                           one but answers every request with an error
-//   BLOKKILY_GEMINI_MODEL   (default gemini-2.0-flash)
-//   BLOKKILY_MINIMAX_KEY    API key for the OpenAI-compatible chat endpoint
-//                           at BLOKKILY_MINIMAX_URL; the backend is offered
-//                           without one but answers every request with an
-//                           error
-//   BLOKKILY_MINIMAX_URL    (default https://api.minimax.io)
-//   BLOKKILY_MINIMAX_MODEL  (default MiniMax-M3)
+// Builds the backend `name` selects. "ollama", "gemini", "minimax",
+// "chatgpt" and "openrouter" are live; any other name is an empty
+// optional. Configuration comes from the environment:
+//   BLOKKILY_OLLAMA_URL        (default http://localhost:11434)
+//   BLOKKILY_OLLAMA_MODEL      (default llama3.1)
+//   BLOKKILY_GEMINI_KEY        API key; the Gemini backend is offered
+//                              without one but answers every request with
+//                              an error
+//   BLOKKILY_GEMINI_MODEL      (default gemini-2.0-flash)
+//   BLOKKILY_MINIMAX_KEY       API key for the OpenAI-compatible chat
+//                              endpoint at BLOKKILY_MINIMAX_URL; the
+//                              backend is offered without one but answers
+//                              every request with an error
+//   BLOKKILY_MINIMAX_URL       (default https://api.minimax.io)
+//   BLOKKILY_MINIMAX_MODEL     (default MiniMax-M3)
+//   BLOKKILY_OPENAI_KEY        API key for OpenAI's chat-completions
+//                              endpoint; the ChatGPT backend is offered
+//                              without one but answers every request with
+//                              an error
+//   BLOKKILY_OPENAI_URL        (default https://api.openai.com)
+//   BLOKKILY_OPENAI_MODEL      (default gpt-4o-mini)
+//   BLOKKILY_OPENROUTER_KEY    API key for OpenRouter (routes to any
+//                              vendor); same shape as ChatGPT
+//   BLOKKILY_OPENROUTER_URL    (default https://openrouter.ai/api)
+//   BLOKKILY_OPENROUTER_MODEL  (default openai/gpt-4o-mini)
 [[nodiscard]] std::unique_ptr<LlmBackend> makeBackend(const QString& name,
                                                       QObject* parent = nullptr);
 

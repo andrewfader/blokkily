@@ -2,30 +2,22 @@
 
 // Header for the MiniMax backend so the unit test can see its full type
 // (manage lifetime, swap network access manager). Production code uses
-// the LlmBackend interface through makeMinimaxBackend().
+// the LlmBackend interface through makeMinimaxBackend(). The MiniMax
+// backend inherits the OpenAI-compatible plumbing from
+// OpenAiCompatibleBackend.
 
-#include "llm_backend.hpp"
-
-#include <QNetworkAccessManager>
+#include "openai_compatible_backend.hpp"
 
 namespace blokkily::llm {
 
-class MinimaxBackend final : public LlmBackend {
+class MinimaxBackend final : public OpenAiCompatibleBackend {
 public:
     explicit MinimaxBackend(QObject* parent = nullptr);
 
-    void complete(const Request& request, Completion completion) override;
-    [[nodiscard]] QString displayName() const override;
-
-    // Test seam only — replaces the backend's QNetworkAccessManager so a
-    // test can intercept the POST without a live server (AGENTS.md).
-    void setNetworkForTesting(QNetworkAccessManager* nam);
-
-private:
-    QNetworkAccessManager* network_;
-    QString base_;
-    QString model_;
-    QString key_;
+    // Inherited from OpenAiCompatibleBackend:
+    //   void complete(const Request&, Completion) override;
+    //   QString displayName() const override;
+    //   void setNetworkForTesting(QNetworkAccessManager*);
 };
 
 [[nodiscard]] MinimaxBackend* makeMinimaxBackendForTesting(QObject* parent = nullptr);

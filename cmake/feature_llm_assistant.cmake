@@ -16,10 +16,16 @@ if(BLOKKILY_BUILD_GUI)
         src/llm/trigger_json.hpp
         src/llm/llm_backend.hpp
         src/llm/llm_backend.cpp
+        src/llm/openai_compatible_backend.hpp
+        src/llm/openai_compatible_backend.cpp
         src/llm/ollama_backend.cpp
         src/llm/gemini_backend.cpp
         src/llm/minimax_backend.cpp
         src/llm/minimax_backend.hpp
+        src/llm/openai_backend.cpp
+        src/llm/openai_backend.hpp
+        src/llm/openrouter_backend.cpp
+        src/llm/openrouter_backend.hpp
         src/llm/scripted_backend.cpp
         src/llm/scripted_backend.hpp
         src/llm/system_prompt.cpp
@@ -44,12 +50,17 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
     add_executable(blokkily_llm_tests tests/llm_assistant_tests.cpp
         src/llm/trigger_json.cpp
         src/llm/llm_backend.cpp
+        src/llm/openai_compatible_backend.cpp
         src/llm/scripted_backend.cpp
         src/llm/system_prompt.cpp
         src/llm/ollama_backend.cpp
         src/llm/gemini_backend.cpp
         src/llm/minimax_backend.cpp
-        src/llm/minimax_backend.hpp)
+        src/llm/minimax_backend.hpp
+        src/llm/openai_backend.cpp
+        src/llm/openai_backend.hpp
+        src/llm/openrouter_backend.cpp
+        src/llm/openrouter_backend.hpp)
     target_include_directories(blokkily_llm_tests PRIVATE src/llm tests)
     target_link_libraries(blokkily_llm_tests PRIVATE blokkily_core
         Qt6::Core Qt6::Network)
@@ -70,7 +81,15 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
             minimax_backend_missing_key_errors
             minimax_backend_network_error_is_readable
             minimax_backend_server_error_is_readable
-            minimax_backend_uses_custom_url_and_model)
+            minimax_backend_uses_custom_url_and_model
+            openai_backend_builds_request
+            openai_backend_missing_key_errors
+            openai_backend_network_error_is_readable
+            openai_backend_server_error_is_readable
+            openrouter_backend_builds_request
+            openrouter_backend_missing_key_errors
+            openrouter_backend_network_error_is_readable
+            openrouter_backend_server_error_is_readable)
         add_test(NAME llm_${llm_case}
             COMMAND blokkily_llm_tests ${llm_case})
         set_tests_properties(llm_${llm_case} PROPERTIES

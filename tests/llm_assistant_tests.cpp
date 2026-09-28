@@ -8,6 +8,8 @@
 
 #include "scripted_backend.hpp"
 #include "minimax_backend.hpp"
+#include "openai_backend.hpp"
+#include "openrouter_backend.hpp"
 #include "system_prompt.hpp"
 #include "trigger_json.hpp"
 
@@ -490,6 +492,180 @@ void minimax_backend_uses_custom_url_and_model_case() {
     qunsetenv("BLOKKILY_MINIMAX_MODEL");
 }
 
+// Scenario: the ChatGPT backend builds the request shape OpenAI's chat
+// endpoint expects when the key is present.
+void openai_backend_builds_request_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qputenv("BLOKKILY_OPENAI_KEY", "test-key");
+    qunsetenv("BLOKKILY_OPENAI_URL");
+    qunsetenv("BLOKKILY_OPENAI_MODEL");
+    auto* backend = makeOpenAiBackendForTesting(&app);
+    std::unique_ptr<OpenAiBackend> owner(backend);
+    auto* nam = new CapturingNetworkAccessManager(&app);
+    nam->capture.response_body =
+        R"({"choices":[{"message":{"content":"{\"mode\":\"replace\",\"triggers\":[]}"}}]})";
+    setOpenAiBackendNetworkForTesting(backend, nam);
+
+    Reply reply;
+    runBackend(backend, sampleRequest(), reply);
+    require(reply.ok, "a happy-path reply must succeed: " + reply.error.toStdString());
+
+    require(nam->capture.request.url().toString() ==
+                "https://api.openai.com/v1/chat/completions",
+            "request must hit the default chat completions endpoint");
+    require(nam->capture.request.rawHeader("Authorization") ==
+                QByteArray("Bearer test-key"),
+            "Authorization must be a Bearer of the key");
+
+    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
+    require(body.value("model").toString() == "gpt-4o-mini",
+            "default model id must be sent");
+    require(body.value("response_format").toObject().value("type").toString() ==
+                "json_object",
+            "response_format must force JSON so the wire dialect survives");
+    const auto messages = body.value("messages").toArray();
+    require(!messages.isEmpty(), "messages must not be empty");
+    require(messages.first().toObject().value("role").toString() == "system",
+            "first message must be the system prompt");
+}
+
+// Scenario: no ChatGPT key means a readable error, never a crash and
+// never silence.
+void openai_backend_missing_key_errors_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qunsetenv("BLOKKILY_OPENAI_KEY");
+    auto backend = makeOpenAiBackend();
+    require(backend->displayName().contains("ChatGPT"),
+            "the picker must label this backend as ChatGPT");
+    Reply reply;
+    runBackend(backend.get(), sampleRequest(), reply);
+    require(!reply.ok, "no key must mean no success");
+    require(reply.error.contains("BLOKKILY_OPENAI_KEY"),
+            "the error must name the env var to set");
+}
+
+// Scenario: a ChatGPT transport-level failure surfaces with the network's
+// reason.
+void openai_backend_network_error_is_readable_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qputenv("BLOKKILY_OPENAI_KEY", "test-key");
+    auto* backend = makeOpenAiBackendForTesting(&app);
+    std::unique_ptr<OpenAiBackend> owner(backend);
+    auto* nam = new CapturingNetworkAccessManager(&app);
+    nam->capture.error = QNetworkReply::ConnectionRefusedError;
+    setOpenAiBackendNetworkForTesting(backend, nam);
+
+    Reply reply;
+    runBackend(backend, sampleRequest(), reply);
+    require(!reply.ok, "a refused connection must not succeed");
+    require(reply.error.contains("ChatGPT did not answer"),
+            "the error must say ChatGPT was the one that didn't answer");
+}
+
+// Scenario: the OpenAI JSON `error` field is shown to the producer.
+void openai_backend_server_error_is_readable_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qputenv("BLOKKILY_OPENAI_KEY", "test-key");
+    auto* backend = makeOpenAiBackendForTesting(&app);
+    std::unique_ptr<OpenAiBackend> owner(backend);
+    auto* nam = new CapturingNetworkAccessManager(&app);
+    nam->capture.response_body =
+        R"({"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}})";
+    setOpenAiBackendNetworkForTesting(backend, nam);
+
+    Reply reply;
+    runBackend(backend, sampleRequest(), reply);
+    require(!reply.ok, "an error envelope must not succeed");
+    require(reply.error.contains("Incorrect API key provided"),
+            "the provider's message must reach the producer: " +
+                reply.error.toStdString());
+}
+
+// Scenario: the OpenRouter backend builds the request shape the OpenRouter
+// chat endpoint expects when the key is present.
+void openrouter_backend_builds_request_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qputenv("BLOKKILY_OPENROUTER_KEY", "test-key");
+    qunsetenv("BLOKKILY_OPENROUTER_URL");
+    qunsetenv("BLOKKILY_OPENROUTER_MODEL");
+    auto* backend = makeOpenRouterBackendForTesting(&app);
+    std::unique_ptr<OpenRouterBackend> owner(backend);
+    auto* nam = new CapturingNetworkAccessManager(&app);
+    nam->capture.response_body =
+        R"({"choices":[{"message":{"content":"{\"mode\":\"replace\",\"triggers\":[]}"}}]})";
+    setOpenRouterBackendNetworkForTesting(backend, nam);
+
+    Reply reply;
+    runBackend(backend, sampleRequest(), reply);
+    require(reply.ok, "a happy-path reply must succeed: " + reply.error.toStdString());
+
+    require(nam->capture.request.url().toString() ==
+                "https://openrouter.ai/api/v1/chat/completions",
+            "request must hit the default OpenRouter endpoint");
+    require(nam->capture.request.rawHeader("Authorization") ==
+                QByteArray("Bearer test-key"),
+            "Authorization must be a Bearer of the key");
+
+    const auto body = QJsonDocument::fromJson(nam->capture.body).object();
+    require(body.value("model").toString() == "openai/gpt-4o-mini",
+            "default model id must be sent");
+    require(body.value("response_format").toObject().value("type").toString() ==
+                "json_object",
+            "response_format must force JSON so the wire dialect survives");
+}
+
+// Scenario: no OpenRouter key means a readable error, never a crash and
+// never silence.
+void openrouter_backend_missing_key_errors_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qunsetenv("BLOKKILY_OPENROUTER_KEY");
+    auto backend = makeOpenRouterBackend();
+    require(backend->displayName().contains("OpenRouter"),
+            "the picker must label this backend as OpenRouter");
+    Reply reply;
+    runBackend(backend.get(), sampleRequest(), reply);
+    require(!reply.ok, "no key must mean no success");
+    require(reply.error.contains("BLOKKILY_OPENROUTER_KEY"),
+            "the error must name the env var to set");
+}
+
+// Scenario: an OpenRouter transport-level failure surfaces with the
+// network's reason.
+void openrouter_backend_network_error_is_readable_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qputenv("BLOKKILY_OPENROUTER_KEY", "test-key");
+    auto* backend = makeOpenRouterBackendForTesting(&app);
+    std::unique_ptr<OpenRouterBackend> owner(backend);
+    auto* nam = new CapturingNetworkAccessManager(&app);
+    nam->capture.error = QNetworkReply::ConnectionRefusedError;
+    setOpenRouterBackendNetworkForTesting(backend, nam);
+
+    Reply reply;
+    runBackend(backend, sampleRequest(), reply);
+    require(!reply.ok, "a refused connection must not succeed");
+    require(reply.error.contains("OpenRouter did not answer"),
+            "the error must say OpenRouter was the one that didn't answer");
+}
+
+// Scenario: the OpenRouter JSON `error` field is shown to the producer.
+void openrouter_backend_server_error_is_readable_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    qputenv("BLOKKILY_OPENROUTER_KEY", "test-key");
+    auto* backend = makeOpenRouterBackendForTesting(&app);
+    std::unique_ptr<OpenRouterBackend> owner(backend);
+    auto* nam = new CapturingNetworkAccessManager(&app);
+    nam->capture.response_body =
+        R"({"error":{"message":"No cookie auth credentials found","code":401}})";
+    setOpenRouterBackendNetworkForTesting(backend, nam);
+
+    Reply reply;
+    runBackend(backend, sampleRequest(), reply);
+    require(!reply.ok, "an error envelope must not succeed");
+    require(reply.error.contains("No cookie auth credentials found"),
+            "the provider's message must reach the producer: " +
+                reply.error.toStdString());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -511,6 +687,14 @@ int main(int argc, char** argv) {
         else if (name == "minimax_backend_network_error_is_readable") minimax_backend_network_error_is_readable_case();
         else if (name == "minimax_backend_server_error_is_readable") minimax_backend_server_error_is_readable_case();
         else if (name == "minimax_backend_uses_custom_url_and_model") minimax_backend_uses_custom_url_and_model_case();
+        else if (name == "openai_backend_builds_request") openai_backend_builds_request_case();
+        else if (name == "openai_backend_missing_key_errors") openai_backend_missing_key_errors_case();
+        else if (name == "openai_backend_network_error_is_readable") openai_backend_network_error_is_readable_case();
+        else if (name == "openai_backend_server_error_is_readable") openai_backend_server_error_is_readable_case();
+        else if (name == "openrouter_backend_builds_request") openrouter_backend_builds_request_case();
+        else if (name == "openrouter_backend_missing_key_errors") openrouter_backend_missing_key_errors_case();
+        else if (name == "openrouter_backend_network_error_is_readable") openrouter_backend_network_error_is_readable_case();
+        else if (name == "openrouter_backend_server_error_is_readable") openrouter_backend_server_error_is_readable_case();
         else throw std::runtime_error("unknown case " + name);
         std::cout << name << " passed\n";
         return 0;
