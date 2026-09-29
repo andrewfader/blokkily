@@ -555,7 +555,8 @@ private:
     void drainTake();
     // Ends the take: whatever is still held is written as released now.
     void finishTake();
-    void commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes);
+    void commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes,
+                    std::vector<std::pair<std::size_t, blokkily::ContinuousEvent>> controls = {});
     // Automation (item 3.1; app_controller_automation.cpp). A strip move from
     // the song model, handed to the engine.
     void stripMoved(int track, int control, double value, double previous);

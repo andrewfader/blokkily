@@ -25,6 +25,16 @@ std::optional<PlayedNote> TakeRecorder::note_off(Tick at, std::int16_t key) {
     return note;
 }
 
+std::optional<ContinuousEvent> TakeRecorder::control(Tick at, std::uint32_t raw) const {
+    return continuous_from_midi(raw, at);
+}
+
+void write_continuous(Pattern& pattern, ContinuousEvent event) {
+    const Tick length = pattern.length();
+    event.tick = ((event.tick % length) + length) % length;
+    pattern.add_continuous(event);
+}
+
 std::vector<PlayedNote> TakeRecorder::finish(Tick at) {
     std::vector<PlayedNote> released;
     while (!held_.empty()) {

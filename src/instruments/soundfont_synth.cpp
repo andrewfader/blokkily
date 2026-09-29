@@ -156,19 +156,27 @@ void SoundFontSynth::process(StereoBlock audio,
             fluid_synth_noteoff(synth_.get(), channel < 0 ? shared_channel : channel,
                                 event.key_or_parameter);
         } else if (event.type == PluginEvent::Type::midi_raw) {
+            // The track is one instrument, so the channel a controller was
+            // played on names nothing here. A channel-wide message reaches
+            // every channel the synth sounds notes on: the shared one and
+            // each retuned voice's, so a keyboard on channel 2 bends the
+            // notes it plays and a microtonal chord bends with the wheel.
             const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
-            const auto status = static_cast<std::uint8_t>(raw & 0xFFU);
-            const auto first = static_cast<std::uint8_t>((raw >> 8) & 0xFFU);
-            const auto second = static_cast<std::uint8_t>((raw >> 16) & 0xFFU);
-            const auto kind = static_cast<std::uint8_t>(status & 0xF0U);
-            const auto channel = static_cast<int>(status & 0x0FU);
-            if (kind == 0xE0) {
-                const int bend = static_cast<int>(first) | (static_cast<int>(second) << 7);
-                fluid_synth_pitch_bend(synth_.get(), channel, bend);
-            } else if (kind == 0xB0) {
-                fluid_synth_cc(synth_.get(), channel, first, second);
-            } else if (kind == 0xD0) {
-                fluid_synth_channel_pressure(synth_.get(), channel, first);
+            const auto kind = static_cast<std::uint8_t>(raw & 0xF0U);
+            const auto first = static_cast<int>((raw >> 8) & 0x7FU);
+            const auto second = static_cast<int>((raw >> 16) & 0x7FU);
+            if (kind == 0xA0) {
+                // Poly pressure belongs to the channel holding that key.
+                int channel = shared_channel;
+                for (int candidate = first_retuned_channel; candidate < channels; ++candidate)
+                    if (channel_key_[static_cast<std::size_t>(candidate)] == first) channel = candidate;
+                fluid_synth_key_pressure(synth_.get(), channel, first, second);
+            } else {
+                for (int channel = 0; channel < channels; ++channel) {
+                    if (kind == 0xE0) fluid_synth_pitch_bend(synth_.get(), channel, first | (second << 7));
+                    else if (kind == 0xB0) fluid_synth_cc(synth_.get(), channel, first, second);
+                    else if (kind == 0xD0) fluid_synth_channel_pressure(synth_.get(), channel, first);
+                }
             }
         }
     }

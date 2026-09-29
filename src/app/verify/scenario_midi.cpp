@@ -509,6 +509,51 @@ void run_midi(VerifyContext& ctx) {
     }
     reached("midi: a key held when the song stops is released under the clock it played");
 
+    // features/continuous_midi.feature: the wheel moved on the keyboard
+    // while an armed song runs is written into the pattern under the
+    // playhead, and the piano roll marks each movement on its tick.
+    {
+        check(!transport.playing() && controller.recordArmed());
+        song.selectPattern(0);
+        const auto controls_in_song = [&song] {
+            std::size_t count = 0;
+            for (const auto& named_pattern : song.song().patterns)
+                count += named_pattern.pattern.continuous().size();
+            return count;
+        };
+        const auto before = controls_in_song();
+        controller.seekToBar(1);
+        controller.togglePlayback();
+        (void)pump();
+        for (int move = 0; move < 10; ++move) {
+            check(send(0xE0, 0, std::min(127, 64 + move * 7)));
+            (void)pump();
+            (void)pump();
+        }
+        check(send(0xE0, 0, 64));
+        check(send(0xB0, 1, 100));
+        (void)pump();
+        controller.togglePlayback();
+        (void)pump();
+        settle(40);
+        lay_out();
+        const auto after = controls_in_song();
+        check(after > before + 5);
+        const auto& open_controls = song.editPattern().continuous();
+        auto* lane = named("rollControls");
+        const bool marked = lane != nullptr && lane->isVisible() && lane->width() > 100 &&
+                            lane->height() >= 12 &&
+                            lane->property("count").toInt() ==
+                                static_cast<int>(open_controls.size()) &&
+                            !open_controls.empty();
+        check(marked);
+        if (!marked)
+            std::cerr << "REGRESSION: recorded controller movements are not marked in the "
+                         "piano roll (pattern holds "
+                      << open_controls.size() << ")\n";
+    }
+    reached("midi: the wheel is recorded into the pattern and marked in the piano roll");
+
     // Left armed with the take in view, and the panel naming the port
     // and the last key, for the screenshot.
     check(send(0x90, 64, 96) && send(0x80, 64, 0));

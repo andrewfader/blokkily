@@ -1,3 +1,4 @@
+#include <array>
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <algorithm>
@@ -54,7 +55,7 @@ public:
                 float sample = 0.0F;
                 if (sounding_ && tone_->get() >= 0.5F) {
                     const double frequency = 440.0 * std::pow(
-                        2.0, (key_ - 69 + bend_semitones_) / 12.0);
+                        2.0, (key_ - 69 + bend_semitones_[static_cast<std::size_t>(channel_)]) / 12.0);
                     sample = static_cast<float>(level_->get() * std::sin(phase_));
                     phase_ += juce::MathConstants<double>::twoPi * frequency / sample_rate_;
                     if (phase_ > juce::MathConstants<double>::twoPi)
@@ -72,11 +73,15 @@ public:
             if (message.isPitchWheel()) {
                 // The host announces a two-semitone bend range on every voice
                 // channel, so that is what a wheel value means here.
-                bend_semitones_ = (message.getPitchWheelValue() - 8192) / 8192.0 * 2.0;
+                // Each channel has its wheel, as an MPE voice does; a note
+                // follows the wheel of the channel it was struck on.
+                bend_semitones_[static_cast<std::size_t>(message.getChannel())] =
+                    (message.getPitchWheelValue() - 8192) / 8192.0 * 2.0;
             }
             if (message.isNoteOn()) {
                 sounding_ = true;
                 key_ = message.getNoteNumber();
+                channel_ = message.getChannel();
                 phase_ = 0.0;
             }
             if (message.isNoteOff()) sounding_ = false;
@@ -112,7 +117,8 @@ public:
 private:
     bool sounding_ = false;
     int key_ = 60;
-    double bend_semitones_ = 0.0;
+    std::array<double, 17> bend_semitones_{};
+    int channel_ = 1;
     double phase_ = 0.0;
     double sample_rate_ = 48000.0;
     juce::AudioParameterFloat* level_ = nullptr;

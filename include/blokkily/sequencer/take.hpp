@@ -31,6 +31,10 @@ public:
     // Lets go of every key still held at `at`, the way stopping the song does.
     [[nodiscard]] std::vector<PlayedNote> finish(Tick at);
     [[nodiscard]] bool holding() const noexcept { return !held_.empty(); }
+    // A controller message heard at song tick `at` (wave 4.1): the movement
+    // it is, or nothing for a message a pattern does not keep (see
+    // continuous_from_midi in event.hpp).
+    [[nodiscard]] std::optional<ContinuousEvent> control(Tick at, std::uint32_t raw) const;
 
 private:
     Tick length_;
@@ -57,5 +61,11 @@ struct TakeTarget {
 // a soft short key and a hard long one merged onto a step still sound that way.
 // `note.start` is in the pattern's own ticks. Returns the step written.
 int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step);
+
+// Writes a played controller movement into a pattern at `event.tick`, read in
+// the pattern's own ticks round its loop. A value of the same controller on
+// that tick is replaced: a wheel moved many times within one block keeps
+// where it ended up.
+void write_continuous(Pattern& pattern, ContinuousEvent event);
 
 } // namespace blokkily

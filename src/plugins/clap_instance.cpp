@@ -572,8 +572,10 @@ void ClapPluginInstance::process(StereoBlock audio,
             header.size = sizeof(clap_event_midi_t);
             header.type = CLAP_EVENT_MIDI;
             const auto raw = static_cast<std::uint32_t>(source.key_or_parameter);
+            // On the channel the notes are sent on (the first): the track is
+            // one instrument, whatever channel the keyboard used.
             converted[count++].midi = {header, 0,
-                {static_cast<std::uint8_t>(raw & 0xFFU),
+                {static_cast<std::uint8_t>(raw & 0xF0U),
                  static_cast<std::uint8_t>((raw >> 8) & 0xFFU),
                  static_cast<std::uint8_t>((raw >> 16) & 0xFFU)}};
         }

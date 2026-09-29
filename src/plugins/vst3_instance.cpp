@@ -249,6 +249,10 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
     // way MPE hosts do it, because pitch bend belongs to a channel. Notes in
     // twelve-tone tuning stay on channel one, exactly as before.
     std::array<int, 16> channel_key{};
+    // The bend each retuned channel carries for its note's cents, and the
+    // wheel as last played (wave 4.1): a retuned channel is sent the sum.
+    std::array<int, 16> channel_retune{};
+    int wheel = 8192;
     bool announce_bend_range = true;
 
     // Edits the plugin made to its own parameters, reported by the listeners.
@@ -487,6 +491,8 @@ bool Vst3PluginInstance::activate(double sample_rate, std::uint32_t,
         static_cast<std::size_t>(impl_->maximum_block_size) * 4, 16384));
     impl_->midi.clear();
     impl_->channel_key.fill(-1);
+    impl_->channel_retune.fill(0);
+    impl_->wheel = 8192;
     impl_->announce_bend_range = true;
     return true;
 }
@@ -563,9 +569,9 @@ void Vst3PluginInstance::process(StereoBlock audio,
                         }
                     impl_->channel_key[static_cast<std::size_t>(channel) - 1] =
                         event.key_or_parameter;
-                    const int bend = std::clamp(
-                        8192 + static_cast<int>(std::lround(event.cents / 200.0 * 8192.0)),
-                        0, 16383);
+                    const int retune = static_cast<int>(std::lround(event.cents / 200.0 * 8192.0));
+                    impl_->channel_retune[static_cast<std::size_t>(channel) - 1] = retune;
+                    const int bend = std::clamp(impl_->wheel + retune, 0, 16383);
                     impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
                 }
                 impl_->midi.addEvent(juce::MidiMessage::noteOn(channel, event.key_or_parameter,
@@ -582,11 +588,41 @@ void Vst3PluginInstance::process(StereoBlock audio,
                 impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, event.key_or_parameter,
                                      static_cast<float>(event.value)), position);
             } else if (event.type == PluginEvent::Type::midi_raw) {
+                // The track is one instrument: a controller is for every note
+                // it plays, whatever channel the keyboard sent it on. Notes
+                // in twelve-tone tuning are on channel one; a retuned note's
+                // channel hears the wheel on top of its own retune.
                 const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
-                impl_->midi.addEvent(juce::MidiMessage(static_cast<int>(raw & 0xFFU),
-                                                       static_cast<int>((raw >> 8) & 0xFFU),
-                                                       static_cast<int>((raw >> 16) & 0xFFU)),
-                                     position);
+                const int kind = static_cast<int>(raw & 0xF0U);
+                const int first = static_cast<int>((raw >> 8) & 0x7FU);
+                const int second = static_cast<int>((raw >> 16) & 0x7FU);
+                if (kind == 0xA0) {
+                    int channel = 1;
+                    for (int candidate = 2; candidate <= 16; ++candidate)
+                        if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] == first)
+                            channel = candidate;
+                    impl_->midi.addEvent(juce::MidiMessage::aftertouchChange(channel, first, second),
+                                         position);
+                    continue;
+                }
+                if (kind == 0xE0) impl_->wheel = first | (second << 7);
+                for (int channel = 1; channel <= 16; ++channel) {
+                    const auto slot = static_cast<std::size_t>(channel) - 1;
+                    if (channel > 1 && impl_->channel_key[slot] < 0) continue;
+                    if (kind == 0xE0) {
+                        const int retune = channel > 1 ? impl_->channel_retune[slot] : 0;
+                        impl_->midi.addEvent(
+                            juce::MidiMessage::pitchWheel(channel,
+                                                          std::clamp(impl_->wheel + retune, 0, 16383)),
+                            position);
+                    } else if (kind == 0xB0) {
+                        impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, first, second),
+                                             position);
+                    } else if (kind == 0xD0) {
+                        impl_->midi.addEvent(juce::MidiMessage::channelPressureChange(channel, first),
+                                             position);
+                    }
+                }
             }
         }
 
@@ -602,6 +638,8 @@ void Vst3PluginInstance::reset() {
     impl_->plugin->reset();
     impl_->midi.clear();
     impl_->channel_key.fill(-1);
+    impl_->channel_retune.fill(0);
+    impl_->wheel = 8192;
     // A reactivated plugin may have forgotten the bend range it was told.
     impl_->announce_bend_range = true;
 }

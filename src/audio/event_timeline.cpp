@@ -33,7 +33,8 @@ std::vector<TimedPluginEvent> compile_timeline(
 std::vector<TimedPluginEvent> compile_timeline(
     const ScheduledEvents& scheduled, const TickClock& clock, std::uint64_t last_sample) {
     std::vector<TimedPluginEvent> timeline;
-    timeline.reserve(scheduled.parameters.size() + scheduled.notes.size() * 2);
+    timeline.reserve(scheduled.parameters.size() + scheduled.continuous.size() +
+                     scheduled.notes.size() * 2);
     const auto at = [&clock, last_sample](Tick tick) {
         return std::min(sample_for_tick(clock, static_cast<double>(tick)), last_sample);
     };
@@ -44,6 +45,12 @@ std::vector<TimedPluginEvent> compile_timeline(
         timeline.push_back({at(parameter.start), 0,
                             {type, 0, parameter.index, parameter.value}});
     }
+    // Controller movements (wave 4.1) go before a note on the same sample,
+    // as locks do: a note struck with the wheel already bent sounds bent.
+    for (const auto& control : scheduled.continuous)
+        timeline.push_back({at(control.start), 0,
+                            {PluginEvent::Type::midi_raw, 0,
+                             static_cast<std::int32_t>(midi_raw_of(control.event)), 0.0}});
     for (const auto& note : scheduled.notes) {
         timeline.push_back({at(note.start), 1,
                             {PluginEvent::Type::note_on, 0, note.key, note.velocity,

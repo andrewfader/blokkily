@@ -195,6 +195,31 @@ const blokkily::Trigger* PatternModel::triggerAt(int step) const {
 
 // One row projection feeding both the step grid and the tracker, so the two
 // editors can never disagree about what a step contains.
+QVariantList PatternModel::controls() const {
+    QVariantList rows;
+    for (const auto& control : pattern().continuous()) {
+        QVariantMap row;
+        row["tick"] = static_cast<qint64>(control.tick);
+        row["controller"] = static_cast<int>(control.controller);
+        switch (control.kind) {
+        case blokkily::ContinuousEvent::Kind::pitch_bend:
+            row["kind"] = QStringLiteral("bend");
+            row["level"] = (static_cast<double>(control.value) - 8192.0) / 8192.0;
+            break;
+        case blokkily::ContinuousEvent::Kind::control_change:
+            row["kind"] = QStringLiteral("cc");
+            row["level"] = static_cast<double>(control.value) / 127.0;
+            break;
+        case blokkily::ContinuousEvent::Kind::channel_pressure:
+            row["kind"] = QStringLiteral("pressure");
+            row["level"] = static_cast<double>(control.value) / 127.0;
+            break;
+        }
+        rows.push_back(row);
+    }
+    return rows;
+}
+
 QVariantList PatternModel::steps() const {
     QVariantList rows;
     rows.reserve(stepCount());

@@ -112,11 +112,17 @@ ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
                 if (cut && parameter.start >= end) continue;
                 arranged.parameters.push_back(parameter);
             }
+            for (auto control : compiled.continuous) {
+                control.start += offset;
+                if (cut && control.start >= end) continue;
+                arranged.continuous.push_back(control);
+            }
         }
     }
     const auto by_start = [](const auto& a, const auto& b) { return a.start < b.start; };
     std::stable_sort(arranged.notes.begin(), arranged.notes.end(), by_start);
     std::stable_sort(arranged.parameters.begin(), arranged.parameters.end(), by_start);
+    std::stable_sort(arranged.continuous.begin(), arranged.continuous.end(), by_start);
     return arranged;
 }
 

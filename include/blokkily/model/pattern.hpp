@@ -21,6 +21,23 @@ public:
     [[nodiscard]] std::span<const Trigger> events() const noexcept { return events_; }
     [[nodiscard]] Tick length() const noexcept { return length_; }
     [[nodiscard]] Tick ticks_per_beat() const noexcept { return ticks_per_beat_; }
+
+    // Controller movements (wave 4.1), sorted by tick; several on one tick
+    // keep the order they were written in. A value of the same controller
+    // already on that tick is replaced, so a take recorded over a pattern
+    // leaves one value per controller per tick. Throws for a tick outside
+    // the pattern or a value out of range.
+    void add_continuous(const ContinuousEvent& event);
+    [[nodiscard]] std::span<const ContinuousEvent> continuous() const noexcept {
+        return continuous_;
+    }
+    // Removes every movement of `kind` (and `controller`, for a CC) in
+    // [from, to); returns how many.
+    std::size_t erase_continuous(ContinuousEvent::Kind kind, std::uint8_t controller, Tick from,
+                                 Tick to);
+    void clear_continuous() noexcept { continuous_.clear(); }
+    // Whether `event` could be stored in a pattern this long.
+    [[nodiscard]] static bool valid_continuous(const ContinuousEvent& event, Tick length) noexcept;
     // The same pattern made `length` ticks long. Every trigger that still
     // starts inside it keeps its identifier and everything it carries; a
     // trigger that no longer fits is dropped. Identifiers are never handed out
@@ -35,6 +52,7 @@ private:
     Tick ticks_per_beat_;
     EventId next_id_ = 1;
     std::vector<Trigger> events_;
+    std::vector<ContinuousEvent> continuous_;
 };
 
 } // namespace blokkily

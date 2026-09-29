@@ -400,6 +400,7 @@ foreach(blokkily_feature
         disk_streaming
         effects
         record
+        continuous_midi
         plugin_windows
         automation
         dynamic_modulation

@@ -313,6 +313,19 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
         if (!timeline_density_supported(target.timelines[index]))
             return fail("more than 256 simultaneous events on one track");
     }
+    // The controllers each timeline moves, for the chase (wave 4.1).
+    target.controllers.assign(song.tracks.size(), {});
+    for (std::size_t index = 0; index < song.tracks.size(); ++index)
+        for (const auto& timed : target.timelines[index]) {
+            if (timed.event.type != PluginEvent::Type::midi_raw) continue;
+            const auto key = engine::controller_key(
+                static_cast<std::uint32_t>(timed.event.key_or_parameter));
+            auto& controllers = target.controllers[index];
+            if (key < engine::controller_keys && !controllers.used[key]) {
+                controllers.used[key] = true;
+                ++controllers.count;
+            }
+        }
     // 5. Audio clips: regions placed by the same clock as the events.
     engine::compile_clip_regions(target.clips, song, clock, assets, renditions, streams_.get());
     // Automation: strip envelopes and parameter lanes, placed by the same
@@ -519,6 +532,8 @@ void SongEngine::seek_cursors(std::uint64_t position) noexcept {
                 return event.sample < sample;
             });
         tracks_[index]->cursor = static_cast<std::size_t>(found - timeline.begin());
+        // Every controller the timeline moves is put where it had got to.
+        tracks_[index]->chase = true;
     }
     // Every automation lane is chased to the new position (item 3.1).
     if (live_ != nullptr) engine::seek_automation(live_->automation, position);
@@ -556,6 +571,46 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                 ++count;
                 // A key-addressed release matches every voice of this key.
                 track.sounding[key] = 0;
+            }
+        }
+    }
+    // After a jump, every controller the timeline moves is played at the
+    // value it had reached (wave 4.1): the last movement before the playhead,
+    // or its resting value when nothing before it moved it. Ahead of live
+    // input, so a wheel held now wins.
+    if (track.chase && from_timeline) {
+        track.chase = false;
+        const auto* controllers = live_ != nullptr && index < live_->controllers.size()
+                                      ? &live_->controllers[index] : nullptr;
+        if (controllers != nullptr && controllers->count > 0 &&
+            !engine::launcher_owns(*launcher_, index)) {
+            track.chase_values.fill(-1);
+            std::size_t found = 0;
+            for (std::size_t at = std::min(track.cursor, timeline.size());
+                 at-- > 0 && found < controllers->count;) {
+                const auto& timed = timeline[at];
+                if (timed.event.type != PluginEvent::Type::midi_raw) continue;
+                const auto key = engine::controller_key(
+                    static_cast<std::uint32_t>(timed.event.key_or_parameter));
+                if (key < engine::controller_keys && track.chase_values[key] < 0) {
+                    track.chase_values[key] = timed.event.key_or_parameter;
+                    ++found;
+                }
+            }
+            for (std::size_t key = 0; key < engine::controller_keys && count < capacity; ++key) {
+                if (!controllers->used[key]) continue;
+                auto raw = track.chase_values[key];
+                if (raw < 0) {
+                    const auto kind = key == 128   ? ContinuousEvent::Kind::pitch_bend
+                                      : key == 129 ? ContinuousEvent::Kind::channel_pressure
+                                                   : ContinuousEvent::Kind::control_change;
+                    const auto controller = static_cast<std::uint8_t>(key < 128 ? key : 0);
+                    const auto rest = ContinuousEvent::rest_value(kind, controller);
+                    if (!rest) continue;
+                    raw = static_cast<std::int32_t>(
+                        midi_raw_of({0, kind, controller, *rest}));
+                }
+                events[count++] = {PluginEvent::Type::midi_raw, 0, raw, 0.0, 0.0};
             }
         }
     }

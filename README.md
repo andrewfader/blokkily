@@ -307,6 +307,15 @@ a track played from one cell is printed into the arrangement as clips when it
 ends, one step of undo each; the printed arrangement plays and exports what
 was heard, sample for sample. The grid is saved with the song.
 
+MIDI keyboards play the pitch wheel, control changes and pressure into the
+track's instrument on whatever channel they send (SoundFont, VST3, CLAP and
+the sampler all follow the wheel; SoundFonts also take poly pressure), and
+the sustain pedal holds released keys at the input for every instrument.
+While recording, the wheel, controllers and channel pressure are written
+into the pattern as controller movements: saved with the project, played on
+their sample, chased when the playhead jumps, exported as heard, and marked
+in a strip along the foot of the piano roll.
+
 Audio clips whose decoded size exceeds the streaming threshold (128 MiB by
 default; `BLOKKILY_STREAM_THRESHOLD_BYTES` overrides it) stream from disk
 instead of being decoded into RAM: a background worker fills one lock-free
@@ -325,8 +334,11 @@ to persist those references. Original files are kept so undo remains playable.
 
 ## What is not here yet
 
-- MIDI input handles notes; pitch bend, sustain, other controllers and MIDI
-  clock are not recorded. Notes are timestamped to the callback block.
+- MPE is not supported: per-channel controllers from a keyboard are merged
+  onto the track's one instrument. Poly pressure is played live but not
+  recorded, controller movements cannot be edited (the piano roll only marks
+  them), and MIDI clock is not read. Notes and controllers are timestamped to
+  the callback block.
 - Comping (taking alternate passes of a recorded lane) is not here yet.
 - Disk streaming covers unwarped audio clips only: a warped clip is decoded
   into memory to be stretched, and the sampler always decodes. A single

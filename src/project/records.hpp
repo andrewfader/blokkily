@@ -61,6 +61,9 @@ struct ParseContext {
     // The metronome record as read (records_metronome.cpp), so a second one
     // is refused and the settings are applied once the file is read.
     std::optional<MetronomeSettings> metronome;
+    // Controller movements as read (records_continuous.cpp), by pattern
+    // index, placed into the patterns once the core module has built them.
+    std::vector<std::pair<std::size_t, ContinuousEvent>> continuous;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -110,6 +113,10 @@ struct RecordModule {
 // Sidechain keys and modulators (phase 2, waves 5.1 and 5.2): sidechain,
 // modulator, modtarget (records_modulation.cpp).
 [[nodiscard]] const RecordModule& modulation_records();
+
+// Controller movements in patterns (phase 2, wave 4.1): control
+// (records_continuous.cpp).
+[[nodiscard]] const RecordModule& continuous_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

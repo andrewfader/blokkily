@@ -348,6 +348,12 @@ void compile_launcher(ArrangementLauncher& target, const Song& song, std::uint64
                 compiled.events.push_back(
                     {inside(parameter.start), 0, {type, 0, parameter.index, parameter.value}});
             }
+            // Controller movements (wave 4.1) play in a launched loop too.
+            for (const auto& control : rendered.continuous)
+                compiled.events.push_back(
+                    {inside(control.start), 0,
+                     {PluginEvent::Type::midi_raw, 0,
+                      static_cast<std::int32_t>(midi_raw_of(control.event)), 0.0}});
             for (const auto& note : rendered.notes)
                 compiled.events.push_back({inside(note.start), std::max<Tick>(0, note.duration),
                                            {PluginEvent::Type::note_on, 0, note.key,

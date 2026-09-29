@@ -139,7 +139,11 @@ private:
         bool backward = false;     // ping-pong direction
         bool in_loop = false;      // has turned at a loop boundary at least once
         bool may_loop = false;     // started before the loop's end
+        bool pedal_held = false;   // released while the sustain pedal was down
     };
+    // Raw MIDI (wave 4.1): the pitch wheel (two semitones either way) and the
+    // sustain pedal (CC 64); the rest is ignored.
+    void apply_midi(std::uint32_t raw) noexcept;
 
     void start_note(const PluginEvent& event) noexcept;
     void release_key(int key) noexcept;
@@ -175,6 +179,9 @@ private:
     std::array<double, sampler_parameter::count> modulation_{};
     double engine_rate_ = 48000.0;
     std::atomic<std::uint64_t> tail_frames_{0};
+    // Audio thread only: where the wheel is, in semitones, and the pedal.
+    double bend_semitones_ = 0.0;
+    bool pedal_down_ = false;
 };
 
 } // namespace blokkily

@@ -174,6 +174,7 @@ void AppController::drainTake() {
     if (heard.empty()) return;
     const auto length = song_->song().length();
     std::vector<std::pair<std::size_t, blokkily::PlayedNote>> finished;
+    std::vector<std::pair<std::size_t, blokkily::ContinuousEvent>> controls;
     for (const auto& event : heard) {
         const std::size_t track = event.track;
         if (takes_.size() <= track) takes_.resize(track + 1, blokkily::TakeRecorder(length));
@@ -184,9 +185,15 @@ void AppController::drainTake() {
                                   event.event.cents);
         } else if (event.event.type == blokkily::PluginEvent::Type::note_off) {
             if (auto note = takes_[track].note_off(at, key)) finished.emplace_back(track, *note);
+        } else if (event.event.type == blokkily::PluginEvent::Type::midi_raw) {
+            // The wheel, a controller or pressure (wave 4.1).
+            if (auto control = takes_[track].control(
+                    at, static_cast<std::uint32_t>(event.event.key_or_parameter)))
+                controls.emplace_back(track, *control);
         }
     }
-    if (!finished.empty()) commitTake(std::move(finished));
+    if (!finished.empty() || !controls.empty())
+        commitTake(std::move(finished), std::move(controls));
 }
 
 void AppController::finishTake() {
@@ -208,8 +215,10 @@ void AppController::finishTake() {
     finishAudioTake();
 }
 
-void AppController::commitTake(std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes) {
-    if (song_ == nullptr || notes.empty()) return;
+void AppController::commitTake(
+    std::vector<std::pair<std::size_t, blokkily::PlayedNote>> notes,
+    std::vector<std::pair<std::size_t, blokkily::ContinuousEvent>> controls) {
+    if (song_ == nullptr || (notes.empty() && controls.empty())) return;
     auto& song = song_->song();
     // One step of history for the whole take: notes and automation alike.
     song_->checkpointTake();
@@ -220,6 +229,13 @@ void AppController::commitTake(std::vector<std::pair<std::size_t, blokkily::Play
         note.start = target.offset;
         (void)blokkily::write_played(song.patterns[target.pattern].pattern, note,
                                      PatternModel::ticks_per_step);
+    }
+    // Controller movements go where the notes played at the same place go.
+    for (auto& [track, control] : controls) {
+        if (track >= song.tracks.size()) continue;
+        const auto target = blokkily::take_target(song, track, control.tick, open);
+        control.tick = target.offset;
+        blokkily::write_continuous(song.patterns[target.pattern].pattern, control);
     }
     if (pattern_ != nullptr) pattern_->notifyRecorded();
     else requestRecompile();

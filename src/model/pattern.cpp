@@ -80,10 +80,49 @@ const Trigger* Pattern::find(EventId id) const {
     return it == events_.end() ? nullptr : &*it;
 }
 
+bool Pattern::valid_continuous(const ContinuousEvent& event, Tick length) noexcept {
+    if (event.tick < 0 || event.tick >= length) return false;
+    switch (event.kind) {
+    case ContinuousEvent::Kind::pitch_bend: return event.value <= 16383 && event.controller == 0;
+    case ContinuousEvent::Kind::channel_pressure: return event.value <= 127 && event.controller == 0;
+    case ContinuousEvent::Kind::control_change:
+        return event.value <= 127 && event.controller < 120 && event.controller != 64;
+    }
+    return false;
+}
+
+void Pattern::add_continuous(const ContinuousEvent& event) {
+    if (!valid_continuous(event, length_))
+        throw std::invalid_argument("controller event is outside the pattern or its range");
+    const auto same = std::find_if(continuous_.begin(), continuous_.end(),
+                                   [&event](const ContinuousEvent& held) {
+                                       return held.tick == event.tick && held.kind == event.kind &&
+                                              held.controller == event.controller;
+                                   });
+    if (same != continuous_.end()) {
+        same->value = event.value;
+        return;
+    }
+    const auto after = std::upper_bound(
+        continuous_.begin(), continuous_.end(), event.tick,
+        [](Tick tick, const ContinuousEvent& held) { return tick < held.tick; });
+    continuous_.insert(after, event);
+}
+
+std::size_t Pattern::erase_continuous(ContinuousEvent::Kind kind, std::uint8_t controller,
+                                      Tick from, Tick to) {
+    return std::erase_if(continuous_, [&](const ContinuousEvent& held) {
+        return held.kind == kind && held.controller == controller && held.tick >= from &&
+               held.tick < to;
+    });
+}
+
 Pattern Pattern::with_length(Tick length) const {
     Pattern resized(length, ticks_per_beat_);
     for (const auto& event : events_)
         if (event.start < length) resized.events_.push_back(event);
+    for (const auto& event : continuous_)
+        if (event.tick < length) resized.continuous_.push_back(event);
     resized.next_id_ = next_id_;
     return resized;
 }

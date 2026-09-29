@@ -561,6 +561,52 @@ ColumnLayout {
                             }
                         }
                     }
+                    // Controller movements (wave 4.1): a read-only strip
+                    // along the foot of the roll, one mark per movement at
+                    // its tick. The wheel is drawn from the strip's middle
+                    // (up or down as it bends), controllers and pressure
+                    // from its floor. Editing them is not offered here.
+                    Rectangle {
+                        id: rollControls
+                        objectName: "rollControls"
+                        readonly property var marks: patternModel.controls
+                        readonly property int count: marks.length
+                        visible: count > 0
+                        x: rollArea.gutter; y: rollArea.height - height
+                        width: rollArea.width - rollArea.gutter
+                        height: Math.min(28, Math.max(14, rollArea.height * 0.18))
+                        color: "#0c0e11"; opacity: 0.85
+                        border.color: Theme.line
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width; height: 1; color: Theme.line
+                        }
+                        Repeater {
+                            model: rollControls.marks
+                            Rectangle {
+                                required property var modelData
+                                required property int index
+                                objectName: "rollControl" + index
+                                readonly property bool bend: modelData.kind === "bend"
+                                readonly property real half: rollControls.height / 2 - 1
+                                x: modelData.tick / 120 * rollArea.laneWidth
+                                width: 2
+                                height: Math.max(1, bend ? Math.abs(modelData.level) * half
+                                                         : modelData.level * (rollControls.height - 2))
+                                y: bend ? (modelData.level >= 0 ? rollControls.height / 2 - height
+                                                                 : rollControls.height / 2)
+                                        : rollControls.height - 1 - height
+                                color: bend ? Theme.amber
+                                            : (modelData.kind === "cc" ? Theme.blue : Theme.acid)
+                            }
+                        }
+                        Label {
+                            anchors.right: parent.right; anchors.rightMargin: 4
+                            anchors.top: parent.top
+                            text: "CTRL"; color: Theme.muted
+                            font.pixelSize: 8; font.family: "monospace"
+                        }
+                    }
                     // Playhead across the roll.
                     Rectangle {
                         objectName: "rollPlayhead"

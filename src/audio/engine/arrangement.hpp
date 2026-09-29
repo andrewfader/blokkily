@@ -11,10 +11,12 @@
 #include "engine_launcher.hpp"
 #include "engine_metronome.hpp"
 #include "engine_modulation.hpp"
+#include "track_playback.hpp"
 
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/model/timebase.hpp"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -23,6 +25,13 @@ namespace blokkily::engine {
 struct Arrangement {
     // A sample timeline per track.
     std::vector<std::vector<TimedPluginEvent>> timelines;
+    // Per track, which controllers its timeline moves (wave 4.1), and how
+    // many: what a chase after a seek has to restore.
+    struct Controllers {
+        std::array<bool, controller_keys> used{};
+        std::size_t count = 0;
+    };
+    std::vector<Controllers> controllers;
     std::uint64_t song_samples = 0;
     // Where every tick of this arrangement falls. The playhead keeps its tick
     // when an arrangement with another clock replaces this one.

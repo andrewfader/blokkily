@@ -80,6 +80,10 @@ ScheduledEvents Scheduler::render(
     });
     std::stable_sort(result.parameters.begin(), result.parameters.end(),
         [](const auto& a, const auto& b) { return a.start < b.start; });
+    // Controller movements play every loop: they belong to no step, so no
+    // probability or loop condition holds them back. Already sorted.
+    for (const auto& control : pattern.continuous())
+        result.continuous.push_back({control.tick, control});
     return result;
 }
 

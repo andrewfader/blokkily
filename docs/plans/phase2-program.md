@@ -43,6 +43,16 @@ Wave 6: Performance & Workflow Paradigm
   * `EventTimeline` emits parameter changes and pitch bends at sample-accurate offsets.
   * Seeking invokes `chase()` to restore current controller values.
 
+### 3. Status: done except MPE
+* **Model.** `ContinuousEvent` (`include/blokkily/model/event.hpp`): pitch bend (14-bit), control change (0..119 except 64) or channel pressure, at a pattern tick, stored in the canonical `Pattern` (`add_continuous`, one value per controller per tick) beside the triggers; `with_length` keeps what still fits; `Song::consistent` checks them. Saved as additive `control` records (`src/project/records_continuous.cpp`); older files load with none. Poly pressure is played live but not stored.
+* **Playback.** The scheduler emits them every loop (no probability or loop condition), `Song::arrange` offsets and cuts them, and the timeline turns them into `midi_raw` events at rank 0 (before a note on the same sample) on channel 1. The launcher's loops carry them too. Automation (`parameter_value`) and modulation (`parameter_modulation`) stay distinct from them.
+* **Chase.** Every jump of the playhead (seek, wrap, transport start) marks each track; its next chunk first plays every controller its timeline moves at the value it had reached, or at the controller's rest value (wheel centred, pressure/mod wheel 0, expression 127) when nothing before moved it.
+* **Recording.** `MidiInput` forwards the wheel, CCs and pressure as `midi_raw` to the routed tracks; the engine captures them with notes; the controller's take (`TakeRecorder::control`, `write_continuous`) writes them into the pattern under the playhead, one undo step with the notes.
+* **Sustain.** CC 64 is handled at the input (released keys held until the pedal comes up) for every instrument, so takes record the heard lengths; the sampler also honours a CC 64 that reaches it as MIDI.
+* **Instruments.** SoundFont: channel-wide messages go to all 16 FluidSynth channels (shared and retuned), poly pressure to the key's channel. VST3: channel one plus each retuned voice channel, the wheel added to the note's retune bend. CLAP: channel 0, where notes are sent. Sampler: wheel (±2 semitones) and pedal.
+* **Interface.** The piano roll draws a read-only CTRL strip of the open pattern's movements.
+* **Not done.** MPE; editing controller movements; recording poly pressure; sub-block timestamps for live input.
+
 ---
 
 ## Wave 4.2: Disk Streaming & Lookahead Buffer Engine (Item 1)

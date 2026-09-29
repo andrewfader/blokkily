@@ -219,6 +219,8 @@ std::vector<ParameterInfo> SamplerInstrument::parameters() const {
 void SamplerInstrument::reset() {
     for (auto& voice : voices_) voice.active = false;
     for (auto& voice : fading_) voice.active = false;
+    bend_semitones_ = 0.0;
+    pedal_down_ = false;
 }
 
 std::vector<std::byte> SamplerInstrument::save_state() {
@@ -354,6 +356,11 @@ void SamplerInstrument::release_key(int key) noexcept {
         if (!voice.active || voice.key != key || voice.zone->one_shot ||
             voice.stage == Voice::Stage::release)
             continue;
+        // The pedal holds the note until it comes up.
+        if (pedal_down_) {
+            voice.pedal_held = true;
+            continue;
+        }
         voice.stage = Voice::Stage::release;
         voice.release_step = voice.level / voice.release_frames;
         if (voice.release_step <= 0.0) voice.active = false;
@@ -458,10 +465,34 @@ bool SamplerInstrument::render_voice(Voice& voice, StereoBlock audio, std::size_
     return true;
 }
 
+void SamplerInstrument::apply_midi(std::uint32_t raw) noexcept {
+    const auto kind = raw & 0xF0U;
+    const auto first = (raw >> 8) & 0x7FU;
+    const auto second = (raw >> 16) & 0x7FU;
+    if (kind == 0xE0U) {
+        const auto wheel = static_cast<double>(first | (second << 7));
+        bend_semitones_ = (wheel - 8192.0) / 8192.0 * 2.0;
+    } else if (kind == 0xB0U && first == 64) {
+        pedal_down_ = second >= 64;
+        if (pedal_down_) return;
+        // Pedal up: every note it was holding is released now.
+        for (auto& voice : voices_) {
+            if (!voice.active || !voice.pedal_held) continue;
+            voice.pedal_held = false;
+            if (voice.stage == Voice::Stage::release) continue;
+            voice.stage = Voice::Stage::release;
+            voice.release_step = voice.level / voice.release_frames;
+            if (voice.release_step <= 0.0) voice.active = false;
+        }
+    }
+}
+
 void SamplerInstrument::render(StereoBlock audio, std::size_t from, std::size_t to) noexcept {
     if (to <= from) return;
     const double gain = gain_from(parameter(sampler_parameter::gain));
-    const double tune = std::exp2((parameter(sampler_parameter::tune) - 0.5) * 48.0 / 12.0);
+    // The tune parameter and the wheel, together.
+    const double tune = std::exp2(((parameter(sampler_parameter::tune) - 0.5) * 48.0 +
+                                   bend_semitones_) / 12.0);
     for (auto& voice : voices_)
         if (voice.active && !render_voice(voice, audio, from, to, gain, tune)) voice.active = false;
     for (auto& voice : fading_)
@@ -499,6 +530,7 @@ void SamplerInstrument::process(StereoBlock audio, std::span<const PluginEvent> 
                 modulation_[index] = std::clamp(event.value, -1.0, 1.0);
             break;
         case PluginEvent::Type::midi_raw:
+            apply_midi(static_cast<std::uint32_t>(event.key_or_parameter));
             break;
         }
     }

@@ -20,6 +20,10 @@ class PatternModel final : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int eventCount READ rowCount NOTIFY patternChanged)
     Q_PROPERTY(QVariantList steps READ steps NOTIFY patternChanged)
+    // The pattern's controller movements (wave 4.1), read-only: one map per
+    // movement with its tick, kind ("bend", "cc" or "pressure"), controller
+    // and a level (-1..1 for the wheel, 0..1 otherwise).
+    Q_PROPERTY(QVariantList controls READ controls NOTIFY patternChanged)
     // Where the cursor is, kept apart from what the pattern holds: moving the
     // cursor is not an edit, and nothing downstream may treat it as one.
     Q_PROPERTY(int selectedStep READ selectedStep NOTIFY selectionChanged)
@@ -44,6 +48,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     QVariantList steps() const;
+    QVariantList controls() const;
     QVariantMap selected() const;
     int selectedStep() const noexcept { return selected_step_; }
     int lowKey() const;

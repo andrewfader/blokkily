@@ -185,6 +185,10 @@ bool Song::consistent(std::string* why) const {
         return refuse(why, "the tempo map is not sorted from tick 0 or has a tempo out of range");
     if (!meter.valid())
         return refuse(why, "the meter map does not start at bar 0 or has an invalid meter");
+    for (const auto& named : patterns)
+        for (const auto& control : named.pattern.continuous())
+            if (!Pattern::valid_continuous(control, named.pattern.length()))
+                return refuse(why, "a controller event lies outside its pattern or range");
     for (const auto& clip : clips)
         if (clip.track >= tracks.size() || clip.pattern >= patterns.size() || clip.start < 0)
             return refuse(why, "a clip refers to a track or pattern that does not exist");
