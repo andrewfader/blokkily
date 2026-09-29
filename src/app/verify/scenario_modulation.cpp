@@ -6,7 +6,9 @@
 // are added in the modulation panel, aimed at the CLAP instrument's Level
 // from the rendered target menu, shaped and turned with the rendered dials;
 // the macro is heard at once without a recompile and undone; everything is
-// saved, loaded and exported.
+// saved, loaded and exported. Then an LFO is synced from the panel's SYNC chip
+// and division picker and heard to follow a tempo change, and a follower's
+// source is picked in the panel and heard to follow that track.
 
 #include "verify/harness.hpp"
 
@@ -365,10 +367,122 @@ void run_modulation(VerifyContext& ctx) {
     }
     reached("modulation: the export has the modulation");
 
-    // --- The picture: the rack's keyed compressor and the macro panel. -----
+    // --- 5. A tempo-synced LFO, from the panel's SYNC and division. --------
+    // The macro goes; a square LFO is aimed at the bass's Level, a fifth of
+    // its range deep. (Opening the project rebuilt the engine: counted from
+    // here.)
+    const int reopened = controller.rebuildCount();
+    check(click_named("removeModulator0"));
+    song.selectTrack(0);
+    lay_out();
+    check(click_named("addLfo"));
+    check(click_named("addTarget0"));
+    check(click_named("targetChoice0_0"));
+    pick("modulatorShape0", 4);
+    drag_dial("modDepth0_0", 0.6);
+    controller.flushRecompile();
+    check(song.song().modulators.size() == 1 &&
+          song.song().modulators[0].kind == Modulator::Kind::lfo &&
+          song.song().modulators[0].sync_beats == 0.0 &&
+          std::abs(song.song().modulators[0].targets.at(0).depth - 0.2) < 0.08);
+    {
+        const int before = controller.recompileCount();
+        const auto* engine = controller.engine();
+        check(click_named("modulatorSync0"));
+        // Synced: the rate dial gives way to the division picker.
+        check(song.song().modulators[0].sync_beats == 1.0);
+        check(ctx.named("modulatorRate0") != nullptr && !ctx.named("modulatorRate0")->isVisible());
+        check(VerifyContext::usable(ctx.named("modulatorDivision0"), 40, 18) &&
+              ctx.named("modulatorDivision0")->property("value").toString() == "1/4");
+        pick("modulatorDivision0", 1);
+        check(song.song().modulators[0].sync_beats == 0.5 &&
+              ctx.named("modulatorDivision0")->property("value").toString() == "1/8");
+        // A live move, like the rate: no recompile, no rebuild.
+        check(controller.recompileCount() == before && controller.engine() == engine &&
+              controller.rebuildCount() == reopened);
+    }
+    // Heard with the transport stopped: an eighth-note square at 120 BPM
+    // turns up every 12000 samples, 23.4 blocks of 512; at 60 BPM every 46.9.
+    const auto rising_spacing = [&](int blocks) {
+        std::vector<int> rising;
+        bool high = true;
+        const double threshold = 0.25 * strip(0);
+        for (int block = 0; block < blocks; ++block) {
+            const bool now = ctx.pump() > threshold;
+            if (now && !high && block > 0) rising.push_back(block);
+            high = now;
+        }
+        if (rising.size() < 2) return 0.0;
+        return static_cast<double>(rising.back() - rising.front()) /
+               static_cast<double>(rising.size() - 1);
+    };
+    check(hold(0, true));
+    const double at_120 = rising_spacing(120);
+    check(std::abs(at_120 - 12000.0 / 512.0) < 1.5);
+    controller.setTempo(60.0);
+    controller.flushRecompile();
+    const double at_60 = rising_spacing(240);
+    check(std::abs(at_60 - 24000.0 / 512.0) < 1.5);
+    controller.setTempo(120.0);
+    controller.flushRecompile();
+    check(hold(0, false));
+    (void)settle_level(2);
+    check(controller.rebuildCount() == reopened);
+    std::cerr << "modulation: synced 1/8 LFO turns up every " << at_120 << " blocks at 120 BPM, "
+              << at_60 << " at 60 BPM\n";
+    reached("modulation: a synced LFO from the panel follows the tempo");
+
+    // --- 6. A follower whose source is picked in the panel. ----------------
+    // The compressor sits out (bypassed from the rack), so what the kick does
+    // to the bass here is the follower's alone.
+    check(click_named("removeModulator0"));
+    check(click_named("bypass0"));
+    check(song.song().tracks.at(0).inserts.at(0).bypass);
+    song.selectTrack(0);
+    lay_out();
+    check(click_named("addFollower"));
+    check(click_named("addTarget0"));
+    check(click_named("targetChoice0_0"));
+    controller.flushRecompile();
+    check(song.song().modulators.size() == 1 &&
+          song.song().modulators[0].kind == Modulator::Kind::follower &&
+          song.song().modulators[0].source_track == 0 &&
+          song.song().modulators[0].targets.size() == 1);
+    check(VerifyContext::usable(ctx.named("followerSource0"), 40, 18) &&
+          ctx.named("followerSource0")->property("value").toString() == "BASS");
+    {
+        const int before = controller.recompileCount();
+        // The second track in the rendered picker's menu: the kick.
+        pick("followerSource0", 1);
+        controller.flushRecompile();
+        check(song.song().modulators[0].source_track == 1 &&
+              ctx.named("followerSource0")->property("value").toString() == "KICK");
+        check(controller.recompileCount() > before && controller.rebuildCount() == reopened);
+    }
+    // Heard: the bass alone at its Level; with a key held on the muted,
+    // faded kick, the follower follows the kick's pre-fader 0.25 and adds
+    // half of it to the bass's Level; let go, the bass falls back.
+    check(hold(0, true));
+    const float alone = settle_level(8);
+    check(near(alone, bass));
+    check(hold(1, true));
+    const float following = settle_level(20);
+    check(near(following, (0.25 + 0.5 * 0.25) * strip(0), 0.03));
+    check(hold(1, false));
+    const float fallen = settle_level(60);
+    check(near(fallen, bass, 0.03));
+    check(hold(0, false));
+    (void)settle_level(2);
+    std::cerr << "modulation: follower of the kick: bass " << alone << ", kick held "
+              << following << ", let go " << fallen << '\n';
+    reached("modulation: a follower picked in the panel follows its source");
+
+    // --- The picture: the rack's keyed compressor, the follower and a
+    // synced LFO. --------------------------------------------------------------
     song.selectTrack(0);
     check(song.addModulator("lfo") == 1 &&
           song.addModulationTarget(1, "track", 0, 0, 0));
+    song.setModulatorDivision(1, "1/8");
     controller.flushRecompile();
     lay_out();
     reveal(ctx.named("modulator1"));
@@ -376,6 +490,9 @@ void run_modulation(VerifyContext& ctx) {
     lay_out();
     check(VerifyContext::usable(ctx.named("modulationPanel"), 300, 120) &&
           VerifyContext::usable(ctx.named("modDepth1_0"), 200, 30) &&
+          VerifyContext::usable(ctx.named("modulatorDivision1"), 40, 18) &&
+          VerifyContext::usable(ctx.named("modulatorSync1"), 40, 18) &&
+          VerifyContext::usable(ctx.named("followerSource0"), 40, 18) &&
           VerifyContext::usable(ctx.named("insertSidechain0"), 60, 16) &&
           VerifyContext::usable(ctx.named("insertName0"), 40, 10));
     reached("modulation: screenshot state");

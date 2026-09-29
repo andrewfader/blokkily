@@ -119,6 +119,9 @@ class SongModel final : public QObject {
     Q_PROPERTY(int modulatorCount READ modulatorCount NOTIFY songChanged)
     Q_PROPERTY(QVariantList modulators READ modulators NOTIFY modulationChanged)
     Q_PROPERTY(QStringList lfoShapes READ lfoShapes CONSTANT)
+    // The note values a synced LFO's cycle can last, shortest first ("1/16"
+    // ... "4 BARS"; a bar here is four beats).
+    Q_PROPERTY(QStringList lfoDivisions READ lfoDivisions CONSTANT)
     // The scene launcher (phase 2, wave 6.1; song_model_launcher.cpp). One
     // row per scene: {index, name, cells: [{track, filled, pattern, name,
     // repeats, quantization, follow}]}, a cell per track of the song. The
@@ -442,6 +445,7 @@ public:
     int modulatorCount() const noexcept { return static_cast<int>(song_.modulators.size()); }
     QVariantList modulators() const;
     QStringList lfoShapes() const;
+    QStringList lfoDivisions() const;
     // Adding or removing a modulator, a target or a key changes what is
     // routed where: one step of history, recompiled into the running engine
     // (never a rebuild). `kind` is lfo, macro or follower; the new
@@ -459,6 +463,11 @@ public:
     // the running engine without a recompile.
     Q_INVOKABLE void setModulatorShape(int modulator, const QString& shape);
     Q_INVOKABLE void setModulatorRate(int modulator, double hertz);
+    // Tempo sync, live like the rate: on, one cycle lasts the division (1/4
+    // when none was chosen) and follows the tempo map; off, the LFO runs
+    // free at its rate. Choosing a division switches sync on.
+    Q_INVOKABLE void setModulatorSync(int modulator, bool synced);
+    Q_INVOKABLE void setModulatorDivision(int modulator, const QString& division);
     Q_INVOKABLE void setModulatorValue(int modulator, double value);
     Q_INVOKABLE void setModulationDepth(int modulator, int target, double depth);
     // The track keying the insert at kind/bus/slot, or -1 for none. Refused

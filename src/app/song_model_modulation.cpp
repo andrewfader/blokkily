@@ -19,6 +19,21 @@ namespace {
 constexpr const char* shape_names[] = {"SINE", "TRIANGLE", "SAW UP", "SAW DOWN", "SQUARE",
                                        "RANDOM"};
 
+// A synced LFO's cycle, in beats (quarter notes), by the name the panel shows.
+struct Division {
+    const char* name;
+    double beats;
+};
+constexpr Division lfo_division_table[] = {{"1/16", 0.25}, {"1/8", 0.5},  {"1/4", 1.0},  {"1/2", 2.0},
+                                  {"1 BAR", 4.0}, {"2 BARS", 8.0}, {"4 BARS", 16.0}};
+
+// The division a cycle of `beats` is, or its beats when it is none of them.
+QString division_name(double beats) {
+    for (const auto& division : lfo_division_table)
+        if (std::abs(division.beats - beats) < 1e-9) return QString::fromLatin1(division.name);
+    return QString("%1 BEATS").arg(beats, 0, 'g', 3);
+}
+
 std::optional<blokkily::BusKind> bus_kind(const QString& name) {
     if (name == "track") return blokkily::BusKind::track;
     if (name == "return") return blokkily::BusKind::ret;
@@ -87,6 +102,12 @@ QStringList SongModel::lfoShapes() const {
     return names;
 }
 
+QStringList SongModel::lfoDivisions() const {
+    QStringList names;
+    for (const auto& division : lfo_division_table) names.push_back(QString::fromLatin1(division.name));
+    return names;
+}
+
 QVariantList SongModel::modulators() const {
     QVariantList rows;
     for (std::size_t index = 0; index < song_.modulators.size(); ++index) {
@@ -112,6 +133,9 @@ QVariantList SongModel::modulators() const {
             {"name", QString::fromStdString(modulator.name)},
             {"shape", QString::fromLatin1(shape_names[static_cast<std::size_t>(modulator.shape)])},
             {"rateHz", modulator.rate_hz},
+            {"synced", modulator.sync_beats > 0.0},
+            {"division", modulator.sync_beats > 0.0 ? division_name(modulator.sync_beats)
+                                                    : QString()},
             {"rateText", QString("%1 Hz").arg(modulator.rate_hz, 0, 'f',
                                               modulator.rate_hz < 10.0 ? 2 : 1)},
             {"value", modulator.value},
@@ -221,6 +245,30 @@ void SongModel::setModulatorRate(int modulator, double hertz) {
                             blokkily::Modulator::maximum_rate_hz);
     emit mixChanged();
     emit modulationChanged();
+}
+
+void SongModel::setModulatorSync(int modulator, bool synced) {
+    auto* found = modulatorAt(modulator);
+    if (found == nullptr || found->kind != blokkily::Modulator::Kind::lfo) return;
+    if ((found->sync_beats > 0.0) == synced) return;
+    checkpoint();
+    found->sync_beats = synced ? 1.0 : 0.0;
+    emit mixChanged();
+    emit modulationChanged();
+}
+
+void SongModel::setModulatorDivision(int modulator, const QString& division) {
+    auto* found = modulatorAt(modulator);
+    if (found == nullptr || found->kind != blokkily::Modulator::Kind::lfo) return;
+    for (const auto& known : lfo_division_table) {
+        if (division != QLatin1String(known.name)) continue;
+        if (found->sync_beats == known.beats) return;
+        checkpoint();
+        found->sync_beats = known.beats;
+        emit mixChanged();
+        emit modulationChanged();
+        return;
+    }
 }
 
 void SongModel::setModulatorValue(int modulator, double value) {

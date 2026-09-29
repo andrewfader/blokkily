@@ -294,8 +294,10 @@ output is heard through that channel only - never also through the source
 track. The channel is part of the song: saved, undone, exported as heard;
 removing the source track leaves the channel as a plain track. The
 MODULATION panel under the inspector adds LFOs (sine, triangle, saws, square,
-random; rate in Hz), macros (one 0..1 knob) and envelope followers (the level of
-a chosen track, after its inserts and before its fader). + TARGET aims one at a
+random; rate in Hz, or with SYNC on a note value from 1/16 to 4 bars that
+follows the tempo map), macros (one 0..1 knob) and envelope followers (the level
+of a track chosen from the card's source picker, after its inserts and before
+its fader). + TARGET aims one at a
 parameter of the selected track's instrument or inserts, with a depth of -100%
 to +100% of that parameter's range. A modulation is an offset on top of the
 parameter's own value and automation, sent as CLAP parameter modulation (and
@@ -365,10 +367,12 @@ to persist those references. Original files are kept so undo remains playable.
   the others. A VST3 plugin's extra buses are used only beside a stereo main
   bus. An instrument's aux output channel follows its source's solo like any
   other track (soloing the source silences its channels).
-- Modulation is evaluated once per block (at most the device's block size) and
-  follows no tempo sync from the panel (the model and engine support synced
-  LFOs). A follower aimed at its own track, or at a track the render order
-  cannot put after its source, hears the previous block's level.
+- Modulation is evaluated once per block (at most the device's block size), so
+  a synced LFO turns on the block after its beat. A follower aimed at its own
+  track, or at a track the render order cannot put after its source, hears the
+  previous block's level. The sync divisions are straight note values (no
+  dotted or triplet ones), and a "bar" among them is four beats whatever the
+  meter.
 - The scene launcher has no per-scene tempo; launched tracks stop when the
   engine is rebuilt (a track or instrument added, changed or removed) and for
   an export, which is always the arrangement. A take printed over a clip that

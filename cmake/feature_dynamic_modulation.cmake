@@ -39,6 +39,7 @@ if(BLOKKILY_BUILD_TESTS)
             lfo_shapes
             envelope_follower
             lfo_reaches_clap
+            lfo_tempo_sync
             macro_live
             follower_hears_source
             bounce_matches_playback
@@ -50,7 +51,8 @@ if(BLOKKILY_BUILD_TESTS)
             LABELS "bdd;unit;integration;audio;modulation"
             ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 120)
     endforeach()
-    set_property(TEST dynamic_modulation_lfo_reaches_clap dynamic_modulation_macro_live
+    set_property(TEST dynamic_modulation_lfo_reaches_clap dynamic_modulation_lfo_tempo_sync
+                      dynamic_modulation_macro_live
                       dynamic_modulation_follower_hears_source
                       dynamic_modulation_bounce_matches_playback
                       dynamic_modulation_removed_modulation_releases

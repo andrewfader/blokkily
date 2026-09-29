@@ -279,6 +279,84 @@ void lfo_reaches_clap_case() {
     std::cerr << "lfo: high " << high << " low " << low << " pre-strike " << before_strike << '\n';
 }
 
+// features/dynamic_modulation.feature: A synced LFO follows the tempo map.
+// A square LFO locked to one beat, aimed at the CLAP synth's Level, over a
+// song at 120 BPM for its first two bars and 60 BPM after: the level turns
+// every half beat, 12000 samples apart at 120 and 24000 at 60, whatever the
+// LFO's free rate says. A tempo edit recompiled into the running engine moves
+// it too. Heard in the rendered audio and in the modulation events the
+// fixture received.
+void lfo_tempo_sync_case() {
+    constexpr Tick bars = 4;
+    Pattern pattern(bar * bars, 480);
+    Trigger trigger;
+    trigger.start = 0;
+    trigger.duration = bar * bars - 1;
+    trigger.musical_data = Note{60, 1.0F, 0.0F};
+    (void)pattern.add(trigger);
+    auto song = song_of({std::move(pattern)});
+    song.tempo.points = {{0, 120.0, false}, {2 * bar, 60.0, false}};
+    auto synced = lfo(LfoShape::square, 7.0, track_instrument(0), 0.2);
+    synced.sync_beats = 1.0;
+    song.modulators = {synced};
+    std::string why;
+    require(song.consistent(&why), "the song is valid: " + why);
+    SongEngine engine;
+    prepare(engine, song);
+    engine.set_playing(true);
+    // 8 beats at 24000 samples and 8 at 48000.
+    const std::size_t at_120 = 8 * 24000;
+    const std::size_t total = at_120 + 8 * 48000;
+    const auto out = render(engine, total);
+
+    // Where the level turns (between 0.45 and 0.05 of the strip).
+    const auto turns = [&](const std::vector<float>& samples, std::size_t from, std::size_t to) {
+        std::vector<std::size_t> found;
+        bool high = samples[from] / centre > 0.25;
+        for (std::size_t index = from + 1; index < to; ++index) {
+            const bool now = samples[index] / centre > 0.25;
+            if (now != high) found.push_back(index);
+            high = now;
+        }
+        return found;
+    };
+    const auto spaced = [&](const std::vector<std::size_t>& found, double spacing) {
+        if (found.size() < 4) return false;
+        for (std::size_t index = 1; index < found.size(); ++index) {
+            const double gap = static_cast<double>(found[index] - found[index - 1]);
+            // Evaluated once per block: a turn lands on the block after it.
+            if (std::abs(gap - spacing) > static_cast<double>(block)) return false;
+        }
+        return true;
+    };
+    const auto fast = turns(out.left, 1000, at_120 - 1000);
+    const auto slow = turns(out.left, at_120 + 1000, total - 1000);
+    require(spaced(fast, 12000.0),
+            "at 120 BPM the one-beat square turns every 12000 samples (" +
+                std::to_string(fast.size()) + " turns)");
+    require(spaced(slow, 24000.0),
+            "at 60 BPM it turns every 24000 samples (" + std::to_string(slow.size()) + " turns)");
+    // Its free rate (7 Hz) would turn every ~3400 samples: it is not used.
+    require(near(level_over(out.left, 1000, 11000), 0.45, 1e-4) &&
+                near(level_over(out.left, 13000, 23000), 0.05, 1e-4),
+            "high for the first half beat, low for the second");
+    const auto amount = received().amounts[0];
+    require(near(std::abs(amount), 0.2, 1e-6), "the fixture received +/-0.2 of Level, got " +
+                                                   text(amount));
+
+    // The tempo edited to 240 BPM while the song plays: recompiled, the same
+    // LFO turns every 6000 samples.
+    song.tempo.points = {{0, 240.0, false}};
+    require(engine.recompile(song, 0, &why), "the tempo edit recompiles: " + why);
+    engine.seek(0);
+    const auto edited = render(engine, 8 * 12000);
+    const auto faster = turns(edited.left, 1000, 8 * 12000 - 1000);
+    require(spaced(faster, 6000.0),
+            "at 240 BPM it turns every 6000 samples (" + std::to_string(faster.size()) + " turns)");
+    std::cerr << "lfo sync: " << fast.size() << " turns at 120, " << slow.size() << " at 60, "
+              << faster.size() << " at 240\n";
+}
+
 // features/dynamic_modulation.feature: A macro moves every parameter it
 // targets, scaled to each parameter's range; turning it reaches the running
 // engine without a recompile; modulators on one parameter add up.
@@ -522,6 +600,7 @@ int main(int argc, char** argv) {
         if (name == "lfo_shapes") lfo_shapes_case();
         else if (name == "envelope_follower") envelope_follower_case();
         else if (name == "lfo_reaches_clap") lfo_reaches_clap_case();
+        else if (name == "lfo_tempo_sync") lfo_tempo_sync_case();
         else if (name == "macro_live") macro_live_case();
         else if (name == "follower_hears_source") follower_hears_source_case();
         else if (name == "bounce_matches_playback") bounce_matches_playback_case();

@@ -141,15 +141,48 @@ Rectangle {
                         }
                     }
 
-                    ValueDial {
-                        objectName: "modulatorRate" + card.index
+                    // An LFO runs free at its rate, or, synced, lasts a note
+                    // value of the tempo map (and follows every tempo change).
+                    RowLayout {
                         visible: card.row.kind === "lfo"
                         Layout.fillWidth: true
-                        label: "RATE"; from: 0.05; to: 20; grip: 18
-                        accent: card.accent
-                        value: card.row.rateHz !== undefined ? card.row.rateHz : 1
-                        readout: card.row.rateText !== undefined ? card.row.rateText : ""
-                        onMoved: v => songModel.setModulatorRate(card.index, v)
+                        spacing: 6
+                        Chip {
+                            objectName: "modulatorSync" + card.index
+                            Layout.alignment: Qt.AlignBottom
+                            text: "SYNC"; implicitHeight: 22
+                            accent: card.accent
+                            accessibleLabel: "Tempo sync"
+                            on: card.row.synced === true
+                            onClicked: songModel.setModulatorSync(card.index, !(card.row.synced === true))
+                        }
+                        Picker {
+                            objectName: "modulatorDivision" + card.index
+                            visible: card.row.synced === true
+                            Layout.alignment: Qt.AlignBottom
+                            implicitHeight: 22
+                            choices: songModel.lfoDivisions
+                            value: card.row.division !== undefined ? card.row.division : ""
+                            onPicked: name => songModel.setModulatorDivision(card.index, name)
+                        }
+                        Label {
+                            visible: card.row.synced === true
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignBottom
+                            text: "PER CYCLE · FOLLOWS THE TEMPO"
+                            color: Theme.muted; font.pixelSize: 9; font.bold: true
+                            font.letterSpacing: 0.8; elide: Text.ElideRight
+                        }
+                        ValueDial {
+                            objectName: "modulatorRate" + card.index
+                            visible: card.row.synced !== true
+                            Layout.fillWidth: true
+                            label: "RATE"; from: 0.05; to: 20; grip: 18
+                            accent: card.accent
+                            value: card.row.rateHz !== undefined ? card.row.rateHz : 1
+                            readout: card.row.rateText !== undefined ? card.row.rateText : ""
+                            onMoved: v => songModel.setModulatorRate(card.index, v)
+                        }
                     }
                     ValueDial {
                         objectName: "macroValue" + card.index

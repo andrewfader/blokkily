@@ -37,6 +37,15 @@ Feature: Modulators move plugin parameters while the song plays
     And the rendered level swings between 0.45 and 0.05
     And in the block where the LFO turns, the samples before a note later in that block already hear the new modulation
 
+  # dynamic_modulation_lfo_tempo_sync
+  Scenario: A synced LFO's cycle follows the tempo map
+    Given a square LFO synced to one beat, aimed at the CLAP synth's Level, whose free rate is 7 Hz
+    And a song at 120 BPM for two bars and 60 BPM after
+    When the song plays
+    Then the level turns every 12000 samples at 120 BPM and every 24000 at 60 BPM
+    And the fixture receives modulations of +/- the depth
+    And after the tempo is edited to 240 BPM and recompiled it turns every 6000 samples
+
   # dynamic_modulation_macro_live
   Scenario: A macro is turned while the song plays
     Given two macros on the CLAP instrument's Level, one also on a CLAP insert's Gain
@@ -87,4 +96,10 @@ Feature: Modulators move plugin parameters while the song plays
     And removing it brings the level back
     And a macro added and turned there is heard at once, without a recompile, and is undone and redone
     And the modulators survive a save and a load, and the export has the macro's level
-    And the modulation panel and its dials have a usable size
+    When an LFO's SYNC chip is clicked and 1/8 picked from its division picker
+    Then the rate dial gives way to the division, live, without a recompile
+    And the level turns up every 23.4 blocks of 512 at 120 BPM and every 46.9 after the tempo is set to 60
+    When a follower is added, aimed at the bass's Level, and KICK picked from its source picker
+    Then the song is recompiled, not rebuilt
+    And holding a key on the muted, faded kick raises the bass by half the kick's level, and letting go brings it back
+    And the modulation panel and its dials, the SYNC chip, the division and source pickers have a usable size
