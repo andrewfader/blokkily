@@ -196,11 +196,22 @@ struct PatternSlot {
 // One placement of a pattern on one track's timeline. `repeats` is how many
 // times the pattern runs back to back from `start`; each repetition counts as
 // the next loop, so probability and loop conditions keep working in a song.
+// `length`, when not 0, cuts the clip that many ticks after its start (a take
+// the scene launcher printed that stopped part-way through a loop): nothing
+// starts from the cut on, and a note still sounding there is released there.
+// It is never longer than the repeats it cuts.
 struct Clip {
     std::size_t track = 0;
     std::size_t pattern = 0;
     Tick start = 0;
     std::uint32_t repeats = 1;
+    Tick length = 0;
+
+    // The ticks the clip covers, given its pattern's length.
+    [[nodiscard]] Tick span(Tick pattern_length) const noexcept {
+        const Tick whole = pattern_length * static_cast<Tick>(repeats < 1 ? 1 : repeats);
+        return length > 0 && length < whole ? length : whole;
+    }
 };
 
 // --- Audio ------------------------------------------------------------------
@@ -373,6 +384,16 @@ struct Song {
     // the old-to-new index of every file. Run on save only, so that undo can
     // bring back a clip whose file is still listed.
     std::vector<std::optional<std::size_t>> prune_audio_files();
+    // Prints a take the scene launcher played (wave 6.1) into the arrangement:
+    // pattern `pattern` on track `track` from `start` to `end`, as clips of
+    // at most `cycle` repeats each (the loops a launched pattern repeats in;
+    // a cycle of 1 is one clip), the last one cut at `end`. A clip of that track the take covers makes
+    // room: one that begins inside the take goes, and one that runs into it
+    // is cut where the take begins (what it held after the take is not kept).
+    // False, changing nothing, when the track or the pattern does not exist
+    // or the take is empty.
+    bool print_take(std::size_t track, std::size_t pattern, Tick start, Tick end,
+                    std::uint32_t cycle = 1);
     // An id no audio clip in the song uses yet.
     [[nodiscard]] AudioClipId next_audio_clip_id() const;
     // Compiles one track's whole timeline into song-absolute ticks, expanding

@@ -73,9 +73,15 @@ void write_core(const Project& project, WriteContext& context) {
             << (track.mix.solo ? 1 : 0) << ' ' << escape(track.instrument.format) << ' '
             << escape(track.instrument.path) << ' ' << escape(track.instrument.identifier)
             << ' ' << encode_base64(track.instrument.state) << '\n';
-    for (const auto& clip : project.song.clips)
+    for (const auto& clip : project.song.clips) {
         out << "clip " << clip.track << ' ' << clip.pattern << ' ' << clip.start << ' '
-            << clip.repeats << '\n';
+            << clip.repeats;
+        // A cut (a launcher take stopped part-way through a loop) is a sixth
+        // field, written only when there is one, so older readers keep
+        // reading every clip that has none.
+        if (clip.length > 0) out << ' ' << clip.length;
+        out << '\n';
+    }
 }
 
 bool parse_name(const Fields& fields, ParseContext& context) {
@@ -278,12 +284,15 @@ bool parse_clip(const Fields& fields, ParseContext& context) {
     const auto pattern_index = fields.integer(2);
     const auto start = fields.integer(3);
     const auto repeats = fields.integer(4);
-    if (!fields.count(5) || !track || !pattern_index || !start || !repeats || *track < 0 ||
-        *pattern_index < 0 || *start < 0 || *repeats <= 0 || *repeats > 0xFFFF)
+    const bool cut = fields.count(6);
+    const auto length = cut ? fields.integer(5) : std::optional<long long>{0};
+    if (!(fields.count(5) || cut) || !track || !pattern_index || !start || !repeats ||
+        !length || *track < 0 || *pattern_index < 0 || *start < 0 || *repeats <= 0 ||
+        *repeats > 0xFFFF || *length < 0 || (cut && *length == 0))
         return context.fail("malformed clip record");
     context.clips.push_back({static_cast<std::size_t>(*track),
                              static_cast<std::size_t>(*pattern_index), *start,
-                             static_cast<std::uint32_t>(*repeats)});
+                             static_cast<std::uint32_t>(*repeats), *length});
     return true;
 }
 

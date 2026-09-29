@@ -8,6 +8,7 @@
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/audio/sample_ring.hpp"
+#include "blokkily/audio/scene_launcher_engine.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/plugin.hpp"
@@ -26,7 +27,6 @@
 namespace blokkily {
 
 class DiskStream;
-class SceneLauncherEngine;
 
 // A parameter edit a processor made, stamped on the audio thread with where in
 // the song it happened (plan F-D). `rolling` is whether the transport was
@@ -73,6 +73,7 @@ struct BusPlayback;
 struct InsertChain;
 struct MetronomePlayback;
 struct ModulationPlayback;
+struct LauncherPlayback;
 struct TestAccess;
 } // namespace engine
 
@@ -117,8 +118,6 @@ public:
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
     void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
-    void set_scene_launcher(SceneLauncherEngine* launcher) noexcept { scene_launcher_ = launcher; }
-    [[nodiscard]] SceneLauncherEngine* scene_launcher() const noexcept { return scene_launcher_; }
 
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
@@ -315,6 +314,31 @@ public:
     bool take_strip_move(StripMoveEvent& event) noexcept { return strip_moves_.pop(event); }
     void apply_mix(const Song& song);
     void set_master_gain_db(double decibels);
+
+    // --- Scene launcher (wave 6.1) ------------------------------------------
+    // The grid is Song::launcher, compiled with the arrangement (prepare(),
+    // recompile()). Launching and stopping are commands the render callback
+    // plays at the start of its next chunk, at the next boundary their
+    // quantization allows (a cell's own for launch_cell, the grid's for the
+    // rest; at once on the first block after the transport starts). Nothing
+    // is played while the transport is stopped: a command waits for it to
+    // roll, and stopping the transport stops every launched track. A launched
+    // track plays its cell instead of its arrangement. Control thread only
+    // (the queue's one producer); false when the queue is full.
+    bool launch_cell(std::size_t scene, std::size_t track) noexcept;
+    bool launch_scene(std::size_t scene) noexcept;
+    bool stop_launched(std::size_t track) noexcept;
+    bool stop_all_launched() noexcept;
+    // Where each track's launcher is, as of the last block. Any thread.
+    [[nodiscard]] LauncherTrackStatus launcher_status(std::size_t track) const noexcept;
+    // Arrangement recording: while on, every stretch a track plays from one
+    // cell comes back through take_launcher_take() when it ends (a launch, a
+    // stop, a follow action, the transport stopping), for the control thread
+    // to print into the song. Any thread.
+    void set_launcher_recording(bool recording) noexcept;
+    [[nodiscard]] bool launcher_recording() const noexcept;
+    // The next finished take, oldest first. Control thread only.
+    bool take_launcher_take(LauncherTake& take) noexcept;
 
     // --- Metronome and count-in (item 3.7, decision 14) ---------------------
     // The click: on or off, and its level (0 dB puts a downbeat at full
@@ -519,7 +543,9 @@ private:
     // before it is handed to the tracks it names. Touched by the callback alone.
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
-    SceneLauncherEngine* scene_launcher_ = nullptr;
+    // The scene launcher's commands, tracks and takes (wave 6.1): allocated
+    // with the engine, sized by prepare().
+    std::unique_ptr<engine::LauncherPlayback> launcher_;
     // The modulators' live controls and what the callback keeps between
     // chunks for them (waves 5.1): allocated with the engine.
     std::unique_ptr<engine::ModulationPlayback> modulation_;

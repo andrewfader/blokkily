@@ -1,4 +1,3 @@
-#include "blokkily/audio/scene_launcher_engine.hpp"
 #include "blokkily/audio/song_engine.hpp"
 
 #include "engine/arrangement.hpp"
@@ -6,6 +5,7 @@
 #include "engine/engine_clips.hpp"
 #include "engine/engine_effects.hpp"
 #include "engine/engine_input.hpp"
+#include "engine/engine_launcher.hpp"
 #include "engine/engine_metronome.hpp"
 #include "engine/engine_modulation.hpp"
 #include "engine/track_playback.hpp"
@@ -50,6 +50,7 @@ constexpr std::uint32_t handoff_state(std::uint32_t queued, std::uint32_t render
 SongEngine::SongEngine()
     : buses_(std::make_unique<engine::BusPlayback>()),
       metronome_(std::make_unique<engine::MetronomePlayback>()),
+      launcher_(std::make_unique<engine::LauncherPlayback>()),
       modulation_(std::make_unique<engine::ModulationPlayback>()) {}
 SongEngine::~SongEngine() = default;
 
@@ -174,6 +175,8 @@ void SongEngine::reset_processing() {
     if (live_ != nullptr) engine::release_parameter_holds(live_->automation);
     // Followers and free-running LFOs start from rest, as a bounce must.
     engine::reset_modulation(*modulation_);
+    // A bounce is the arrangement: launched tracks stop, their takes end.
+    engine::reset_launcher(*launcher_);
 }
 
 std::uint32_t SongEngine::output_latency() const noexcept {
@@ -240,6 +243,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     post_left_.assign(maximum_block_size, 0.0F);
     post_right_.assign(maximum_block_size, 0.0F);
     engine::reset_modulation(*modulation_);
+    engine::prepare_launcher(*launcher_, song.tracks.size(), seed);
     rolled_ = false;
 
     // Nothing is rendering yet, so the first arrangement is installed directly
@@ -324,6 +328,9 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
                 if (info.id == parameter) return info.max - info.min;
             return std::nullopt;
         });
+    // The launcher's grid and loops, with the seed the timelines use, so a
+    // printed take plays what the launcher played (wave 6.1).
+    engine::compile_launcher(target.launcher, song, seed);
     target.song_samples = samples;
     target.clock = std::move(clock);
     target.ticks_per_beat = song.ticks_per_beat();
@@ -572,12 +579,22 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
     }
     const std::size_t timeline_begin = count;
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
-    if (scene_launcher_ != nullptr && (scene_launcher_->is_playing(index) || scene_launcher_->is_queued(index))) {
-        const std::size_t added = scene_launcher_->process_track(
-            index, song_position, static_cast<std::size_t>(end - song_position),
-            arranged.clock, arranged.meter, std::span<PluginEvent>(events.data(), capacity),
-            count, capacity);
-        count += added;
+    if (engine::launcher_owns(*launcher_, index)) {
+        // A launched track plays its cell, not its arrangement (wave 6.1):
+        // what the arrangement left sounding is let go as the cell starts.
+        if (engine::launcher_takes_over(*launcher_, index)) {
+            for (std::size_t key = 0; key < track.sounding.size(); ++key) {
+                if (track.sounding[key] > 0 && count < capacity) {
+                    events[count++] = {PluginEvent::Type::note_off, 0,
+                                       static_cast<std::int32_t>(key), 0.0, 0.0};
+                    track.sounding[key] = 0;
+                }
+            }
+        }
+        const auto first = count;
+        count += engine::launcher_events(*launcher_, arranged.launcher, arranged.clock, index,
+                                         song_position, end, from_timeline,
+                                         std::span<PluginEvent>(events).subspan(first));
     } else {
         while (from_timeline && track.cursor < timeline.size() &&
                timeline[track.cursor].sample < end) {
@@ -749,11 +766,6 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
                                   &SongEngine::insert_events, &SongEngine::sidechain_input};
     engine::begin_buses(*buses_, frames);
 
-    if (scene_launcher_ != nullptr) {
-        const Tick start_tick = static_cast<Tick>(arranged.clock.tick_at(static_cast<double>(song_position)));
-        scene_launcher_->begin_chunk(start_tick, arranged.meter);
-    }
-
     // Every LFO and macro once, at the chunk's first sample (wave 5.1). While
     // the song plays the LFOs read their phase from where it is, so a bounce
     // modulates as playback did.
@@ -902,6 +914,8 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     const bool stopped = stop_requested_.exchange(false, std::memory_order_acq_rel);
     if (stopped) {
         release_arrangement_notes_ = true;
+        // Stop stops every launched track too (wave 6.1).
+        engine::stop_launcher(*launcher_);
         // A count-in stopped before it ends starts nothing.
         metronome_->count_clicking = false;
         metronome_->song_waiting = false;
@@ -944,6 +958,8 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
             std::fill(output.right.begin(), output.right.end(), 0.0F);
             return;
         }
+        // Stopping the transport stops every launched track (wave 6.1).
+        engine::stop_launcher(*launcher_);
         // Edits a plugin reports on a stopped song are stamped where the
         // playhead rests.
         const auto resting = song_samples_ == 0 ? 0 : sample_position_ % song_samples_;
@@ -1014,6 +1030,13 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         if (live_ != nullptr && live_->automation.any_strip)
             frames = std::min<std::uint64_t>(
                 frames, engine::automation_grid - song_position % engine::automation_grid);
+        // A launch, a stop or a loop's end falls on a chunk's first sample.
+        const auto& launching = live_ != nullptr ? live_->launcher : nothing_arranged.launcher;
+        const auto& launch_clock = live_ != nullptr ? live_->clock : nothing_arranged.clock;
+        const auto& launch_meter = live_ != nullptr ? live_->meter : nothing_arranged.meter;
+        frames = std::min<std::uint64_t>(
+            frames, engine::begin_launcher_chunk(*launcher_, launching, launch_clock,
+                                                 launch_meter, song_position));
         const StereoBlock chunk{output.left.subspan(rendered, frames),
                                 output.right.subspan(rendered, frames)};
         process_chunk(chunk, input.slice(rendered, static_cast<std::size_t>(frames)),
@@ -1023,6 +1046,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
                               {live_ != nullptr ? &live_->clicks : nullptr,
                                heard_position(song_position), song_samples_, output_latency(),
                                true});
+        engine::end_launcher_chunk(*launcher_, launch_clock, song_position + frames);
         rendered += static_cast<std::size_t>(frames);
         sample_position_ += frames;
         continuous_from_ = song_position + frames;
@@ -1033,6 +1057,42 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     if (live_ != nullptr)
         heard_tick_.store(tick_at_sample(live_->clock, heard_position(sample_position_)),
                           std::memory_order_release);
+}
+
+bool SongEngine::launch_cell(std::size_t scene, std::size_t track) noexcept {
+    return launcher_->commands.push({engine::LauncherCommand::Type::launch_cell,
+                                     static_cast<std::uint32_t>(track),
+                                     static_cast<std::uint32_t>(scene)});
+}
+
+bool SongEngine::launch_scene(std::size_t scene) noexcept {
+    return launcher_->commands.push(
+        {engine::LauncherCommand::Type::launch_scene, 0, static_cast<std::uint32_t>(scene)});
+}
+
+bool SongEngine::stop_launched(std::size_t track) noexcept {
+    return launcher_->commands.push(
+        {engine::LauncherCommand::Type::stop_track, static_cast<std::uint32_t>(track), 0});
+}
+
+bool SongEngine::stop_all_launched() noexcept {
+    return launcher_->commands.push({engine::LauncherCommand::Type::stop_all, 0, 0});
+}
+
+LauncherTrackStatus SongEngine::launcher_status(std::size_t track) const noexcept {
+    return engine::launcher_status(*launcher_, track);
+}
+
+void SongEngine::set_launcher_recording(bool recording) noexcept {
+    launcher_->recording.store(recording, std::memory_order_release);
+}
+
+bool SongEngine::launcher_recording() const noexcept {
+    return launcher_->recording.load(std::memory_order_acquire);
+}
+
+bool SongEngine::take_launcher_take(LauncherTake& take) noexcept {
+    return launcher_->takes.pop(take);
 }
 
 void SongEngine::set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept {

@@ -15,8 +15,7 @@ const blokkily::Clip* SongModel::clipAt(int track, int bar) const {
         [&](const blokkily::Clip& clip) {
             if (clip.track != static_cast<std::size_t>(track)) return false;
             if (clip.pattern >= song_.patterns.size()) return false;
-            const auto span = song_.patterns[clip.pattern].pattern.length() *
-                static_cast<blokkily::Tick>(std::max<std::uint32_t>(1, clip.repeats));
+            const auto span = clip.span(song_.patterns[clip.pattern].pattern.length());
             return tick >= clip.start && tick < clip.start + span;
         });
     return found == song_.clips.end() ? nullptr : &*found;
@@ -99,6 +98,8 @@ bool SongModel::setClipRepeats(int track, int bar, int repeats) {
     }
     checkpoint();
     covering->repeats = static_cast<std::uint32_t>(next);
+    // Repeats set by hand are whole: a launcher take's cut goes with them.
+    covering->length = 0;
     notifyStructureChanged();
     return true;
 }
@@ -106,8 +107,7 @@ bool SongModel::setClipRepeats(int track, int bar, int repeats) {
 bool SongModel::moveClip(int track, int bar, int newBar) {
     auto* covering = clipAt(track, bar);
     if (covering == nullptr || newBar < 0) return false;
-    const auto span = song_.patterns[covering->pattern].pattern.length() *
-                      static_cast<blokkily::Tick>(std::max<std::uint32_t>(1, covering->repeats));
+    const auto span = covering->span(song_.patterns[covering->pattern].pattern.length());
     const auto old_start = covering->start;
     const auto new_start = barStart(newBar);
     if (old_start == new_start) return true;

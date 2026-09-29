@@ -20,7 +20,7 @@ void AppController::seekToPatternStep(int step) {
     for (const auto& clip : song.clips) {
         if (clip.track != track || clip.pattern != open || open >= song.patterns.size()) continue;
         const auto length = song.patterns[open].pattern.length();
-        const auto span = length * static_cast<blokkily::Tick>(std::max<std::uint32_t>(1, clip.repeats));
+        const auto span = clip.span(length);
         if (at < clip.start || at >= clip.start + span) continue;
         pass = clip.start + (at - clip.start) / length * length;
         break;

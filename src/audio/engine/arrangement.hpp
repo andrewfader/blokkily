@@ -8,6 +8,7 @@
 
 #include "engine_automation.hpp"
 #include "engine_clips.hpp"
+#include "engine_launcher.hpp"
 #include "engine_metronome.hpp"
 #include "engine_modulation.hpp"
 
@@ -38,6 +39,8 @@ struct Arrangement {
     // 5.2), compiled from the song with everything else, so a route changes
     // only when the callback takes a whole new arrangement.
     ArrangementRouting routing;
+    // The scene launcher's grid and the loops its cells play (wave 6.1).
+    ArrangementLauncher launcher;
 };
 
 } // namespace blokkily::engine

@@ -188,6 +188,12 @@ bool Song::consistent(std::string* why) const {
     for (const auto& clip : clips)
         if (clip.track >= tracks.size() || clip.pattern >= patterns.size() || clip.start < 0)
             return refuse(why, "a clip refers to a track or pattern that does not exist");
+    for (const auto& clip : clips) {
+        const Tick whole = patterns[clip.pattern].pattern.length() *
+                           static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
+        if (clip.length < 0 || clip.length > whole)
+            return refuse(why, "a clip is cut outside the repeats it plays");
+    }
 
     for (const auto& scene : launcher.scenes) {
         for (std::size_t t = 0; t < scene.cells.size(); ++t) {

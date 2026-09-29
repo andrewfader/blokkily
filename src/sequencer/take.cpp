@@ -38,7 +38,7 @@ TakeTarget take_target(const Song& song, std::size_t track, Tick tick,
     for (const auto& clip : song.clips) {
         if (clip.track != track || clip.pattern >= song.patterns.size()) continue;
         const Tick length = song.patterns[clip.pattern].pattern.length();
-        const Tick span = length * static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
+        const Tick span = clip.span(length);
         if (tick >= clip.start && tick < clip.start + span)
             return {clip.pattern, (tick - clip.start) % length};
     }
