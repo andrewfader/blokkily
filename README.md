@@ -276,6 +276,23 @@ stems is the signal before master processing. A nonlinear master effect cannot
 be distributed among independent stems. Muting a source track also stops its
 sends, so bounce those returns separately if they must be kept.
 
+A compressor in a rack has a SIDECHAIN chip: choose another track and the
+compressor listens to that track instead of to what it compresses. The key is
+the source track after its own inserts and before its fader, so a muted or
+faded-down kick still ducks the bass; the engine renders a key's source first,
+and refuses a key from the insert's own track or a loop of keys. The
+MODULATION panel under the inspector adds LFOs (sine, triangle, saws, square,
+random; rate in Hz), macros (one 0..1 knob) and envelope followers (the level of
+a chosen track, after its inserts and before its fader). + TARGET aims one at a
+parameter of the selected track's instrument or inserts, with a depth of -100%
+to +100% of that parameter's range. A modulation is an offset on top of the
+parameter's own value and automation, sent as CLAP parameter modulation (and
+the equivalent on VST3 and built-in effects), never written into a lane;
+several on one parameter add up. Rates, shapes, depths and macros move live
+without a recompile. Modulators and keys are saved with the song, undone with
+it, and exported exactly as they play: while the song rolls an LFO's phase is
+taken from the song position.
+
 Imported files stay where they are. Recordings go into `<project>.audio/`, or
 a temporary session folder before the first save. COLLECT copies referenced
 clips and sampler samples into the saved project's audio folder, deduplicates
@@ -295,6 +312,13 @@ to persist those references. Original files are kept so undo remains playable.
   wizard, velocity-layer editor or waveform editing surface.
 - Step parameter locks target the track instrument. Insert parameters use
   automation lanes; insert-targeted step locks remain outside this release.
+- Multi-output plugins: an instrument's auxiliary output ports are not broken
+  out to mixer tracks. Only the built-in compressor listens to a sidechain key;
+  a CLAP or VST3 effect's own sidechain input port is not fed yet.
+- Modulation is evaluated once per block (at most the device's block size) and
+  follows no tempo sync from the panel (the model and engine support synced
+  LFOs). A follower aimed at its own track, or at a track the render order
+  cannot put after its source, hears the previous block's level.
 - Output recording chooses one bus per pass. Bounce additional racks for a
   set of stems. A partial live pass ends when recording stops and does not
   automatically append effect tails; offline stems include them.

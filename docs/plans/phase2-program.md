@@ -69,6 +69,13 @@ Blokkily has step parameter locks and static automation curves, but lacks real-t
   * `Macro`: 0.0–1.0 control assigned to multiple targets with min/max scaling.
 * **Engine Injection:** `SongEngine` computes modulator frames per chunk and feeds them to `PluginInstance::process` via `PluginEvent::kind = modulation`.
 
+### 3. Status: done (LFO, macro, envelope follower)
+* **In the song, not the engine.** `Song::modulators` (`include/blokkily/model/modulation.hpp`) holds each modulator and its targets; they are saved (`modulator`/`modtarget` records, additive, older files load with none), validated by `Song::consistent` (ranges, targets on processors that exist, followers of tracks that exist, at most 32 modulators of 8 targets), kept pointing at the right processors when an insert, a return or a track is removed, and undone with the song.
+* **Semantics.** A modulation event carries an offset: signal (LFO -1..+1, macro 0..1, follower 0..1) x target depth (-1..+1) x the parameter's range (max - min, read from the processor). Offsets on one parameter are summed into one `parameter_modulation` event, which stays distinct from automation (`parameter_value`).
+* **Engine.** `src/audio/engine/engine_modulation.cpp`: routes are compiled with the arrangement and published through the same handoff as the timelines; rates, shapes, depths and macro values reach the callback as atomics from `apply_mix` (no recompile, no released notes). LFOs and macros are evaluated once per chunk at its first sample; each processor receives its modulation at offset 0 ahead of its other events, so events stay time-ordered. A follower reads its source track's buffer after that track's inserts and before its fader, as soon as it has rendered; the render order puts sources first. While the transport rolls an LFO's phase comes from the song position, so a bounce equals playback. A parameter whose modulation disappears is sent a last modulation of 0.
+* **Interface.** The MODULATION panel adds LFOs, macros and followers, aims them from a menu of the selected track's parameters, and turns rate, shape, value and depth.
+* **Not done.** Tempo-synced LFO rates exist in the model and engine (`sync_beats`) but have no control in the panel. Modulation is block-rate, not per-sample.
+
 ---
 
 ## Wave 5.2: Inter-Track Sidechaining & Multi-Output Routing (Item 4)
@@ -80,6 +87,10 @@ Audio flows strictly track-by-track. There is no sidechain key input into compre
 * **Sidechain Taps:** Allow plugins with `audio_inputs > 2` to define a sidechain source (track tap post-insert, pre-fader).
 * **Multi-Out Channels:** Plugins declaring multiple stereo buses expose auxiliary channels directly in `MixerPanel`.
 * **Topological Sort:** Tracks with sidechain dependencies are topologically sorted to ensure sources are rendered before consumers.
+
+### 3. Status: sidechain done; multi-output not implemented
+* **Sidechain.** `EffectSlot::sidechain` names the key track, saved (`sidechain` record), validated (no key from the insert's own track, no loops, no missing track) and fixed up when tracks are removed. The engine compiles keys and a render order (key and follower sources first) into the arrangement; the key is the source track's buffer after its inserts and before its fader, handed to the insert as exactly the chunk's frames; built-in effects hand each render segment its own part of the key. The rack's SIDECHAIN chip picks the key. Only the built-in compressor listens to a key: CLAP/VST3 sidechain input ports are not fed yet.
+* **Multi-output: removed.** The first attempt copied a track's post-fader output into another track while the source still reached the master (a doubled signal) and ignored the aux bus it named. It was removed with its tests. Doing it properly needs the plugin boundary to expose auxiliary output ports (CLAP `audio-ports` with more than one output; the CLAP fixture would grow one), a song-level route from a track's instrument port to a mixer track, and the engine rendering that port into the destination track instead of summing it into the source. Deferred.
 
 ---
 
