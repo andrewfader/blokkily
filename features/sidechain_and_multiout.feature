@@ -8,6 +8,9 @@ Feature: Plugin sidechain inputs and multi-output instruments
   Track::source names the instrument's track and output, rendered after it,
   with its own fader, pan, mute, solo, inserts and sends. The output reaches
   the mix through that channel alone, never also through the source track.
+  An aux output is the instrument's own sound, so soloing the source track
+  solos its channels with it (Song::soloed); soloing a channel alone does
+  not solo its source.
 
   The fixtures are built by the suite and loaded through the production
   adapters: the CLAP effect scales its input by (1 - key level), the VST3
@@ -82,6 +85,15 @@ Feature: Plugin sidechain inputs and multi-output instruments
     Then the song is refused
     And removing a track re-indexes the source, removing the source leaves a plain track
     And the channel saves as an auxsource record, a file without it loads, a dangling one is refused
+
+  # multiout_multi_out_solo
+  Scenario: Soloing an instrument keeps its broken-out outputs audible
+    Given a CLAP synth whose aux output has its own channel, and a third track playing
+    When the synth's track is soloed
+    Then the master bus plays the synth's main output and its aux channel, and not the third track
+    And soloing the aux channel alone plays that channel without its source's main output
+    And a muted aux channel stays muted under its source's solo
+    And an export of the soloed song hears the same
 
   # realtime_plugin_routing
   Scenario: Plugin keys and instrument outputs keep the real-time rules

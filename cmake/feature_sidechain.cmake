@@ -68,7 +68,8 @@ if(BLOKKILY_BUILD_TESTS)
             vst3_multi_out
             multi_out_order
             multi_out_bounce
-            multi_out_song_model)
+            multi_out_song_model
+            multi_out_solo)
         add_test(NAME multiout_${routing_case}
             COMMAND blokkily_plugin_routing_tests ${routing_case})
         set_tests_properties(multiout_${routing_case} PROPERTIES

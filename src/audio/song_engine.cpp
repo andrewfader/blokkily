@@ -493,7 +493,8 @@ bool SongEngine::move(const StripMove& move) {
 void SongEngine::apply_mix(const Song& song) {
     const bool solo = song.any_solo();
     for (std::size_t index = 0; index < song.tracks.size() && index < tracks_.size(); ++index)
-        set_strip(index, song.tracks[index].mix, solo);
+        // An instrument's aux channels are soloed with it (Song::soloed).
+        set_strip(index, song.heard_strip(index), solo);
     set_master_gain_db(song.master_gain_db);
     engine::apply_effect_mix(song, track_chains(), *buses_);
     set_metronome(song.metronome.enabled, song.metronome.level_db);

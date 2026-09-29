@@ -108,7 +108,7 @@ QVariantList SongModel::tracks() const {
     const bool solo = song_.any_solo();
     for (std::size_t index = 0; index < song_.tracks.size(); ++index) {
         const auto& track = song_.tracks[index];
-        const auto gain = blokkily::strip_gain(track.mix, solo);
+        const auto gain = blokkily::strip_gain(song_.heard_strip(index), solo);
         QVariantMap row;
         row["index"] = static_cast<int>(index);
         row["name"] = QString::fromStdString(track.name);
@@ -140,7 +140,7 @@ QVariantList SongModel::tracks() const {
         row["panText"] = pan_readout(track.mix.pan);
         row["mute"] = track.mix.mute;
         row["solo"] = track.mix.solo;
-        row["audible"] = blokkily::audible(track.mix, solo);
+        row["audible"] = blokkily::audible(song_.heard_strip(index), solo);
         row["selected"] = static_cast<int>(index) == selected_track_;
         row["automationMode"] = automationMode(static_cast<int>(index));
         row["peak"] = index < peaks_.size() ? static_cast<double>(peaks_[index]) : 0.0;

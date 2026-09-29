@@ -291,7 +291,9 @@ can be broken out to a mixer channel of its own ("PAD AUX 1"), a track with no
 instrument whose signal is that output, rendered after its source. Its fader,
 pan, mute, solo, inserts, sends and automation work as on any track, and the
 output is heard through that channel only - never also through the source
-track. The channel is part of the song: saved, undone, exported as heard;
+track. Soloing the source track keeps its channels audible (they are the
+instrument's own sound); soloing a channel alone plays just that channel.
+The channel is part of the song: saved, undone, exported as heard;
 removing the source track leaves the channel as a plain track. The
 MODULATION panel under the inspector adds LFOs (sine, triangle, saws, square,
 random; rate in Hz, or with SYNC on a note value from 1/16 to 4 bars that
@@ -365,8 +367,7 @@ to persist those references. Original files are kept so undo remains playable.
 - Only the first auxiliary input of a CLAP or VST3 effect is fed a key, as a
   stereo (or mono) signal; an effect with several sidechains hears silence on
   the others. A VST3 plugin's extra buses are used only beside a stereo main
-  bus. An instrument's aux output channel follows its source's solo like any
-  other track (soloing the source silences its channels).
+  bus.
 - Modulation is evaluated once per block (at most the device's block size), so
   a synced LFO turns on the block after its beat. A follower aimed at its own
   track, or at a track the render order cannot put after its source, hears the

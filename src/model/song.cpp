@@ -84,6 +84,20 @@ bool Song::any_solo() const {
                        [](const Track& track) { return track.mix.solo; });
 }
 
+bool Song::soloed(std::size_t index) const {
+    if (index >= tracks.size()) return false;
+    const auto& track = tracks[index];
+    if (track.mix.solo) return true;
+    return track.source && track.source->track < tracks.size() &&
+           tracks[track.source->track].mix.solo;
+}
+
+MixerStrip Song::heard_strip(std::size_t index) const {
+    auto strip = tracks.at(index).mix;
+    strip.solo = soloed(index);
+    return strip;
+}
+
 ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
     ScheduledEvents arranged;
     const Scheduler scheduler;

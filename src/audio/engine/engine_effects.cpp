@@ -156,7 +156,7 @@ void apply_effect_mix(const Song& song, std::vector<InsertChain*> chains, BusPla
     for (std::size_t index = 0; index < tracks; ++index) {
         auto& chain = *chains[index];
         const auto& track = song.tracks[index];
-        const bool heard = audible(track.mix, solo);
+        const bool heard = audible(song.heard_strip(index), solo);
         chain.fader.store(heard ? static_cast<float>(db_to_linear(track.mix.gain_db)) : 0.0F,
                           std::memory_order_relaxed);
         chain.audible.store(heard, std::memory_order_relaxed);

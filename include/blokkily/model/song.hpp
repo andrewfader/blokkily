@@ -374,6 +374,14 @@ struct Song {
     // The resolution the song's ticks are counted at: the first pattern's.
     [[nodiscard]] Tick ticks_per_beat() const;
     [[nodiscard]] bool any_solo() const;
+    // Whether track `index` is soloed as the mix hears it: its own solo, or
+    // for a multi-output instrument's channel (Track::source) its source
+    // track's solo too, because an aux output is that instrument's sound.
+    // Soloing a channel alone does not solo its source.
+    [[nodiscard]] bool soloed(std::size_t index) const;
+    // Track `index`'s strip as the mix applies it: its own, with `solo` read
+    // through soloed().
+    [[nodiscard]] MixerStrip heard_strip(std::size_t index) const;
     // True when every cross-reference resolves and every value is in range:
     // clips name existing tracks and patterns; audio clips have unique non-zero
     // ids, name an existing track and file, stay inside the file and fit their

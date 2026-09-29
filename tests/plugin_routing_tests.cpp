@@ -505,6 +505,74 @@ void multi_out_song_model_case() {
     }
 }
 
+// Soloing an instrument track keeps its aux output channels audible: they
+// are that instrument's sound, broken out. A third track, soloed out, is the
+// control that proves the solo is on. Soloing only the aux channel plays the
+// channel alone, not its source's main output. Read off the master bus; the
+// same through an export, which renders through this engine.
+void multi_out_solo_case() {
+    auto song = multi_out_song(clap_synth());
+    song.tracks.push_back(Track{});
+    song.tracks[2].name = "OTHER";
+    song.tracks[2].instrument = clap_synth();
+    song.tracks[2].mix.pan = 0.0;
+    song.clips.push_back({2, 0, 0, 1});
+    std::string why;
+    require(song.consistent(&why), "the song is valid: " + why);
+    SongEngine engine;
+    build(engine, song);
+    engine.set_playing(true);
+    auto out = render(engine, 8192);
+    const float other = 0.25F * centre;
+    require(near(settled(out.left, 1024), 0.25 + other, 1e-4) &&
+                near(settled(out.right, 1024), -0.125 + other, 1e-4),
+            "unsoloed, all three are heard: " + text(settled(out.left)) + " / " +
+                text(settled(out.right)));
+
+    song.tracks[0].mix.solo = true;
+    require(song.soloed(0) && song.soloed(1) && !song.soloed(2),
+            "soloing the instrument solos its aux channel with it");
+    engine.apply_mix(song);
+    out = render(engine, 4096);
+    require(near(settled(out.left), 0.25, 1e-4) && near(settled(out.right), -0.125, 1e-4),
+            "soloing the source keeps its aux channel sounding and silences the other track: " +
+                text(settled(out.left)) + " / " + text(settled(out.right)));
+
+    song.tracks[0].mix.solo = false;
+    song.tracks[1].mix.solo = true;
+    engine.apply_mix(song);
+    out = render(engine, 4096);
+    require(near(settled(out.left), 0.0, 1e-4) && near(settled(out.right), -0.125, 1e-4),
+            "soloing the aux channel alone plays the channel, not its source's main output: " +
+                text(settled(out.left)) + " / " + text(settled(out.right)));
+
+    // Solo on the source with the aux channel muted: mute still wins.
+    song.tracks[1].mix.solo = false;
+    song.tracks[0].mix.solo = true;
+    song.tracks[1].mix.mute = true;
+    engine.apply_mix(song);
+    out = render(engine, 4096);
+    require(near(settled(out.left), 0.25, 1e-4) && near(settled(out.right), 0.0, 1e-4),
+            "a muted aux channel stays muted under its source's solo");
+
+    // An export of the soloed song hears what the engine plays.
+    song.tracks[1].mix.mute = false;
+    engine.apply_mix(song);
+    const auto file = std::filesystem::path(BLOKKILY_TEST_ARTIFACTS) / "multi-out-solo.wav";
+    std::filesystem::create_directories(file.parent_path());
+    std::string error;
+    const auto report = bounce_song(engine, file, WaveFormat::float32, 0, &error);
+    require(report.has_value(), "the soloed song bounces: " + error);
+    const auto read = read_wave(file, &error);
+    require(read.has_value() && read->channels == 2 && read->frames > 12000,
+            "the bounce reads back: " + error);
+    const double left = read->interleaved[2 * 12000];
+    const double right = read->interleaved[2 * 12000 + 1];
+    require(near(left, 0.25, 1e-4) && near(right, -0.125, 1e-4),
+            "the export keeps the aux channel under its source's solo and drops the other: " +
+                text(left) + " / " + text(right));
+}
+
 using Case = std::function<void()>;
 const std::map<std::string, Case>& cases() {
     static const std::map<std::string, Case> all{
@@ -517,6 +585,7 @@ const std::map<std::string, Case>& cases() {
         {"multi_out_order", multi_out_order_case},
         {"multi_out_bounce", multi_out_bounce_case},
         {"multi_out_song_model", multi_out_song_model_case},
+        {"multi_out_solo", multi_out_solo_case},
     };
     return all;
 }
