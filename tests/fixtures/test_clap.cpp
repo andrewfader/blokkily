@@ -301,7 +301,7 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
     }
     // An instrument has no audio input; a host that wires one anyway is seen.
     if (process->audio_inputs_count > most_inputs_seen) most_inputs_seen = process->audio_inputs_count;
-    if (process->audio_outputs_count != 1 || process->audio_outputs[0].channel_count != 2)
+    if (process->audio_outputs_count < 1 || process->audio_outputs[0].channel_count != 2)
         return CLAP_PROCESS_ERROR;
     if (process->transport != nullptr) {
         transport_tempo = process->transport->tempo;
@@ -373,6 +373,15 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
         }
     }
     render_to(process->frames_count);
+    // The aux output (port 1) carries the main signal at minus half, so a
+    // host that routes it can be told apart from one that mixes it into the
+    // main output: main alone is +level, main plus aux +level/2.
+    if (process->audio_outputs_count > 1) {
+        const auto& aux = process->audio_outputs[1];
+        for (std::uint32_t channel = 0; channel < aux.channel_count; ++channel)
+            for (std::uint32_t frame = 0; frame < process->frames_count; ++frame)
+                aux.data32[channel][frame] = -0.5F * channels[0][frame];
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -465,15 +474,16 @@ bool load_state(const clap_plugin_t* plugin, const clap_istream_t* stream) {
 }
 constexpr clap_plugin_state_t state_extension{save_state, load_state};
 
-// --- clap.audio-ports: an instrument, stereo out and nothing in -----------------
-std::uint32_t ports_count(const clap_plugin_t*, bool is_input) { return is_input ? 0 : 1; }
+// --- clap.audio-ports: an instrument, nothing in, a main stereo output and ---
+// an auxiliary stereo output (a multi-output instrument's second pair).
+std::uint32_t ports_count(const clap_plugin_t*, bool is_input) { return is_input ? 0 : 2; }
 bool ports_get(const clap_plugin_t*, std::uint32_t index, bool is_input,
                clap_audio_port_info_t* info) {
-    if (is_input || index != 0) return false;
+    if (is_input || index > 1) return false;
     *info = {};
-    info->id = 0;
-    std::snprintf(info->name, sizeof info->name, "%s", "Output");
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+    info->id = index;
+    std::snprintf(info->name, sizeof info->name, "%s", index == 0 ? "Output" : "Aux");
+    info->flags = index == 0 ? CLAP_AUDIO_PORT_IS_MAIN : 0U;
     info->channel_count = 2;
     info->port_type = CLAP_PORT_STEREO;
     info->in_place_pair = CLAP_INVALID_ID;

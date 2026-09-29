@@ -111,11 +111,16 @@ QVariantMap SongModel::rack() const {
     QVariantList inserts;
     for (std::size_t index = 0; index < chain->size(); ++index) {
         const auto& slot = (*chain)[index];
-        // A key (wave 5.2): offered on the built-in compressor, the insert
-        // that listens to one.
+        // A key (wave 5.2): offered on the inserts that listen to one - the
+        // built-in compressor, and a plugin that declares a sidechain input.
         const int key = slot.sidechain ? static_cast<int>(*slot.sidechain) : -1;
-        const bool keyable = slot.plugin.format == blokkily::builtin_effect_format &&
-                             slot.plugin.identifier == "compressor";
+        const blokkily::ProcessorAddress address{where.kind, where.bus,
+                                                 static_cast<std::int32_t>(index)};
+        const bool keyable = (slot.plugin.format == blokkily::builtin_effect_format &&
+                              slot.plugin.identifier == "compressor") ||
+                             std::find(keyable_inserts_.begin(), keyable_inserts_.end(),
+                                       address) != keyable_inserts_.end() ||
+                             key >= 0;
         inserts.push_back(QVariantMap{
             {"index", static_cast<int>(index)},
             {"name", effect_label(slot.plugin)},
@@ -131,6 +136,19 @@ QVariantMap SongModel::rack() const {
             {"bus", static_cast<int>(where.bus)},
             {"title", title},
             {"inserts", inserts}};
+}
+
+void SongModel::setProcessorPorts(std::vector<blokkily::ProcessorAddress> keyable,
+                                  std::vector<int> instrument_outputs) {
+    if (keyable == keyable_inserts_ && instrument_outputs == instrument_outputs_) return;
+    keyable_inserts_ = std::move(keyable);
+    instrument_outputs_ = std::move(instrument_outputs);
+    emit songChanged();
+}
+
+int SongModel::instrumentOutputs(int track) const {
+    if (track < 0 || static_cast<std::size_t>(track) >= instrument_outputs_.size()) return 0;
+    return instrument_outputs_[static_cast<std::size_t>(track)];
 }
 
 QVariantList SongModel::returns() const {

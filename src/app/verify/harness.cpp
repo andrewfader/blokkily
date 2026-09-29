@@ -112,6 +112,16 @@ float VerifyContext::pump() {
     return peak;
 }
 
+float VerifyContext::side_peak(int side) const {
+    // The device's buffer is all the left frames, then all the right ones.
+    const auto frames = stereo_.size() / 2;
+    const auto first = stereo_.begin() + static_cast<std::ptrdiff_t>(side == 0 ? 0 : frames);
+    float peak = 0.0F;
+    for (auto sample = first; sample != first + static_cast<std::ptrdiff_t>(frames); ++sample)
+        peak = std::max(peak, std::abs(*sample));
+    return peak;
+}
+
 void VerifyContext::settle(int milliseconds) {
     QEventLoop waiting;
     QTimer::singleShot(milliseconds, &waiting, &QEventLoop::quit);

@@ -177,6 +177,18 @@ struct AutomationLane {
     friend bool operator==(const AutomationLane&, const AutomationLane&) = default;
 };
 
+// An auxiliary output of the instrument on another track (wave 5.2):
+// output `output` of track `track`'s instrument, where 1 is the first output
+// after the main one (a CLAP output port that is not the main one, a VST3 aux
+// output bus).
+struct InstrumentOutput {
+    std::uint32_t track = 0;
+    std::uint32_t output = 1;
+
+    static constexpr std::uint32_t maximum_output = 32;
+    friend bool operator==(const InstrumentOutput&, const InstrumentOutput&) = default;
+};
+
 struct Track {
     std::string name = "Track";
     InstrumentSlot instrument;
@@ -186,6 +198,14 @@ struct Track {
     TrackInput input;
     std::vector<AutomationLane> automation;
     AutomationMode automation_mode = AutomationMode::read;
+    // A multi-output instrument's channel: when set, the track's signal is
+    // that output of another track's instrument, rendered after it, instead
+    // of an instrument of its own (it has none). Everything after the
+    // instrument stage - clips, input, inserts, fader, pan, mute, solo,
+    // sends, automation - works on it as on any track. The output reaches
+    // the mix through this track alone: it is never also mixed into the
+    // source track. Each output feeds at most one track.
+    std::optional<InstrumentOutput> source{};
 };
 
 struct PatternSlot {
@@ -363,12 +383,16 @@ struct Song {
     // names another track and the keys form no loop; every modulator is in
     // range, a follower follows a track that exists, and each modulation
     // target names a processor that exists, once per modulator. Overlapping
-    // audio clips are allowed. When it returns false and `why` is given, `why` says which rule
+    // audio clips are allowed. A track fed by an instrument output has no
+    // instrument of its own and names another track and an output from 1;
+    // each output feeds one track, and keys and outputs together form no
+    // loop. When it returns false and `why` is given, `why` says which rule
     // failed.
     [[nodiscard]] bool consistent(std::string* why = nullptr) const;
     // Removes track `index` with everything that belongs to it (its clips, its
     // audio clips, and automation lanes elsewhere that target its strip or its
-    // processors) and re-indexes what remains. Returns the old-to-new index of
+    // processors) and re-indexes what remains. A track fed by the removed
+    // track's instrument keeps its strip and loses its source. Returns the old-to-new index of
     // every track (nothing for the removed one), or an empty vector, changing
     // nothing, when `index` does not exist or is the only track.
     std::vector<std::optional<std::size_t>> remove_track(std::size_t index);

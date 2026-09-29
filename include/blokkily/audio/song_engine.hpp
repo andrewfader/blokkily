@@ -520,6 +520,9 @@ private:
     std::uint32_t maximum_block_ = 0;
     double sample_rate_ = 0.0;
     std::uint64_t sample_position_ = 0;
+    // Counts process_chunk() calls, so a track fed by an instrument output
+    // knows whether its buffer was written this chunk (wave 5.2).
+    std::uint64_t chunk_serial_ = 0;
     static constexpr auto no_seek = std::numeric_limits<std::uint64_t>::max();
     std::atomic<std::uint64_t> requested_position_{no_seek};
     std::atomic<std::uint64_t> published_position_{0};

@@ -73,6 +73,9 @@ public:
     // One 1024-sample stereo block of the production callback; the loudest
     // sample back, or -1 when the device did not run the callback.
     float pump();
+    // The loudest sample of one side of the last pump's block: 0 is the
+    // left, 1 the right.
+    [[nodiscard]] float side_peak(int side) const;
     // Runs the event loop for a bounded time, so polled state catches up.
     static void settle(int milliseconds);
 

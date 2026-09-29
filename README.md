@@ -276,11 +276,23 @@ stems is the signal before master processing. A nonlinear master effect cannot
 be distributed among independent stems. Muting a source track also stops its
 sends, so bounce those returns separately if they must be kept.
 
-A compressor in a rack has a SIDECHAIN chip: choose another track and the
-compressor listens to that track instead of to what it compresses. The key is
-the source track after its own inserts and before its fader, so a muted or
-faded-down kick still ducks the bass; the engine renders a key's source first,
-and refuses a key from the insert's own track or a loop of keys. The
+A compressor in a rack has a SIDECHAIN chip, and so does any CLAP or VST3
+effect that declares a sidechain input (a CLAP input port that is not the main
+one, a VST3 aux input bus): choose another track and the effect listens to that
+track on its sidechain input (the compressor instead of to what it
+compresses). The key is the source track after its own inserts and before its
+fader, so a muted or faded-down kick still ducks the bass; the engine renders
+a key's source first, and refuses a key from the insert's own track or a loop
+of keys.
+
+An instrument that declares extra outputs (CLAP output ports beyond the main
+one, VST3 aux output buses) gets a + OUT chip on its mixer strip: each output
+can be broken out to a mixer channel of its own ("PAD AUX 1"), a track with no
+instrument whose signal is that output, rendered after its source. Its fader,
+pan, mute, solo, inserts, sends and automation work as on any track, and the
+output is heard through that channel only - never also through the source
+track. The channel is part of the song: saved, undone, exported as heard;
+removing the source track leaves the channel as a plain track. The
 MODULATION panel under the inspector adds LFOs (sine, triangle, saws, square,
 random; rate in Hz), macros (one 0..1 knob) and envelope followers (the level of
 a chosen track, after its inserts and before its fader). + TARGET aims one at a
@@ -348,9 +360,11 @@ to persist those references. Original files are kept so undo remains playable.
   wizard, velocity-layer editor or waveform editing surface.
 - Step parameter locks target the track instrument. Insert parameters use
   automation lanes; insert-targeted step locks remain outside this release.
-- Multi-output plugins: an instrument's auxiliary output ports are not broken
-  out to mixer tracks. Only the built-in compressor listens to a sidechain key;
-  a CLAP or VST3 effect's own sidechain input port is not fed yet.
+- Only the first auxiliary input of a CLAP or VST3 effect is fed a key, as a
+  stereo (or mono) signal; an effect with several sidechains hears silence on
+  the others. A VST3 plugin's extra buses are used only beside a stereo main
+  bus. An instrument's aux output channel follows its source's solo like any
+  other track (soloing the source silences its channels).
 - Modulation is evaluated once per block (at most the device's block size) and
   follows no tempo sync from the panel (the model and engine support synced
   LFOs). A follower aimed at its own track, or at a track the render order

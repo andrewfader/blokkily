@@ -63,6 +63,11 @@ struct TrackPlayback {
     // reached there. `chase_values` is its scratch, one per controller key.
     bool chase = false;
     std::array<std::int32_t, controller_keys> chase_values{};
+    // The chunk (SongEngine's chunk serial) whose instrument output the
+    // source's instrument already wrote into this track's buffer: a track fed
+    // by an instrument output keeps it rather than starting silent. Callback
+    // only.
+    std::uint64_t fed_chunk = 0;
     std::atomic<float> gain_left{1.0F};
     std::atomic<float> gain_right{1.0F};
     std::atomic<float> peak{0.0F};

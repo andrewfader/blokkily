@@ -59,6 +59,8 @@ public:
     // a mutex (only try_lock on the audio thread); this consumer never locks.
     std::size_t take_parameter_edits(std::span<ParameterEdit> out) noexcept override;
     void set_transport(const TransportInfo& transport) noexcept override;
+    void set_sidechain(StereoBlock sidechain) noexcept override;
+    void set_aux_output(std::uint32_t output, StereoBlock destination) noexcept override;
     void idle() override;
 
     // Native editor (item 2.6), through JUCE: embedded in an X11 window or

@@ -465,6 +465,22 @@ public:
     // (false, nothing changed) for a key the song could not play: the
     // insert's own track, or a loop of keys.
     Q_INVOKABLE bool setInsertSidechain(const QString& kind, int bus, int slot, int track);
+    // What the processors the engine holds declare (wave 5.2), reported by
+    // the controller after every rebuild: the inserts that take a sidechain
+    // key (a CLAP or VST3 sidechain input), and how many aux outputs each
+    // track's instrument has. The rack offers a key on those inserts and on
+    // the built-in compressor; a strip offers + OUT on those instruments.
+    // Not part of the song and not history: it says what is loaded.
+    void setProcessorPorts(std::vector<blokkily::ProcessorAddress> keyable,
+                           std::vector<int> instrument_outputs);
+    [[nodiscard]] int instrumentOutputs(int track) const;
+    // Breaks output `output` (1 is the first after the main one) of track
+    // `track`'s instrument out to a mixer channel of its own (wave 5.2): a new
+    // track, "<NAME> AUX n", fed by that output and selected, as one step of
+    // history (the graph is rebuilt for the new track). An output already
+    // broken out selects its channel. Returns the channel's index, or -1 when
+    // the track has no instrument or its instrument no such output.
+    Q_INVOKABLE int addInstrumentOutput(int track, int output);
 
     // --- Scene launcher (phase 2, wave 6.1) ----------------------------------
     // The grid is part of the song: every edit is one step of history, saved
@@ -534,6 +550,8 @@ private:
     std::vector<bool> missing_audio_;
     int audio_input_channels_ = 2;
     std::vector<blokkily::AudioClipId> rendering_clips_;
+    std::vector<blokkily::ProcessorAddress> keyable_inserts_;
+    std::vector<int> instrument_outputs_;
     [[nodiscard]] bool validTrack(int track) const;
     [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
     // The cell of the grid, when the scene and the track exist.

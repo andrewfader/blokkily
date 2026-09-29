@@ -71,14 +71,23 @@ struct SidechainKey {
     std::uint32_t source = 0;
 };
 
+// An instrument output broken out to a track of its own (wave 5.2): output
+// `output` of the instrument on `source` renders into `destination`'s buffer.
+struct InstrumentFeed {
+    std::uint32_t source = 0;
+    std::uint32_t output = 1;
+    std::uint32_t destination = 0;
+};
+
 // Compiled with the arrangement; read-only to the callback.
 struct ArrangementRouting {
     std::vector<CompiledModulator> modulators;
     std::vector<ModulationSink> sinks;
     std::vector<ModulationShare> shares;
     std::vector<SidechainKey> keys;
-    // Every track index once: sources of keys and followers before the
-    // tracks they feed, otherwise in track order.
+    std::vector<InstrumentFeed> feeds;
+    // Every track index once: sources of keys, followers and instrument
+    // outputs before the tracks they feed, otherwise in track order.
     std::vector<std::uint32_t> order;
 };
 

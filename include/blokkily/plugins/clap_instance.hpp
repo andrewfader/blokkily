@@ -42,6 +42,8 @@ public:
     // a main-thread flush while inactive, in the order it pushed them.
     std::size_t take_parameter_edits(std::span<ParameterEdit> out) noexcept override;
     void set_transport(const TransportInfo& transport) noexcept override;
+    void set_sidechain(StereoBlock sidechain) noexcept override;
+    void set_aux_output(std::uint32_t output, StereoBlock destination) noexcept override;
     // Runs a requested on_main_thread callback, serves a requested flush while
     // the plugin is inactive, and picks up an announced tail change.
     void idle() override;

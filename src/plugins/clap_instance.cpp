@@ -383,17 +383,43 @@ struct ClapPluginInstance::Impl {
     std::atomic<std::uint32_t> latency{0};
     std::atomic<std::uint64_t> tail{0};
 
-    // Audio ports as the plugin declared them. Without the extension the
-    // original contract holds: a stereo output and no audio input.
+    // Audio ports as the plugin declared them (clap.audio-ports). Without the
+    // extension the original contract holds: one stereo output and no input.
+    // CLAP hands every declared port a buffer of its own, so each has one
+    // here, sized in activate() and never on the audio thread: the main input
+    // gets a copy of the block (CLAP expects separate input and output buffers
+    // unless a port pairs them for in-place use), the sidechain input the key
+    // set_sidechain() gave (silence without one), any other input silence.
+    // The main output writes over the block itself; every other output
+    // renders into its own buffer and is copied to wherever set_aux_output()
+    // sent it, or nowhere.
+    static constexpr std::size_t no_port = static_cast<std::size_t>(-1);
+    static constexpr std::uint32_t maximum_ports = 16;
+    static constexpr std::uint32_t maximum_port_channels = 32;
+    struct Port {
+        std::uint32_t channels = 0;
+        std::vector<float> samples; // channels x max_frames
+        std::array<float*, maximum_port_channels> pointers{};
+    };
+    std::vector<Port> input_ports;
+    std::vector<Port> output_ports;
+    std::vector<clap_audio_buffer_t> input_buffers;
+    std::vector<clap_audio_buffer_t> output_buffers;
+    std::size_t main_input = no_port;
+    std::size_t sidechain_input = no_port;
+    std::size_t main_output = no_port;
+    // The output ports after the main one, in declared order: aux output 1
+    // is aux_output_ports[0].
+    std::vector<std::size_t> aux_output_ports;
     std::uint32_t input_channels = 0;
     std::uint32_t output_channels = 2;
+    std::uint32_t sidechain_channels = 0;
     bool note_input = true;
-    // The block arrives holding the plugin's input, and the plugin writes its
-    // output over it, so the input is copied here first: CLAP expects separate
-    // input and output buffers unless a port pairs them for in-place use.
-    // Sized in activate(), never on the audio thread.
-    std::vector<float> input_left;
-    std::vector<float> input_right;
+    std::uint32_t max_frames = 0;
+    // What the next process() hears on the sidechain input and where it
+    // writes each aux output; both apply to that call only.
+    StereoBlock sidechain{};
+    std::vector<StereoBlock> aux_targets;
 
     clap_event_transport_t transport{};
     bool has_transport = false;
@@ -404,18 +430,66 @@ struct ClapPluginInstance::Impl {
     }
 
     void read_ports() {
-        input_channels = 0;
-        output_channels = 2;
-        if (const auto* ports = extension<clap_plugin_audio_ports_t>(CLAP_EXT_AUDIO_PORTS)) {
-            clap_audio_port_info_t info{};
-            if (ports->count(plugin, true) > 0 && ports->get(plugin, 0, true, &info))
-                input_channels = std::min<std::uint32_t>(info.channel_count, 2);
-            output_channels = 0;
-            if (ports->count(plugin, false) > 0 && ports->get(plugin, 0, false, &info))
-                output_channels = std::min<std::uint32_t>(info.channel_count, 2);
+        input_ports.clear();
+        output_ports.clear();
+        aux_output_ports.clear();
+        main_input = sidechain_input = main_output = no_port;
+        const auto* ports = extension<clap_plugin_audio_ports_t>(CLAP_EXT_AUDIO_PORTS);
+        if (ports == nullptr) {
+            output_ports.push_back({2, {}, {}});
+            main_output = 0;
+        } else {
+            // Each port with its channel count; the main one is the port
+            // flagged main, or the first when none is.
+            const auto describe = [&](bool is_input, std::vector<Port>& into) {
+                const auto count = std::min(ports->count(plugin, is_input), maximum_ports);
+                std::size_t main = no_port;
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    clap_audio_port_info_t info{};
+                    const bool known = ports->get(plugin, index, is_input, &info);
+                    into.push_back({known ? std::min(info.channel_count, maximum_port_channels) : 2U,
+                                    {}, {}});
+                    if (known && main == no_port && (info.flags & CLAP_AUDIO_PORT_IS_MAIN) != 0)
+                        main = index;
+                }
+                if (main == no_port && !into.empty()) main = 0;
+                return main;
+            };
+            main_input = describe(true, input_ports);
+            main_output = describe(false, output_ports);
+            // The first other input with channels is the sidechain.
+            for (std::size_t index = 0; index < input_ports.size(); ++index)
+                if (index != main_input && input_ports[index].channels > 0) {
+                    sidechain_input = index;
+                    break;
+                }
+            for (std::size_t index = 0; index < output_ports.size(); ++index)
+                if (index != main_output) aux_output_ports.push_back(index);
         }
+        input_channels = main_input == no_port ? 0 : std::min<std::uint32_t>(input_ports[main_input].channels, 2);
+        output_channels = main_output == no_port ? 0 : std::min<std::uint32_t>(output_ports[main_output].channels, 2);
+        sidechain_channels = sidechain_input == no_port ? 0 : std::min<std::uint32_t>(input_ports[sidechain_input].channels, 2);
         const auto* notes = extension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS);
         note_input = notes == nullptr || notes->count(plugin, true) > 0;
+    }
+
+    // Buffers for every port, `frames` long. Main thread, inactive.
+    void size_ports(std::uint32_t frames) {
+        max_frames = frames;
+        const auto size = [frames](std::vector<Port>& ports, std::vector<clap_audio_buffer_t>& buffers) {
+            buffers.clear();
+            for (auto& port : ports) {
+                port.samples.assign(static_cast<std::size_t>(port.channels) * frames, 0.0F);
+                port.pointers.fill(nullptr);
+                for (std::uint32_t channel = 0; channel < port.channels; ++channel)
+                    port.pointers[channel] = port.samples.data() + static_cast<std::size_t>(channel) * frames;
+                buffers.push_back({port.pointers.data(), nullptr, port.channels, 0, 0});
+            }
+        };
+        size(input_ports, input_buffers);
+        size(output_ports, output_buffers);
+        aux_targets.assign(aux_output_ports.size(), StereoBlock{});
+        sidechain = {};
     }
 
     // [main-thread & active]
@@ -522,8 +596,7 @@ bool ClapPluginInstance::activate(double sample_rate, std::uint32_t min_frames,
     // Ports may change only while the plugin is inactive, so they are read
     // again here and the input copy is sized for the largest block.
     impl_->read_ports();
-    impl_->input_left.assign(impl_->input_channels > 0 ? max_frames : 0, 0.0F);
-    impl_->input_right.assign(impl_->input_channels > 1 ? max_frames : 0, 0.0F);
+    impl_->size_ports(max_frames);
     impl_->active = impl_->plugin->activate(impl_->plugin, sample_rate, min_frames, max_frames);
     if (!impl_->active) return false;
     impl_->state.latency_announced.store(false, std::memory_order_relaxed);
@@ -588,47 +661,96 @@ void ClapPluginInstance::process(StereoBlock audio,
     input.count = static_cast<std::uint32_t>(count);
 
     const auto frames = audio.left.size();
-    float* input_channels[] = {impl_->input_left.data(), impl_->input_right.data()};
-    clap_audio_buffer_t audio_input{input_channels, nullptr, impl_->input_channels, 0, 0};
-    if (impl_->input_channels > 0) {
-        if (frames > impl_->input_left.size()) {
-            // Larger than activate() promised: nothing safe to hand over.
-            std::fill(audio.left.begin(), audio.left.end(), 0.0F);
-            std::fill(audio.right.begin(), audio.right.end(), 0.0F);
-            return;
-        }
-        if (impl_->input_channels == 2) {
-            std::copy(audio.left.begin(), audio.left.end(), impl_->input_left.begin());
-            std::copy(audio.right.begin(), audio.right.end(), impl_->input_right.begin());
-        } else {
+    auto& impl = *impl_;
+    const auto discard_aux = [&impl] {
+        impl.sidechain = {};
+        for (auto& target : impl.aux_targets) target = {};
+    };
+    const auto silence_aux = [&impl, frames] {
+        for (auto& target : impl.aux_targets)
+            if (target.left.size() == frames && target.right.size() == frames) {
+                std::fill(target.left.begin(), target.left.end(), 0.0F);
+                std::fill(target.right.begin(), target.right.end(), 0.0F);
+            }
+    };
+    if (frames > impl.max_frames) {
+        // Larger than activate() promised: nothing safe to hand over.
+        std::fill(audio.left.begin(), audio.left.end(), 0.0F);
+        std::fill(audio.right.begin(), audio.right.end(), 0.0F);
+        silence_aux();
+        discard_aux();
+        return;
+    }
+    // The main input: a copy of the block.
+    if (impl.main_input != Impl::no_port) {
+        auto& port = impl.input_ports[impl.main_input];
+        if (port.channels >= 2) {
+            std::copy(audio.left.begin(), audio.left.end(), port.pointers[0]);
+            std::copy(audio.right.begin(), audio.right.end(), port.pointers[1]);
+        } else if (port.channels == 1) {
             for (std::size_t frame = 0; frame < frames; ++frame)
-                impl_->input_left[frame] = 0.5F * (audio.left[frame] + audio.right[frame]);
+                port.pointers[0][frame] = 0.5F * (audio.left[frame] + audio.right[frame]);
         }
     }
-    float* channels[] = {audio.left.data(), audio.right.data()};
-    clap_audio_buffer_t audio_output{channels, nullptr, impl_->output_channels, 0, 0};
-    const bool has_input = impl_->input_channels > 0;
-    const bool has_output = impl_->output_channels > 0;
-    clap_process_t process{impl_->steady_time, static_cast<std::uint32_t>(frames),
-                           impl_->has_transport ? &impl_->transport : nullptr,
-                           has_input ? &audio_input : nullptr,
-                           has_output ? &audio_output : nullptr,
-                           has_input ? 1U : 0U, has_output ? 1U : 0U,
-                           &input.api, &impl_->output};
+    // The sidechain input: the key, or silence.
+    if (impl.sidechain_input != Impl::no_port) {
+        auto& port = impl.input_ports[impl.sidechain_input];
+        const bool keyed = impl.sidechain.left.size() == frames && impl.sidechain.right.size() == frames;
+        for (std::uint32_t channel = 0; channel < port.channels; ++channel) {
+            float* into = port.pointers[channel];
+            if (!keyed || channel >= 2) std::fill_n(into, frames, 0.0F);
+            else if (port.channels == 1)
+                for (std::size_t frame = 0; frame < frames; ++frame)
+                    into[frame] = 0.5F * (impl.sidechain.left[frame] + impl.sidechain.right[frame]);
+            else
+                std::copy_n(channel == 0 ? impl.sidechain.left.data() : impl.sidechain.right.data(),
+                            frames, into);
+        }
+    }
+    // The main output is the block itself.
+    if (impl.main_output != Impl::no_port) {
+        auto& port = impl.output_ports[impl.main_output];
+        if (port.channels >= 1) port.pointers[0] = audio.left.data();
+        if (port.channels >= 2) port.pointers[1] = audio.right.data();
+    }
+    clap_process_t process{impl.steady_time, static_cast<std::uint32_t>(frames),
+                           impl.has_transport ? &impl.transport : nullptr,
+                           impl.input_buffers.empty() ? nullptr : impl.input_buffers.data(),
+                           impl.output_buffers.empty() ? nullptr : impl.output_buffers.data(),
+                           static_cast<std::uint32_t>(impl.input_buffers.size()),
+                           static_cast<std::uint32_t>(impl.output_buffers.size()),
+                           &input.api, &impl.output};
     // A flush the plugin asked for is served by this very call.
-    impl_->state.flush_requested.store(false, std::memory_order_relaxed);
+    impl.state.flush_requested.store(false, std::memory_order_relaxed);
     clap_process_status status = CLAP_PROCESS_ERROR;
     {
         const AudioThreadScope audio_thread;
-        status = impl_->plugin->process(impl_->plugin, &process);
+        status = impl.plugin->process(impl.plugin, &process);
     }
     if (status == CLAP_PROCESS_ERROR) {
         std::fill(audio.left.begin(), audio.left.end(), 0.0F);
         std::fill(audio.right.begin(), audio.right.end(), 0.0F);
-    } else if (impl_->output_channels == 1) {
-        std::copy(audio.left.begin(), audio.left.end(), audio.right.begin());
+        silence_aux();
+    } else {
+        if (impl.output_channels == 1)
+            std::copy(audio.left.begin(), audio.left.end(), audio.right.begin());
+        // Each aux output to where it was sent; one sent nowhere is dropped,
+        // never added to the main output.
+        for (std::size_t aux = 0; aux < impl.aux_targets.size(); ++aux) {
+            const auto& target = impl.aux_targets[aux];
+            if (target.left.size() != frames || target.right.size() != frames) continue;
+            const auto& port = impl.output_ports[impl.aux_output_ports[aux]];
+            if (port.channels == 0) {
+                std::fill(target.left.begin(), target.left.end(), 0.0F);
+                std::fill(target.right.begin(), target.right.end(), 0.0F);
+                continue;
+            }
+            std::copy_n(port.pointers[0], frames, target.left.data());
+            std::copy_n(port.pointers[port.channels >= 2 ? 1 : 0], frames, target.right.data());
+        }
     }
-    impl_->steady_time += static_cast<std::int64_t>(frames);
+    discard_aux();
+    impl.steady_time += static_cast<std::int64_t>(frames);
 }
 
 void ClapPluginInstance::reset() {
@@ -665,7 +787,17 @@ bool ClapPluginInstance::load_state(std::span<const std::byte> bytes) {
 
 PluginPorts ClapPluginInstance::ports() const {
     if (!impl_) return {};
-    return {impl_->input_channels, impl_->note_input};
+    return {impl_->input_channels, impl_->note_input, impl_->sidechain_channels,
+            static_cast<std::uint32_t>(impl_->aux_output_ports.size())};
+}
+
+void ClapPluginInstance::set_sidechain(StereoBlock sidechain) noexcept {
+    if (impl_) impl_->sidechain = sidechain;
+}
+
+void ClapPluginInstance::set_aux_output(std::uint32_t output, StereoBlock destination) noexcept {
+    if (!impl_ || output == 0 || output > impl_->aux_targets.size()) return;
+    impl_->aux_targets[output - 1] = destination;
 }
 
 std::uint32_t ClapPluginInstance::latency_samples() const noexcept {

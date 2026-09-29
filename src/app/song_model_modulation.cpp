@@ -273,3 +273,30 @@ bool SongModel::setInsertSidechain(const QString& kind, int bus, int slot, int t
     notifyStructureChanged();
     return true;
 }
+
+int SongModel::addInstrumentOutput(int track, int output) {
+    if (!validTrack(track) || output < 1 || output > instrumentOutputs(track)) return -1;
+    const auto& source = song_.tracks[static_cast<std::size_t>(track)];
+    if (source.instrument.format.empty()) return -1;
+    const blokkily::InstrumentOutput wanted{static_cast<std::uint32_t>(track),
+                                            static_cast<std::uint32_t>(output)};
+    for (std::size_t index = 0; index < song_.tracks.size(); ++index)
+        if (song_.tracks[index].source == wanted) {
+            selectTrack(static_cast<int>(index));
+            return static_cast<int>(index);
+        }
+    blokkily::Track channel;
+    channel.name = QString("%1 AUX %2").arg(QString::fromStdString(source.name)).arg(output)
+                       .left(24).toStdString();
+    channel.source = wanted;
+    auto trial = song_;
+    trial.tracks.push_back(channel);
+    if (!trial.consistent()) return -1;
+    checkpoint();
+    song_ = std::move(trial);
+    peaks_.push_back(0.0F);
+    selected_track_ = static_cast<int>(song_.tracks.size()) - 1;
+    rack_kind_ = blokkily::BusKind::track;
+    notifyStructureChanged();
+    return selected_track_;
+}

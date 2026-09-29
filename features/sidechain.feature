@@ -5,10 +5,9 @@ Feature: A compressor keyed from another track
   every key's source before the track it keys, whatever their places in the
   song, and hands each insert the part of the key that lines up with the
   samples it is processing. Keys may not form a loop, and a track's insert
-  cannot key from its own track. The built-in compressor listens to its key.
-
-  Multi-output plugin routing (auxiliary output ports broken out to mixer
-  tracks) is not implemented; see docs/plans/phase2-program.md.
+  cannot key from its own track. The built-in compressor listens to its key;
+  CLAP and VST3 effects with a sidechain input, and multi-output instruments,
+  are in features/sidechain_and_multiout.feature.
 
   Executable: tests/sidechain_tests.cpp (CTest sidechain_<case>),
   tests/realtime/sidechain.cpp (realtime_sidechain), the bdd_modulation gate

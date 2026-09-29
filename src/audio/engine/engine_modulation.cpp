@@ -7,8 +7,9 @@ namespace blokkily::engine {
 
 namespace {
 
-// The tracks that must render before `track` does: the sources of its keys
-// and of the followers that modulate its processors.
+// The tracks that must render before `track` does: the sources of its keys,
+// of the followers that modulate its processors, and of the instrument
+// output it plays.
 std::vector<std::vector<std::uint32_t>> feeders(const Song& song) {
     std::vector<std::vector<std::uint32_t>> fed_by(song.tracks.size());
     const auto add = [&](std::size_t track, std::uint32_t source) {
@@ -19,6 +20,8 @@ std::vector<std::vector<std::uint32_t>> feeders(const Song& song) {
     for (std::size_t t = 0; t < song.tracks.size(); ++t)
         for (const auto& slot : song.tracks[t].inserts)
             if (slot.sidechain) add(t, *slot.sidechain);
+    for (std::size_t t = 0; t < song.tracks.size(); ++t)
+        if (const auto& source = song.tracks[t].source) add(t, source->track);
     for (const auto& modulator : song.modulators) {
         if (modulator.kind != Modulator::Kind::follower) continue;
         for (const auto& target : modulator.targets)
@@ -68,6 +71,11 @@ void compile_routing(ArrangementRouting& target, const Song& song, const Paramet
     for (std::size_t t = 0; t < song.tracks.size(); ++t) keys(BusKind::track, t, song.tracks[t].inserts);
     for (std::size_t r = 0; r < song.returns.size(); ++r) keys(BusKind::ret, r, song.returns[r].inserts);
     keys(BusKind::master, 0, song.master_inserts);
+
+    target.feeds.clear();
+    for (std::size_t t = 0; t < song.tracks.size(); ++t)
+        if (const auto& source = song.tracks[t].source; source && source->track < song.tracks.size())
+            target.feeds.push_back({source->track, source->output, static_cast<std::uint32_t>(t)});
 
     target.modulators.clear();
     target.sinks.clear();

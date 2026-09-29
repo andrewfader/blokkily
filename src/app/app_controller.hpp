@@ -509,6 +509,9 @@ private:
     // After a rebuild: editors follow their tracks and stay on adopted
     // instances.
     void reconcileEditors(const blokkily::TrackRemap* remap);
+    // Tells the song model what the engine's processors declare: the inserts
+    // with a sidechain input and each instrument's aux outputs (wave 5.2).
+    void publishProcessorPorts();
     // Drives the scan queue: one helper process per candidate, each with a
     // deadline, results appended to the browser as they land.
     void scanNext();

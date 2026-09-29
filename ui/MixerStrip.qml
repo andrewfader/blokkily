@@ -17,7 +17,7 @@ Rectangle {
             gainText: "", pan: 0, panText: "", mute: false, solo: false, audible: true,
             selected: false, armed: false, routable: true, channelText: "",
             automationMode: "READ", inserts: 0, inputText: "MIDI", monitorText: "MON AUTO",
-            takesAudio: false, monitoring: false})
+            takesAudio: false, monitoring: false, fed: false, outputs: []})
     readonly property int trackIndex: index
     objectName: "mixerStrip" + index
     Layout.fillWidth: true
@@ -58,7 +58,8 @@ Rectangle {
                     Layout.fillWidth: true
                     text: modelData.instrument
                           + (modelData.inserts > 0 ? " · " + modelData.inserts + " FX" : "")
-                    color: modelData.hasInstrument ? Theme.muted : "#5c626e"
+                    color: modelData.fed ? Theme.blue
+                         : modelData.hasInstrument ? Theme.muted : "#5c626e"
                     font.pixelSize: 9; elide: Text.ElideRight
                 }
             }
@@ -103,6 +104,33 @@ Rectangle {
                 onRightClicked: songModel.cycleAutomationMode(root.trackIndex, -1)
             }
             Item { Layout.fillWidth: true }
+            // A multi-output instrument (wave 5.2): each aux output it
+            // declares can be broken out to a mixer channel of its own.
+            Chip {
+                objectName: "addOutput" + root.trackIndex
+                visible: root.modelData.outputs !== undefined && root.modelData.outputs.length > 0
+                text: "+ OUT"; implicitHeight: 24
+                accent: Theme.blue
+                accessibleLabel: "Break out an instrument output"
+                onClicked: outputMenu.open()
+                Menu {
+                    id: outputMenu
+                    objectName: "outputMenu" + root.trackIndex
+                    Instantiator {
+                        model: root.modelData.outputs !== undefined ? root.modelData.outputs : []
+                        delegate: MenuItem {
+                            required property var modelData
+                            objectName: "addOutput" + root.trackIndex + "_" + modelData.output
+                            text: "AUX " + modelData.output
+                                  + (modelData.routed ? " · on its channel" : " → new channel")
+                            onTriggered: songModel.addInstrumentOutput(root.trackIndex,
+                                                                       modelData.output)
+                        }
+                        onObjectAdded: function(i, item) { outputMenu.insertItem(i, item) }
+                        onObjectRemoved: function(i, item) { outputMenu.removeItem(item) }
+                    }
+                }
+            }
         }
 
         // Peak meter: the last block's loudest sample,

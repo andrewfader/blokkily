@@ -1,12 +1,16 @@
-// Sidechain keys and modulators (phase 2, waves 5.1 and 5.2).
+// Sidechain keys, instrument outputs and modulators (phase 2, waves 5.1 and
+// 5.2).
 //
 //   sidechain <track|return|master> <bus> <slot> <source-track>
+//   auxsource <track> <source-track> <output>
 //   modulator <lfo|macro|follower> <name> <shape> <rate-hz> <sync-beats> <value>
 //             <source-track> <attack-ms> <release-ms>
 //   modtarget <modulator> <track|return|master> <bus> <slot> <parameter-index> <depth>
 //
 // A sidechain record names an insert written earlier by the effects module
-// and the track that keys it. Modulators are numbered by the order of their
+// and the track that keys it. An auxsource record makes a track the channel
+// of output <output> (1 is the first after the main one) of the instrument on
+// <source-track>. Modulators are numbered by the order of their
 // records; a modtarget names one written before it. Every field of a
 // modulator is written whatever its kind, so a file reads back exactly. The
 // records are additive: a project saved before them has no key and no
@@ -51,6 +55,9 @@ void write_modulation(const Project& project, WriteContext& context) {
     for (std::size_t r = 0; r < song.returns.size(); ++r)
         write_keys(out, BusKind::ret, r, song.returns[r].inserts);
     write_keys(out, BusKind::master, 0, song.master_inserts);
+    for (std::size_t t = 0; t < song.tracks.size(); ++t)
+        if (const auto& source = song.tracks[t].source)
+            out << "auxsource " << t << ' ' << source->track << ' ' << source->output << '\n';
     for (std::size_t m = 0; m < song.modulators.size(); ++m) {
         const auto& modulator = song.modulators[m];
         out << "modulator " << kind_tokens.at(static_cast<std::size_t>(modulator.kind)) << ' '
@@ -91,6 +98,23 @@ bool parse_sidechain(const Fields& fields, ParseContext& context) {
     if (chain == nullptr || static_cast<std::size_t>(*slot) >= chain->size())
         return context.fail("sidechain refers to an insert that does not exist");
     (*chain)[static_cast<std::size_t>(*slot)].sidechain = static_cast<std::uint32_t>(*source);
+    return true;
+}
+
+bool parse_auxsource(const Fields& fields, ParseContext& context) {
+    const auto track = fields.count(4) ? fields.integer(1) : std::nullopt;
+    const auto source = fields.integer(2);
+    const auto output = fields.integer(3);
+    if (!track || !source || !output || *track < 0 || *source < 0 || *output < 0 ||
+        *source > std::numeric_limits<std::uint32_t>::max() ||
+        *output > std::numeric_limits<std::uint32_t>::max())
+        return context.fail("malformed auxsource record");
+    if (static_cast<std::size_t>(*track) >= context.tracks.size())
+        return context.fail("auxsource refers to a track that does not exist");
+    auto& fed = context.tracks[static_cast<std::size_t>(*track)];
+    if (fed.source) return context.fail("a track has two auxsource records");
+    fed.source = InstrumentOutput{static_cast<std::uint32_t>(*source),
+                                  static_cast<std::uint32_t>(*output)};
     return true;
 }
 
@@ -146,6 +170,7 @@ bool parse_modtarget(const Fields& fields, ParseContext& context) {
 
 constexpr std::array modulation_handlers{
     RecordHandler{"sidechain", parse_sidechain},
+    RecordHandler{"auxsource", parse_auxsource},
     RecordHandler{"modulator", parse_modulator},
     RecordHandler{"modtarget", parse_modtarget},
 };

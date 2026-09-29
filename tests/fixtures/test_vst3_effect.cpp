@@ -22,7 +22,8 @@ public:
     TestVst3Effect()
         : AudioProcessor(BusesProperties()
                              .withInput("Input", juce::AudioChannelSet::stereo(), true)
-                             .withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
+                             .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+                             .withInput("Sidechain", juce::AudioChannelSet::stereo(), false)) {
         addParameter(gain_ = new juce::AudioParameterFloat({"gain", 1}, "Gain", 0.0F, 1.0F, 0.25F));
         setLatencySamples(latency);
     }
@@ -31,17 +32,30 @@ public:
     void prepareToPlay(double sample_rate, int) override {
         sample_rate_ = sample_rate;
         for (auto& channel : line_) channel.fill(0.0F);
+        key_line_.fill(0.0F);
         cursor_ = 0;
     }
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override {
-        return layouts.getMainInputChannelSet() == juce::AudioChannelSet::stereo() &&
-               layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
+        if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::stereo() ||
+            layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+            return false;
+        if (layouts.inputBuses.size() < 2) return true;
+        const auto key = layouts.inputBuses[1];
+        return key.isDisabled() || key == juce::AudioChannelSet::stereo();
     }
-    void processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer&) override {
-        const float gain = -gain_->get();
+    void processBlock(juce::AudioBuffer<float>& block, juce::MidiBuffer&) override {
+        auto audio = getBusBuffer(block, true, 0);
+        const bool keyed = getBusCount(true) > 1 && getBus(true, 1)->isEnabled();
+        const auto key = keyed ? getBusBuffer(block, true, 1) : juce::AudioBuffer<float>();
         const int channels = std::min(audio.getNumChannels(), 2);
         for (int frame = 0; frame < audio.getNumSamples(); ++frame) {
+            float level = 0.0F;
+            for (int channel = 0; channel < key.getNumChannels(); ++channel)
+                level = std::max(level, std::abs(key.getSample(channel, frame)));
+            const float ducked_by = key_line_[cursor_];
+            key_line_[cursor_] = std::min(level, 1.0F);
+            const float gain = -gain_->get() * (1.0F - ducked_by);
             for (int channel = 0; channel < channels; ++channel) {
                 auto& slot = line_[static_cast<std::size_t>(channel)][cursor_];
                 const float delayed = slot;
@@ -78,6 +92,7 @@ private:
     juce::AudioParameterFloat* gain_ = nullptr;
     double sample_rate_ = 48000.0;
     std::array<std::array<float, latency>, 2> line_{};
+    std::array<float, latency> key_line_{};
     std::size_t cursor_ = 0;
 };
 

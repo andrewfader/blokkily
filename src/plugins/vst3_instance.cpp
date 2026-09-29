@@ -264,6 +264,26 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
     std::uint32_t input_channels = 0;
     TransportPlayHead play_head;
 
+    // The buses beyond the main ones (wave 5.2), as JUCE lays them out in
+    // the block it processes: every enabled bus of a direction in order, its
+    // channels contiguous. The block's first two channels are the track's;
+    // the sidechain input and the aux outputs live in `extra`, sized in
+    // activate(), and are copied in from the key and out to wherever
+    // set_aux_output() sent them.
+    static constexpr int maximum_channels = 64;
+    std::uint32_t sidechain_channels = 0;
+    int sidechain_offset = 0;
+    struct AuxBus {
+        int offset = 0;
+        int channels = 0;
+    };
+    std::vector<AuxBus> aux_outputs;
+    int block_channels = 2;
+    std::vector<float> extra;
+    std::array<float*, maximum_channels> channel_pointers{};
+    StereoBlock sidechain{};
+    std::vector<StereoBlock> aux_targets;
+
     // The editor (item 2.6), when one is open: embedded in the host's window,
     // or inside a floating window of its own. Main thread only.
     struct ResizeWatcher final : juce::ComponentListener {
@@ -306,7 +326,7 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
 
     void attach(std::unique_ptr<juce::AudioPluginInstance> instance) {
         plugin = std::move(instance);
-        enable_stereo_input();
+        enable_buses();
         const auto& parameters = plugin->getParameters();
         parameter_count = static_cast<std::size_t>(parameters.size());
         automation = std::make_unique<std::atomic<float>[]>(parameter_count);
@@ -327,20 +347,63 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
         plugin->setPlayHead(nullptr);
     }
 
-    // An effect hears the track on its main input: a stereo bus when the
-    // plugin can take one, and no side chains, so the two channels of the
-    // block are all the input there is.
-    void enable_stereo_input() {
+    // An effect hears the track on its main input, a stereo bus when the
+    // plugin can take one. A second input bus is a sidechain (VST3 kAux):
+    // enabled, stereo or else mono, when the plugin accepts it beside a
+    // stereo main input. Every output bus after the main one is an aux
+    // output, enabled stereo or else mono when the main output is stereo.
+    // Whatever the plugin refuses stays disabled.
+    void enable_buses() {
         input_channels = 0;
-        const auto layout = plugin->getBusesLayout();
-        if (layout.inputBuses.isEmpty()) return;
-        auto wanted = layout;
-        wanted.inputBuses.getReference(0) = juce::AudioChannelSet::stereo();
-        for (int bus = 1; bus < wanted.inputBuses.size(); ++bus)
-            wanted.inputBuses.getReference(bus) = juce::AudioChannelSet::disabled();
+        sidechain_channels = 0;
+        sidechain_offset = 0;
+        aux_outputs.clear();
+        auto wanted = plugin->getBusesLayout();
+        if (!wanted.inputBuses.isEmpty()) {
+            wanted.inputBuses.getReference(0) = juce::AudioChannelSet::stereo();
+            for (int bus = 1; bus < wanted.inputBuses.size(); ++bus)
+                wanted.inputBuses.getReference(bus) = juce::AudioChannelSet::disabled();
+        }
+        for (int bus = 1; bus < wanted.outputBuses.size(); ++bus)
+            wanted.outputBuses.getReference(bus) = juce::AudioChannelSet::disabled();
         if (plugin->checkBusesLayoutSupported(wanted)) (void)plugin->setBusesLayout(wanted);
+        const auto stereo = juce::AudioChannelSet::stereo();
+        const auto try_enable = [this](bool is_input, int bus) {
+            for (const auto& set : {juce::AudioChannelSet::stereo(), juce::AudioChannelSet::mono()}) {
+                auto trial = plugin->getBusesLayout();
+                (is_input ? trial.inputBuses : trial.outputBuses).getReference(bus) = set;
+                if (plugin->checkBusesLayoutSupported(trial) && plugin->setBusesLayout(trial)) return;
+            }
+        };
+        auto layout = plugin->getBusesLayout();
+        const bool stereo_out = !layout.outputBuses.isEmpty() && layout.outputBuses[0] == stereo;
+        if (stereo_out && layout.inputBuses.size() > 1 && layout.inputBuses[0] == stereo)
+            try_enable(true, 1);
+        if (stereo_out)
+            for (int bus = 1; bus < layout.outputBuses.size(); ++bus) try_enable(false, bus);
+        layout = plugin->getBusesLayout();
         input_channels = static_cast<std::uint32_t>(
             std::clamp(plugin->getMainBusNumInputChannels(), 0, 2));
+        if (layout.inputBuses.size() > 1 && layout.inputBuses[0] == stereo &&
+            layout.inputBuses[1].size() > 0) {
+            sidechain_channels = static_cast<std::uint32_t>(std::min(layout.inputBuses[1].size(), 2));
+            sidechain_offset = plugin->getChannelIndexInProcessBlockBuffer(true, 1, 0);
+        }
+        if (!layout.outputBuses.isEmpty() && layout.outputBuses[0] == stereo)
+            for (int bus = 1; bus < layout.outputBuses.size(); ++bus)
+                if (layout.outputBuses[bus].size() > 0)
+                    aux_outputs.push_back(
+                        {plugin->getChannelIndexInProcessBlockBuffer(false, bus, 0),
+                         std::min(layout.outputBuses[bus].size(), 2)});
+        block_channels = std::clamp(std::max({2, plugin->getTotalNumInputChannels(),
+                                              plugin->getTotalNumOutputChannels()}),
+                                    2, maximum_channels);
+        // A layout the block cannot carry is not used.
+        if (sidechain_offset < 2 || sidechain_offset + static_cast<int>(sidechain_channels) > block_channels)
+            sidechain_channels = 0;
+        std::erase_if(aux_outputs, [this](const AuxBus& bus) {
+            return bus.offset < 2 || bus.offset + bus.channels > block_channels;
+        });
     }
 
     // The automation base becomes what the plugin holds now.
@@ -494,16 +557,33 @@ bool Vst3PluginInstance::activate(double sample_rate, std::uint32_t,
     impl_->channel_retune.fill(0);
     impl_->wheel = 8192;
     impl_->announce_bend_range = true;
+    impl_->extra.assign(static_cast<std::size_t>(impl_->block_channels - 2) *
+                            static_cast<std::size_t>(impl_->maximum_block_size),
+                        0.0F);
+    impl_->aux_targets.assign(impl_->aux_outputs.size(), StereoBlock{});
+    impl_->sidechain = {};
     return true;
 }
 
 void Vst3PluginInstance::process(StereoBlock audio,
                                  std::span<const PluginEvent> events) noexcept {
-    if (!impl_ || !impl_->plugin || audio.left.size() != audio.right.size() ||
-        audio.left.size() > static_cast<std::size_t>(impl_->maximum_block_size)) return;
+    if (!impl_ || !impl_->plugin) return;
+    auto& impl = *impl_;
+    // The key and the aux destinations apply to this call alone.
+    struct ForgetRouting {
+        Impl& impl;
+        ~ForgetRouting() {
+            impl.sidechain = {};
+            for (auto& target : impl.aux_targets) target = {};
+        }
+    } forget{impl};
+    if (audio.left.size() != audio.right.size() ||
+        audio.left.size() > static_cast<std::size_t>(impl.maximum_block_size)) return;
     const auto frames = audio.left.size();
     if (frames == 0) return;
     const ProcessScope audio_thread;
+    const bool keyed = impl.sidechain_channels > 0 && impl.sidechain.left.size() == frames &&
+                       impl.sidechain.right.size() == frames;
 
     const auto offset_of = [frames](const PluginEvent& event) {
         return std::min<std::size_t>(event.sample_offset, frames - 1);
@@ -626,9 +706,42 @@ void Vst3PluginInstance::process(StereoBlock audio,
             }
         }
 
-        float* channels[]{audio.left.data() + rendered, audio.right.data() + rendered};
-        juce::AudioBuffer<float> buffer(channels, 2, static_cast<int>(boundary - rendered));
-        impl_->plugin->processBlock(buffer, impl_->midi);
+        // The track's two channels, then the sidechain and aux buses in
+        // `extra`: the key's part for these samples, silence elsewhere.
+        const auto length = boundary - rendered;
+        auto& pointers = impl.channel_pointers;
+        pointers[0] = audio.left.data() + rendered;
+        pointers[1] = audio.right.data() + rendered;
+        const auto stride = static_cast<std::size_t>(impl.maximum_block_size);
+        for (int channel = 2; channel < impl.block_channels; ++channel) {
+            pointers[static_cast<std::size_t>(channel)] =
+                impl.extra.data() + static_cast<std::size_t>(channel - 2) * stride;
+            std::fill_n(pointers[static_cast<std::size_t>(channel)], length, 0.0F);
+        }
+        if (keyed) {
+            const auto first = static_cast<std::size_t>(impl.sidechain_offset);
+            if (impl.sidechain_channels == 1) {
+                for (std::size_t frame = 0; frame < length; ++frame)
+                    pointers[first][frame] = 0.5F * (impl.sidechain.left[rendered + frame] +
+                                                     impl.sidechain.right[rendered + frame]);
+            } else {
+                std::copy_n(impl.sidechain.left.data() + rendered, length, pointers[first]);
+                std::copy_n(impl.sidechain.right.data() + rendered, length, pointers[first + 1]);
+            }
+        }
+        juce::AudioBuffer<float> buffer(pointers.data(), impl.block_channels,
+                                        static_cast<int>(length));
+        impl.plugin->processBlock(buffer, impl.midi);
+        // Each aux output to where it was sent; one sent nowhere is dropped.
+        for (std::size_t aux = 0; aux < impl.aux_outputs.size(); ++aux) {
+            const auto& target = impl.aux_targets[aux];
+            if (target.left.size() != frames || target.right.size() != frames) continue;
+            const auto& bus = impl.aux_outputs[aux];
+            const auto left = static_cast<std::size_t>(bus.offset);
+            const auto right = left + (bus.channels >= 2 ? 1U : 0U);
+            std::copy_n(pointers[left], length, target.left.data() + rendered);
+            std::copy_n(pointers[right], length, target.right.data() + rendered);
+        }
         rendered = boundary;
     }
 }
@@ -664,7 +777,17 @@ bool Vst3PluginInstance::load_state(std::span<const std::byte> state) {
 
 PluginPorts Vst3PluginInstance::ports() const {
     if (!impl_ || !impl_->plugin) return {};
-    return {impl_->input_channels, impl_->plugin->acceptsMidi()};
+    return {impl_->input_channels, impl_->plugin->acceptsMidi(), impl_->sidechain_channels,
+            static_cast<std::uint32_t>(impl_->aux_outputs.size())};
+}
+
+void Vst3PluginInstance::set_sidechain(StereoBlock sidechain) noexcept {
+    if (impl_) impl_->sidechain = sidechain;
+}
+
+void Vst3PluginInstance::set_aux_output(std::uint32_t output, StereoBlock destination) noexcept {
+    if (!impl_ || output == 0 || output > impl_->aux_targets.size()) return;
+    impl_->aux_targets[output - 1] = destination;
 }
 
 std::uint32_t Vst3PluginInstance::latency_samples() const noexcept {

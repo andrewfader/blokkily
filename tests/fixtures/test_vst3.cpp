@@ -16,7 +16,11 @@ std::vector<TestVst3Processor*> live_processors;
 class TestVst3Processor final : public juce::AudioProcessor {
 public:
     TestVst3Processor()
-        : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
+        : AudioProcessor(BusesProperties()
+                             .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+                             // A second stereo pair, off until the host asks
+                             // for it: a multi-output instrument's aux bus.
+                             .withOutput("Aux", juce::AudioChannelSet::stereo(), false)) {
         addParameter(level_ = new juce::AudioParameterFloat({"level", 1}, "Level", 0.0F, 1.0F, 0.25F));
         // At rest the fixture holds a steady level, which is what the timing
         // and mixer gates measure. Asked for a tone it becomes a real
@@ -45,10 +49,18 @@ public:
     void prepareToPlay(double sample_rate, int) override { sample_rate_ = sample_rate; }
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override {
-        return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
+        if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo()) return false;
+        if (layouts.outputBuses.size() < 2) return true;
+        const auto aux = layouts.outputBuses[1];
+        return aux.isDisabled() || aux == juce::AudioChannelSet::stereo();
     }
-    void processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi) override {
-        audio.clear();
+    // The main bus carries the note; the aux bus, when the host enabled it,
+    // the same at minus half, so routing it apart can be told from mixing it
+    // into the main output.
+    void processBlock(juce::AudioBuffer<float>& block, juce::MidiBuffer& midi) override {
+        block.clear();
+        auto audio = getBusBuffer(block, false, 0);
+        const bool has_aux = getBusCount(false) > 1 && getBus(false, 1)->isEnabled();
         int cursor = 0;
         const auto render = [&](int end) {
             for (; cursor < end; ++cursor) {
@@ -65,6 +77,11 @@ public:
                 }
                 for (int channel = 0; channel < audio.getNumChannels(); ++channel)
                     audio.setSample(channel, cursor, sample);
+                if (has_aux) {
+                    auto aux = getBusBuffer(block, false, 1);
+                    for (int channel = 0; channel < aux.getNumChannels(); ++channel)
+                        aux.setSample(channel, cursor, -0.5F * sample);
+                }
             }
         };
         for (const auto metadata : midi) {

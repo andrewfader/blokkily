@@ -551,6 +551,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     }
     blokkily::load_fresh_state(*next, song, build);
     engine_ = std::move(next);
+    publishProcessorPorts();
     // Open editors follow their tracks; one whose instance was replaced has
     // already been closed with it.
     reconcileEditors(remap);

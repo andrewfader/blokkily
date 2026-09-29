@@ -129,7 +129,9 @@ bool modulator_ok(const Song& song, const Modulator& modulator, std::string* why
 
 // Every insert's key names a track, a track's insert never keys from its own
 // track, and no chain of keys leads back to where it started: the engine
-// renders a key's source before the track it keys, which a loop forbids.
+// renders a key's source before the track it keys, which a loop forbids. An
+// instrument output is a dependency too: the source renders before the track
+// it feeds.
 bool sidechains_ok(const Song& song, std::string* why) {
     const auto keys_ok = [&](const std::vector<EffectSlot>& slots) {
         for (const auto& slot : slots)
@@ -152,6 +154,8 @@ bool sidechains_ok(const Song& song, std::string* why) {
                     return refuse(why, "a track's insert is keyed from its own track");
                 keyed_by[t].push_back(*slot.sidechain);
             }
+        if (const auto& source = song.tracks[t].source; source && source->track < count)
+            keyed_by[t].push_back(source->track);
     }
     // Depth-first, colouring each track while it is on the path.
     std::vector<int> colour(count, 0);
@@ -166,7 +170,27 @@ bool sidechains_ok(const Song& song, std::string* why) {
     };
     for (std::size_t t = 0; t < count; ++t)
         if (colour[t] == 0 && loops(loops, t))
-            return refuse(why, "sidechain keys form a loop");
+            return refuse(why, "sidechain keys and instrument outputs form a loop");
+    return true;
+}
+
+// Each fed track names another track and an output from 1, has no
+// instrument of its own, and has an output no other track takes.
+bool sources_ok(const Song& song, std::string* why) {
+    for (std::size_t t = 0; t < song.tracks.size(); ++t) {
+        const auto& source = song.tracks[t].source;
+        if (!source) continue;
+        if (source->track >= song.tracks.size())
+            return refuse(why, "a track is fed by an instrument on a track that does not exist");
+        if (source->track == t) return refuse(why, "a track is fed by its own instrument");
+        if (source->output < 1 || source->output > InstrumentOutput::maximum_output)
+            return refuse(why, "a track is fed by an instrument output out of range");
+        if (!song.tracks[t].instrument.format.empty())
+            return refuse(why, "a track fed by an instrument output has an instrument of its own");
+        for (std::size_t other = t + 1; other < song.tracks.size(); ++other)
+            if (song.tracks[other].source == source)
+                return refuse(why, "two tracks are fed by the same instrument output");
+    }
     return true;
 }
 
@@ -279,6 +303,7 @@ bool Song::consistent(std::string* why) const {
             targets.push_back(&lane.target);
         }
     }
+    if (!sources_ok(*this, why)) return false;
     if (!sidechains_ok(*this, why)) return false;
     if (modulators.size() > maximum_modulators)
         return refuse(why, "the song has too many modulators");
@@ -328,6 +353,13 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
     for (auto& track : tracks) rekey(track.inserts);
     for (auto& bus : returns) rekey(bus.inserts);
     rekey(master_inserts);
+    // A channel of the removed track's instrument keeps its strip and has no
+    // source any more; the others follow their source.
+    for (auto& track : tracks) {
+        if (!track.source) continue;
+        if (track.source->track == index) track.source.reset();
+        else track.source->track = static_cast<std::uint32_t>(moved(track.source->track));
+    }
     // A follower of the removed track has nothing left to follow; targets on
     // its processors go with it.
     std::erase_if(modulators, [index](const Modulator& modulator) {

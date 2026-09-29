@@ -112,8 +112,28 @@ QVariantList SongModel::tracks() const {
         QVariantMap row;
         row["index"] = static_cast<int>(index);
         row["name"] = QString::fromStdString(track.name);
-        row["instrument"] = instrument_label(track.instrument);
+        // A multi-output instrument's channel (wave 5.2) names what feeds it.
+        if (track.source && track.source->track < song_.tracks.size())
+            row["instrument"] = QString("%1 · AUX %2")
+                                    .arg(QString::fromStdString(song_.tracks[track.source->track].name))
+                                    .arg(track.source->output);
+        else
+            row["instrument"] = instrument_label(track.instrument);
         row["hasInstrument"] = !track.instrument.format.empty();
+        row["fed"] = track.source.has_value();
+        // The aux outputs its instrument declares, each with whether it is
+        // already broken out to a channel.
+        QVariantList outputs;
+        for (int output = 1; output <= instrumentOutputs(static_cast<int>(index)); ++output) {
+            const blokkily::InstrumentOutput which{static_cast<std::uint32_t>(index),
+                                                   static_cast<std::uint32_t>(output)};
+            const bool routed = std::any_of(song_.tracks.begin(), song_.tracks.end(),
+                                            [&](const blokkily::Track& other) {
+                                                return other.source == which;
+                                            });
+            outputs.push_back(QVariantMap{{"output", output}, {"routed", routed}});
+        }
+        row["outputs"] = outputs;
         row["gainDb"] = track.mix.gain_db;
         row["gainText"] = gain_readout(track.mix.gain_db);
         row["pan"] = track.mix.pan;
@@ -246,7 +266,10 @@ void SongModel::replace(blokkily::Song song) {
 void SongModel::setInstrument(int track, const blokkily::InstrumentSlot& slot) {
     if (!validTrack(track)) return;
     checkpoint();
-    song_.tracks[static_cast<std::size_t>(track)].instrument = slot;
+    auto& changed = song_.tracks[static_cast<std::size_t>(track)];
+    changed.instrument = slot;
+    // A channel given an instrument of its own plays that instead (wave 5.2).
+    if (!slot.format.empty()) changed.source.reset();
     notifyStructureChanged();
 }
 

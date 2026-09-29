@@ -1,6 +1,8 @@
 // A CLAP audio effect whose work can be read straight off the rendered audio:
 // the output is the input, delayed by the 64 samples it reports as its
-// latency, times its Gain parameter (id 0, default 0.25). Gain changes land
+// latency, times its Gain parameter (id 0, default 0.25), times one minus the
+// level of its sidechain input (a second, non-main stereo input port), delayed
+// the same way: a key of 0.25 leaves three quarters, a silent key all of it. Gain changes land
 // at the sample offset of their event, and modulation adds to the base. The
 // tail it reports is the 64 samples still in its line once input stops, and
 // its state stream holds a tag and the gain. Like an effect that has work for
@@ -21,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -51,6 +54,8 @@ struct Effect {
     // Two ring buffers of exactly `latency` samples: reading the slot about
     // to be overwritten yields the input from `latency` samples ago.
     std::array<std::array<float, latency>, 2> line{};
+    // The key's level, delayed alike, so it ducks the samples it arrived with.
+    std::array<float, latency> key_line{};
     std::uint32_t cursor = 0;
 };
 
@@ -83,6 +88,7 @@ void plugin_destroy(const clap_plugin_t* plugin) {
 bool plugin_activate(const clap_plugin_t* plugin, double, std::uint32_t, std::uint32_t) {
     auto* effect = self(plugin);
     effect->line = {};
+    effect->key_line = {};
     effect->cursor = 0;
     effect->modulation = 0.0;
     return true;
@@ -92,6 +98,7 @@ bool plugin_start(const clap_plugin_t*) { return true; }
 void plugin_stop(const clap_plugin_t*) {}
 void plugin_reset(const clap_plugin_t* plugin) {
     self(plugin)->line = {};
+    self(plugin)->key_line = {};
     self(plugin)->cursor = 0;
 }
 
@@ -110,13 +117,17 @@ void emit_turn(Effect& effect, const clap_output_events_t* out) {
 }
 
 clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_process_t* process) {
-    if (process->audio_inputs_count != 1 || process->audio_outputs_count != 1 ||
+    if (process->audio_inputs_count < 1 || process->audio_inputs_count > 2 ||
+        process->audio_outputs_count != 1 ||
         process->audio_inputs[0].channel_count != 2 || process->audio_outputs[0].channel_count != 2)
         return CLAP_PROCESS_ERROR;
     auto& effect = *self(plugin);
     emit_turn(effect, process->out_events);
     auto** in = process->audio_inputs[0].data32;
     auto** out = process->audio_outputs[0].data32;
+    const clap_audio_buffer_t* key =
+        process->audio_inputs_count > 1 && process->audio_inputs[1].channel_count > 0
+            ? &process->audio_inputs[1] : nullptr;
     const std::uint32_t events = process->in_events->size(process->in_events);
     std::uint32_t next = 0;
     for (std::uint32_t frame = 0; frame < process->frames_count; ++frame) {
@@ -126,7 +137,14 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             apply(effect, header);
             ++next;
         }
-        const auto gain = static_cast<float>(std::clamp(effect.gain + effect.modulation, 0.0, 1.0));
+        float level = 0.0F;
+        if (key != nullptr)
+            for (std::uint32_t channel = 0; channel < key->channel_count; ++channel)
+                level = std::max(level, std::abs(key->data32[channel][frame]));
+        const float ducked_by = effect.key_line[effect.cursor];
+        effect.key_line[effect.cursor] = std::min(level, 1.0F);
+        const auto gain = static_cast<float>(std::clamp(effect.gain + effect.modulation, 0.0, 1.0)) *
+                          (1.0F - ducked_by);
         for (std::uint32_t channel = 0; channel < 2; ++channel) {
             const float delayed = effect.line[channel][effect.cursor];
             effect.line[channel][effect.cursor] = in[channel][frame];
@@ -138,15 +156,17 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
     return CLAP_PROCESS_CONTINUE;
 }
 
-// --- clap.audio-ports: stereo in, stereo out, not paired for in-place use ---
-std::uint32_t ports_count(const clap_plugin_t*, bool) { return 1; }
+// --- clap.audio-ports: stereo in, stereo out, not paired for in-place use, and
+// a stereo sidechain input that is not the main one ---------------------------
+std::uint32_t ports_count(const clap_plugin_t*, bool is_input) { return is_input ? 2 : 1; }
 bool ports_get(const clap_plugin_t*, std::uint32_t index, bool is_input,
                clap_audio_port_info_t* info) {
-    if (index != 0) return false;
+    if (index > (is_input ? 1U : 0U)) return false;
     *info = {};
-    info->id = 0;
-    std::snprintf(info->name, sizeof info->name, "%s", is_input ? "Input" : "Output");
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+    info->id = index;
+    std::snprintf(info->name, sizeof info->name, "%s",
+                  !is_input ? "Output" : index == 0 ? "Input" : "Sidechain");
+    info->flags = index == 0 ? CLAP_AUDIO_PORT_IS_MAIN : 0U;
     info->channel_count = 2;
     info->port_type = CLAP_PORT_STEREO;
     info->in_place_pair = CLAP_INVALID_ID;

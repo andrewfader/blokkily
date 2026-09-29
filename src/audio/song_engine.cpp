@@ -836,7 +836,10 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
                                     sample_rate_, frames});
     }
 
-    // Sources of keys and followers first (wave 5.2); every track once.
+    // Instrument outputs written this chunk are known by this serial.
+    ++chunk_serial_;
+    // Sources of keys, followers and instrument outputs first (wave 5.2);
+    // every track once.
     const auto& order = arranged.routing.order;
     const bool ordered = order.size() == tracks_.size();
     for (std::size_t i = 0; i < tracks_.size(); ++i) {
@@ -849,14 +852,31 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
             collect_events(track, index, song_position, end, from_timeline, capture,
                            capture_sample, capture_tick);
         // 2. The track's buffer starts silent, with or without an instrument,
-        // because the stages after the instrument's still add to it.
+        // because the stages after the instrument's still add to it - unless
+        // it is an instrument output's channel, which its source's instrument
+        // has already written this chunk.
         const std::span<float> left{track.left.data(), frames};
         const std::span<float> right{track.right.data(), frames};
-        std::fill(left.begin(), left.end(), 0.0F);
-        std::fill(right.begin(), right.end(), 0.0F);
+        if (track.fed_chunk != chunk_serial_) {
+            std::fill(left.begin(), left.end(), 0.0F);
+            std::fill(right.begin(), right.end(), 0.0F);
+        }
         const StereoBlock buffer{left, right};
         if (track.instrument) {
-            // 3. The instrument renders in place.
+            // 3. The instrument renders in place; each of its outputs that
+            // has a channel of its own renders into that channel's buffer
+            // (wave 5.2), which renders after this track.
+            for (const auto& feed : arranged.routing.feeds) {
+                if (feed.source != index || feed.destination >= tracks_.size()) continue;
+                auto& channel = *tracks_[feed.destination];
+                if (channel.left.size() < frames || channel.right.size() < frames) continue;
+                const std::span<float> into_left{channel.left.data(), frames};
+                const std::span<float> into_right{channel.right.data(), frames};
+                std::fill(into_left.begin(), into_left.end(), 0.0F);
+                std::fill(into_right.begin(), into_right.end(), 0.0F);
+                track.instrument->set_aux_output(feed.output, {into_left, into_right});
+                channel.fed_chunk = chunk_serial_;
+            }
             track.instrument->set_transport(transport);
             track.instrument->process(buffer, std::span{track.events.data(), count});
             // 4. What it reported about its own parameters goes to the ring.

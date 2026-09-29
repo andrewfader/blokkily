@@ -2,8 +2,9 @@
 
 // The plugin boundary (plan F-C). Every processor the engine runs, whatever
 // its format, is a PluginInstance; format details stay inside the adapters.
-// This header is frozen after item 1.4: later items use it, they do not
-// reshape it.
+// This header is frozen after item 1.4: later items use it and may add to
+// it (wave 5.2 added the sidechain input and the auxiliary outputs), they do
+// not reshape it.
 
 #include <cstddef>
 #include <cstdint>
@@ -52,11 +53,19 @@ public:
     virtual void closed() = 0;
 };
 
-// The audio a processor takes in. An instrument has none; an effect takes the
-// track's signal on its main input (1 = mono, 2 = stereo).
+// The audio a processor takes in and gives out. An instrument has no input;
+// an effect takes the track's signal on its main input (1 = mono, 2 =
+// stereo). `sidechain_inputs` is the channel count of an auxiliary input the
+// processor declares (a CLAP input port that is not the main one, a VST3 aux
+// input bus): what set_sidechain() feeds, 0 when there is none.
+// `aux_outputs` counts the outputs beyond the main one (CLAP output ports that
+// are not the main one, VST3 aux output buses): set_aux_output() names where
+// output 1..aux_outputs goes.
 struct PluginPorts {
     std::uint32_t audio_inputs = 0;
     bool note_input = true;
+    std::uint32_t sidechain_inputs = 0;
+    std::uint32_t aux_outputs = 0;
 };
 
 // One parameter as the plugin describes it. `id` is what PluginEvent's
@@ -132,8 +141,19 @@ public:
     }
     // AUDIO thread, before process(): the transport the next block plays in.
     virtual void set_transport(const TransportInfo& transport) noexcept { (void)transport; }
-    // AUDIO thread, before process(): sidechain key input audio for this block.
+    // AUDIO thread, before process(): sidechain key input audio for this block,
+    // exactly as long as the block the next process() is handed, or empty
+    // spans for no key (the sidechain input then hears silence).
     virtual void set_sidechain(StereoBlock sidechain) noexcept { (void)sidechain; }
+    // AUDIO thread, before process(): where auxiliary output `output` (1 is
+    // the first output after the main one) is written by the next process()
+    // call, exactly as long as its block; it applies to that call only. An
+    // output given nowhere is rendered and discarded, never mixed into the
+    // main output. A mono output is written to both sides.
+    virtual void set_aux_output(std::uint32_t output, StereoBlock destination) noexcept {
+        (void)output;
+        (void)destination;
+    }
     // Main thread, regularly: services what the plugin asked of the main
     // thread (callbacks, flushes, rescans).
     virtual void idle() {}

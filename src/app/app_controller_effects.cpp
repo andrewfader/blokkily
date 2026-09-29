@@ -56,3 +56,23 @@ bool AppController::addEffect(int index) {
     emit statusChanged();
     return engine_ != nullptr;
 }
+
+void AppController::publishProcessorPorts() {
+    if (song_ == nullptr) return;
+    std::vector<blokkily::ProcessorAddress> keyable;
+    std::vector<int> outputs(song_->song().tracks.size(), 0);
+    if (engine_) {
+        for (const auto& where : engine_->processor_addresses()) {
+            const auto* processor = engine_->processor(where);
+            if (processor == nullptr) continue;
+            const auto ports = processor->ports();
+            if (where.instrument()) {
+                if (where.kind == blokkily::BusKind::track && where.bus < outputs.size())
+                    outputs[where.bus] = static_cast<int>(ports.aux_outputs);
+            } else if (ports.sidechain_inputs > 0) {
+                keyable.push_back(where);
+            }
+        }
+    }
+    song_->setProcessorPorts(std::move(keyable), std::move(outputs));
+}
