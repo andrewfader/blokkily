@@ -11,9 +11,12 @@ Rectangle {
     objectName: "effectRack"
     readonly property var rack: songModel.rack
     readonly property int rows: rack.inserts !== undefined ? rack.inserts.length : 0
+    // Inserts that take a sidechain key carry a second line for it.
+    readonly property int keyedRows: rack.inserts !== undefined
+                                     ? rack.inserts.filter(slot => slot.keyable).length : 0
     Layout.fillWidth: true
     Layout.minimumHeight: 92
-    implicitHeight: 78 + Math.max(1, rows) * 30
+    implicitHeight: 78 + Math.max(1, rows) * 30 + keyedRows * 24
     radius: 6
     color: Theme.panel
     border.color: Theme.line
@@ -61,63 +64,117 @@ Rectangle {
                 required property int index
                 objectName: "insertRow" + index
                 Layout.fillWidth: true
-                implicitHeight: 26; radius: 4
+                implicitHeight: modelData.keyable ? 50 : 26; radius: 4
                 color: modelData.bypass ? "#15161a" : Theme.raised
                 border.color: Theme.line
-                RowLayout {
+                ColumnLayout {
                     anchors.fill: parent; anchors.leftMargin: 6; anchors.rightMargin: 4
-                    spacing: 3
-                    Rectangle {
-                        Layout.preferredWidth: 32; Layout.preferredHeight: 15; radius: 3
-                        color: modelData.format === "CLAP" ? Theme.acid
-                             : modelData.format === "VST3" ? Theme.blue : Theme.line
-                        Label { anchors.centerIn: parent; text: modelData.format
-                            color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
-                            font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.8 }
-                    }
-                    Label {
-                        objectName: "insertName" + index
+                    anchors.topMargin: 3; anchors.bottomMargin: 3
+                    spacing: 4
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: modelData.name
-                        color: modelData.bypass ? Theme.muted : Theme.ink
-                        font.pixelSize: 10; font.bold: true; elide: Text.ElideRight
-                    }
-                    Chip {
-                        objectName: "insertEditor" + index
-                        text: "E"; implicitHeight: 20; implicitWidth: 22
-                        on: { appController.openEditors; return appController.insertEditorOpen(root.rack.kind, root.rack.bus, index) }
-                        onClicked: appController.toggleInsertEditor(root.rack.kind, root.rack.bus, index)
-                    }
-                    Chip {
-                        objectName: "insertAutomation" + index
-                        text: "A"; implicitHeight: 20; implicitWidth: 22
-                        onClicked: parameters.open()
-                        Menu {
-                            id: parameters
-                            Instantiator {
-                                model: appController.insertParameters(root.rack.kind, root.rack.bus, index)
-                                delegate: MenuItem {
-                                    required property var modelData
-                                    objectName: "insertParameter" + insertRow.index + "_" + modelData.id
-                                    text: modelData.name
-                                    onTriggered: appController.automateInsert(root.rack.kind, root.rack.bus, insertRow.index, modelData.id)
+                        spacing: 3
+                        Rectangle {
+                            Layout.preferredWidth: 32; Layout.preferredHeight: 15; radius: 3
+                            color: modelData.format === "CLAP" ? Theme.acid
+                                 : modelData.format === "VST3" ? Theme.blue : Theme.line
+                            Label { anchors.centerIn: parent; text: modelData.format
+                                color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
+                                font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.8 }
+                        }
+                        Label {
+                            objectName: "insertName" + index
+                            Layout.fillWidth: true
+                            text: modelData.name
+                            color: modelData.bypass ? Theme.muted : Theme.ink
+                            font.pixelSize: 10; font.bold: true; elide: Text.ElideRight
+                        }
+                        Chip {
+                            objectName: "insertEditor" + index
+                            text: "E"; implicitHeight: 20; implicitWidth: 22
+                            on: { appController.openEditors; return appController.insertEditorOpen(root.rack.kind, root.rack.bus, index) }
+                            onClicked: appController.toggleInsertEditor(root.rack.kind, root.rack.bus, index)
+                        }
+                        Chip {
+                            objectName: "insertAutomation" + index
+                            text: "A"; implicitHeight: 20; implicitWidth: 22
+                            onClicked: parameters.open()
+                            Menu {
+                                id: parameters
+                                Instantiator {
+                                    model: appController.insertParameters(root.rack.kind, root.rack.bus, index)
+                                    delegate: MenuItem {
+                                        required property var modelData
+                                        objectName: "insertParameter" + insertRow.index + "_" + modelData.id
+                                        text: modelData.name
+                                        onTriggered: appController.automateInsert(root.rack.kind, root.rack.bus, insertRow.index, modelData.id)
+                                    }
+                                    onObjectAdded: function(i, item) { parameters.insertItem(i, item) }
+                                    onObjectRemoved: function(i, item) { parameters.removeItem(item) }
                                 }
-                                onObjectAdded: function(i, item) { parameters.insertItem(i, item) }
-                                onObjectRemoved: function(i, item) { parameters.removeItem(item) }
                             }
                         }
+                        Chip {
+                            objectName: "bypass" + index
+                            text: "BYP"; implicitHeight: 20; implicitWidth: 40; accent: Theme.amber
+                            on: modelData.bypass
+                            onClicked: songModel.setInsertBypass(root.rack.kind, root.rack.bus,
+                                                                 index, !modelData.bypass)
+                        }
+                        Chip {
+                            objectName: "removeInsert" + index
+                            text: "×"; implicitHeight: 20; implicitWidth: 22
+                            onClicked: songModel.removeInsert(root.rack.kind, root.rack.bus, index)
+                        }
                     }
-                    Chip {
-                        objectName: "bypass" + index
-                        text: "BYP"; implicitHeight: 20; accent: Theme.amber
-                        on: modelData.bypass
-                        onClicked: songModel.setInsertBypass(root.rack.kind, root.rack.bus,
-                                                             index, !modelData.bypass)
-                    }
-                    Chip {
-                        objectName: "removeInsert" + index
-                        text: "×"; implicitHeight: 20
-                        onClicked: songModel.removeInsert(root.rack.kind, root.rack.bus, index)
+                    // The sidechain key, on a line of its own so the row keeps
+                    // room for the effect's name.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: modelData.keyable === true
+                        spacing: 5
+                        Label {
+                            text: "SIDECHAIN"; color: Theme.muted
+                            font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
+                        }
+                        // The sidechain key (wave 5.2): which track the compressor
+                        // listens to, taken after that track's inserts and before
+                        // its fader.
+                        Chip {
+                            objectName: "insertSidechain" + index
+                            Layout.fillWidth: true
+                            text: modelData.sidechain >= 0 ? modelData.sidechainName : "NONE"
+                            implicitHeight: 20
+                            accent: Theme.blue
+                            accessibleLabel: "Sidechain key"
+                            on: modelData.sidechain >= 0
+                            onClicked: keyMenu.open()
+                            Menu {
+                                id: keyMenu
+                                objectName: "sidechainMenu" + insertRow.index
+                                MenuItem {
+                                    objectName: "sidechainNone" + insertRow.index
+                                    text: "No key"
+                                    onTriggered: songModel.setInsertSidechain(root.rack.kind, root.rack.bus,
+                                                                              insertRow.index, -1)
+                                }
+                                Instantiator {
+                                    model: songModel.tracks
+                                    delegate: MenuItem {
+                                        required property var modelData
+                                        required property int index
+                                        objectName: "sidechainKey" + insertRow.index + "_" + index
+                                        text: "Key from " + modelData.name
+                                        // A track's insert cannot key from its own track.
+                                        enabled: !(root.rack.kind === "track" && index === root.rack.bus)
+                                        onTriggered: songModel.setInsertSidechain(root.rack.kind, root.rack.bus,
+                                                                                  insertRow.index, index)
+                                    }
+                                    onObjectAdded: function(i, item) { keyMenu.insertItem(i + 1, item) }
+                                    onObjectRemoved: function(i, item) { keyMenu.removeItem(item) }
+                                }
+                            }
+                        }
                     }
                 }
             }

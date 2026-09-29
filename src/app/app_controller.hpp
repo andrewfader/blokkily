@@ -381,6 +381,12 @@ public:
     Q_INVOKABLE QVariantMap parameterRange(const QString& kind, int bus, int slot, int parameter) const;
     Q_INVOKABLE QVariantList insertParameters(const QString& kind, int bus, int slot) const;
     Q_INVOKABLE bool automateInsert(const QString& kind, int bus, int slot, int parameter);
+    // Modulation (phase 2, wave 5.1): every parameter a modulator can aim at
+    // on the selected track - its instrument's, then each insert's - as
+    // {kind, bus, slot, parameter, label}, read from the processors the engine
+    // runs; and one parameter's name, or "P<n>" when the engine has none.
+    Q_INVOKABLE QVariantList modulationTargets() const;
+    Q_INVOKABLE QString parameterName(const QString& kind, int bus, int slot, int parameter) const;
     Q_INVOKABLE bool collectAudio();
     Q_PROPERTY(bool outputRecordingArmed READ outputRecordingArmed NOTIFY outputRecordingChanged)
     bool outputRecordingArmed() const { return output_source_.has_value(); }

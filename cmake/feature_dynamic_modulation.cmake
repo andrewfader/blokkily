@@ -13,6 +13,16 @@ target_sources(blokkily_core PRIVATE
     src/audio/engine/engine_modulation.cpp
     src/project/records_modulation.cpp)
 
+if(BLOKKILY_BUILD_GUI)
+    target_sources(blokkily PRIVATE
+        src/app/song_model_modulation.cpp
+        src/app/app_controller_modulation.cpp
+        src/app/verify/scenario_modulation.cpp)
+    set_source_files_properties(ui/ModulationPanel.qml PROPERTIES
+        QT_RESOURCE_ALIAS "ModulationPanel.qml")
+    qt_target_qml_sources(blokkily QML_FILES ui/ModulationPanel.qml)
+endif()
+
 if(BLOKKILY_BUILD_TESTS)
     add_executable(blokkily_dynamic_modulation_tests tests/dynamic_modulation_tests.cpp)
     target_include_directories(blokkily_dynamic_modulation_tests PRIVATE tests)
@@ -50,4 +60,22 @@ if(BLOKKILY_BUILD_TESTS)
 
     blokkily_add_realtime_case(dynamic_modulation LABELS "audio;modulation;clap")
 
+    if(BLOKKILY_BUILD_GUI)
+        # Modulation and sidechain in the real application: keying a
+        # compressor from another track in the rendered rack, adding an LFO
+        # and a macro in the modulation panel and aiming them at the CLAP
+        # instrument, all heard through the production callback and saved.
+        add_test(NAME bdd_modulation
+            COMMAND blokkily --verify --scenario modulation
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --project ${CMAKE_BINARY_DIR}/artifacts/modulation.blok
+                --export ${CMAKE_BINARY_DIR}/artifacts/modulation.wav
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/modulation.png)
+        set_tests_properties(bdd_modulation PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;clap;modulation;sidechain;mixer;export"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
+            TIMEOUT 300)
+    endif()
 endif()

@@ -111,10 +111,21 @@ QVariantMap SongModel::rack() const {
     QVariantList inserts;
     for (std::size_t index = 0; index < chain->size(); ++index) {
         const auto& slot = (*chain)[index];
-        inserts.push_back(QVariantMap{{"index", static_cast<int>(index)},
-                                      {"name", effect_label(slot.plugin)},
-                                      {"format", format_badge(slot.plugin)},
-                                      {"bypass", slot.bypass}});
+        // A key (wave 5.2): offered on the built-in compressor, the insert
+        // that listens to one.
+        const int key = slot.sidechain ? static_cast<int>(*slot.sidechain) : -1;
+        const bool keyable = slot.plugin.format == blokkily::builtin_effect_format &&
+                             slot.plugin.identifier == "compressor";
+        inserts.push_back(QVariantMap{
+            {"index", static_cast<int>(index)},
+            {"name", effect_label(slot.plugin)},
+            {"format", format_badge(slot.plugin)},
+            {"bypass", slot.bypass},
+            {"keyable", keyable},
+            {"sidechain", key},
+            {"sidechainName", key >= 0 && static_cast<std::size_t>(key) < song_.tracks.size()
+                                  ? QString::fromStdString(song_.tracks[static_cast<std::size_t>(key)].name)
+                                  : QString()}});
     }
     return {{"kind", bus_kind_name(where.kind)},
             {"bus", static_cast<int>(where.bus)},
@@ -213,22 +224,10 @@ bool SongModel::removeInsert(const QString& kind, int bus, int slot) {
     if (chain == nullptr || slot < 0 || static_cast<std::size_t>(slot) >= chain->size())
         return false;
     checkpoint();
-    chain->erase(chain->begin() + slot);
-    // Automation that drove the removed effect goes with it; lanes on the
-    // effects after it follow them to their new slots.
-    for (auto& track : song_.tracks) {
-        std::erase_if(track.automation, [&](const blokkily::AutomationLane& lane) {
-            const auto& address = lane.target.processor;
-            return address.kind == *parsed && address.bus == static_cast<std::uint32_t>(bus) &&
-                   address.slot == slot;
-        });
-        for (auto& lane : track.automation) {
-            auto& address = lane.target.processor;
-            if (address.kind == *parsed && address.bus == static_cast<std::uint32_t>(bus) &&
-                address.slot > slot)
-                --address.slot;
-        }
-    }
+    // Automation and modulation that drove the removed effect go with it;
+    // what drives the effects after it follows them to their new slots.
+    (void)song_.remove_insert(*parsed, static_cast<std::size_t>(bus),
+                              static_cast<std::size_t>(slot));
     notifyStructureChanged();
     return true;
 }
@@ -263,21 +262,7 @@ bool SongModel::removeReturn(int bus) {
     if (bus < 0 || static_cast<std::size_t>(bus) >= song_.returns.size()) return false;
     checkpoint();
     const auto removed = static_cast<std::size_t>(bus);
-    song_.returns.erase(song_.returns.begin() + bus);
-    for (auto& track : song_.tracks) {
-        std::erase_if(track.sends,
-                      [removed](const blokkily::Send& send) { return send.bus == removed; });
-        for (auto& send : track.sends)
-            if (send.bus > removed) --send.bus;
-        std::erase_if(track.automation, [bus](const blokkily::AutomationLane& lane) {
-            return lane.target.processor.kind == blokkily::BusKind::ret &&
-                   lane.target.processor.bus == static_cast<std::uint32_t>(bus);
-        });
-        for (auto& lane : track.automation)
-            if (lane.target.processor.kind == blokkily::BusKind::ret &&
-                lane.target.processor.bus > static_cast<std::uint32_t>(bus))
-                --lane.target.processor.bus;
-    }
+    (void)song_.remove_return(removed);
     if (removed < return_peaks_.size())
         return_peaks_.erase(return_peaks_.begin() + static_cast<std::ptrdiff_t>(removed));
     if (rack_kind_ == blokkily::BusKind::ret && rack_return_ >= bus)

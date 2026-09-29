@@ -109,6 +109,15 @@ class SongModel final : public QObject {
     Q_PROPERTY(bool metronomeOn READ metronomeOn NOTIFY metronomeChanged)
     Q_PROPERTY(double metronomeLevelDb READ metronomeLevelDb NOTIFY metronomeChanged)
     Q_PROPERTY(int countInBars READ countInBars NOTIFY metronomeChanged)
+    // Modulators (phase 2, wave 5.1; song_model_modulation.cpp). How many the
+    // song has - what a panel repeats over, so a dial being dragged is not
+    // rebuilt under the pointer - and one row per modulator: {index, kind
+    // (lfo|macro|follower), name, shape, rateHz, rateText, value, valueText,
+    // sourceTrack, sourceName, targets: [{index, kind, bus, slot, parameter,
+    // place, depth, depthText}]}.
+    Q_PROPERTY(int modulatorCount READ modulatorCount NOTIFY songChanged)
+    Q_PROPERTY(QVariantList modulators READ modulators NOTIFY modulationChanged)
+    Q_PROPERTY(QStringList lfoShapes READ lfoShapes CONSTANT)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -419,6 +428,34 @@ public:
     void checkpointTake();
     void setCapturing(bool capturing);
 
+    // --- Modulation and sidechain (phase 2, waves 5.1 and 5.2) --------------
+    int modulatorCount() const noexcept { return static_cast<int>(song_.modulators.size()); }
+    QVariantList modulators() const;
+    QStringList lfoShapes() const;
+    // Adding or removing a modulator, a target or a key changes what is
+    // routed where: one step of history, recompiled into the running engine
+    // (never a rebuild). `kind` is lfo, macro or follower; the new
+    // modulator's index, or -1 when the song holds as many as it can.
+    Q_INVOKABLE int addModulator(const QString& kind);
+    Q_INVOKABLE bool removeModulator(int modulator);
+    // Aims a modulator at parameter `parameter` of the processor at
+    // kind/bus/slot (slot -1 is a track's instrument), at half depth.
+    Q_INVOKABLE bool addModulationTarget(int modulator, const QString& kind, int bus, int slot,
+                                         int parameter);
+    Q_INVOKABLE bool removeModulationTarget(int modulator, int target);
+    // The follower's source track.
+    Q_INVOKABLE bool setFollowerSource(int modulator, int track);
+    // Live moves, like a fader: a step of history (a drag is one), reaching
+    // the running engine without a recompile.
+    Q_INVOKABLE void setModulatorShape(int modulator, const QString& shape);
+    Q_INVOKABLE void setModulatorRate(int modulator, double hertz);
+    Q_INVOKABLE void setModulatorValue(int modulator, double value);
+    Q_INVOKABLE void setModulationDepth(int modulator, int target, double depth);
+    // The track keying the insert at kind/bus/slot, or -1 for none. Refused
+    // (false, nothing changed) for a key the song could not play: the
+    // insert's own track, or a loop of keys.
+    Q_INVOKABLE bool setInsertSidechain(const QString& kind, int bus, int slot, int track);
+
 signals:
     void songChanged();
     // Raised only when the arrangement itself changed, so the audio engine is
@@ -450,6 +487,8 @@ signals:
     void stripMoved(int track, int control, double value, double previous);
     // The metronome or count-in settings changed (item 3.7).
     void metronomeChanged();
+    // A modulator, one of its targets, or a live value of one changed.
+    void modulationChanged();
 
 private:
     [[nodiscard]] blokkily::AudioClip* findAudioClip(qint64 id);
@@ -459,6 +498,7 @@ private:
     int audio_input_channels_ = 2;
     std::vector<blokkily::AudioClipId> rendering_clips_;
     [[nodiscard]] bool validTrack(int track) const;
+    [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
     // The insert chain of a bus, or nullptr when there is no such bus.
     std::vector<blokkily::EffectSlot>* chainAt(blokkily::BusKind kind, int bus);
     // A track's send to a return, made (silent) when `create` and missing.

@@ -269,6 +269,7 @@ void SongModel::notifyStructureChanged() {
     emit structureChanged();
     emit songChanged();
     emit audioClipsChanged();
+    emit modulationChanged();
 }
 
 namespace {

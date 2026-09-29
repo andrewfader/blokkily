@@ -483,6 +483,8 @@ ApplicationWindow {
                     }
 
                     Inspector {}
+
+                    ModulationPanel {}
                 }
             }
         }
