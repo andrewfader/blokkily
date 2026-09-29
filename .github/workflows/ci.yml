@@ -26,7 +26,8 @@ jobs:
             git cmake ninja ccache pkgconf \
             qt6-base qt6-declarative qt6-shadertools qt6-svg \
             fluidsynth rtaudio rtmidi libsndfile libsamplerate rubberband \
-            alsa-lib freetype2 libx11 libxext libxrandr libxinerama libxcursor \
+            alsa-lib freetype2 libx11 libxext libxi libxrandr libxinerama \
+            libxcursor libxrender libxcomposite \
             freewheeling ttf-dejavu fontconfig
 
       - name: Configure Git safe directory
