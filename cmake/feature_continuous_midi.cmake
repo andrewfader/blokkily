@@ -37,7 +37,8 @@ if(BLOKKILY_BUILD_TESTS)
             pattern_sample_accurate
             chase
             record_take
-            export_matches)
+            export_matches
+            poly_pressure)
         add_test(NAME continuous_midi_${midi_case}
             COMMAND blokkily_continuous_midi_tests ${midi_case})
         set_tests_properties(continuous_midi_${midi_case} PROPERTIES
@@ -51,6 +52,7 @@ if(BLOKKILY_BUILD_TESTS)
     set_property(TEST continuous_midi_pattern_sample_accurate APPEND PROPERTY LABELS "clap")
     set_property(TEST continuous_midi_record_take APPEND PROPERTY LABELS "clap;recording;project")
     set_property(TEST continuous_midi_export_matches APPEND PROPERTY LABELS "export")
+    set_property(TEST continuous_midi_poly_pressure APPEND PROPERTY LABELS "clap;recording;project;export")
 endif()
 
 if(BLOKKILY_BUILD_TESTS)

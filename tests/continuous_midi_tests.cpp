@@ -507,6 +507,164 @@ void export_matches() {
                 "export frame " + std::to_string(i) + " is what the engine played");
 }
 
+// features/continuous_midi.feature:
+//   Scenario: Poly pressure is recorded, played at its sample, chased and exported
+void poly_pressure() {
+    // --- Recorded from the keyboard, through a key map that sends key 60 to
+    // 62: the pressure names the key the instrument was told. ---------------
+    Song empty;
+    empty.patterns = {{"P", Pattern(1920, 480)}};
+    empty.tracks = {Track{}};
+    empty.clips = {{0, 0, 0, 1}};
+    Rig rig(clap(), empty);
+    auto map = identity_key_map();
+    map[60] = {62, 0.0F};
+    rig.keyboard.set_key_map(map);
+    rig.engine.set_recording(true);
+    rig.engine.set_playing(true);
+    (void)rig.render(10 * block);
+    rig.send(0x90, 60, 127);
+    const auto untouched = rig.render(4 * block);
+    rig.send(0xA0, 60, 127);
+    const auto pressed = rig.render(4 * block);
+    rig.send(0xA0, 60, 30);
+    (void)rig.render(4 * block);
+    rig.send(0x80, 60, 0);
+    (void)rig.render(2 * block);
+    const float plain = untouched.back();
+    require(plain > 0.01F && std::abs(pressed.back() - 2.0F * plain) < 1e-4F,
+            "poly pressure played live doubles the CLAP fixture's pressed key: " +
+                std::to_string(plain) + " -> " + std::to_string(pressed.back()));
+    CapturedEvent captured;
+    TakeRecorder recorder(empty.length());
+    std::vector<ContinuousEvent> heard;
+    while (rig.engine.take_captured(captured)) {
+        if (captured.event.type != PluginEvent::Type::midi_raw) continue;
+        if (auto control = recorder.control(
+                captured.tick, static_cast<std::uint32_t>(captured.event.key_or_parameter)))
+            heard.push_back(*control);
+    }
+    require(heard.size() == 2 && heard[0].kind == ContinuousEvent::Kind::poly_pressure &&
+                heard[0].controller == 62 && heard[0].value == 127 && heard[1].value == 30 &&
+                heard[1].tick > heard[0].tick,
+            "both presses are captured, on the mapped key: " + std::to_string(heard.size()));
+    for (auto control : heard) {
+        control.tick = take_target(empty, 0, control.tick, 0).offset;
+        write_continuous(empty.patterns[0].pattern, control);
+    }
+    require(empty.patterns[0].pattern.continuous().size() == 2, "and written into the pattern");
+
+    // --- Played back at its sample and chased. Note A (0..240) and note B
+    // (600..1900) on key 62; the key is pressed fully at tick 250, between
+    // them, and nothing lets it go. --------------------------------------------
+    Song song;
+    Pattern pattern(1920, 480);
+    for (const auto& [start, length] : {std::pair<Tick, Tick>{0, 240}, {600, 1300}}) {
+        Trigger note;
+        note.start = start;
+        note.duration = length;
+        note.musical_data = Note{62, 1.0F, 0.0F, 0.0};
+        (void)pattern.add(note);
+    }
+    pattern.add_continuous({250, ContinuousEvent::Kind::poly_pressure, 62, 127});
+    song.patterns = {{"P", std::move(pattern)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    std::string why;
+    require(song.consistent(&why), "the song is valid: " + why);
+    SongEngine engine;
+    engine.set_instrument(0, clap());
+    require(engine.prepare(song, rate, block, 0, &why), "prepare: " + why);
+    const auto render = [&engine](std::size_t frames) {
+        std::vector<float> left(frames), right(frames);
+        for (std::size_t done = 0; done < frames; done += block) {
+            const auto now = std::min<std::size_t>(block, frames - done);
+            engine.process({std::span(left).subspan(done, now), std::span(right).subspan(done, now)});
+        }
+        return left;
+    };
+    engine.set_playing(true);
+    const float level = 0.25F * static_cast<float>(std::cos(std::numbers::pi / 4.0));
+    const std::size_t per_tick = 50;
+    const auto length = static_cast<std::size_t>(engine.song_samples());
+    const auto first = render(length);
+    const auto near = [](float actual, float expected) { return std::abs(actual - expected) < 1e-5F; };
+    require(near(first[100 * per_tick], level) && near(first[700 * per_tick], 2.0F * level),
+            "note A sounds unpressed, note B pressed from the movement between them: " +
+                std::to_string(first[100 * per_tick]) + " / " + std::to_string(first[700 * per_tick]));
+    // Across the wrap the key's pressure is chased back to rest for note A.
+    const auto second = render(100 * per_tick);
+    require(near(second[50 * per_tick], level),
+            "after the wrap note A is unpressed again (chased to rest): " +
+                std::to_string(second[50 * per_tick]));
+    // A locate past the movement plays the pressure it had reached: note B
+    // is pressed again, although note A's chase had let the key go.
+    engine.seek(400 * per_tick);
+    const auto located = render(400 * per_tick);
+    require(near(located[300 * per_tick], 2.0F * level),
+            "a locate past the movement chases it for note B: " +
+                std::to_string(located[300 * per_tick]));
+
+    // --- Sample-accurate: the pressure lands on tick 250's sample, 12500.
+    {
+        Song exact = song;
+        Pattern held(1920, 480);
+        Trigger note;
+        note.start = 0;
+        note.duration = 1900;
+        note.musical_data = Note{62, 1.0F, 0.0F, 0.0};
+        (void)held.add(note);
+        held.add_continuous({250, ContinuousEvent::Kind::poly_pressure, 62, 127});
+        exact.patterns = {{"P", std::move(held)}};
+        SongEngine timed;
+        timed.set_instrument(0, clap());
+        require(timed.prepare(exact, rate, block, 0, &why), "prepare: " + why);
+        timed.set_playing(true);
+        std::vector<float> left(80 * block), right(80 * block);
+        for (std::size_t done = 0; done < left.size(); done += block)
+            timed.process({std::span(left).subspan(done, block), std::span(right).subspan(done, block)});
+        require(near(left[12499], level) && near(left[12500], 2.0F * level),
+                "the pressure lands on its sample: " + std::to_string(left[12499]) + " / " +
+                    std::to_string(left[12500]));
+    }
+
+    // --- Exported: the file reads back as the engine plays. ----------------
+    const fs::path file = fs::path(BLOKKILY_CONTINUOUS_WORK) / "poly-pressure.wav";
+    fs::create_directories(file.parent_path());
+    std::string error;
+    require(bounce_song(engine, file, WaveFormat::float32, 0, &error).has_value(),
+            "the bounce is written: " + error);
+    const auto wave = read_wave(file, &error);
+    require(wave.has_value() && wave->frames >= length, "the bounce reads back: " + error);
+    engine.seek(0);
+    engine.set_playing(true);
+    const auto live = render(length);
+    double worst = 0.0;
+    for (std::size_t frame = 0; frame < length; ++frame)
+        worst = std::max(worst, static_cast<double>(std::abs(wave->interleaved[2 * frame] - live[frame])));
+    require(worst < 1e-6 && near(wave->interleaved[2 * 700 * per_tick], 2.0F * level),
+            "the export plays the pressure the engine plays, worst " + std::to_string(worst));
+
+    // --- Saved as a control record; older files and bad records. -----------
+    Project project;
+    project.song = song;
+    const auto text = ProjectFile::serialize(project);
+    require(text.find("control 0 250 poly 62 127\n") != std::string::npos,
+            "the pressure is saved with its key");
+    const auto loaded = ProjectFile::parse(text, &error);
+    require(loaded.has_value() && ProjectFile::serialize(*loaded) == text,
+            "and reads back byte for byte: " + error);
+    auto older = text;
+    older.erase(older.find("control 0 250 poly 62 127\n"), std::string("control 0 250 poly 62 127\n").size());
+    const auto old = ProjectFile::parse(older, &error);
+    require(old.has_value() && old->song.patterns[0].pattern.continuous().empty(),
+            "a file from before poly pressure loads with none: " + error);
+    for (const char* bad : {"control 0 10 poly 128 1\n", "control 0 10 poly 60 128\n",
+                            "control 0 10 poly 60\n", "control 0 1920 poly 60 1\n"})
+        require(!ProjectFile::parse(text + bad, &error).has_value(),
+                std::string("a malformed poly record is refused: ") + bad);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -519,6 +677,7 @@ int main(int argc, char** argv) {
         {"chase", chase},
         {"record_take", record_take},
         {"export_matches", export_matches},
+        {"poly_pressure", poly_pressure},
     };
     if (argc < 2 || !cases.contains(argv[1])) {
         std::cerr << "Usage: blokkily_continuous_midi_tests <case>\n";

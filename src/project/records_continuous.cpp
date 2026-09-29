@@ -5,6 +5,11 @@
 //   control <pattern> <tick> bend <value 0..16383>
 //   control <pattern> <tick> cc <controller 0..119, not 64> <value 0..127>
 //   control <pattern> <tick> pressure <value 0..127>
+//   control <pattern> <tick> poly <key 0..127> <value 0..127>
+//
+// Poly pressure (one key's aftertouch) was added after the others: a file
+// that holds one is refused by a reader from before it, whose kinds end at
+// pressure, rather than played without it.
 //
 // A file without them (every file written before wave 4.1) loads with no
 // controller movements, and plays exactly as it did. They are written in the
@@ -28,6 +33,9 @@ void write_continuous(const Project& project, WriteContext& context) {
                 out << "cc " << static_cast<int>(control.controller) << ' ' << control.value;
                 break;
             case ContinuousEvent::Kind::channel_pressure: out << "pressure " << control.value; break;
+            case ContinuousEvent::Kind::poly_pressure:
+                out << "poly " << static_cast<int>(control.controller) << ' ' << control.value;
+                break;
             }
             out << '\n';
         }
@@ -51,8 +59,9 @@ bool parse_control(const Fields& fields, ParseContext& context) {
     } else if (*kind == "pressure" && fields.count(5)) {
         event.kind = ContinuousEvent::Kind::channel_pressure;
         value = fields.integer(4);
-    } else if (*kind == "cc" && fields.count(6)) {
-        event.kind = ContinuousEvent::Kind::control_change;
+    } else if ((*kind == "cc" || *kind == "poly") && fields.count(6)) {
+        event.kind = *kind == "cc" ? ContinuousEvent::Kind::control_change
+                                   : ContinuousEvent::Kind::poly_pressure;
         const auto controller = fields.integer(4);
         if (!controller || *controller < 0 || *controller > 127)
             return context.fail("malformed control record");

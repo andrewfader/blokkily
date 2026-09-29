@@ -64,17 +64,19 @@ struct ParameterLock {
 };
 
 // A controller movement in a pattern (wave 4.1): the pitch wheel, a control
-// change or channel pressure, played on a keyboard and recorded, at a tick of
-// the pattern. It is MIDI for the instrument to interpret, and stays distinct
+// change, channel pressure or one key's poly pressure (aftertouch), played on
+// a keyboard and recorded, at a tick of the pattern. Poly pressure names its
+// key in `controller`: the key the instrument is told (after the song's
+// tuning maps the keyboard), so it reaches the note it pressed. It is MIDI for the instrument to interpret, and stays distinct
 // from parameter automation and parameter modulation all the way to the
 // plugin (PluginEvent::Type::midi_raw). The sustain pedal is not one of
 // these: the input holds note-offs while it is down (MidiInput), so what is
 // recorded is how long each note was heard.
 struct ContinuousEvent {
-    enum class Kind : std::uint8_t { pitch_bend, control_change, channel_pressure };
+    enum class Kind : std::uint8_t { pitch_bend, control_change, channel_pressure, poly_pressure };
     Tick tick = 0;
     Kind kind = Kind::pitch_bend;
-    std::uint8_t controller = 0;   // the CC number, for control_change only
+    std::uint8_t controller = 0;   // the CC number, or the key for poly_pressure
     std::uint16_t value = 8192;    // pitch bend 0..16383 (8192 centred); else 0..127
 
     friend bool operator==(const ContinuousEvent&, const ContinuousEvent&) = default;
@@ -85,7 +87,8 @@ struct ContinuousEvent {
                                                                  std::uint8_t controller) noexcept {
         switch (kind) {
         case Kind::pitch_bend: return std::uint16_t{8192};
-        case Kind::channel_pressure: return std::uint16_t{0};
+        case Kind::channel_pressure:
+        case Kind::poly_pressure: return std::uint16_t{0};
         case Kind::control_change:
             if (controller == 1 || controller == 2 || controller == 64) return std::uint16_t{0};
             if (controller == 11) return std::uint16_t{127};
@@ -106,13 +109,15 @@ struct ContinuousEvent {
         return 0xB0U | ((event.controller & 0x7FU) << 8) | ((event.value & 0x7FU) << 16);
     case ContinuousEvent::Kind::channel_pressure:
         return 0xD0U | ((event.value & 0x7FU) << 8);
+    case ContinuousEvent::Kind::poly_pressure:
+        return 0xA0U | ((event.controller & 0x7FU) << 8) | ((event.value & 0x7FU) << 16);
     }
     return 0;
 }
 
 // The continuous event three raw MIDI bytes are, at `tick`, or nothing for a
-// message that is not one (notes, poly pressure, the sustain pedal, the
-// all-notes-off family).
+// message that is not one (notes, the sustain pedal, the all-notes-off
+// family).
 [[nodiscard]] inline std::optional<ContinuousEvent> continuous_from_midi(std::uint32_t raw,
                                                                          Tick tick) noexcept {
     const auto status = raw & 0xF0U;
@@ -123,6 +128,8 @@ struct ContinuousEvent {
                                static_cast<std::uint16_t>(first | (second << 7))};
     if (status == 0xD0U)
         return ContinuousEvent{tick, ContinuousEvent::Kind::channel_pressure, 0, first};
+    if (status == 0xA0U)
+        return ContinuousEvent{tick, ContinuousEvent::Kind::poly_pressure, first, second};
     if (status == 0xB0U && first != 64 && first < 120)
         return ContinuousEvent{tick, ContinuousEvent::Kind::control_change, first, second};
     return std::nullopt;

@@ -23,12 +23,14 @@
 namespace blokkily::engine {
 
 // The controllers a timeline can move, as chase keys: CC 0..127, then the
-// pitch wheel, then channel pressure.
-inline constexpr std::size_t controller_keys = 130;
+// pitch wheel, then channel pressure, then each key's poly pressure.
+inline constexpr std::size_t poly_pressure_keys = 130;
+inline constexpr std::size_t controller_keys = poly_pressure_keys + 128;
 [[nodiscard]] inline std::size_t controller_key(std::uint32_t raw) noexcept {
     switch (raw & 0xF0U) {
     case 0xE0U: return 128;
     case 0xD0U: return 129;
+    case 0xA0U: return poly_pressure_keys + ((raw >> 8) & 0x7FU);
     case 0xB0U: return (raw >> 8) & 0x7FU;
     default: return controller_keys;
     }

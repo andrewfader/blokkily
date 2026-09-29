@@ -12,17 +12,20 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
   down, a key's release is held back until the pedal comes up, for every
   instrument alike, and a take records how long each note was heard.
 
-  Pitch bend, control changes (other than 64 and the channel-mode messages)
-  and channel pressure played into a recording song are written into the
-  canonical pattern as controller movements (ContinuousEvent), saved as
-  `control` records, played at their sample, chased when the playhead jumps,
-  and exported exactly as they play. The piano roll marks them in a
+  Pitch bend, control changes (other than 64 and the channel-mode messages),
+  channel pressure and poly pressure played into a recording song are
+  written into the canonical pattern as controller movements
+  (ContinuousEvent; poly pressure names the key the song's tuning sent the
+  instrument), saved as `control` records, played at their sample, chased
+  when the playhead jumps (poly pressure per key), and exported exactly as
+  they play. The piano roll marks them in a
   read-only strip; they are not edited in any editor yet.
 
   Not done: MPE (per-note pitch, pressure and timbre) is not supported; a
   keyboard's per-channel controllers are merged onto the one instrument.
-  Poly pressure is played live but not recorded. Controller movements are
-  stamped at the block they arrived in, as notes are.
+  Controller movements are stamped at the block they arrived in, as notes
+  are. The built-in sampler ignores poly pressure; the SoundFont and VST3
+  paths send it on the channel holding its key.
 
   Executable: tests/continuous_midi_tests.cpp (CTest continuous_midi_<case>),
   tests/record_tests.cpp (record_sustain_pedal),
@@ -92,6 +95,17 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
     Given a pattern with bends and a control change on a VST3 track
     When the song is bounced
     Then the file reads back equal to the live render, sample for sample
+
+  # continuous_midi_poly_pressure
+  Scenario: Poly pressure is recorded, played at its sample, chased and exported
+    Given the CLAP fixture, whose pressed key sounds louder by its poly pressure
+    And a keyboard whose key 60 the song's tuning sends to key 62
+    When key 60 is held and pressed while an armed song runs
+    Then the pressure is heard live and captured on key 62, and written into the pattern
+    And a pattern's pressure lands on its exact sample (tick 250, sample 12500)
+    And a note after the movement is pressed, a wrap chases the key back to rest and a locate past the movement chases it again
+    And the export reads back equal to the live render
+    And it is saved as "control 0 250 poly 62 127", read back byte for byte, an older file loads with none and malformed poly records are refused
 
   # bdd_midi_recording
   Scenario: The wheel is recorded in the application and marked in the piano roll

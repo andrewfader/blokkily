@@ -313,8 +313,19 @@ void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
         // and Poly Pressure (0xA0):
         if (kind == 0xE0 || (kind == 0xB0 && first != 120 && first != 123) ||
             kind == 0xD0 || kind == 0xA0) {
+            // Poly pressure names the key it presses: the key the song's
+            // tuning sent the instrument for it (the note held there, or
+            // the key map's), so it reaches that note.
+            std::uint8_t data = first;
+            if (kind == 0xA0) {
+                const auto& key = impl_->held[channel][first];
+                const auto pitch = key.sounding != 0
+                                       ? key.pitch
+                                       : impl_->key_map[first].load(std::memory_order_acquire);
+                data = static_cast<std::uint8_t>(std::clamp<int>(pitch.key, 0, 127));
+            }
             const std::uint32_t raw = static_cast<std::uint32_t>(status) |
-                                      (static_cast<std::uint32_t>(first) << 8) |
+                                      (static_cast<std::uint32_t>(data) << 8) |
                                       (static_cast<std::uint32_t>(second) << 16);
             const auto tracks = impl_->routes[channel].load(std::memory_order_acquire);
             (void)impl_->push_to(tracks, {PluginEvent::Type::midi_raw, 0,

@@ -73,6 +73,10 @@ constexpr int maximum_held = 32;
 struct HeldKey {
     int key;
     float velocity;
+    // Per-note expression (CLAP_EVENT_NOTE_EXPRESSION, addressed by key),
+    // 0 at each note-on as CLAP says.
+    float pressure = 0.0F;
+    float brightness = 0.0F;
 };
 struct TestSynth {
     clap_plugin_t plugin;
@@ -93,6 +97,10 @@ struct TestSynth {
     double phase = 0.0;
     int key = 60;
     double tuning_semitones = 0.0;
+    // MIDI poly pressure (0xA0), per key, 0..1: kept as a keyboard's key
+    // pressure is, until the key's next message, so a chased value is heard
+    // by the next note on that key.
+    float poly[128]{};
     // Every key that is down, whatever the mode, so turning velocity mode on
     // between a note-on and its note-off still reads correctly. Fixed size:
     // process() must not allocate.
@@ -139,10 +147,29 @@ void gui_set(int field, long value) {
 void press(TestSynth& synth, int key, float velocity) {
     for (int index = 0; index < synth.held_count; ++index)
         if (synth.held[index].key == key) {
-            synth.held[index].velocity = velocity;
+            synth.held[index] = {key, velocity};
             return;
         }
     if (synth.held_count < maximum_held) synth.held[synth.held_count++] = {key, velocity};
+}
+HeldKey* held_key(TestSynth& synth, int key) {
+    for (int index = 0; index < synth.held_count; ++index)
+        if (synth.held[index].key == key) return &synth.held[index];
+    return nullptr;
+}
+// How loud a held key sounds, beyond its velocity: pressure (poly pressure
+// and per-note pressure alike) raises it by up to double, brightness by up
+// to double again. 1 for a key nothing has pressed on, so every level the
+// other tests read is untouched.
+float expression_gain(const TestSynth& synth, int key) {
+    float pressure = key >= 0 && key < 128 ? synth.poly[key] : 0.0F;
+    float brightness = 0.0F;
+    for (int index = 0; index < synth.held_count; ++index)
+        if (synth.held[index].key == key) {
+            pressure += synth.held[index].pressure;
+            brightness = synth.held[index].brightness;
+        }
+    return (1.0F + pressure) * (1.0F + brightness);
 }
 void lift(TestSynth& synth, int key) {
     for (int index = 0; index < synth.held_count; ++index)
@@ -153,7 +180,8 @@ void lift(TestSynth& synth, int key) {
 }
 float held_velocity(const TestSynth& synth) {
     float sum = 0.0F;
-    for (int index = 0; index < synth.held_count; ++index) sum += synth.held[index].velocity;
+    for (int index = 0; index < synth.held_count; ++index)
+        sum += synth.held[index].velocity * expression_gain(synth, synth.held[index].key);
     return sum;
 }
 TestSynth* self(const clap_plugin_t* plugin) { return static_cast<TestSynth*>(plugin->plugin_data); }
@@ -243,6 +271,7 @@ void plugin_stop(const clap_plugin_t*) {}
 void plugin_reset(const clap_plugin_t* plugin) {
     self(plugin)->sounding = false;
     self(plugin)->held_count = 0;
+    std::fill(std::begin(self(plugin)->poly), std::end(self(plugin)->poly), 0.0F);
 }
 
 void apply_parameter(TestSynth& synth, const clap_event_header_t* header) {
@@ -284,6 +313,24 @@ void emit_turn(TestSynth& synth, const clap_output_events_t* out) {
 }
 
 std::array<std::uint8_t, 3> last_midi_seen{};
+// The note expressions the host sent, oldest first, for a test to read the
+// events themselves (id, key, value, sample) beside their effect.
+constexpr int expression_log_size = 4096;
+struct ExpressionSeen {
+    int id;
+    int key;
+    double value;
+    std::uint32_t time;
+};
+std::array<ExpressionSeen, expression_log_size> expression_log{};
+std::atomic<int> expressions_seen{0};
+void record_expression(const clap_event_note_expression_t& expression, std::uint32_t time) {
+    const int at = expressions_seen.load(std::memory_order_relaxed);
+    if (at >= expression_log_size) return;
+    expression_log[static_cast<std::size_t>(at)] = {expression.expression_id, expression.key,
+                                                    expression.value, time};
+    expressions_seen.store(at + 1, std::memory_order_release);
+}
 void record_midi(const std::uint8_t* data) {
     if (data != nullptr) {
         last_midi_seen[0] = data[0];
@@ -323,8 +370,9 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
                 channels[0][cursor] = channels[1][cursor] = 0.0F;
                 continue;
             }
+            const float pressed = level * expression_gain(*synth, synth->key);
             if (effective(*synth, tone_id) < 0.5F) {
-                channels[0][cursor] = channels[1][cursor] = level;
+                channels[0][cursor] = channels[1][cursor] = pressed;
                 continue;
             }
             // Equal temperament from the key, moved by whatever tuning the host
@@ -332,7 +380,7 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             // semitone and must be heard as one.
             const double frequency = 440.0 * std::pow(
                 2.0, (synth->key - 69 + synth->tuning_semitones) / 12.0);
-            const auto sample = static_cast<float>(level * std::sin(synth->phase));
+            const auto sample = static_cast<float>(pressed * std::sin(synth->phase));
             channels[0][cursor] = channels[1][cursor] = sample;
             synth->phase += 6.283185307179586 * frequency / synth->sample_rate;
             if (synth->phase > 6.283185307179586) synth->phase -= 6.283185307179586;
@@ -358,8 +406,19 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             lift(*synth, note->key);
         } else if (header->type == CLAP_EVENT_NOTE_EXPRESSION) {
             const auto* expression = reinterpret_cast<const clap_event_note_expression_t*>(header);
-            if (expression->expression_id == CLAP_NOTE_EXPRESSION_TUNING)
+            record_expression(*expression, header->time);
+            // Addressed by key (or to every key, -1), as the host sends it.
+            const bool ours = expression->key < 0 || expression->key == synth->key;
+            if (expression->expression_id == CLAP_NOTE_EXPRESSION_TUNING && ours)
                 synth->tuning_semitones = expression->value;
+            for (int index = 0; index < synth->held_count; ++index) {
+                auto& held = synth->held[index];
+                if (expression->key >= 0 && held.key != expression->key) continue;
+                if (expression->expression_id == CLAP_NOTE_EXPRESSION_PRESSURE)
+                    held.pressure = static_cast<float>(expression->value);
+                else if (expression->expression_id == CLAP_NOTE_EXPRESSION_BRIGHTNESS)
+                    held.brightness = static_cast<float>(expression->value);
+            }
         } else if (header->type == CLAP_EVENT_MIDI) {
             const auto* midi = reinterpret_cast<const clap_event_midi_t*>(header);
             record_midi(midi->data);
@@ -367,6 +426,8 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             if (status == 0xE0) {
                 const int bend = static_cast<int>(midi->data[1]) | (static_cast<int>(midi->data[2]) << 7);
                 synth->tuning_semitones = (bend - 8192) / 8192.0 * 2.0;
+            } else if (status == 0xA0) {
+                synth->poly[midi->data[1] & 0x7F] = static_cast<float>(midi->data[2] & 0x7F) / 127.0F;
             }
         } else {
             apply_parameter(*synth, header);
@@ -728,6 +789,24 @@ extern "C" CLAP_EXPORT void blokkily_test_thread_report(int* answers) {
 
 // The most audio inputs any process() call was handed.
 extern "C" CLAP_EXPORT std::uint32_t blokkily_test_inputs_seen() { return most_inputs_seen; }
+
+// The note expressions every instance was sent since the last clear: up to
+// `capacity` of them into the four arrays; returns how many were sent.
+extern "C" CLAP_EXPORT int blokkily_test_expressions(int* ids, int* keys, double* values,
+                                                     std::uint32_t* times, int capacity) {
+    const int seen = expressions_seen.load(std::memory_order_acquire);
+    for (int index = 0; index < seen && index < capacity; ++index) {
+        const auto& entry = expression_log[static_cast<std::size_t>(index)];
+        ids[index] = entry.id;
+        keys[index] = entry.key;
+        values[index] = entry.value;
+        times[index] = entry.time;
+    }
+    return seen;
+}
+extern "C" CLAP_EXPORT void blokkily_test_clear_expressions() {
+    expressions_seen.store(0, std::memory_order_release);
+}
 
 // Changes the latency or tail the plugin reports and tells each host, as a
 // plugin does when a setting changes them. Call on the main thread.

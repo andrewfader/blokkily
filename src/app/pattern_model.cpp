@@ -214,6 +214,10 @@ QVariantList PatternModel::controls() const {
             row["kind"] = QStringLiteral("pressure");
             row["level"] = static_cast<double>(control.value) / 127.0;
             break;
+        case blokkily::ContinuousEvent::Kind::poly_pressure:
+            row["kind"] = QStringLiteral("poly");
+            row["level"] = static_cast<double>(control.value) / 127.0;
+            break;
         }
         rows.push_back(row);
     }

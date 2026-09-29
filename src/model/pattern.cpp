@@ -87,6 +87,8 @@ bool Pattern::valid_continuous(const ContinuousEvent& event, Tick length) noexce
     case ContinuousEvent::Kind::channel_pressure: return event.value <= 127 && event.controller == 0;
     case ContinuousEvent::Kind::control_change:
         return event.value <= 127 && event.controller < 120 && event.controller != 64;
+    case ContinuousEvent::Kind::poly_pressure:
+        return event.value <= 127 && event.controller <= 127;
     }
     return false;
 }

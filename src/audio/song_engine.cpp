@@ -603,10 +603,16 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                 if (!controllers->used[key]) continue;
                 auto raw = track.chase_values[key];
                 if (raw < 0) {
-                    const auto kind = key == 128   ? ContinuousEvent::Kind::pitch_bend
-                                      : key == 129 ? ContinuousEvent::Kind::channel_pressure
-                                                   : ContinuousEvent::Kind::control_change;
-                    const auto controller = static_cast<std::uint8_t>(key < 128 ? key : 0);
+                    const auto kind =
+                        key == 128   ? ContinuousEvent::Kind::pitch_bend
+                        : key == 129 ? ContinuousEvent::Kind::channel_pressure
+                        : key >= engine::poly_pressure_keys
+                            ? ContinuousEvent::Kind::poly_pressure
+                            : ContinuousEvent::Kind::control_change;
+                    const auto controller = static_cast<std::uint8_t>(
+                        key < 128 ? key
+                        : key >= engine::poly_pressure_keys ? key - engine::poly_pressure_keys
+                                                            : 0);
                     const auto rest = ContinuousEvent::rest_value(kind, controller);
                     if (!rest) continue;
                     raw = static_cast<std::int32_t>(
