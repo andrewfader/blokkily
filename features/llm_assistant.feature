@@ -5,8 +5,9 @@ Feature: LLM composition assistant
   writing for (tuning, scale, tempo, meter, what is already there), its
   answer is checked like any other input, and nothing reaches the song until
   the producer applies it. The producer picks where prompts are answered:
-  a local model (Ollama) by default, or a cloud model (Gemini) they have
-  keyed. Tests never touch a network: canned replies stand in for the model.
+  a local model (Ollama) by default, or a cloud model they have keyed
+  (Gemini, MiniMax, ChatGPT or OpenRouter). Tests never touch a network:
+  canned replies stand in for the model.
 
   Scenario: A reply in the wire dialect becomes triggers
     Given a reply holding valid JSON with mode "replace" and three triggers
@@ -62,92 +63,94 @@ Feature: LLM composition assistant
     Then it names the modes and every trigger field the parser accepts
     Checked by llm_prompt_documents_schema.
 
-  Scenario: The MiniMax backend builds the OpenAI chat-completions request
-    Given a MiniMax backend with a key and a captured network access manager
-    When the producer sends a prompt
-    Then the request hits /v1/chat/completions with a Bearer key, the default
-      model id, a system message, and response_format json_object
-    Checked by llm_minimax_backend_builds_request.
+  Scenario Outline: Each backend builds the request its provider expects
+    Given the <backend> backend with a key and a captured network
+    When the producer sends a prompt after one earlier exchange
+    Then the request goes to the provider's default endpoint with the key in
+      its header, never in the URL, asks for a JSON-only answer, carries the
+      standing instructions and the session context, and says the earlier
+      exchange exactly once
+    Checked by llm_<case>_backend_builds_request.
 
-  Scenario: A MiniMax reply feeds the wire-dialect parser unchanged
-    Given a MiniMax reply whose content is a valid triggers object
-    When the reply is parsed
+    Examples:
+      | backend    | case       |
+      | MiniMax    | minimax    |
+      | ChatGPT    | openai     |
+      | OpenRouter | openrouter |
+      | Gemini     | gemini     |
+      | Ollama     | ollama     |
+
+  Scenario Outline: A backend's answer feeds the wire-dialect parser unchanged
+    Given a <backend> answer whose text is a valid triggers object
+    When the answer is parsed
     Then the trigger survives into the proposal
-    Checked by llm_minimax_backend_parses_reply.
+    Checked by llm_<case>_backend_parses_reply.
 
-  Scenario: Missing MiniMax key means a readable error, not silence
-    Given a MiniMax backend with no key
-    When the producer sends a prompt
-    Then the reply is not ok and the error names BLOKKILY_MINIMAX_KEY
-    Checked by llm_minimax_backend_missing_key_errors.
+    Examples:
+      | backend    | case       |
+      | MiniMax    | minimax    |
+      | ChatGPT    | openai     |
+      | OpenRouter | openrouter |
+      | Gemini     | gemini     |
+      | Ollama     | ollama     |
 
-  Scenario: A MiniMax transport failure surfaces readably
-    Given a MiniMax backend whose network refused the connection
+  Scenario Outline: A cloud backend without its key says which to set
+    Given the <backend> backend with no key
     When the producer sends a prompt
-    Then the reply is not ok and the error mentions MiniMax
-    Checked by llm_minimax_backend_network_error_is_readable.
+    Then the reply is not ok and the error names <variable>
+    And the backend is still offered by the picker
+    Checked by llm_<case>_backend_missing_key_errors.
 
-  Scenario: A MiniMax server-side error envelope reaches the producer
-    Given a MiniMax reply holding {"error":{"message":…}}
-    When the producer sends a prompt
-    Then the reply is not ok and the error carries the provider's message
-    Checked by llm_minimax_backend_server_error_is_readable.
+    Examples:
+      | backend    | case       | variable                |
+      | MiniMax    | minimax    | BLOKKILY_MINIMAX_KEY    |
+      | ChatGPT    | openai     | BLOKKILY_OPENAI_KEY     |
+      | OpenRouter | openrouter | BLOKKILY_OPENROUTER_KEY |
+      | Gemini     | gemini     | BLOKKILY_GEMINI_KEY     |
 
-  Scenario: BLOKKILY_MINIMAX_URL and _MODEL override the defaults
-    Given a MiniMax backend with custom URL and model env vars
+  Scenario Outline: A transport failure names the backend that failed
+    Given the <backend> backend whose connection is refused
     When the producer sends a prompt
-    Then the request URL and the body's model field honour the overrides
-    Checked by llm_minimax_backend_uses_custom_url_and_model.
+    Then the reply is not ok and the error says <backend> did not answer
+    Checked by llm_<case>_backend_network_error_is_readable.
 
-  Scenario: The ChatGPT backend builds the OpenAI chat-completions request
-    Given a ChatGPT backend with a key and a captured network access manager
-    When the producer sends a prompt
-    Then the request hits /v1/chat/completions with a Bearer key, the default
-      model id, a system message, and response_format json_object
-    Checked by llm_openai_backend_builds_request.
+    Examples:
+      | backend    | case       |
+      | MiniMax    | minimax    |
+      | ChatGPT    | openai     |
+      | OpenRouter | openrouter |
+      | Gemini     | gemini     |
+      | Ollama     | ollama     |
 
-  Scenario: Missing ChatGPT key means a readable error, not silence
-    Given a ChatGPT backend with no key
+  Scenario Outline: The provider's own refusal reaches the producer
+    Given the <backend> backend whose provider answers HTTP 401 with its
+      explanation in the body
     When the producer sends a prompt
-    Then the reply is not ok and the error names BLOKKILY_OPENAI_KEY
-    Checked by llm_openai_backend_missing_key_errors.
+    Then the reply is not ok and the error carries the provider's message,
+      not only the HTTP status
+    Checked by llm_<case>_backend_server_error_is_readable.
 
-  Scenario: A ChatGPT transport failure surfaces readably
-    Given a ChatGPT backend whose network refused the connection
-    When the producer sends a prompt
-    Then the reply is not ok and the error mentions ChatGPT
-    Checked by llm_openai_backend_network_error_is_readable.
+    Examples:
+      | backend    | case       |
+      | MiniMax    | minimax    |
+      | ChatGPT    | openai     |
+      | OpenRouter | openrouter |
+      | Gemini     | gemini     |
+      | Ollama     | ollama     |
 
-  Scenario: A ChatGPT server-side error envelope reaches the producer
-    Given a ChatGPT reply holding {"error":{"message":…}}
+  Scenario Outline: The URL and model variables override the defaults
+    Given the <backend> backend with a custom URL and model in the environment
     When the producer sends a prompt
-    Then the reply is not ok and the error carries the provider's message
-    Checked by llm_openai_backend_server_error_is_readable.
+    Then the request goes to the custom URL with the custom model
+    And the picker names the custom model
+    Checked by llm_<case>_backend_uses_custom_url_and_model.
 
-  Scenario: The OpenRouter backend builds the OpenAI chat-completions request
-    Given an OpenRouter backend with a key and a captured network access manager
-    When the producer sends a prompt
-    Then the request hits /v1/chat/completions on openrouter.ai with a Bearer
-      key, the default model id, and response_format json_object
-    Checked by llm_openrouter_backend_builds_request.
-
-  Scenario: Missing OpenRouter key means a readable error, not silence
-    Given an OpenRouter backend with no key
-    When the producer sends a prompt
-    Then the reply is not ok and the error names BLOKKILY_OPENROUTER_KEY
-    Checked by llm_openrouter_backend_missing_key_errors.
-
-  Scenario: An OpenRouter transport failure surfaces readably
-    Given an OpenRouter backend whose network refused the connection
-    When the producer sends a prompt
-    Then the reply is not ok and the error mentions OpenRouter
-    Checked by llm_openrouter_backend_network_error_is_readable.
-
-  Scenario: An OpenRouter server-side error envelope reaches the producer
-    Given an OpenRouter reply holding {"error":{"message":…}}
-    When the producer sends a prompt
-    Then the reply is not ok and the error carries the provider's message
-    Checked by llm_openrouter_backend_server_error_is_readable.
+    Examples:
+      | backend    | case       |
+      | MiniMax    | minimax    |
+      | ChatGPT    | openai     |
+      | OpenRouter | openrouter |
+      | Ollama     | ollama     |
 
   Scenario: A proposal is previewed, applied, and undone — end to end
     Given the application with a scripted backend
@@ -187,4 +190,11 @@ Feature: LLM composition assistant
     When the producer switches the backend picker
     Then the proposal is dropped, Apply and Discard disappear, and the
       status names the new backend
+    Checked by bdd_llm_assistant.
+
+  Scenario: Switching the backend while a prompt is on its way unlocks the bar
+    Given the application waiting on an answer to a prompt
+    When the producer switches the backend
+    Then the bar is no longer busy and the prompt field accepts input
+    And the old backend's answer never becomes a proposal
     Checked by bdd_llm_assistant.

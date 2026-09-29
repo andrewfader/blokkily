@@ -55,16 +55,16 @@ Rectangle {
                 Accessible.name: "Composition assistant"
             }
 
-            ComboBox {
+            Picker {
                 id: backendPicker
                 objectName: "backendPicker"
-                Layout.preferredWidth: 170
-                model: llmModel.backendNames
-                currentIndex: Math.max(0, model.indexOf(llmModel.backendKey))
-                onActivated: index => llmModel.setBackend(model[index])
+                choices: llmModel.backendNames
+                value: llmModel.backendKey
+                onPicked: name => llmModel.setBackend(name)
                 Accessible.name: "Assistant backend"
-                ToolTip.visible: hovered
-                ToolTip.text: "Where the prompt is answered: local (Ollama) or cloud (Gemini)"
+                ToolTip.visible: pickerHover.hovered
+                ToolTip.text: "Where the prompt is answered: Ollama on this machine, or a cloud model you have keyed"
+                HoverHandler { id: pickerHover }
             }
 
             TextField {
@@ -106,19 +106,18 @@ Rectangle {
                 Accessible.name: "Waiting for the model"
             }
 
-            Button {
+            Chip {
                 id: askButton
                 objectName: "askButton"
-                text: llmModel.busy ? "…" : "Ask"
+                text: llmModel.busy ? "\u2026" : "ASK"
+                implicitWidth: 56
                 enabled: !llmModel.busy && !llmModel.hasProposal
                           && promptField.text.trim() !== ""
                 onClicked: {
                     llmModel.ask(promptField.text)
                     promptField.text = ""
                 }
-                Accessible.name: "Send prompt"
-                ToolTip.visible: hovered
-                ToolTip.text: "Send the prompt to the chosen backend"
+                accessibleLabel: "Send prompt"
             }
         }
 
@@ -156,27 +155,26 @@ Rectangle {
                 Accessible.name: "Assistant status: " + text
             }
 
-            Button {
+            // Apply is the lit chip: the one action that writes the song.
+            Chip {
                 id: applyButton
                 objectName: "promptApply"
                 visible: llmModel.hasProposal
-                text: "Apply"
-                highlighted: true
+                text: "APPLY"
+                implicitWidth: 72
+                on: true
                 onClicked: llmModel.applyProposal()
-                Accessible.name: "Apply proposed triggers to the pattern"
-                ToolTip.visible: hovered
-                ToolTip.text: "Write the proposal into the pattern (one undo step)"
+                accessibleLabel: "Apply proposed triggers to the pattern (one undo step)"
             }
 
-            Button {
+            Chip {
                 id: discardButton
                 objectName: "promptDiscard"
                 visible: llmModel.hasProposal
-                text: "Discard"
+                text: "DISCARD"
+                implicitWidth: 72
                 onClicked: llmModel.discardProposal()
-                Accessible.name: "Discard the proposal"
-                ToolTip.visible: hovered
-                ToolTip.text: "Drop the proposal without touching the pattern"
+                accessibleLabel: "Discard the proposal without touching the pattern"
             }
         }
 

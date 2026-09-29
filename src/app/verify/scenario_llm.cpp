@@ -118,9 +118,8 @@ void run_llm(VerifyContext& ctx) {
     ctx.llm.ask(QStringLiteral("pentatonic"));
     for (int i = 0; i < 40 && !ctx.llm.hasProposal(); ++i) ctx.settle(50);
     check(ctx.llm.hasProposal());
-    const auto gemini = ctx.llm.backendNames().indexOf(QStringLiteral("gemini"));
-    check(gemini >= 0);
-    QMetaObject::invokeMethod(picker, "activated", Q_ARG(int, gemini));
+    check(ctx.llm.backendNames().contains(QStringLiteral("gemini")));
+    QMetaObject::invokeMethod(picker, "picked", Q_ARG(QString, QStringLiteral("gemini")));
     ctx.settle(50);
     check(ctx.llm.backendKey() == QStringLiteral("gemini"));
     check(!ctx.llm.hasProposal());

@@ -16,12 +16,15 @@ checkpoint the editors use. The audio thread never sees an LLM call.
 
 ```
 src/llm/
-  llm_backend.{hpp,cpp}     -- the QObject seam; every backend answers through it
+  llm_backend.{hpp,cpp}     -- the QObject seam every backend answers through,
+                               the registry, and the shared network test seam
   trigger_json.{hpp,cpp}    -- the JSON wire dialect (mode, triggers)
   system_prompt.{hpp,cpp}   -- the standing instructions the model is given
   ollama_backend.cpp        -- local Ollama (default), no key
-  gemini_backend.cpp        -- cloud access when BLOKKILY_GEMINI_KEY is set
-  minimax_backend.cpp       -- OpenAI-compatible cloud (MiniMax), BLOKKILY_MINIMAX_KEY
+  gemini_backend.cpp        -- Google Gemini, BLOKKILY_GEMINI_KEY
+  openai_compatible_backend.cpp
+                            -- MiniMax, ChatGPT and OpenRouter: one class,
+                               three vendor descriptions
   scripted_backend.{hpp,cpp}-- a script-driven backend for the gate
 src/app/
   llm_model.{hpp,cpp}       -- QML-facing bridge: ask, proposal, apply, discard
@@ -67,17 +70,27 @@ drops triggers past the pattern's end, and admits every repair in
 
 ## Backends
 
-| name     | endpoint                                    | key |
-|----------|---------------------------------------------|-----|
-| `ollama` | `BLOKKILY_OLLAMA_URL` (default localhost)   | no  |
-| `gemini` | `generativelanguage.googleapis.com`         | yes, `BLOKKILY_GEMINI_KEY` |
-| `minimax` | `BLOKKILY_MINIMAX_URL` (default `https://api.minimax.io`) | yes, `BLOKKILY_MINIMAX_KEY` |
-| `scripted` | `BLOKKILY_LLM_SCRIPT` jsonl                | no  |
+| picker name  | endpoint (override)                                        | key variable              | default model        |
+|--------------|------------------------------------------------------------|---------------------------|----------------------|
+| `ollama`     | `http://localhost:11434` (`BLOKKILY_OLLAMA_URL`)           | none                      | `llama3.1`           |
+| `gemini`     | `generativelanguage.googleapis.com`                        | `BLOKKILY_GEMINI_KEY`     | `gemini-2.5-flash`   |
+| `minimax`    | `https://api.minimax.io` (`BLOKKILY_MINIMAX_URL`)          | `BLOKKILY_MINIMAX_KEY`    | `MiniMax-M3`         |
+| `chatgpt`    | `https://api.openai.com` (`BLOKKILY_OPENAI_URL`)           | `BLOKKILY_OPENAI_KEY`     | `gpt-4o-mini`        |
+| `openrouter` | `https://openrouter.ai/api` (`BLOKKILY_OPENROUTER_URL`)    | `BLOKKILY_OPENROUTER_KEY` | `openai/gpt-4o-mini` |
 
-The `minimax` backend speaks the OpenAI chat-completions dialect at
-`/v1/chat/completions` and forces `response_format: {type: "json_object"}`
-so the wire dialect survives untouched. The model defaults to `MiniMax-M3`
-and is overridable with `BLOKKILY_MINIMAX_MODEL`.
+Every model is overridable with `BLOKKILY_<NAME>_MODEL` (`BLOKKILY_OPENAI_MODEL`
+for ChatGPT). `BLOKKILY_LLM_BACKEND` picks the backend the bar opens on;
+without it the bar opens on the local Ollama, so nothing leaves the machine
+unless the producer chooses a cloud backend.
+
+MiniMax, ChatGPT and OpenRouter speak the OpenAI chat-completions dialect at
+`<url>/v1/chat/completions` with a Bearer key and force
+`response_format: {type: "json_object"}` so the wire dialect survives
+untouched. Gemini receives its key in the `x-goog-api-key` header, never in
+the URL. A cloud backend without its key stays in the picker and answers
+with an error naming the variable to set. When a provider refuses a request
+(bad key, no credit, unknown model) its own message is shown, not the HTTP
+status.
 
 `scripted` is not in the public picker; the verify driver uses it via
 `LlmModel::setBackendForTesting` to drive the gate without a network.
@@ -102,10 +115,14 @@ keyboard back to the editor.
 
 ## Tests
 
-- 9 unit cases in `blokkily_llm_tests` (wire format, scripted backend,
-  system prompt). Run with `ctest -L llm`.
-- 1 BDD gate, `bdd_llm_assistant`, that drives the rendered bar through
-  prompt → proposal → discard → apply → undo → redo → add → apply and
-  saves three screenshots: idle, proposal, and end-of-scenario.
+- `blokkily_llm_tests`: the wire format, the scripted backend and the system
+  prompt, plus every live backend's request shape, reply parsing, missing
+  key, transport failure, provider error (an HTTP 401 carrying a JSON
+  body), and URL/model overrides — each backend against a capturing
+  network access manager. Run with `ctest -L llm`.
+- `bdd_llm_assistant`: drives the rendered bar through switching backend
+  mid-request (the bar must unlock) and with a proposal held (it must be
+  dropped), then prompt → proposal → discard → apply → undo → redo → add →
+  apply, and saves three screenshots: idle, proposal, and end-of-scenario.
 
 The network is never a test dependency.
