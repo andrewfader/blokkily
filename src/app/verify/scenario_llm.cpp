@@ -91,6 +91,7 @@ void run_llm(VerifyContext& ctx) {
     check(!discard->property("visible").toBool());
     check(ctx.llm.statusText().contains(QStringLiteral("Ready")));
     check(ctx.llm.backendName().contains(QStringLiteral("Scripted")));
+    check(ctx.llm.statusText().contains(QStringLiteral("Scripted")));
     save_phase(ctx, QStringLiteral("idle"));
     ctx.reached("idle: ready, no proposal");
 

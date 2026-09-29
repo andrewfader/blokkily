@@ -66,6 +66,7 @@ void LlmModel::setBackendForTesting(std::unique_ptr<blokkily::llm::LlmBackend> b
     proposed_.reset();
     emit proposalChanged();
     emit backendChanged();
+    setStatus(QStringLiteral("Ready — %1").arg(backend_->displayName()));
 }
 
 QString LlmModel::contextJson() const {
