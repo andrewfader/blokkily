@@ -20,10 +20,14 @@ class PatternModel final : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int eventCount READ rowCount NOTIFY patternChanged)
     Q_PROPERTY(QVariantList steps READ steps NOTIFY patternChanged)
-    // The pattern's controller movements (wave 4.1), read-only: one map per
-    // movement with its tick, kind ("bend", "cc" or "pressure"), controller
-    // and a level (-1..1 for the wheel, 0..1 otherwise).
+    // The pattern's controller movements (wave 4.1): one map per movement
+    // with its tick, kind ("bend", "cc", "pressure" or "poly"), controller
+    // (the CC number, or the key for poly pressure) and a level (-1..1 for
+    // the wheel, 0..1 otherwise). The piano roll's controller lane draws and
+    // edits them through drawControl, moveControl and eraseControls.
     Q_PROPERTY(QVariantList controls READ controls NOTIFY patternChanged)
+    // The open pattern's length in ticks, for a lane that maps x to ticks.
+    Q_PROPERTY(int patternTicks READ patternTicks NOTIFY patternChanged)
     // Where the cursor is, kept apart from what the pattern holds: moving the
     // cursor is not an edit, and nothing downstream may treat it as one.
     Q_PROPERTY(int selectedStep READ selectedStep NOTIFY selectionChanged)
@@ -56,6 +60,28 @@ public:
     // The open pattern's length in steps; a length that is not a whole number
     // of steps counts its last, partial step.
     int stepCount() const;
+
+    int patternTicks() const;
+
+    // The controller lane's edits (wave 4.1), each one step of history unless
+    // a gesture (SongModel::beginGesture) makes a whole stroke one. A lane is
+    // one controller: `kind` "bend", "pressure", or "cc" with `controller`
+    // its number (0..119, not the pedal). Levels are the lane's: -1..1 for
+    // the wheel (0 centred), 0..1 otherwise. They write the canonical
+    // pattern, so every projection and the engine follow.
+    //
+    // Draws a straight stroke from (fromTick, fromLevel) to (toTick,
+    // toLevel): what the lane held between them is replaced by a point every
+    // 15 ticks (a 32nd note) and one on each end.
+    Q_INVOKABLE void drawControl(const QString& kind, int controller, int fromTick,
+                                 double fromLevel, int toTick, double toLevel);
+    // Moves the lane's point at `fromTick` to `toTick` at `level`, replacing
+    // a point already there. False when there is no point at `fromTick`.
+    Q_INVOKABLE bool moveControl(const QString& kind, int controller, int fromTick, int toTick,
+                                 double level);
+    // Removes the lane's points from `fromTick` to `toTick`, both included;
+    // how many.
+    Q_INVOKABLE int eraseControls(const QString& kind, int controller, int fromTick, int toTick);
 
     Q_INVOKABLE void toggleStep(int step, int key = 60);
     Q_INVOKABLE bool hasStep(int step) const;

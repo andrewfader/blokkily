@@ -59,3 +59,24 @@ if(BLOKKILY_BUILD_TESTS)
     # Controller movements played and chased by process() without allocating.
     blokkily_add_realtime_case(continuous_midi LABELS "audio;clap;midi")
 endif()
+
+# The piano roll's controller lane in the real application (wave 4.1): a lane
+# chosen from its picker, a bend drawn, moved and erased with the mouse on the
+# rendered lane, and the edit heard on its exact sample through the running
+# engine's export, against the CLAP fixture given the same bend.
+if(BLOKKILY_BUILD_GUI)
+    target_sources(blokkily PRIVATE src/app/verify/scenario_controllers.cpp)
+    if(BLOKKILY_BUILD_TESTS)
+        add_test(NAME bdd_controller_lanes
+            COMMAND blokkily --verify --scenario controllers
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
+                --export ${CMAKE_BINARY_DIR}/artifacts/controller-lanes.wav
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/controller-lanes.png)
+        set_tests_properties(bdd_controller_lanes PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;midi;clap;export"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
+            TIMEOUT 120)
+    endif()
+endif()

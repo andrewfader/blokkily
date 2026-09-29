@@ -336,8 +336,11 @@ the sustain pedal holds released keys at the input for every instrument.
 While recording, the wheel, controllers, channel pressure and poly pressure
 (on the key the song's tuning sent the instrument) are written into the
 pattern as controller movements: saved with the project, played on
-their sample, chased when the playhead jumps, exported as heard, and marked
-in a strip along the foot of the piano roll.
+their sample, chased when the playhead jumps, and exported as heard. The
+controller lane under the piano roll shows one controller at a time (BEND,
+MOD, EXPR, any numbered CC or PRESSURE, from its picker): drag to draw a
+stroke, drag a point to move it, right-click to erase; each gesture is one
+undo step and the running song plays it on its next block.
 
 Audio clips whose decoded size exceeds the streaming threshold (128 MiB by
 default; `BLOKKILY_STREAM_THRESHOLD_BYTES` overrides it) stream from disk
@@ -358,9 +361,9 @@ to persist those references. Original files are kept so undo remains playable.
 ## What is not here yet
 
 - MPE is not supported: per-channel controllers from a keyboard are merged
-  onto the track's one instrument. Controller movements cannot be edited (the
-  piano roll only marks them), and MIDI clock is not read. The built-in
-  sampler ignores poly pressure. Notes and controllers are timestamped to
+  onto the track's one instrument. MIDI clock is not read. The built-in
+  sampler ignores poly pressure; the controller lane does not edit poly
+  pressure. Notes and controllers are timestamped to
   the callback block.
 - Comping (taking alternate passes of a recorded lane) is not here yet.
 - Disk streaming covers unwarped audio clips only: a warped clip is decoded

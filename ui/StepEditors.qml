@@ -561,52 +561,6 @@ ColumnLayout {
                             }
                         }
                     }
-                    // Controller movements (wave 4.1): a read-only strip
-                    // along the foot of the roll, one mark per movement at
-                    // its tick. The wheel is drawn from the strip's middle
-                    // (up or down as it bends), controllers and pressure
-                    // from its floor. Editing them is not offered here.
-                    Rectangle {
-                        id: rollControls
-                        objectName: "rollControls"
-                        readonly property var marks: patternModel.controls
-                        readonly property int count: marks.length
-                        visible: count > 0
-                        x: rollArea.gutter; y: rollArea.height - height
-                        width: rollArea.width - rollArea.gutter
-                        height: Math.min(28, Math.max(14, rollArea.height * 0.18))
-                        color: "#0c0e11"; opacity: 0.85
-                        border.color: Theme.line
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width; height: 1; color: Theme.line
-                        }
-                        Repeater {
-                            model: rollControls.marks
-                            Rectangle {
-                                required property var modelData
-                                required property int index
-                                objectName: "rollControl" + index
-                                readonly property bool bend: modelData.kind === "bend"
-                                readonly property real half: rollControls.height / 2 - 1
-                                x: modelData.tick / 120 * rollArea.laneWidth
-                                width: 2
-                                height: Math.max(1, bend ? Math.abs(modelData.level) * half
-                                                         : modelData.level * (rollControls.height - 2))
-                                y: bend ? (modelData.level >= 0 ? rollControls.height / 2 - height
-                                                                 : rollControls.height / 2)
-                                        : rollControls.height - 1 - height
-                                color: bend ? Theme.amber
-                                            : (modelData.kind === "cc" ? Theme.blue : Theme.acid)
-                            }
-                        }
-                        Label {
-                            anchors.right: parent.right; anchors.rightMargin: 4
-                            anchors.top: parent.top
-                            text: "CTRL"; color: Theme.muted
-                            font.pixelSize: 8; font.family: "monospace"
-                        }
-                    }
                     // Playhead across the roll.
                     Rectangle {
                         objectName: "rollPlayhead"
@@ -758,6 +712,212 @@ ColumnLayout {
                         width: rollArea.width - rollArea.gutter
                         height: rollArea.laneHeight
                         color: Theme.amber; opacity: 0.10
+                    }
+                }
+
+                // The controller lane (wave 4.1): one controller of the open
+                // pattern at a time - the wheel, the mod wheel, expression,
+                // any other CC, or channel pressure - drawn under the roll on
+                // the same columns. A drag draws a stroke, a drag that starts
+                // on a point moves it, and the right button erases. Every
+                // edit goes into the canonical pattern as one step of
+                // history, and the engine plays it on its next block.
+                ColumnLayout {
+                    id: rollControls
+                    objectName: "rollControls"
+                    Layout.fillWidth: true
+                    spacing: 3
+                    // Every movement the pattern holds, whichever lane shows.
+                    readonly property var marks: patternModel.controls
+                    readonly property int count: marks.length
+                    property string laneKind: "bend"
+                    property int laneController: 1
+                    readonly property bool bend: laneKind === "bend"
+                    readonly property string laneName: laneKind === "bend" ? "BEND"
+                        : laneKind === "pressure" ? "PRESSURE"
+                        : laneController === 1 ? "MOD"
+                        : laneController === 11 ? "EXPR" : "CC"
+                    readonly property var lanePoints: marks.filter(function(mark) {
+                        return mark.kind === laneKind &&
+                               (laneKind !== "cc" || mark.controller === laneController)
+                    })
+                    function pick(name) {
+                        if (name === "BEND") laneKind = "bend"
+                        else if (name === "PRESSURE") laneKind = "pressure"
+                        else {
+                            laneKind = "cc"
+                            laneController = name === "MOD" ? 1 : name === "EXPR" ? 11
+                                : (laneController === 1 || laneController === 11 ? 7 : laneController)
+                        }
+                    }
+                    // The next controller a lane may show: 0..119, never
+                    // the sustain pedal, which the input keeps.
+                    function stepController(delta) {
+                        var next = laneController + delta
+                        if (next === 64) next += delta
+                        laneController = Math.max(0, Math.min(119, next))
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 5
+                        Label { text: "CTRL"; color: Theme.muted; font.pixelSize: 9
+                            font.bold: true; font.letterSpacing: 1 }
+                        Picker {
+                            objectName: "controllerLanePicker"
+                            implicitHeight: 20
+                            choices: ["BEND", "MOD", "EXPR", "CC", "PRESSURE"]
+                            value: rollControls.laneName
+                            onPicked: function(name) { rollControls.pick(name) }
+                        }
+                        Chip {
+                            objectName: "controllerNumberDown"
+                            visible: rollControls.laneKind === "cc"
+                            text: "−"; implicitHeight: 20; implicitWidth: 22
+                            accessibleLabel: "Lower controller number"
+                            onClicked: rollControls.stepController(-1)
+                        }
+                        Label {
+                            objectName: "controllerNumber"
+                            visible: rollControls.laneKind === "cc"
+                            text: "CC " + rollControls.laneController
+                            color: Theme.ink; font.pixelSize: 10; font.family: "monospace"
+                        }
+                        Chip {
+                            objectName: "controllerNumberUp"
+                            visible: rollControls.laneKind === "cc"
+                            text: "+"; implicitHeight: 20; implicitWidth: 22
+                            accessibleLabel: "Raise controller number"
+                            onClicked: rollControls.stepController(1)
+                        }
+                        Label {
+                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                            horizontalAlignment: Text.AlignRight; elide: Text.ElideRight
+                            text: "drag draws  |  drag a point to move  |  right-click erases"
+                            color: Theme.muted; font.pixelSize: 9
+                        }
+                        Label {
+                            objectName: "controllerPointCount"
+                            text: rollControls.lanePoints.length + " PTS"
+                            color: Theme.muted; font.pixelSize: 9; font.family: "monospace"
+                        }
+                    }
+                    Rectangle {
+                        id: laneArea
+                        objectName: "controllerLane"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 56; Layout.minimumHeight: 40
+                        color: "#0c0e11"; radius: 3
+                        border.color: Theme.line
+                        readonly property real plotX: rollArea.gutter
+                        readonly property real plotWidth: width - rollArea.gutter
+                        readonly property real ticks: Math.max(1, patternModel.patternTicks)
+                        function xOf(tick) { return plotX + tick / 120 * rollArea.laneWidth }
+                        // Where a level sits: the wheel from the middle, the
+                        // rest from the floor.
+                        function yOf(level) {
+                            return rollControls.bend ? (1 - level) / 2 * (height - 4) + 2
+                                                     : (1 - level) * (height - 4) + 2
+                        }
+                        // The wheel's rest line, or the floor.
+                        Rectangle {
+                            x: laneArea.plotX; width: laneArea.plotWidth; height: 1
+                            y: rollControls.bend ? laneArea.height / 2 : laneArea.height - 2
+                            color: Theme.line
+                        }
+                        Label {
+                            x: 4; anchors.verticalCenter: parent.verticalCenter
+                            text: rollControls.laneName
+                            color: Theme.muted; font.pixelSize: 8; font.bold: true
+                        }
+                        Repeater {
+                            model: rollControls.lanePoints
+                            Rectangle {
+                                required property var modelData
+                                required property int index
+                                objectName: "controllerPoint" + index
+                                readonly property real levelY: laneArea.yOf(modelData.level)
+                                readonly property real base: rollControls.bend ? laneArea.height / 2
+                                                                               : laneArea.height - 2
+                                x: laneArea.xOf(modelData.tick) - 1
+                                width: 3
+                                y: Math.min(levelY, base)
+                                height: Math.max(2, Math.abs(base - levelY))
+                                color: rollControls.bend ? Theme.amber
+                                     : rollControls.laneKind === "cc" ? Theme.blue : Theme.acid
+                            }
+                        }
+                        MouseArea {
+                            id: laneInput
+                            objectName: "controllerLaneInput"
+                            x: laneArea.plotX; width: laneArea.plotWidth; height: parent.height
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            cursorShape: Qt.CrossCursor
+                            property int lastTick: -1
+                            property real lastLevel: 0
+                            property int grabbed: -1
+                            property bool erasing: false
+                            function tickAt(px) {
+                                return Math.max(0, Math.min(laneArea.ticks - 1,
+                                    Math.round(px / rollArea.laneWidth * 120)))
+                            }
+                            function levelAt(py) {
+                                var h = laneArea.height - 4
+                                var unit = Math.max(0, Math.min(1, 1 - (py - 2) / h))
+                                return rollControls.bend ? unit * 2 - 1 : unit
+                            }
+                            // The lane's point within a few pixels, or -1.
+                            function pointNear(px) {
+                                var best = -1, distance = 6
+                                var points = rollControls.lanePoints
+                                for (var i = 0; i < points.length; ++i) {
+                                    var d = Math.abs(points[i].tick / 120 * rollArea.laneWidth - px)
+                                    if (d <= distance) { distance = d; best = points[i].tick }
+                                }
+                                return best
+                            }
+                            function erase(fromPx, toPx) {
+                                var from = tickAt(Math.min(fromPx, toPx) - 5)
+                                var to = tickAt(Math.max(fromPx, toPx) + 5)
+                                patternModel.eraseControls(rollControls.laneKind,
+                                                           rollControls.laneController, from, to)
+                            }
+                            onPressed: function(mouse) {
+                                if (root.focusHome) root.focusHome.forceActiveFocus()
+                                songModel.beginGesture()
+                                grabbed = -1
+                                erasing = mouse.button === Qt.RightButton
+                                lastTick = tickAt(mouse.x)
+                                lastLevel = levelAt(mouse.y)
+                                if (erasing) { erase(mouse.x, mouse.x); return }
+                                var hit = pointNear(mouse.x)
+                                if (hit >= 0) {
+                                    grabbed = hit
+                                    patternModel.moveControl(rollControls.laneKind,
+                                        rollControls.laneController, hit, hit, lastLevel)
+                                    return
+                                }
+                                patternModel.drawControl(rollControls.laneKind, rollControls.laneController,
+                                                         lastTick, lastLevel, lastTick, lastLevel)
+                            }
+                            onPositionChanged: function(mouse) {
+                                if (!pressed) return
+                                var tick = tickAt(mouse.x)
+                                var level = levelAt(mouse.y)
+                                if (erasing) {
+                                    erase(lastTick / 120 * rollArea.laneWidth, mouse.x)
+                                } else if (grabbed >= 0) {
+                                    if (patternModel.moveControl(rollControls.laneKind,
+                                            rollControls.laneController, grabbed, tick, level))
+                                        grabbed = tick
+                                } else if (tick !== lastTick || level !== lastLevel) {
+                                    patternModel.drawControl(rollControls.laneKind,
+                                        rollControls.laneController, lastTick, lastLevel, tick, level)
+                                }
+                                lastTick = tick
+                                lastLevel = level
+                            }
+                            onReleased: { grabbed = -1; erasing = false; songModel.endGesture() }
+                            onCanceled: { grabbed = -1; erasing = false; songModel.endGesture() }
+                        }
                     }
                 }
             }

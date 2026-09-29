@@ -18,8 +18,11 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
   (ContinuousEvent; poly pressure names the key the song's tuning sent the
   instrument), saved as `control` records, played at their sample, chased
   when the playhead jumps (poly pressure per key), and exported exactly as
-  they play. The piano roll marks them in a
-  read-only strip; they are not edited in any editor yet.
+  they play. The piano roll's controller lane shows one controller at a
+  time, chosen from its picker (BEND, MOD, EXPR, any numbered CC, PRESSURE),
+  and edits it: a drag draws a stroke, a drag from a point moves it, the
+  right button erases; each gesture is one step of history in the canonical
+  pattern, and the running engine plays it without a rebuild.
 
   Not done: MPE (per-note pitch, pressure and timbre) is not supported; a
   keyboard's per-channel controllers are merged onto the one instrument.
@@ -29,8 +32,9 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
 
   Executable: tests/continuous_midi_tests.cpp (CTest continuous_midi_<case>),
   tests/record_tests.cpp (record_sustain_pedal),
-  tests/realtime/continuous_midi.cpp (realtime_continuous_midi) and the
-  bdd_midi_recording gate (src/app/verify/scenario_midi.cpp).
+  tests/realtime/continuous_midi.cpp (realtime_continuous_midi), the
+  bdd_midi_recording gate (src/app/verify/scenario_midi.cpp) and the
+  bdd_controller_lanes gate (src/app/verify/scenario_controllers.cpp).
 
   # continuous_midi_soundfont_bend
   Scenario: A keyboard on any channel bends the SoundFont's notes
@@ -112,7 +116,20 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
     Given the real application with an armed song
     When the wheel is moved on the MIDI keyboard while the song plays
     Then the pattern under the playhead holds the movements
-    And the piano roll's controller strip marks each one
+    And the piano roll's controller lane counts each one
+
+  # bdd_controller_lanes
+  Scenario: The controller lane is drawn, moved and erased with the mouse and heard on its sample
+    Given the real application with the CLAP fixture playing a long A4 in its tone mode
+    And the piano roll's controller lane at a usable size
+    When BEND is picked from the lane's picker and a stroke is dragged along the top from tick 480 to 960
+    Then the pattern holds a full bend every 15 ticks from 480 to 960, and one undo takes the whole stroke back
+    And the steps, the tracker and the roll show the pattern as before
+    When the last point is dragged to tick 1200 at the centre and the first is right-clicked
+    Then the point moves and the first is erased, with no rebuild of the engine
+    And the song exported through the running engine is the CLAP fixture given that bend on its tick's sample, and differs from it a sample early or late
+    When MOD is picked and the lane clicked half way up, and CC with its number raised to 8 is picked and the lane clicked at the top
+    Then CC 1 holds 64 and CC 8 holds 127 on their ticks, and the bend is untouched
 
   # realtime_continuous_midi
   Scenario: Playing and chasing controllers never allocates on the audio thread

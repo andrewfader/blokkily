@@ -224,6 +224,95 @@ QVariantList PatternModel::controls() const {
     return rows;
 }
 
+int PatternModel::patternTicks() const { return static_cast<int>(pattern().length()); }
+
+namespace {
+struct Lane {
+    blokkily::ContinuousEvent::Kind kind;
+    std::uint8_t controller;
+};
+std::optional<Lane> lane_of(const QString& kind, int controller) {
+    using Kind = blokkily::ContinuousEvent::Kind;
+    if (kind == QStringLiteral("bend")) return Lane{Kind::pitch_bend, 0};
+    if (kind == QStringLiteral("pressure")) return Lane{Kind::channel_pressure, 0};
+    if (kind == QStringLiteral("cc") && controller >= 0 && controller < 120 && controller != 64)
+        return Lane{Kind::control_change, static_cast<std::uint8_t>(controller)};
+    return std::nullopt;
+}
+std::uint16_t lane_value(const Lane& lane, double level) {
+    if (!std::isfinite(level)) level = 0.0;
+    if (lane.kind == blokkily::ContinuousEvent::Kind::pitch_bend)
+        return static_cast<std::uint16_t>(
+            std::clamp<long>(std::lround(8192.0 + std::clamp(level, -1.0, 1.0) * 8192.0), 0, 16383));
+    return static_cast<std::uint16_t>(std::lround(std::clamp(level, 0.0, 1.0) * 127.0));
+}
+} // namespace
+
+void PatternModel::drawControl(const QString& kind, int controller, int fromTick,
+                               double fromLevel, int toTick, double toLevel) {
+    const auto lane = lane_of(kind, controller);
+    if (!lane) return;
+    const auto last = pattern().length() - 1;
+    auto from = std::clamp<blokkily::Tick>(fromTick, 0, last);
+    auto to = std::clamp<blokkily::Tick>(toTick, 0, last);
+    if (from > to) {
+        std::swap(from, to);
+        std::swap(fromLevel, toLevel);
+    }
+    song_->checkpoint();
+    auto& edited = pattern();
+    (void)edited.erase_continuous(lane->kind, lane->controller, from, to + 1);
+    constexpr blokkily::Tick grid = 15;
+    for (blokkily::Tick tick = from;;) {
+        const double along = to == from ? 1.0 : static_cast<double>(tick - from) /
+                                                     static_cast<double>(to - from);
+        edited.add_continuous({tick, lane->kind, lane->controller,
+                               lane_value(*lane, fromLevel + (toLevel - fromLevel) * along)});
+        if (tick == to) break;
+        tick = std::min(to, (tick / grid + 1) * grid);
+    }
+    emit patternChanged();
+    emit contentChanged();
+}
+
+bool PatternModel::moveControl(const QString& kind, int controller, int fromTick, int toTick,
+                               double level) {
+    const auto lane = lane_of(kind, controller);
+    if (!lane) return false;
+    const auto held = pattern().continuous();
+    const bool found = std::any_of(held.begin(), held.end(), [&](const auto& event) {
+        return event.tick == fromTick && event.kind == lane->kind &&
+               event.controller == lane->controller;
+    });
+    if (!found) return false;
+    const auto to = std::clamp<blokkily::Tick>(toTick, 0, pattern().length() - 1);
+    song_->checkpoint();
+    auto& edited = pattern();
+    (void)edited.erase_continuous(lane->kind, lane->controller, fromTick, fromTick + 1);
+    edited.add_continuous({to, lane->kind, lane->controller, lane_value(*lane, level)});
+    emit patternChanged();
+    emit contentChanged();
+    return true;
+}
+
+int PatternModel::eraseControls(const QString& kind, int controller, int fromTick, int toTick) {
+    const auto lane = lane_of(kind, controller);
+    if (!lane) return 0;
+    const auto from = std::min(fromTick, toTick);
+    const auto to = std::max(fromTick, toTick);
+    const auto held = pattern().continuous();
+    const auto doomed = std::count_if(held.begin(), held.end(), [&](const auto& event) {
+        return event.kind == lane->kind && event.controller == lane->controller &&
+               event.tick >= from && event.tick <= to;
+    });
+    if (doomed == 0) return 0;
+    song_->checkpoint();
+    const auto erased = pattern().erase_continuous(lane->kind, lane->controller, from, to + 1);
+    emit patternChanged();
+    emit contentChanged();
+    return static_cast<int>(erased);
+}
+
 QVariantList PatternModel::steps() const {
     QVariantList rows;
     rows.reserve(stepCount());

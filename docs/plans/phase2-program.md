@@ -50,8 +50,8 @@ Wave 6: Performance & Workflow Paradigm
 * **Recording.** `MidiInput` forwards the wheel, CCs and pressure as `midi_raw` to the routed tracks; the engine captures them with notes; the controller's take (`TakeRecorder::control`, `write_continuous`) writes them into the pattern under the playhead, one undo step with the notes.
 * **Sustain.** CC 64 is handled at the input (released keys held until the pedal comes up) for every instrument, so takes record the heard lengths; the sampler also honours a CC 64 that reaches it as MIDI.
 * **Instruments.** SoundFont: channel-wide messages go to all 16 FluidSynth channels (shared and retuned), poly pressure to the key's channel. VST3: channel one plus each retuned voice channel, the wheel added to the note's retune bend. CLAP: channel 0, where notes are sent. Sampler: wheel (±2 semitones) and pedal.
-* **Interface.** The piano roll draws a read-only CTRL strip of the open pattern's movements.
-* **Not done.** MPE; editing controller movements; sub-block timestamps for live input. The sampler ignores poly pressure.
+* **Interface.** The piano roll's controller lane (`rollControls` in `ui/StepEditors.qml`) shows one controller of the open pattern, picked from a `Picker` (BEND, MOD = CC 1, EXPR = CC 11, CC with a number stepper, PRESSURE), and edits it through `PatternModel::drawControl` (a stroke replaces what lay under it with a point every 15 ticks), `moveControl` and `eraseControls`, each gesture one step of history (`SongModel::beginGesture`). The `bdd_controller_lanes` gate drives the rendered lane with the mouse and proves the drawn bend on its exact sample from the running engine's export against the CLAP fixture given the same bend.
+* **Not done.** MPE; editing poly pressure in the lane; sub-block timestamps for live input. The sampler ignores poly pressure.
 
 ---
 
