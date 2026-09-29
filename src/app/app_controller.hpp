@@ -114,6 +114,12 @@ class AppController final : public QObject {
     // A count-in is playing (item 3.7): Play was pressed with recording armed
     // and a count-in set, and the song has not started yet.
     Q_PROPERTY(bool countingIn READ countingIn NOTIFY countInChanged)
+    // The scene launcher (phase 2, wave 6.1; app_controller_launcher.cpp):
+    // one entry per track, {playing, queued, stopping, scene, queuedScene},
+    // as of the last block the engine rendered; and whether what is launched
+    // is being printed into the arrangement.
+    Q_PROPERTY(QVariantList launcherState READ launcherState NOTIFY launcherChanged)
+    Q_PROPERTY(bool launcherRecording READ launcherRecording NOTIFY launcherChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -427,6 +433,28 @@ public:
     // clip the last take made.
     std::uint64_t droppedInputFrames() const noexcept { return dropped_input_frames_; }
     qint64 lastRecordedClip() const noexcept { return last_recorded_clip_; }
+    // --- Scene launcher (phase 2, wave 6.1; app_controller_launcher.cpp) ----
+    QVariantList launcherState() const { return launcher_state_; }
+    bool launcherRecording() const noexcept { return launcher_recording_; }
+    // Launches a cell, a whole scene, or stops a track or every track, at the
+    // quantization the song's grid says. Launching on a stopped transport
+    // starts it, and the launch plays from its first block. The grid's edits
+    // of this turn reach the engine first. False when there is nothing to
+    // launch or no engine to launch it in.
+    Q_INVOKABLE bool launchCell(int scene, int track);
+    Q_INVOKABLE bool launchScene(int scene);
+    Q_INVOKABLE bool stopLauncherTrack(int track);
+    Q_INVOKABLE bool stopLauncher();
+    // Arrangement recording on or off: while on, every stretch a track plays
+    // from one cell is printed into the arrangement when it ends, one step of
+    // history per take.
+    Q_INVOKABLE void toggleLauncherRecording();
+    // Reads the launcher's status and prints the takes that came back. Runs
+    // with the meters; callable directly.
+    void pollLauncher();
+    // Takes printed since the controller started.
+    int launcherTakesPrinted() const noexcept { return launcher_takes_; }
+
     // --- Metronome and count-in (item 3.7; app_controller_metronome.cpp) ----
     bool countingIn() const noexcept { return counting_in_; }
     // Reads whether the engine is counting in, for the transport to show.
@@ -454,6 +482,7 @@ signals:
     void editorReadoutChanged();
     void audioTakeChanged();
     void countInChanged();
+    void launcherChanged();
 
 private:
     struct ImportResult;
@@ -686,4 +715,7 @@ private:
     QTimer editor_timer_;
     std::unique_ptr<PluginWindows> windows_;
     bool counting_in_ = false;
+    QVariantList launcher_state_;
+    bool launcher_recording_ = false;
+    int launcher_takes_ = 0;
 };

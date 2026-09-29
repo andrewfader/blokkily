@@ -258,6 +258,7 @@ void AppController::pollMeters() {
     if (!engine_ || song_ == nullptr) return;
     drainTake();
     pollCountIn();
+    pollLauncher();
     const auto received = midi_input_->notes_received();
     if (received != midi_notes_) {
         midi_notes_ = received;
@@ -494,6 +495,9 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     }
     forgetSoundingNotes();
     if (engine_) engine_->connect_input(nullptr);
+    // Takes the old engine finished are printed before it goes; launched
+    // tracks do not carry into the new graph.
+    pollLauncher();
     engine_.reset();
     engine_signature_ = {};
 
@@ -547,6 +551,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     // recorded carries on into it.
     engine_->connect_input(&midi_input_->queue());
     engine_->set_recording(record_armed_);
+    engine_->set_launcher_recording(launcher_recording_);
     // Recorded audio input reaches the take writer through its ring, and
     // every track hears the inputs it is routed to (item 3.2).
     engine_->connect_capture(&take_writer_->ring());

@@ -293,6 +293,20 @@ without a recompile. Modulators and keys are saved with the song, undone with
 it, and exported exactly as they play: while the song rolls an LFO's phase is
 taken from the song position.
 
+The LAUNCH view is a scene launcher: scenes down, tracks across, each cell
+naming one of the song's patterns (the same pattern the editors edit).
+Clicking an empty cell puts the open pattern in it; clicking a filled cell
+launches it on its track at the cell's quantization (none, a sixteenth, a
+beat, one, two or four bars), and a scene's chip launches its whole row at the
+grid's quantization. A cell can play a number of loops and then follow on
+(stop, next, previous, first, last, random or again). Launches, stops, loop
+turns and follow actions happen on the exact sample of their boundary, inside
+the render callback, and a launched track plays its cell instead of its
+arrangement until the transport stops. With REC ARRANGEMENT on, every stretch
+a track played from one cell is printed into the arrangement as clips when it
+ends, one step of undo each; the printed arrangement plays and exports what
+was heard, sample for sample. The grid is saved with the song.
+
 Imported files stay where they are. Recordings go into `<project>.audio/`, or
 a temporary session folder before the first save. COLLECT copies referenced
 clips and sampler samples into the saved project's audio folder, deduplicates
@@ -319,6 +333,10 @@ to persist those references. Original files are kept so undo remains playable.
   follows no tempo sync from the panel (the model and engine support synced
   LFOs). A follower aimed at its own track, or at a track the render order
   cannot put after its source, hears the previous block's level.
+- The scene launcher has no per-scene tempo; launched tracks stop when the
+  engine is rebuilt (a track or instrument added, changed or removed) and for
+  an export, which is always the arrangement. A take printed over a clip that
+  ran past the take's end cuts that clip where the take began.
 - Output recording chooses one bus per pass. Bounce additional racks for a
   set of stems. A partial live pass ends when recording stops and does not
   automatically append effect tails; offline stems include them.

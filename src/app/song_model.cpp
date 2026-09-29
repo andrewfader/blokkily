@@ -173,8 +173,7 @@ QVariantList SongModel::clips() const {
         row["pattern"] = static_cast<int>(clip.pattern);
         row["name"] = QString::fromStdString(song_.patterns[clip.pattern].name);
         row["bar"] = barAt(clip.start);
-        const auto span = song_.patterns[clip.pattern].pattern.length() *
-                          static_cast<blokkily::Tick>(std::max<std::uint32_t>(1, clip.repeats));
+        const auto span = clip.span(song_.patterns[clip.pattern].pattern.length());
         // The bars the clip starts in, counted by the meter it plays through.
         row["bars"] = std::max(1, barAt(clip.start + span - 1) - barAt(clip.start) + 1);
         rows.push_back(row);
@@ -320,6 +319,9 @@ bool SongModel::deletePattern(int index) {
     });
     for (auto& clip : song_.clips)
         if (clip.pattern > removed) --clip.pattern;
+    // The launcher's cells follow the same rule: a cell of the pattern is
+    // emptied, a cell of a later one moves down with it.
+    song_.launcher.remove_pattern(removed);
     if (current_pattern_ >= index && current_pattern_ > 0) --current_pattern_;
     notifyStructureChanged();
     return true;

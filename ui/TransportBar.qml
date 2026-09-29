@@ -169,16 +169,24 @@ ToolBar {
 
         Item { Layout.fillWidth: true }
 
-        // View switcher — these actually switch the editors.
+        // View switcher — these actually switch the editors. Six views share
+        // the bar with everything else, so the chips sit tighter than a
+        // chip's usual padding.
         RowLayout {
             objectName: "viewSwitcher"
-            spacing: 4
+            spacing: 2
             Repeater {
-                model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS"]
+                model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS", "LAUNCH"]
                 Chip {
                     required property var modelData
                     objectName: "view" + modelData
                     text: modelData
+                    implicitWidth: Math.ceil(viewName.advanceWidth) + 12
+                    TextMetrics {
+                        id: viewName
+                        text: modelData
+                        font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
+                    }
                     on: root.view === modelData
                     onClicked: root.viewPicked(modelData)
                 }

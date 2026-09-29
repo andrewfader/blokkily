@@ -9,7 +9,8 @@ import "Format.js" as Format
 // goes through the window's writeNote so no two can disagree about it.
 ColumnLayout {
     id: root
-    // Which editors the window is showing: ALL, STEP, TRACKER, PIANO or KEYS.
+    // Which editors the window is showing: ALL, STEP, TRACKER, PIANO, KEYS or
+    // LAUNCH (the scene launcher, which shows none of them).
     property string view: "ALL"
     // The octave new notes land in, owned by the window.
     property int entryOctave: 3
@@ -24,7 +25,7 @@ ColumnLayout {
     // Laid out as the grid and the tracker/roll split always were: the one
     // that fills is the one the view focuses, and in KEYS neither is shown.
     Layout.fillWidth: true; Layout.fillHeight: true
-    visible: view !== "KEYS"
+    visible: view !== "KEYS" && view !== "LAUNCH"
     spacing: 10
 
     // ------------------------------------------------------ step grid

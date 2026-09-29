@@ -22,7 +22,8 @@ ApplicationWindow {
     color: Theme.bg
 
     // STEP / TRACKER / PIANO focus one editor; ALL keeps every projection on
-    // screen at once, which is the point of the instrument.
+    // screen at once, which is the point of the instrument. LAUNCH shows the
+    // scene launcher in the editors' place.
     property string view: "ALL"
     // Bit depth the next bounce is written at.
     property string exportDepth: "PCM24"
@@ -467,6 +468,11 @@ ApplicationWindow {
                             patternMenu.popup()
                         }
                         onTrackMenuRequested: (index, name) => root.showTrackMenu(index, name)
+                    }
+
+                    LauncherView {
+                        view: root.view
+                        focusHome: noteEntry
                     }
 
                     StepEditors {

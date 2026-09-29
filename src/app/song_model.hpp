@@ -1,5 +1,6 @@
 #pragma once
 
+#include "blokkily/audio/scene_launcher_engine.hpp"
 #include "blokkily/model/song.hpp"
 
 #include <QElapsedTimer>
@@ -118,6 +119,15 @@ class SongModel final : public QObject {
     Q_PROPERTY(int modulatorCount READ modulatorCount NOTIFY songChanged)
     Q_PROPERTY(QVariantList modulators READ modulators NOTIFY modulationChanged)
     Q_PROPERTY(QStringList lfoShapes READ lfoShapes CONSTANT)
+    // The scene launcher (phase 2, wave 6.1; song_model_launcher.cpp). One
+    // row per scene: {index, name, cells: [{track, filled, pattern, name,
+    // repeats, quantization, follow}]}, a cell per track of the song. The
+    // grid's own quantization (a whole scene's launch, and stops), and the
+    // names of the quantizations and follow actions in their menus' order.
+    Q_PROPERTY(QVariantList launcherScenes READ launcherScenes NOTIFY songChanged)
+    Q_PROPERTY(QString launcherQuantization READ launcherQuantization NOTIFY songChanged)
+    Q_PROPERTY(QStringList launchQuantizations READ launchQuantizations CONSTANT)
+    Q_PROPERTY(QStringList followActions READ followActions CONSTANT)
 
 public:
     // The arrangement is laid out in bars because that is how a producer reads
@@ -456,6 +466,33 @@ public:
     // insert's own track, or a loop of keys.
     Q_INVOKABLE bool setInsertSidechain(const QString& kind, int bus, int slot, int track);
 
+    // --- Scene launcher (phase 2, wave 6.1) ----------------------------------
+    // The grid is part of the song: every edit is one step of history, saved
+    // with the project, and recompiled into the running engine (never a
+    // rebuild). Launching and stopping are the controller's (AppController).
+    QVariantList launcherScenes() const;
+    QString launcherQuantization() const;
+    QStringList launchQuantizations() const;
+    QStringList followActions() const;
+    // A new scene at the bottom, named "SCENE n"; its index.
+    Q_INVOKABLE int addScene();
+    Q_INVOKABLE bool removeScene(int scene);
+    Q_INVOKABLE bool renameScene(int scene, const QString& name);
+    // Puts pattern `pattern` in a cell (keeping the cell's other settings),
+    // or empties it.
+    Q_INVOKABLE bool setLauncherCell(int scene, int track, int pattern);
+    Q_INVOKABLE bool clearLauncherCell(int scene, int track);
+    // A cell's loops before its follow action (0: for ever, up to 64), its
+    // follow action and its launch quantization, by the names above.
+    Q_INVOKABLE bool setCellRepeats(int scene, int track, int repeats);
+    Q_INVOKABLE bool setCellFollow(int scene, int track, const QString& follow);
+    Q_INVOKABLE bool setCellQuantization(int scene, int track, const QString& quantization);
+    Q_INVOKABLE bool setLauncherQuantization(const QString& quantization);
+    // Prints a take the launcher played into the arrangement (Song::
+    // print_take): one step of history per take. False, changing nothing,
+    // for a take the song cannot hold.
+    bool printLauncherTake(const blokkily::LauncherTake& take);
+
 signals:
     void songChanged();
     // Raised only when the arrangement itself changed, so the audio engine is
@@ -499,6 +536,8 @@ private:
     std::vector<blokkily::AudioClipId> rendering_clips_;
     [[nodiscard]] bool validTrack(int track) const;
     [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
+    // The cell of the grid, when the scene and the track exist.
+    [[nodiscard]] bool validCell(int scene, int track) const;
     // The insert chain of a bus, or nullptr when there is no such bus.
     std::vector<blokkily::EffectSlot>* chainAt(blokkily::BusKind kind, int bus);
     // A track's send to a return, made (silent) when `create` and missing.
