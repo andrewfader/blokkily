@@ -48,6 +48,14 @@ private:
     static constexpr int channels = 16;
     // The key each retuned channel is holding, or -1 when it is free.
     std::array<int, channels> channel_key_{};
+    // Per-note expression (MPE): a channel whose note is expressive bends
+    // over +/-48 semitones (MPE's per-note range) by its expression plus
+    // the wheel; the wheel as last played.
+    static constexpr int expressive_bend_range = 48;
+    std::array<bool, channels> channel_expressive_{};
+    std::array<double, channels> channel_expression_{};
+    int wheel_ = 8192;
+    [[nodiscard]] int expressive_bend(int channel) const noexcept;
 
     SettingsPtr settings_;
     SynthPtr synth_;

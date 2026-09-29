@@ -171,12 +171,21 @@ ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
                 if (cut && control.start >= end) continue;
                 arranged.continuous.push_back(control);
             }
+            // Per-note expression goes with its note: dropped with it before
+            // a trim, and not played past a cut, where the note ends.
+            for (auto expression : compiled.expressions) {
+                expression.start += offset;
+                if (trimmed && expression.start < clip.start) continue;
+                if (cut && expression.start >= end) continue;
+                arranged.expressions.push_back(expression);
+            }
         }
     }
     const auto by_start = [](const auto& a, const auto& b) { return a.start < b.start; };
     std::stable_sort(arranged.notes.begin(), arranged.notes.end(), by_start);
     std::stable_sort(arranged.parameters.begin(), arranged.parameters.end(), by_start);
     std::stable_sort(arranged.continuous.begin(), arranged.continuous.end(), by_start);
+    std::stable_sort(arranged.expressions.begin(), arranged.expressions.end(), by_start);
     return arranged;
 }
 

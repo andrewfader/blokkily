@@ -25,6 +25,19 @@ std::optional<PlayedNote> TakeRecorder::note_off(Tick at, std::int16_t key) {
     return note;
 }
 
+void TakeRecorder::expression(Tick at, std::int16_t key, NoteExpression::Kind kind, float value) {
+    const auto found = std::find_if(held_.begin(), held_.end(),
+                                    [key](const PlayedNote& note) { return note.key == key; });
+    if (found == held_.end() || !NoteExpression::valid_value(kind, value)) return;
+    const Tick offset = ((at - found->start) % length_ + length_) % length_;
+    auto& points = found->expression;
+    const auto same = std::find_if(points.begin(), points.end(), [&](const NoteExpression& point) {
+        return point.offset == offset && point.kind == kind;
+    });
+    if (same != points.end()) same->value = value;
+    else points.push_back({0, offset, kind, value});
+}
+
 std::optional<ContinuousEvent> TakeRecorder::control(Tick at, std::uint32_t raw) const {
     return continuous_from_midi(raw, at);
 }
@@ -64,12 +77,22 @@ struct Voice {
     double cents;
     float velocity;
     Tick duration;
+    // The voice's per-note expression (NoteExpression::voice left to the
+    // writer, which knows where the voice ends up).
+    std::vector<NoteExpression> expression{};
 };
+
+std::vector<NoteExpression> expression_of(const Trigger& trigger, std::size_t voice) {
+    std::vector<NoteExpression> points;
+    for (const auto& point : trigger.expression)
+        if (point.voice == voice) points.push_back(point);
+    return points;
+}
 
 // The voices a step sounds, the way the scheduler voices them.
 std::vector<Voice> voices_of(const Trigger& trigger) {
     if (const auto* note = std::get_if<Note>(&trigger.musical_data))
-        return {{note->key, note->cents, note->velocity, trigger.duration}};
+        return {{note->key, note->cents, note->velocity, trigger.duration, expression_of(trigger, 0)}};
     const auto& chord = std::get<Chord>(trigger.musical_data);
     std::vector<Voice> voices;
     const auto size = static_cast<int>(chord.intervals.size());
@@ -80,7 +103,8 @@ std::vector<Voice> voices_of(const Trigger& trigger) {
         const double retune = interval < chord.cents.size() ? chord.cents[interval] : 0.0;
         voices.push_back({static_cast<std::int16_t>(chord.root + chord.intervals[source] + octave),
                           retune, voice_velocity(chord, interval),
-                          voice_duration(chord, interval, trigger.duration)});
+                          voice_duration(chord, interval, trigger.duration),
+                          expression_of(trigger, static_cast<std::size_t>(voice))});
     }
     return voices;
 }
@@ -107,7 +131,8 @@ int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step) {
     const Tick reach = ticks_per_step / 2 - 1;
     micro = std::clamp(micro, -reach, reach);
     const Tick duration = std::clamp<Tick>(note.duration, 1, length);
-    const Voice played{note.key, note.cents, std::clamp(note.velocity, 0.0F, 1.0F), duration};
+    const Voice played{note.key, note.cents, std::clamp(note.velocity, 0.0F, 1.0F), duration,
+                       note.expression};
 
     const auto events = pattern.events();
     const auto existing = std::find_if(events.begin(), events.end(),
@@ -120,6 +145,8 @@ int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step) {
         trigger.duration = duration;
         trigger.micro_offset = micro;
         trigger.musical_data = Note{note.key, note.velocity, 0.0F, note.cents};
+        trigger.expression = note.expression;
+        for (auto& point : trigger.expression) point.voice = 0;
         (void)pattern.add(trigger);
         return static_cast<int>(step);
     }
@@ -142,6 +169,14 @@ int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step) {
     chord.root = voices.front().key;
     chord.intervals.clear();
     Tick longest = 1;
+    // The chord is written with no inversion, so voice i of the sorted list
+    // is voice i of the step: each voice's expression follows it there.
+    merged.expression.clear();
+    for (std::size_t index = 0; index < voices.size(); ++index)
+        for (auto point : voices[index].expression) {
+            point.voice = static_cast<std::uint8_t>(index);
+            merged.expression.push_back(point);
+        }
     for (const auto& voice : voices) {
         chord.intervals.push_back(static_cast<std::int16_t>(voice.key - chord.root));
         chord.cents.push_back(voice.cents);

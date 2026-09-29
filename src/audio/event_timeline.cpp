@@ -34,7 +34,7 @@ std::vector<TimedPluginEvent> compile_timeline(
     const ScheduledEvents& scheduled, const TickClock& clock, std::uint64_t last_sample) {
     std::vector<TimedPluginEvent> timeline;
     timeline.reserve(scheduled.parameters.size() + scheduled.continuous.size() +
-                     scheduled.notes.size() * 2);
+                     scheduled.expressions.size() + scheduled.notes.size() * 2);
     const auto at = [&clock, last_sample](Tick tick) {
         return std::min(sample_for_tick(clock, static_cast<double>(tick)), last_sample);
     };
@@ -54,10 +54,17 @@ std::vector<TimedPluginEvent> compile_timeline(
     for (const auto& note : scheduled.notes) {
         timeline.push_back({at(note.start), 1,
                             {PluginEvent::Type::note_on, 0, note.key, note.velocity,
-                             note.cents}});
+                             note.cents, static_cast<std::uint8_t>(note.expressive ? 1 : 0)}});
         timeline.push_back({at(note.start + note.duration), 1,
                             {PluginEvent::Type::note_off, 0, note.key, 0.0, note.cents}});
     }
+    // Per-note expression after the note-on on its sample: it moves a note
+    // that has been struck.
+    for (const auto& expression : scheduled.expressions)
+        timeline.push_back({at(expression.start), 2,
+                            {PluginEvent::Type::note_expression, 0, expression.key,
+                             static_cast<double>(expression.value), expression.cents,
+                             static_cast<std::uint8_t>(expression.kind)}});
     std::stable_sort(timeline.begin(), timeline.end(),
         [](const TimedPluginEvent& a, const TimedPluginEvent& b) {
             return a.sample < b.sample || (a.sample == b.sample && a.rank < b.rank);

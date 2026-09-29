@@ -117,6 +117,7 @@ struct RecordModule {
 // Controller movements in patterns (phase 2, wave 4.1): control
 // (records_continuous.cpp).
 [[nodiscard]] const RecordModule& continuous_records();
+[[nodiscard]] const RecordModule& expression_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

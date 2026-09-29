@@ -33,6 +33,19 @@ QString AppController::midiPort() const {
     return midi_input_->is_open() ? QString::fromStdString(midi_input_->port_name()) : QString();
 }
 
+bool AppController::mpe() const { return midi_input_->mpe().enabled; }
+
+void AppController::setMpe(bool enabled) {
+    auto zone = midi_input_->mpe();
+    if (enabled) zone = blokkily::MpeZone{true, 0, 1, 15, zone.pitch_range};
+    else zone.enabled = false;
+    midi_input_->set_mpe(zone);
+    status_ = enabled ? QStringLiteral("MIDI · MPE on: channels 2-16 carry one note each")
+                      : QStringLiteral("MIDI · MPE off");
+    emit statusChanged();
+    emit midiChanged();
+}
+
 void AppController::refreshMidiPorts() {
     QStringList ports;
     if (midi_input_->mode() == blokkily::MidiInput::Mode::deterministic) {
@@ -185,6 +198,14 @@ void AppController::drainTake() {
                                   event.event.cents);
         } else if (event.event.type == blokkily::PluginEvent::Type::note_off) {
             if (auto note = takes_[track].note_off(at, key)) finished.emplace_back(track, *note);
+        } else if (event.event.type == blokkily::PluginEvent::Type::note_expression) {
+            // Per-note expression (MPE) stays with the note it moved.
+            const auto dimension = event.event.expression;
+            if (dimension >= blokkily::note_dimension::pitch &&
+                dimension <= blokkily::note_dimension::pressure)
+                takes_[track].expression(at, key,
+                                         static_cast<blokkily::NoteExpression::Kind>(dimension),
+                                         static_cast<float>(event.event.value));
         } else if (event.event.type == blokkily::PluginEvent::Type::midi_raw) {
             // The wheel, a controller or pressure (wave 4.1).
             if (auto control = takes_[track].control(

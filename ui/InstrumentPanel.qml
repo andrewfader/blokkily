@@ -61,7 +61,20 @@ ColumnLayout {
     // A sampler has no window of its own; its panel is its editor.
     PluginEditorBar { Layout.fillWidth: true; visible: appController.sampler.active !== true }
 
-    SectionLabel { text: "MIDI IN" }
+    RowLayout {
+        Layout.fillWidth: true; spacing: 6
+        SectionLabel { text: "MIDI IN" }
+        Item { Layout.fillWidth: true }
+        // MPE (the lower zone, member channels 2..16): each key's own bend,
+        // CC 74 and pressure move that note alone, and are recorded with it.
+        Chip {
+            objectName: "mpeChip"
+            text: "MPE"; implicitHeight: 20
+            accessibleLabel: "MPE keyboard"
+            on: appController.mpe
+            onClicked: appController.setMpe(!appController.mpe)
+        }
+    }
     // The keyboard being played, and what it last sent. The light
     // flashes on every key the port delivers, so a controller that
     // is not reaching the application is seen not to be.

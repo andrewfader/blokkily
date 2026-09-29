@@ -641,6 +641,26 @@ void ClapPluginInstance::process(StereoBlock audio,
             header.type = CLAP_EVENT_PARAM_MOD;
             converted[count++].modulation = {header, static_cast<clap_id>(source.key_or_parameter), nullptr,
                                            -1, -1, -1, -1, source.value};
+        } else if (source.type == PluginEvent::Type::note_expression) {
+            // Per-note expression (MPE) is CLAP's own note expression,
+            // addressed to the note by key on the notes' port and channel.
+            // Tuning is the whole offset from the key: the note's retune
+            // and the expression's bend together.
+            header.size = sizeof(clap_event_note_expression_t);
+            header.type = CLAP_EVENT_NOTE_EXPRESSION;
+            clap_note_expression id = CLAP_NOTE_EXPRESSION_TUNING;
+            double value = source.value;
+            if (source.expression == note_dimension::pitch) {
+                value = source.cents / 100.0 + source.value;
+            } else if (source.expression == note_dimension::timbre) {
+                id = CLAP_NOTE_EXPRESSION_BRIGHTNESS;
+            } else if (source.expression == note_dimension::pressure) {
+                id = CLAP_NOTE_EXPRESSION_PRESSURE;
+            } else {
+                continue;
+            }
+            converted[count++].expression = {header, id, -1, 0, 0,
+                static_cast<std::int16_t>(source.key_or_parameter), value};
         } else if (source.type == PluginEvent::Type::midi_raw) {
             header.size = sizeof(clap_event_midi_t);
             header.type = CLAP_EVENT_MIDI;

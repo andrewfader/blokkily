@@ -252,6 +252,9 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
     // The bend each retuned channel carries for its note's cents, and the
     // wheel as last played (wave 4.1): a retuned channel is sent the sum.
     std::array<int, 16> channel_retune{};
+    // Per-note pitch expression (MPE) on a voice channel, in bend steps of
+    // the channel's two-semitone range, added to its retune and the wheel.
+    std::array<int, 16> channel_expression{};
     int wheel = 8192;
     bool announce_bend_range = true;
 
@@ -566,6 +569,7 @@ bool Vst3PluginInstance::activate(double sample_rate, std::uint32_t,
     impl_->midi.clear();
     impl_->channel_key.fill(-1);
     impl_->channel_retune.fill(0);
+    impl_->channel_expression.fill(0);
     impl_->wheel = 8192;
     impl_->announce_bend_range = true;
     impl_->extra.assign(static_cast<std::size_t>(impl_->block_channels - 2) *
@@ -651,7 +655,9 @@ void Vst3PluginInstance::process(StereoBlock audio,
             const auto position = static_cast<int>(offset - rendered);
             if (event.type == PluginEvent::Type::note_on) {
                 int channel = 1;
-                if (event.cents != 0.0) {
+                // A retuned note, and a note that carries per-note expression
+                // (an MPE note), each get a voice channel of their own.
+                if (event.cents != 0.0 || event.expression != 0) {
                     channel = 2;
                     for (int candidate = 2; candidate <= 16; ++candidate)
                         if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] < 0) {
@@ -662,8 +668,14 @@ void Vst3PluginInstance::process(StereoBlock audio,
                         event.key_or_parameter;
                     const int retune = static_cast<int>(std::lround(event.cents / 200.0 * 8192.0));
                     impl_->channel_retune[static_cast<std::size_t>(channel) - 1] = retune;
+                    impl_->channel_expression[static_cast<std::size_t>(channel) - 1] = 0;
                     const int bend = std::clamp(impl_->wheel + retune, 0, 16383);
                     impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
+                    // An expressive note starts unpressed, whatever the last
+                    // note on its channel was left at.
+                    if (event.expression != 0)
+                        impl_->midi.addEvent(juce::MidiMessage::channelPressureChange(channel, 0),
+                                             position);
                 }
                 impl_->midi.addEvent(juce::MidiMessage::noteOn(channel, event.key_or_parameter,
                                      static_cast<float>(event.value)), position);
@@ -678,6 +690,38 @@ void Vst3PluginInstance::process(StereoBlock audio,
                     }
                 impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, event.key_or_parameter,
                                      static_cast<float>(event.value)), position);
+            } else if (event.type == PluginEvent::Type::note_expression) {
+                // Per-note expression rides on the note's own voice channel,
+                // MPE-style: pitch on its wheel (added to its retune and the
+                // track's wheel, within the channel's two-semitone range),
+                // timbre as CC 74, pressure as channel pressure. A note that
+                // was not struck on a channel of its own has nowhere to take
+                // it, and it is dropped.
+                int channel = -1;
+                for (int candidate = 2; candidate <= 16; ++candidate)
+                    if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] ==
+                        event.key_or_parameter)
+                        channel = candidate;
+                if (channel < 0) continue;
+                const auto slot = static_cast<std::size_t>(channel) - 1;
+                if (event.expression == note_dimension::pitch) {
+                    impl_->channel_expression[slot] =
+                        static_cast<int>(std::lround(event.value / 2.0 * 8192.0));
+                    const int bend = std::clamp(impl_->wheel + impl_->channel_retune[slot] +
+                                                    impl_->channel_expression[slot],
+                                                0, 16383);
+                    impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
+                } else if (event.expression == note_dimension::timbre) {
+                    impl_->midi.addEvent(
+                        juce::MidiMessage::controllerEvent(
+                            channel, 74, std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127)),
+                        position);
+                } else if (event.expression == note_dimension::pressure) {
+                    impl_->midi.addEvent(
+                        juce::MidiMessage::channelPressureChange(
+                            channel, std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127)),
+                        position);
+                }
             } else if (event.type == PluginEvent::Type::midi_raw) {
                 // The track is one instrument: a controller is for every note
                 // it plays, whatever channel the keyboard sent it on. Notes
@@ -701,7 +745,9 @@ void Vst3PluginInstance::process(StereoBlock audio,
                     const auto slot = static_cast<std::size_t>(channel) - 1;
                     if (channel > 1 && impl_->channel_key[slot] < 0) continue;
                     if (kind == 0xE0) {
-                        const int retune = channel > 1 ? impl_->channel_retune[slot] : 0;
+                        const int retune = channel > 1 ? impl_->channel_retune[slot] +
+                                                             impl_->channel_expression[slot]
+                                                       : 0;
                         impl_->midi.addEvent(
                             juce::MidiMessage::pitchWheel(channel,
                                                           std::clamp(impl_->wheel + retune, 0, 16383)),

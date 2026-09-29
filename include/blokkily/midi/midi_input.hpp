@@ -46,6 +46,23 @@ using KeyMap = std::array<TunedKey, 128>;
 // channel c (0-based) sounds on. A channel with no tracks is not heard.
 using ChannelRoutes = std::array<TrackMask, 16>;
 
+// An MPE zone (MIDI Polyphonic Expression): a master channel whose messages
+// are for every note, and a run of member channels that each carry one note
+// with its own pitch bend (per-note pitch, over `pitch_range` semitones),
+// CC 74 (timbre) and channel pressure (pressure). Channels are 0-based: the
+// lower zone is master 0 with members 1..15. While a zone is on, those three
+// on a member channel become per-note expression (PluginEvent::note_expression)
+// of the notes held on that channel, and a note struck there is marked
+// expressive; everything else is as without MPE.
+struct MpeZone {
+    bool enabled = false;
+    std::uint8_t master = 0;
+    std::uint8_t first = 1;
+    std::uint8_t last = 15;
+    double pitch_range = 48.0;
+    friend bool operator==(const MpeZone&, const MpeZone&) = default;
+};
+
 // A MIDI input port. Messages arrive on the port's own thread and go straight
 // to the render callback through a lock-free queue, so a note is not held up
 // behind a busy interface. Only the key map and the routes are set from the
@@ -97,6 +114,12 @@ public:
     [[nodiscard]] bool release_pending() const noexcept;
     // How each key is tuned. Held keys keep the pitch they were struck at.
     void set_key_map(const KeyMap& map) noexcept;
+    // The MPE zone. A keyboard can also set it itself with the MPE
+    // Configuration Message (RPN 6 on channel 1 for the lower zone, 16 for
+    // the upper; 0 members turns it off) and set the members' pitch range
+    // with RPN 0 on a member channel.
+    void set_mpe(const MpeZone& zone) noexcept;
+    [[nodiscard]] MpeZone mpe() const noexcept;
 
     // Feeds a message through the port path. Only a deterministic input
     // accepts one: a device already has a producer, and the queue has room

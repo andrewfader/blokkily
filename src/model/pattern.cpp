@@ -23,6 +23,18 @@ void Pattern::validate(const Trigger& event) const {
     if (event.ratchets == 0 || event.ratchets > 16) {
         throw std::invalid_argument("ratchets must be in [1, 16]");
     }
+    {
+        const auto* chord = std::get_if<Chord>(&event.musical_data);
+        const std::size_t voices = chord == nullptr ? 1 : chord->intervals.size();
+        for (const auto& expression : event.expression) {
+            if (expression.voice >= voices)
+                throw std::invalid_argument("note expression names a voice the step does not have");
+            if (expression.offset < 0)
+                throw std::invalid_argument("note expression starts before its note");
+            if (!NoteExpression::valid_value(expression.kind, expression.value))
+                throw std::invalid_argument("note expression value is out of range");
+        }
+    }
     if (const auto* chord = std::get_if<Chord>(&event.musical_data)) {
         const auto voices = chord->intervals.size();
         const auto in_range = [](float velocity) { return velocity >= 0.0F && velocity <= 1.0F; };

@@ -22,6 +22,9 @@
 #include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/take.hpp"
 
+#include <clap/events.h>
+#include <dlfcn.h>
+
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -665,6 +668,394 @@ void poly_pressure() {
                 std::string("a malformed poly record is refused: ") + bad);
 }
 
+// --- MPE (per-note expression) ------------------------------------------------
+
+struct ExpressionSeen {
+    int id;
+    int key;
+    double value;
+    std::uint32_t time;
+};
+
+// The note expressions the CLAP fixture was sent since the last call, from
+// its exported log.
+std::vector<ExpressionSeen> clap_expressions() {
+    void* library = dlopen(BLOKKILY_TEST_CLAP_PATH, RTLD_NOW | RTLD_NOLOAD);
+    require(library != nullptr, "the CLAP fixture is loaded");
+    using Report = int (*)(int*, int*, double*, std::uint32_t*, int);
+    using Clear = void (*)();
+    auto* report = reinterpret_cast<Report>(dlsym(library, "blokkily_test_expressions"));
+    auto* clear = reinterpret_cast<Clear>(dlsym(library, "blokkily_test_clear_expressions"));
+    require(report != nullptr && clear != nullptr, "the fixture reports its note expressions");
+    std::array<int, 4096> ids{}, keys{};
+    std::array<double, 4096> values{};
+    std::array<std::uint32_t, 4096> times{};
+    const int seen = std::min(report(ids.data(), keys.data(), values.data(), times.data(), 4096), 4096);
+    std::vector<ExpressionSeen> out;
+    for (int index = 0; index < seen; ++index)
+        out.push_back({ids[static_cast<std::size_t>(index)], keys[static_cast<std::size_t>(index)],
+                       values[static_cast<std::size_t>(index)],
+                       times[static_cast<std::size_t>(index)]});
+    dlclose(library);
+    clear();
+    return out;
+}
+
+constexpr int clap_tuning = CLAP_NOTE_EXPRESSION_TUNING;
+constexpr int clap_brightness = CLAP_NOTE_EXPRESSION_BRIGHTNESS;
+constexpr int clap_pressure = CLAP_NOTE_EXPRESSION_PRESSURE;
+
+std::array<std::uint8_t, 3> bend_bytes(std::uint8_t status, double semitones, double range = 48.0) {
+    const int value = std::clamp(static_cast<int>(std::lround(8192.0 + semitones / range * 8192.0)), 0, 16383);
+    return {status, static_cast<std::uint8_t>(value & 0x7F), static_cast<std::uint8_t>(value >> 7)};
+}
+
+std::vector<float> render_engine(SongEngine& engine, std::size_t frames) {
+    std::vector<float> left(frames), right(frames);
+    for (std::size_t done = 0; done < frames; done += block) {
+        const auto now = std::min<std::size_t>(block, frames - done);
+        engine.process({std::span(left).subspan(done, now), std::span(right).subspan(done, now)});
+    }
+    return left;
+}
+
+const float clap_level = 0.25F * static_cast<float>(std::cos(std::numbers::pi / 4.0));
+bool close_to(float actual, float expected, float tolerance = 1e-5F) {
+    return std::abs(actual - expected) < tolerance;
+}
+
+// features/continuous_midi.feature:
+//   Scenario: An MPE keyboard plays each note's own expression into CLAP and records it
+void mpe_clap_live() {
+    Song song;
+    song.patterns = {{"P", Pattern(1920, 480)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    Rig rig(clap(), song);
+    // The keyboard turns MPE on itself: RPN 6 on channel 1, fifteen members.
+    rig.send(0xB0, 101, 0);
+    rig.send(0xB0, 100, 6);
+    rig.send(0xB0, 6, 15);
+    require(rig.keyboard.mpe().enabled && rig.keyboard.mpe().first == 1 &&
+                rig.keyboard.mpe().last == 15,
+            "the MPE Configuration Message turns the lower zone on");
+    rig.engine.set_recording(true);
+    rig.engine.set_playing(true);
+    (void)rig.render(10 * block);
+    (void)clap_expressions();
+    // Member channel 2: the note's starting bend (+12 semitones) and
+    // pressure come before its note-on, as MPE sends them.
+    const auto up = bend_bytes(0xE1, 12.0);
+    rig.send(up[0], up[1], up[2]);
+    rig.send(0xD1, 127, 0);
+    rig.send(0x91, 69, 100);
+    const auto pressed = rig.render(4 * block);
+    require(close_to(pressed.back(), 2.0F * clap_level),
+            "the note sounds with its own pressure: " + std::to_string(pressed.back()));
+    rig.send(0xB1, 74, 127);
+    const auto bright = rig.render(4 * block);
+    require(close_to(bright.back(), 4.0F * clap_level),
+            "its own timbre (CC 74) brightens it: " + std::to_string(bright.back()));
+    // A second note on member channel 3 is untouched by the first's
+    // expression: the fixture sounds the newest key, unpressed.
+    rig.send(0x92, 72, 100);
+    const auto second = rig.render(4 * block);
+    require(close_to(second.back(), clap_level),
+            "another channel's note is not pressed: " + std::to_string(second.back()));
+    const auto down = bend_bytes(0xE1, -5.0);
+    rig.send(down[0], down[1], down[2]);
+    (void)rig.render(2 * block);
+    rig.send(0x81, 69, 0);
+    rig.send(0x82, 72, 0);
+    (void)rig.render(2 * block);
+    const auto seen = clap_expressions();
+    const auto has = [&](int id, int key, double value) {
+        return std::any_of(seen.begin(), seen.end(), [&](const ExpressionSeen& entry) {
+            return entry.id == id && entry.key == key && std::abs(entry.value - value) < 0.01;
+        });
+    };
+    require(has(clap_tuning, 69, 12.0) && has(clap_pressure, 69, 1.0) &&
+                has(clap_brightness, 69, 1.0) && has(clap_tuning, 69, -5.0) &&
+                std::none_of(seen.begin(), seen.end(),
+                             [](const ExpressionSeen& entry) { return entry.key == 72; }),
+            "CLAP is sent note expressions for key 69 alone: " + std::to_string(seen.size()));
+
+    // The take: each note with its own expression.
+    CapturedEvent captured;
+    TakeRecorder recorder(song.length());
+    std::vector<PlayedNote> played;
+    while (rig.engine.take_captured(captured)) {
+        const auto key = static_cast<std::int16_t>(captured.event.key_or_parameter);
+        if (captured.event.type == PluginEvent::Type::note_on)
+            recorder.note_on(captured.tick, key, static_cast<float>(captured.event.value),
+                             captured.event.cents);
+        else if (captured.event.type == PluginEvent::Type::note_off) {
+            if (auto note = recorder.note_off(captured.tick, key)) played.push_back(*note);
+        } else if (captured.event.type == PluginEvent::Type::note_expression)
+            recorder.expression(captured.tick, key,
+                                static_cast<NoteExpression::Kind>(captured.event.expression),
+                                static_cast<float>(captured.event.value));
+    }
+    require(played.size() == 2, "both notes are taken: " + std::to_string(played.size()));
+    const auto& first = played[0].key == 69 ? played[0] : played[1];
+    const auto& other = played[0].key == 69 ? played[1] : played[0];
+    const auto point = [&](NoteExpression::Kind kind, float value) {
+        return std::any_of(first.expression.begin(), first.expression.end(),
+                           [&](const NoteExpression& at) {
+                               return at.kind == kind && std::abs(at.value - value) < 0.01F;
+                           });
+    };
+    require(point(NoteExpression::Kind::pitch, 12.0F) && point(NoteExpression::Kind::pressure, 1.0F) &&
+                point(NoteExpression::Kind::timbre, 1.0F) && point(NoteExpression::Kind::pitch, -5.0F) &&
+                other.expression.empty(),
+            "the first note keeps its bend, pressure and timbre; the second has none");
+    const auto late = std::find_if(first.expression.begin(), first.expression.end(),
+                                   [](const NoteExpression& at) { return at.value == -5.0F; });
+    require(late != first.expression.end() && late->offset > 0,
+            "a later movement is kept at its offset into the note");
+    Pattern written(1920, 480);
+    for (auto note : played) (void)write_played(written, note, 120);
+    const auto events = written.events();
+    const auto kept = std::count_if(events.begin(), events.end(), [](const Trigger& trigger) {
+        return !trigger.expression.empty();
+    });
+    require(kept == 1, "written into the pattern, the expression stays with its note's step");
+}
+
+// A long A4 on the CLAP fixture: pressure 1.0 at 250 ticks into it, then
+// +12 semitones at 500.
+Song expressive_song(bool tone = false) {
+    Song song;
+    Pattern pattern(1920, 480);
+    Trigger note;
+    note.start = 0;
+    note.duration = 1900;
+    note.musical_data = Note{69, 1.0F, 0.0F, 0.0};
+    note.expression = {{0, 250, NoteExpression::Kind::pressure, 1.0F},
+                       {0, 500, NoteExpression::Kind::pitch, 12.0F}};
+    if (tone) note.locks = {{"tone", 1, 1.0, ParameterLock::Kind::automation}};
+    (void)pattern.add(note);
+    song.patterns = {{"P", std::move(pattern)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    return song;
+}
+
+// features/continuous_midi.feature:
+//   Scenario: Recorded per-note expression plays back to CLAP as note expressions, on its sample
+void mpe_clap_playback() {
+    auto song = expressive_song();
+    std::string why;
+    require(song.consistent(&why), "valid: " + why);
+    SongEngine engine;
+    engine.set_instrument(0, clap());
+    require(engine.prepare(song, rate, block, 0, &why), "prepare: " + why);
+    engine.set_playing(true);
+    (void)clap_expressions();
+    const auto out = render_engine(engine, 30000);
+    require(close_to(out[12499], clap_level) && close_to(out[12500], 2.0F * clap_level),
+            "the note's pressure lands on its sample: " + std::to_string(out[12499]) + " / " +
+                std::to_string(out[12500]));
+    const auto seen = clap_expressions();
+    const bool pressure_at = std::any_of(seen.begin(), seen.end(), [](const ExpressionSeen& e) {
+        return e.id == clap_pressure && e.key == 69 && e.value == 1.0 && e.time == 12500 % block;
+    });
+    const bool tuning_at = std::any_of(seen.begin(), seen.end(), [](const ExpressionSeen& e) {
+        return e.id == clap_tuning && e.key == 69 && e.value == 12.0 && e.time == 25000 % block;
+    });
+    require(pressure_at && tuning_at,
+            "CLAP gets CLAP_EVENT_NOTE_EXPRESSION pressure and tuning at their offsets in the block");
+
+    // A chord: only voice 1 is pressed, in the fixture's velocity mode (the
+    // sum of the held keys' velocities, each times its own pressure).
+    Song chord_song;
+    Pattern chord_pattern(1920, 480);
+    Trigger chord;
+    chord.start = 0;
+    chord.duration = 1900;
+    chord.musical_data = Chord{60, {0, 7}, 0, 0, {}, 0.5F};
+    chord.locks = {{"velocity-mode", 2, 1.0, ParameterLock::Kind::automation}};
+    chord.expression = {{1, 100, NoteExpression::Kind::pressure, 1.0F}};
+    (void)chord_pattern.add(chord);
+    chord_song.patterns = {{"C", std::move(chord_pattern)}};
+    chord_song.tracks = {Track{}};
+    chord_song.clips = {{0, 0, 0, 1}};
+    SongEngine chords;
+    chords.set_instrument(0, clap());
+    require(chords.prepare(chord_song, rate, block, 0, &why), "prepare: " + why);
+    chords.set_playing(true);
+    const auto voiced = render_engine(chords, 10000);
+    require(close_to(voiced[4999], clap_level * 1.0F) && close_to(voiced[5000], clap_level * 1.5F),
+            "only the chord's second voice is pressed, from its sample: " +
+                std::to_string(voiced[4999]) + " / " + std::to_string(voiced[5000]));
+
+    // Launched, the pattern plays its expression as the arrangement does.
+    auto launched = song;
+    launched.launcher.add_scene("S");
+    launched.launcher.quantization = LaunchQuantization::none;
+    launched.launcher.set_slot(0, 0, {.pattern = 0});
+    SongEngine launcher;
+    launcher.set_instrument(0, clap());
+    require(launcher.prepare(launched, rate, block, 0, &why), "prepare: " + why);
+    require(launcher.launch_cell(0, 0), "launched");
+    launcher.set_playing(true);
+    const auto from_launcher = render_engine(launcher, 30000);
+    std::size_t differing = 0;
+    for (std::size_t at = 0; at < out.size(); ++at)
+        if (!close_to(from_launcher[at], out[at], 1e-7F)) ++differing;
+    require(differing == 0, "a launched loop plays the note's expression as the arrangement "
+                            "does; " + std::to_string(differing) + " samples differ");
+
+    // Exported: read back, as the engine plays it.
+    const fs::path file = fs::path(BLOKKILY_CONTINUOUS_WORK) / "mpe-clap.wav";
+    fs::create_directories(file.parent_path());
+    std::string error;
+    require(bounce_song(engine, file, WaveFormat::float32, 0, &error).has_value(),
+            "the bounce is written: " + error);
+    const auto wave = read_wave(file, &error);
+    require(wave.has_value() && wave->frames >= 30000, "the bounce reads back: " + error);
+    double worst = 0.0;
+    for (std::size_t frame = 0; frame < 30000; ++frame)
+        worst = std::max(worst, static_cast<double>(std::abs(wave->interleaved[2 * frame] - out[frame])));
+    require(worst < 1e-6, "the export is the live render, worst " + std::to_string(worst));
+}
+
+// features/continuous_midi.feature:
+//   Scenario: A SoundFont bends one note of a chord through its own channel
+void mpe_soundfont() {
+    const auto chord_with = [](std::vector<NoteExpression> expression) {
+        Song song;
+        Pattern pattern(1920, 480);
+        Trigger chord;
+        chord.start = 0;
+        chord.duration = 1900;
+        chord.musical_data = Chord{69, {0, 7}, 0, 0, {}, 0.8F};   // A4 and E5
+        chord.expression = std::move(expression);
+        (void)pattern.add(chord);
+        song.patterns = {{"P", std::move(pattern)}};
+        song.tracks = {Track{}};
+        song.clips = {{0, 0, 0, 1}};
+        return song;
+    };
+    const auto render_chord = [](const Song& song) {
+        SongEngine engine;
+        engine.set_instrument(0, soundfont());
+        std::string why;
+        require(engine.prepare(song, rate, block, 0, &why), "prepare: " + why);
+        engine.set_playing(true);
+        return render_engine(engine, 40000);
+    };
+    const auto plain = render_chord(chord_with({}));
+    // Voice 0 (A4) bent up two semitones from its start; E5 is not.
+    const auto bent = render_chord(chord_with({{0, 0, NoteExpression::Kind::pitch, 2.0F},
+                                               {0, 0, NoteExpression::Kind::pressure, 0.5F}}));
+    require_frequency(frequency(plain, 8000, 16384, 400, 520), a4, "the plain chord's A4");
+    require_frequency(frequency(bent, 8000, 16384, 400, 520), a4_bent_up,
+                      "the expressive voice is bent on its own channel");
+    const double e5 = 440.0 * std::pow(2.0, 7.0 / 12.0);
+    require_frequency(frequency(bent, 8000, 16384, 600, 720), e5,
+                      "while the chord's other voice keeps its pitch");
+}
+
+// features/continuous_midi.feature:
+//   Scenario: A VST3 instrument hears per-note expression on the note's own channel
+void mpe_vst3() {
+    const auto render_note = [](std::vector<NoteExpression> expression, bool tone) {
+        Song song;
+        Pattern pattern(1920, 480);
+        Trigger note;
+        note.start = 0;
+        note.duration = 1900;
+        note.musical_data = Note{69, 1.0F, 0.0F, 0.0};
+        note.expression = std::move(expression);
+        (void)pattern.add(note);
+        song.patterns = {{"P", std::move(pattern)}};
+        song.tracks = {Track{}};
+        song.clips = {{0, 0, 0, 1}};
+        Rig rig(vst3(), song);
+        if (tone) rig.play({PluginEvent::Type::parameter_value, 0, 1, 1.0});
+        rig.engine.set_playing(true);
+        return rig.render(40000);
+    };
+    // Pitch: one semitone up from the start, on the note's own wheel.
+    const auto sharp = render_note({{0, 0, NoteExpression::Kind::pitch, 1.0F}}, true);
+    require_frequency(frequency(sharp, 8000, 16384, 400, 520), 440.0 * std::pow(2.0, 1.0 / 12.0),
+                      "a VST3 note bent by its expression");
+    // Beyond the channel's two-semitone range the bend stops at its edge.
+    const auto wide = render_note({{0, 0, NoteExpression::Kind::pitch, 7.0F}}, true);
+    require_frequency(frequency(wide, 8000, 16384, 400, 620), a4_bent_up,
+                      "a VST3 note's expression is clamped to the two-semitone voice channel");
+    // Pressure at tick 400 (sample 20000): the fixture's level doubles there.
+    const auto pressed = render_note({{0, 400, NoteExpression::Kind::pressure, 1.0F}}, false);
+    const float before = pressed[19000];
+    const float after = pressed[21000];
+    require(before > 0.05F && std::abs(after - 2.0F * before) < 1e-3F,
+            "a VST3 note's pressure reaches it as its channel's pressure: " +
+                std::to_string(before) + " -> " + std::to_string(after));
+}
+
+// features/continuous_midi.feature:
+//   Scenario: Per-note expression is saved with its note
+void mpe_records() {
+    auto song = expressive_song();
+    Project project;
+    project.song = song;
+    const auto text = ProjectFile::serialize(project);
+    require(text.find("express 0 1 0 250 pressure 1\n") != std::string::npos &&
+                text.find("express 0 1 0 500 pitch 12\n") != std::string::npos,
+            "each value is saved as an express record:\n" + text);
+    std::string error;
+    const auto loaded = ProjectFile::parse(text, &error);
+    require(loaded.has_value() && ProjectFile::serialize(*loaded) == text &&
+                loaded->song.patterns[0].pattern.events()[0].expression ==
+                    song.patterns[0].pattern.events()[0].expression,
+            "and reads back byte for byte: " + error);
+    std::string older;
+    for (std::size_t from = 0; from < text.size();) {
+        const auto end = text.find('\n', from);
+        const auto line = text.substr(from, end - from + 1);
+        if (line.rfind("express ", 0) != 0) older += line;
+        from = end + 1;
+    }
+    const auto old = ProjectFile::parse(older, &error);
+    require(old.has_value() && old->song.patterns[0].pattern.events()[0].expression.empty(),
+            "a file from before MPE loads with no expression: " + error);
+    for (const char* bad : {"express 0 1 1 10 pitch 1\n", "express 0 1 0 -1 pitch 1\n",
+                            "express 0 1 0 10 wiggle 1\n", "express 0 1 0 10 pitch 97\n",
+                            "express 0 1 0 10 pressure 1.5\n", "express 0 9 0 10 pitch 1\n",
+                            "express 3 1 0 10 pitch 1\n", "express 0 1 0 10 pitch\n"})
+        require(!ProjectFile::parse(text + bad, &error).has_value(),
+                std::string("a malformed express record is refused: ") + bad);
+
+    // A played note merged onto a step that already sounds another pitch:
+    // the chord keeps each voice's expression on that voice.
+    Pattern pattern(1920, 480);
+    PlayedNote high{0, 400, 72, 0.7F, 0.0, {{0, 30, NoteExpression::Kind::pressure, 0.25F}}};
+    PlayedNote low{5, 400, 60, 0.9F, 0.0, {{0, 60, NoteExpression::Kind::pitch, -2.0F}}};
+    (void)write_played(pattern, high, 120);
+    (void)write_played(pattern, low, 120);
+    require(pattern.events().size() == 1, "one step");
+    const auto& merged = pattern.events()[0];
+    const auto* chord = std::get_if<Chord>(&merged.musical_data);
+    require(chord != nullptr && chord->root == 60 && merged.expression.size() == 2,
+            "a chord of both, with both notes' expression");
+    for (const auto& point : merged.expression) {
+        if (point.kind == NoteExpression::Kind::pitch)
+            require(point.voice == 0 && point.offset == 60, "the low voice keeps its bend");
+        else
+            require(point.voice == 1 && point.offset == 30, "the high voice keeps its pressure");
+    }
+    Trigger bad;
+    bad.expression = {{1, 0, NoteExpression::Kind::pitch, 1.0F}};
+    bool refused = false;
+    try {
+        (void)pattern.add(bad);
+    } catch (const std::invalid_argument&) {
+        refused = true;
+    }
+    require(refused, "the pattern refuses expression for a voice a note does not have");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -678,6 +1069,11 @@ int main(int argc, char** argv) {
         {"record_take", record_take},
         {"export_matches", export_matches},
         {"poly_pressure", poly_pressure},
+        {"mpe_clap_live", mpe_clap_live},
+        {"mpe_clap_playback", mpe_clap_playback},
+        {"mpe_soundfont", mpe_soundfont},
+        {"mpe_vst3", mpe_vst3},
+        {"mpe_records", mpe_records},
     };
     if (argc < 2 || !cases.contains(argv[1])) {
         std::cerr << "Usage: blokkily_continuous_midi_tests <case>\n";

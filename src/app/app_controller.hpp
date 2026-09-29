@@ -79,6 +79,9 @@ class AppController final : public QObject {
     // it last delivered, so a producer can see a keyboard is reaching the app.
     Q_PROPERTY(QStringList midiPorts READ midiPorts NOTIFY midiChanged)
     Q_PROPERTY(QString midiPort READ midiPort NOTIFY midiChanged)
+    // Whether the MIDI input reads an MPE keyboard (the lower zone), or the
+    // keyboard turned MPE on itself with its configuration message.
+    Q_PROPERTY(bool mpe READ mpe NOTIFY midiChanged)
     Q_PROPERTY(QString midiActivity READ midiActivity NOTIFY midiActivityChanged)
     Q_PROPERTY(int midiNotes READ midiNotes NOTIFY midiActivityChanged)
     // Armed, a running song records what is played into the pattern under the
@@ -163,6 +166,8 @@ public:
     double sampleRate() const noexcept { return engine_ ? engine_->sample_rate() : 0.0; }
     QStringList midiPorts() const { return midi_ports_; }
     QString midiPort() const;
+    bool mpe() const;
+    Q_INVOKABLE void setMpe(bool enabled);
     QString midiActivity() const { return midi_activity_; }
     int midiNotes() const noexcept { return static_cast<int>(midi_notes_); }
     bool recordArmed() const noexcept { return record_armed_; }

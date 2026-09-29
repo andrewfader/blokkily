@@ -135,6 +135,30 @@ struct ContinuousEvent {
     return std::nullopt;
 }
 
+// Per-note expression (wave 4.1, MPE): how one voice of a step moves while it
+// sounds - its pitch, its timbre and its pressure, as an MPE keyboard plays
+// them on the note's own channel. `voice` is the voice of the step, in the
+// order the scheduler voices it (0 for a note; for a chord, after its
+// inversion), and `offset` how many ticks after that voice starts the value
+// arrives. Pitch is in semitones from the voice's tuned pitch (-96..96),
+// timbre and pressure 0..1. It stays with the note: moved, copied, looped
+// and cut with it, and distinct from controller movements (which are the
+// whole instrument's), parameter automation and modulation.
+struct NoteExpression {
+    enum class Kind : std::uint8_t { pitch = 1, timbre = 2, pressure = 3 };
+    std::uint8_t voice = 0;
+    Tick offset = 0;
+    Kind kind = Kind::pitch;
+    float value = 0.0F;
+
+    friend bool operator==(const NoteExpression&, const NoteExpression&) = default;
+    [[nodiscard]] static bool valid_value(Kind kind, float value) noexcept {
+        if (!(value == value)) return false; // NaN
+        if (kind == Kind::pitch) return value >= -96.0F && value <= 96.0F;
+        return value >= 0.0F && value <= 1.0F;
+    }
+};
+
 struct Trigger {
     EventId id = 0;
     Tick start = 0;
@@ -145,6 +169,8 @@ struct Trigger {
     std::uint8_t ratchets = 1;
     std::uint8_t play_on_loop = 0; // zero means every loop
     std::vector<ParameterLock> locks;
+    // Per-note expression of its voices, by voice and then offset.
+    std::vector<NoteExpression> expression;
 };
 
 struct ScheduledNote {
@@ -154,6 +180,18 @@ struct ScheduledNote {
     std::int16_t key;
     float velocity;
     double cents = 0.0;
+    // The note carries per-note expression (NoteExpression).
+    bool expressive = false;
+};
+
+// One value of a note's expression, where it sounds: addressed to the note by
+// its key and retune.
+struct ScheduledExpression {
+    Tick start;
+    std::int16_t key;
+    double cents;
+    NoteExpression::Kind kind;
+    float value;
 };
 
 struct ScheduledParameter {
@@ -173,6 +211,7 @@ struct ScheduledEvents {
     std::vector<ScheduledNote> notes;
     std::vector<ScheduledParameter> parameters;
     std::vector<ScheduledContinuous> continuous;
+    std::vector<ScheduledExpression> expressions;
 };
 
 } // namespace blokkily

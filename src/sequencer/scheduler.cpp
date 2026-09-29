@@ -15,13 +15,24 @@ std::uint64_t mix(std::uint64_t value) {
 
 // `length` is how long this voice sounds: the trigger's duration for a note,
 // the voice's own for a chord whose voices were held for different times.
-void emit_note(std::vector<ScheduledNote>& output, const Trigger& event,
-               const Note& note, Tick base_start, Tick length) {
+// `voice` is the voice's index, which its per-note expression names: every
+// strike of a ratchet moves as the voice was played, cut at the strike's end.
+void emit_note(ScheduledEvents& result, const Trigger& event, const Note& note,
+               Tick base_start, Tick length, std::size_t voice) {
     const auto ratchets = static_cast<Tick>(event.ratchets);
     const Tick slice = std::max<Tick>(1, length / ratchets);
+    const bool expressive = std::any_of(
+        event.expression.begin(), event.expression.end(),
+        [voice](const NoteExpression& expression) { return expression.voice == voice; });
     for (Tick ratchet = 0; ratchet < ratchets; ++ratchet) {
-        output.push_back({event.id, base_start + ratchet * slice, slice,
-                          note.key, note.velocity, note.cents});
+        const Tick start = base_start + ratchet * slice;
+        result.notes.push_back({event.id, start, slice, note.key, note.velocity, note.cents,
+                                expressive});
+        if (!expressive) continue;
+        for (const auto& expression : event.expression)
+            if (expression.voice == voice && expression.offset < slice)
+                result.expressions.push_back({start + expression.offset, note.key, note.cents,
+                                              expression.kind, expression.value});
     }
 }
 
@@ -52,7 +63,7 @@ ScheduledEvents Scheduler::render(
             result.parameters.push_back({event.id, start, lock.parameter_index,
                                          lock.value, lock.kind});
         if (const auto* note = std::get_if<Note>(&event.musical_data)) {
-            emit_note(output, event, *note, start, event.duration);
+            emit_note(result, event, *note, start, event.duration, 0);
             continue;
         }
 
@@ -71,13 +82,16 @@ ScheduledEvents Scheduler::render(
             const auto interval = static_cast<std::size_t>(source);
             Note note{static_cast<std::int16_t>(chord.root + chord.intervals[source] + octave),
                       voice_velocity(chord, interval), 0.0F, retune};
-            emit_note(output, event, note, start + voice * chord.strum,
-                      voice_duration(chord, interval, event.duration));
+            emit_note(result, event, note, start + voice * chord.strum,
+                      voice_duration(chord, interval, event.duration),
+                      static_cast<std::size_t>(voice));
         }
     }
     std::stable_sort(output.begin(), output.end(), [](const auto& a, const auto& b) {
         return a.start < b.start;
     });
+    std::stable_sort(result.expressions.begin(), result.expressions.end(),
+                     [](const auto& a, const auto& b) { return a.start < b.start; });
     std::stable_sort(result.parameters.begin(), result.parameters.end(),
         [](const auto& a, const auto& b) { return a.start < b.start; });
     // Controller movements play every loop: they belong to no step, so no

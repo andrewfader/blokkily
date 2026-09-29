@@ -19,8 +19,20 @@ struct StereoBlock {
     std::span<float> right;
 };
 
+// The dimensions of a note_expression event: MPE's three, which CLAP calls
+// tuning, brightness and pressure.
+namespace note_dimension {
+inline constexpr std::uint8_t pitch = 1;    // semitones from the note's tuned pitch
+inline constexpr std::uint8_t timbre = 2;   // 0..1 (MPE's CC 74)
+inline constexpr std::uint8_t pressure = 3; // 0..1
+} // namespace note_dimension
+
 struct PluginEvent {
-    enum class Type { note_on, note_off, parameter_value, parameter_modulation, midi_raw };
+    // note_expression (wave 4.1, MPE) moves one playing note: `key_or_parameter`
+    // is its key, `cents` its retune (so pitch can be said in full), `value`
+    // the expression's value and `expression` its dimension (note_dimension).
+    enum class Type { note_on, note_off, parameter_value, parameter_modulation, midi_raw,
+                      note_expression };
     Type type;
     std::uint32_t sample_offset;
     std::int32_t key_or_parameter;
@@ -29,6 +41,10 @@ struct PluginEvent {
     // speaks semitones, so a microtonal pitch travels as the nearest key plus
     // this offset and each adapter says it in its own dialect.
     double cents = 0.0;
+    // A note_expression's dimension. On a note_on, 1 says per-note expression
+    // may follow (an MPE note): an adapter that carries expression on MIDI
+    // channels gives it a channel of its own. 0 otherwise.
+    std::uint8_t expression = 0;
 };
 
 // --- Native editor windows (implemented by item 2.6) -------------------------

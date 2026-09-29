@@ -357,7 +357,16 @@ void compile_launcher(ArrangementLauncher& target, const Song& song, std::uint64
             for (const auto& note : rendered.notes)
                 compiled.events.push_back({inside(note.start), std::max<Tick>(0, note.duration),
                                            {PluginEvent::Type::note_on, 0, note.key,
-                                            note.velocity, note.cents}});
+                                            note.velocity, note.cents,
+                                            static_cast<std::uint8_t>(note.expressive ? 1 : 0)}});
+            // Per-note expression after the notes, so a value on a note's
+            // first tick follows its note-on.
+            for (const auto& expression : rendered.expressions)
+                compiled.events.push_back(
+                    {inside(expression.start), 0,
+                     {PluginEvent::Type::note_expression, 0, expression.key,
+                      static_cast<double>(expression.value), expression.cents,
+                      static_cast<std::uint8_t>(expression.kind)}});
             std::stable_sort(compiled.events.begin() + static_cast<std::ptrdiff_t>(first),
                              compiled.events.end(),
                              [](const LauncherEvent& a, const LauncherEvent& b) {
@@ -647,7 +656,10 @@ std::size_t launcher_events(LauncherPlayback& playback, const ArrangementLaunche
                                                   at, at + event.duration};
                 emit(sample, 2, event.event);
             } else {
-                emit(sample, 0, event.event);
+                // Per-note expression sorts with the note-ons, after them.
+                emit(sample,
+                     event.event.type == PluginEvent::Type::note_expression ? 2 : 0,
+                     event.event);
             }
         }
         // Releases that fall in this chunk, in the order their notes began.

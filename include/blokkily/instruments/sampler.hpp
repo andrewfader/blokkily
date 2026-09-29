@@ -134,6 +134,9 @@ private:
         double release_frames = 0.0;
         float left_gain = 0.0F, right_gain = 0.0F;
         int key = -1;
+        // Per-note pitch expression (MPE), in semitones, on top of the tune
+        // parameter and the wheel.
+        double expression_semitones = 0.0;
         enum class Stage : std::uint8_t { attack, decay, sustain, release } stage = Stage::attack;
         bool active = false;
         bool backward = false;     // ping-pong direction
@@ -141,6 +144,9 @@ private:
         bool may_loop = false;     // started before the loop's end
         bool pedal_held = false;   // released while the sustain pedal was down
     };
+    // Per-note expression (MPE): the pitch of every voice of that key; the
+    // sampler has no timbre and no pressure, so those are ignored.
+    void apply_expression(const PluginEvent& event) noexcept;
     // Raw MIDI (wave 4.1): the pitch wheel (two semitones either way) and the
     // sustain pedal (CC 64); the rest is ignored.
     void apply_midi(std::uint32_t raw) noexcept;

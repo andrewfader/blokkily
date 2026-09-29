@@ -6,7 +6,9 @@
 # timeline, the engine's chase (song_engine.cpp), the `control` record, the
 # take, and the instruments that play them.
 
-target_sources(blokkily_core PRIVATE src/project/records_continuous.cpp)
+target_sources(blokkily_core PRIVATE
+    src/project/records_continuous.cpp
+    src/project/records_expression.cpp)
 
 if(BLOKKILY_BUILD_TESTS)
     if(NOT BLOKKILY_TEST_SF2)
@@ -20,7 +22,7 @@ if(BLOKKILY_BUILD_TESTS)
     endif()
     add_executable(blokkily_continuous_midi_tests tests/continuous_midi_tests.cpp)
     target_include_directories(blokkily_continuous_midi_tests PRIVATE tests)
-    target_link_libraries(blokkily_continuous_midi_tests PRIVATE blokkily_core)
+    target_link_libraries(blokkily_continuous_midi_tests PRIVATE blokkily_core ${CMAKE_DL_LIBS})
     target_compile_definitions(blokkily_continuous_midi_tests PRIVATE
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
         BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
@@ -38,7 +40,12 @@ if(BLOKKILY_BUILD_TESTS)
             chase
             record_take
             export_matches
-            poly_pressure)
+            poly_pressure
+            mpe_clap_live
+            mpe_clap_playback
+            mpe_soundfont
+            mpe_vst3
+            mpe_records)
         add_test(NAME continuous_midi_${midi_case}
             COMMAND blokkily_continuous_midi_tests ${midi_case})
         set_tests_properties(continuous_midi_${midi_case} PROPERTIES
@@ -53,6 +60,13 @@ if(BLOKKILY_BUILD_TESTS)
     set_property(TEST continuous_midi_record_take APPEND PROPERTY LABELS "clap;recording;project")
     set_property(TEST continuous_midi_export_matches APPEND PROPERTY LABELS "export")
     set_property(TEST continuous_midi_poly_pressure APPEND PROPERTY LABELS "clap;recording;project;export")
+    set_property(TEST continuous_midi_mpe_clap_live continuous_midi_mpe_clap_playback
+                 APPEND PROPERTY LABELS "clap;mpe")
+    set_property(TEST continuous_midi_mpe_clap_live APPEND PROPERTY LABELS "recording")
+    set_property(TEST continuous_midi_mpe_clap_playback APPEND PROPERTY LABELS "export;launcher")
+    set_property(TEST continuous_midi_mpe_soundfont APPEND PROPERTY LABELS "soundfont;mpe")
+    set_property(TEST continuous_midi_mpe_vst3 APPEND PROPERTY LABELS "vst3;mpe")
+    set_property(TEST continuous_midi_mpe_records APPEND PROPERTY LABELS "project;mpe")
 endif()
 
 if(BLOKKILY_BUILD_TESTS)

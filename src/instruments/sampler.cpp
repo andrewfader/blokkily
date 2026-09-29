@@ -465,6 +465,13 @@ bool SamplerInstrument::render_voice(Voice& voice, StereoBlock audio, std::size_
     return true;
 }
 
+void SamplerInstrument::apply_expression(const PluginEvent& event) noexcept {
+    if (event.expression != note_dimension::pitch) return;
+    for (auto& voice : voices_)
+        if (voice.active && voice.key == event.key_or_parameter)
+            voice.expression_semitones = std::clamp(event.value, -96.0, 96.0);
+}
+
 void SamplerInstrument::apply_midi(std::uint32_t raw) noexcept {
     const auto kind = raw & 0xF0U;
     const auto first = (raw >> 8) & 0x7FU;
@@ -493,8 +500,13 @@ void SamplerInstrument::render(StereoBlock audio, std::size_t from, std::size_t 
     // The tune parameter and the wheel, together.
     const double tune = std::exp2(((parameter(sampler_parameter::tune) - 0.5) * 48.0 +
                                    bend_semitones_) / 12.0);
-    for (auto& voice : voices_)
-        if (voice.active && !render_voice(voice, audio, from, to, gain, tune)) voice.active = false;
+    for (auto& voice : voices_) {
+        const double pitched = voice.expression_semitones == 0.0
+                                   ? tune
+                                   : tune * std::exp2(voice.expression_semitones / 12.0);
+        if (voice.active && !render_voice(voice, audio, from, to, gain, pitched))
+            voice.active = false;
+    }
     for (auto& voice : fading_)
         if (voice.active && !render_voice(voice, audio, from, to, gain, tune)) voice.active = false;
 }
@@ -531,6 +543,9 @@ void SamplerInstrument::process(StereoBlock audio, std::span<const PluginEvent> 
             break;
         case PluginEvent::Type::midi_raw:
             apply_midi(static_cast<std::uint32_t>(event.key_or_parameter));
+            break;
+        case PluginEvent::Type::note_expression:
+            apply_expression(event);
             break;
         }
     }

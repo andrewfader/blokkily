@@ -27,6 +27,7 @@ std::span<const RecordModule* const> record_modules() {
         &scene_launcher_records(),
         &modulation_records(),
         &continuous_records(),
+        &expression_records(),
     };
     return modules;
 }

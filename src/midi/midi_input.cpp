@@ -64,6 +64,24 @@ struct MidiInput::Impl {
     std::atomic<bool> any_owed{false};
     InputQueue queue;
     std::atomic<std::uint64_t> received{0};
+    // The MPE zone: written by the control thread (set_mpe) or by the
+    // producer (an MPE Configuration Message), read by the producer.
+    std::atomic<bool> mpe_enabled{false};
+    std::atomic<std::uint8_t> mpe_master{0};
+    std::atomic<std::uint8_t> mpe_first{1};
+    std::atomic<std::uint8_t> mpe_last{15};
+    std::atomic<double> mpe_range{48.0};
+    // Per channel, producer only: the registered parameter being set, and
+    // the member channel's expression as last played (MPE sends a note's
+    // starting values just before its note-on).
+    struct ChannelState {
+        std::uint8_t rpn_msb = 127;
+        std::uint8_t rpn_lsb = 127;
+        double pitch = 0.0;
+        double timbre = -1.0; // not yet set
+        double pressure = 0.0;
+    };
+    std::array<ChannelState, 16> channel_state{};
     std::atomic<int> last_key{-1};
     std::atomic<int> last_velocity{0};
     // Guards opening and closing against each other, never the note path.
@@ -117,6 +135,45 @@ struct MidiInput::Impl {
                 still = still || key.owed != 0;
             }
         any_owed.store(still, std::memory_order_release);
+    }
+
+    [[nodiscard]] bool member(std::uint8_t channel) const noexcept {
+        return mpe_enabled.load(std::memory_order_acquire) &&
+               channel >= mpe_first.load(std::memory_order_relaxed) &&
+               channel <= mpe_last.load(std::memory_order_relaxed) &&
+               channel != mpe_master.load(std::memory_order_relaxed);
+    }
+
+    // One dimension of expression to every note held on `channel`, or to
+    // `only_key` of it, on the tracks each went down on.
+    void express(std::uint8_t channel, std::uint8_t dimension, double value,
+                 int only_key = -1) noexcept {
+        auto& keys = held[channel];
+        for (std::size_t key = 0; key < keys.size(); ++key) {
+            const auto& note = keys[key];
+            if (note.sounding == 0) continue;
+            if (only_key >= 0 && static_cast<int>(key) != only_key) continue;
+            (void)push_to(note.sounding, {PluginEvent::Type::note_expression, 0, note.pitch.key,
+                                          value, note.pitch.cents, dimension});
+        }
+    }
+
+    // An MPE Configuration Message or a member's pitch range, from RPN data
+    // entry on `channel`.
+    void registered_parameter(std::uint8_t channel, std::uint8_t value) noexcept {
+        const auto& state = channel_state[channel];
+        if (state.rpn_msb != 0) return;
+        if (state.rpn_lsb == 6 && (channel == 0 || channel == 15)) {
+            // RPN 6 on channel 1 configures the lower zone, on 16 the upper.
+            const auto members = std::min<std::uint8_t>(value, 15);
+            mpe_enabled.store(members > 0, std::memory_order_release);
+            mpe_master.store(channel, std::memory_order_relaxed);
+            mpe_first.store(channel == 0 ? 1 : static_cast<std::uint8_t>(15 - members),
+                            std::memory_order_relaxed);
+            mpe_last.store(channel == 0 ? members : 14, std::memory_order_relaxed);
+        } else if (state.rpn_lsb == 0 && member(channel)) {
+            mpe_range.store(value, std::memory_order_relaxed);
+        }
     }
 
     void release_everything() noexcept {
@@ -272,6 +329,22 @@ bool MidiInput::release_pending() const noexcept {
     return impl_->any_owed.load(std::memory_order_acquire);
 }
 
+void MidiInput::set_mpe(const MpeZone& zone) noexcept {
+    impl_->mpe_master.store(zone.master & 0x0FU, std::memory_order_relaxed);
+    impl_->mpe_first.store(zone.first & 0x0FU, std::memory_order_relaxed);
+    impl_->mpe_last.store(zone.last & 0x0FU, std::memory_order_relaxed);
+    impl_->mpe_range.store(std::clamp(zone.pitch_range, 1.0, 96.0), std::memory_order_relaxed);
+    impl_->mpe_enabled.store(zone.enabled, std::memory_order_release);
+}
+
+MpeZone MidiInput::mpe() const noexcept {
+    return {impl_->mpe_enabled.load(std::memory_order_acquire),
+            impl_->mpe_master.load(std::memory_order_relaxed),
+            impl_->mpe_first.load(std::memory_order_relaxed),
+            impl_->mpe_last.load(std::memory_order_relaxed),
+            impl_->mpe_range.load(std::memory_order_relaxed)};
+}
+
 void MidiInput::set_key_map(const KeyMap& map) noexcept {
     for (std::size_t key = 0; key < map.size(); ++key)
         impl_->key_map[key].store(map[key], std::memory_order_release);
@@ -294,6 +367,47 @@ void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
         const auto first = static_cast<std::uint8_t>(message[1] & 0x7FU);
         const auto second = message.size() >= 3 ? static_cast<std::uint8_t>(message[2] & 0x7FU)
                                                 : std::uint8_t{0};
+        // Registered parameters are followed on every channel: an MPE
+        // Configuration Message turns a zone on or off, RPN 0 on a member
+        // sets its pitch range.
+        if (kind == 0xB0 && (first == 101 || first == 100 || first == 6)) {
+            auto& state = impl_->channel_state[channel];
+            if (first == 101) state.rpn_msb = second;
+            else if (first == 100) state.rpn_lsb = second;
+            else impl_->registered_parameter(channel, second);
+            // A member's own setup is the zone's, not a controller's.
+            if (impl_->member(channel)) return;
+        }
+        if (impl_->member(channel)) {
+            // MPE: a member channel's bend, CC 74 and pressure belong to the
+            // note it holds (per-note expression); they are remembered, so a
+            // note struck after them starts from them.
+            auto& state = impl_->channel_state[channel];
+            if (kind == 0xE0) {
+                const int bend = first | (second << 7);
+                state.pitch = (bend - 8192) / 8192.0 * impl_->mpe_range.load(std::memory_order_relaxed);
+                impl_->express(channel, note_dimension::pitch, state.pitch);
+                impl_->received.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            if (kind == 0xB0 && first == 74) {
+                state.timbre = second / 127.0;
+                impl_->express(channel, note_dimension::timbre, state.timbre);
+                impl_->received.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            if (kind == 0xD0) {
+                state.pressure = first / 127.0;
+                impl_->express(channel, note_dimension::pressure, state.pressure);
+                impl_->received.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            if (kind == 0xA0) {
+                impl_->express(channel, note_dimension::pressure, second / 127.0, first);
+                impl_->received.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+        }
         if (kind == 0xB0 && first == 64) {
             // Sustain pedal (CC 64): >= 64 is down, < 64 is up
             const bool down = second >= 64;
@@ -370,10 +484,24 @@ void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
     // would arrive after the new note and silence it.
     const auto tracks =
         impl_->routes[ch].load(std::memory_order_acquire) & ~held.owed;
+    // A note on an MPE member channel carries its own expression.
+    const bool expressive = impl_->member(ch);
     held.sounding = impl_->push_to(
-        tracks, {PluginEvent::Type::note_on, 0, pitch.key, note->velocity / 127.0, pitch.cents});
+        tracks, {PluginEvent::Type::note_on, 0, pitch.key, note->velocity / 127.0, pitch.cents,
+                 static_cast<std::uint8_t>(expressive ? 1 : 0)});
     held.pitch = pitch;
     held.sustained = false;
+    if (expressive) {
+        // The values the keyboard sent just before the note are its start.
+        const auto& state = impl_->channel_state[ch];
+        const auto start = [&](std::uint8_t dimension, double value) {
+            (void)impl_->push_to(held.sounding, {PluginEvent::Type::note_expression, 0, pitch.key,
+                                                 value, pitch.cents, dimension});
+        };
+        if (state.pitch != 0.0) start(note_dimension::pitch, state.pitch);
+        if (state.timbre >= 0.0) start(note_dimension::timbre, state.timbre);
+        if (state.pressure != 0.0) start(note_dimension::pressure, state.pressure);
+    }
     impl_->received.fetch_add(1, std::memory_order_relaxed);
     impl_->last_key.store(note->key, std::memory_order_relaxed);
     impl_->last_velocity.store(note->velocity, std::memory_order_relaxed);

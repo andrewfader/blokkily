@@ -17,6 +17,8 @@ struct PlayedNote {
     std::int16_t key = 60;
     float velocity = 0.8F;
     double cents = 0.0;
+    // How it moved while held (MPE): voice 0, offsets from its start.
+    std::vector<NoteExpression> expression{};
 };
 
 // Pairs the key-downs and key-ups heard during a take into notes. The song
@@ -35,6 +37,11 @@ public:
     // it is, or nothing for a message a pattern does not keep (see
     // continuous_from_midi in event.hpp).
     [[nodiscard]] std::optional<ContinuousEvent> control(Tick at, std::uint32_t raw) const;
+    // Per-note expression heard at song tick `at` for the held note on
+    // `key` (MPE): kept with that note, at its offset from the note's start
+    // read round the loop. A second value of the same kind on the same tick
+    // replaces the first. Nothing for a key not held.
+    void expression(Tick at, std::int16_t key, NoteExpression::Kind kind, float value);
 
 private:
     Tick length_;
@@ -59,7 +66,10 @@ struct TakeTarget {
 // of both, so a take laid over a pattern adds to it rather than erasing it.
 // Each voice of that chord keeps its own velocity and its own held length, so
 // a soft short key and a hard long one merged onto a step still sound that way.
-// `note.start` is in the pattern's own ticks. Returns the step written.
+// `note.start` is in the pattern's own ticks. Returns the step written. A
+// played note's per-note expression goes with it: onto its voice of the step,
+// the other voices' expression following their voices when a chord is made
+// or reordered.
 int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step);
 
 // Writes a played controller movement into a pattern at `event.tick`, read in

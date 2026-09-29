@@ -65,15 +65,21 @@ public:
         const auto render = [&](int end) {
             for (; cursor < end; ++cursor) {
                 float sample = 0.0F;
+                // A note's own channel pressure and CC 74 (MPE's pressure and
+                // timbre) each raise it by up to double; nothing else sends
+                // them to this fixture, so every other level is untouched.
+                const auto voice = static_cast<std::size_t>(channel_);
+                const float pressed = level_->get() * (1.0F + pressure_[voice]) *
+                                      (1.0F + brightness_[voice]);
                 if (sounding_ && tone_->get() >= 0.5F) {
                     const double frequency = 440.0 * std::pow(
                         2.0, (key_ - 69 + bend_semitones_[static_cast<std::size_t>(channel_)]) / 12.0);
-                    sample = static_cast<float>(level_->get() * std::sin(phase_));
+                    sample = static_cast<float>(pressed * std::sin(phase_));
                     phase_ += juce::MathConstants<double>::twoPi * frequency / sample_rate_;
                     if (phase_ > juce::MathConstants<double>::twoPi)
                         phase_ -= juce::MathConstants<double>::twoPi;
                 } else if (sounding_) {
-                    sample = level_->get();
+                    sample = pressed;
                 }
                 for (int channel = 0; channel < audio.getNumChannels(); ++channel)
                     audio.setSample(channel, cursor, sample);
@@ -95,6 +101,12 @@ public:
                 bend_semitones_[static_cast<std::size_t>(message.getChannel())] =
                     (message.getPitchWheelValue() - 8192) / 8192.0 * 2.0;
             }
+            if (message.isChannelPressure())
+                pressure_[static_cast<std::size_t>(message.getChannel())] =
+                    static_cast<float>(message.getChannelPressureValue()) / 127.0F;
+            if (message.isController() && message.getControllerNumber() == 74)
+                brightness_[static_cast<std::size_t>(message.getChannel())] =
+                    static_cast<float>(message.getControllerValue()) / 127.0F;
             if (message.isNoteOn()) {
                 sounding_ = true;
                 key_ = message.getNoteNumber();
@@ -135,6 +147,8 @@ private:
     bool sounding_ = false;
     int key_ = 60;
     std::array<double, 17> bend_semitones_{};
+    std::array<float, 17> pressure_{};
+    std::array<float, 17> brightness_{};
     int channel_ = 1;
     double phase_ = 0.0;
     double sample_rate_ = 48000.0;

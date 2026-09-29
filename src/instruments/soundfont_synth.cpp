@@ -122,6 +122,14 @@ int SoundFontSynth::release_channel(int key) noexcept {
     return -1;
 }
 
+int SoundFontSynth::expressive_bend(int channel) const noexcept {
+    const double semitones = (wheel_ - 8192) / 8192.0 * 2.0 +
+                             channel_expression_[static_cast<std::size_t>(channel)];
+    return std::clamp(static_cast<int>(std::lround(8192.0 + semitones * 8192.0 /
+                                                              expressive_bend_range)),
+                      0, 16383);
+}
+
 void SoundFontSynth::process(StereoBlock audio,
                              std::span<const PluginEvent> events) noexcept {
     if (!synth_ || audio.left.size() != audio.right.size()) return;
@@ -138,11 +146,24 @@ void SoundFontSynth::process(StereoBlock audio,
         render(offset);
         if (event.type == PluginEvent::Type::note_on) {
             const int velocity = std::clamp(static_cast<int>(event.value * 127.0), 0, 127);
-            if (event.cents == 0.0) {
+            if (event.cents == 0.0 && event.expression == 0) {
                 fluid_synth_noteon(synth_.get(), shared_channel, event.key_or_parameter,
                                    velocity);
             } else {
+                // A retuned note, and a note with per-note expression (an
+                // MPE note), each get a channel of their own.
                 const int channel = claim_channel(event.key_or_parameter);
+                const auto slot = static_cast<std::size_t>(channel);
+                const bool expressive = event.expression != 0;
+                if (expressive || channel_expressive_[slot]) {
+                    fluid_synth_pitch_wheel_sens(synth_.get(), channel,
+                                                 expressive ? expressive_bend_range : 2);
+                    channel_expressive_[slot] = expressive;
+                    channel_expression_[slot] = 0.0;
+                    fluid_synth_pitch_bend(synth_.get(), channel,
+                                           expressive ? expressive_bend(channel) : wheel_);
+                    fluid_synth_channel_pressure(synth_.get(), channel, 0);
+                }
                 // The channel's tuning table is told what this key is worth in
                 // cents, and the note is then played as any other note.
                 const int key = event.key_or_parameter;
@@ -155,6 +176,25 @@ void SoundFontSynth::process(StereoBlock audio,
             const int channel = release_channel(event.key_or_parameter);
             fluid_synth_noteoff(synth_.get(), channel < 0 ? shared_channel : channel,
                                 event.key_or_parameter);
+        } else if (event.type == PluginEvent::Type::note_expression) {
+            // Per-note expression on the note's own channel: pitch as its
+            // bend, timbre as CC 74, pressure as channel pressure. A note on
+            // the shared channel has none to take it.
+            int channel = -1;
+            for (int candidate = first_retuned_channel; candidate < channels; ++candidate)
+                if (channel_key_[static_cast<std::size_t>(candidate)] == event.key_or_parameter &&
+                    channel_expressive_[static_cast<std::size_t>(candidate)])
+                    channel = candidate;
+            if (channel < 0) continue;
+            const int level = std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127);
+            if (event.expression == note_dimension::pitch) {
+                channel_expression_[static_cast<std::size_t>(channel)] = event.value;
+                fluid_synth_pitch_bend(synth_.get(), channel, expressive_bend(channel));
+            } else if (event.expression == note_dimension::timbre) {
+                fluid_synth_cc(synth_.get(), channel, 74, level);
+            } else if (event.expression == note_dimension::pressure) {
+                fluid_synth_channel_pressure(synth_.get(), channel, level);
+            }
         } else if (event.type == PluginEvent::Type::midi_raw) {
             // The track is one instrument, so the channel a controller was
             // played on names nothing here. A channel-wide message reaches
@@ -172,8 +212,13 @@ void SoundFontSynth::process(StereoBlock audio,
                     if (channel_key_[static_cast<std::size_t>(candidate)] == first) channel = candidate;
                 fluid_synth_key_pressure(synth_.get(), channel, first, second);
             } else {
+                if (kind == 0xE0) wheel_ = first | (second << 7);
                 for (int channel = 0; channel < channels; ++channel) {
-                    if (kind == 0xE0) fluid_synth_pitch_bend(synth_.get(), channel, first | (second << 7));
+                    if (kind == 0xE0)
+                        fluid_synth_pitch_bend(synth_.get(), channel,
+                                               channel_expressive_[static_cast<std::size_t>(channel)]
+                                                   ? expressive_bend(channel)
+                                                   : wheel_);
                     else if (kind == 0xB0) fluid_synth_cc(synth_.get(), channel, first, second);
                     else if (kind == 0xD0) fluid_synth_channel_pressure(synth_.get(), channel, first);
                 }
@@ -193,6 +238,9 @@ void SoundFontSynth::reset() {
     activated_ = false;
     (void)activate(sample_rate_, 1, 1);
     channel_key_.fill(-1);
+    channel_expressive_.fill(false);
+    channel_expression_.fill(0.0);
+    wheel_ = 8192;
 }
 
 std::vector<std::byte> SoundFontSynth::save_state() {
