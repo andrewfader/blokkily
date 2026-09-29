@@ -1,6 +1,4 @@
-#include "blokkily/audio/modulator.hpp"
 #include "blokkily/audio/scene_launcher_engine.hpp"
-#include "blokkily/audio/sidechain.hpp"
 #include "blokkily/audio/song_engine.hpp"
 
 #include "engine/arrangement.hpp"
@@ -9,6 +7,7 @@
 #include "engine/engine_effects.hpp"
 #include "engine/engine_input.hpp"
 #include "engine/engine_metronome.hpp"
+#include "engine/engine_modulation.hpp"
 #include "engine/track_playback.hpp"
 
 #include <algorithm>
@@ -50,7 +49,8 @@ constexpr std::uint32_t handoff_state(std::uint32_t queued, std::uint32_t render
 
 SongEngine::SongEngine()
     : buses_(std::make_unique<engine::BusPlayback>()),
-      metronome_(std::make_unique<engine::MetronomePlayback>()) {}
+      metronome_(std::make_unique<engine::MetronomePlayback>()),
+      modulation_(std::make_unique<engine::ModulationPlayback>()) {}
 SongEngine::~SongEngine() = default;
 
 std::unique_ptr<PluginInstance>* SongEngine::processor_slot(ProcessorAddress where) const {
@@ -172,6 +172,8 @@ void SongEngine::reset_processing() {
     // A bounce plays the lanes, not what was latched while playing before it.
     for (auto& track : tracks_) engine::release_automation(track->automation);
     if (live_ != nullptr) engine::release_parameter_holds(live_->automation);
+    // Followers and free-running LFOs start from rest, as a bounce must.
+    engine::reset_modulation(*modulation_);
 }
 
 std::uint32_t SongEngine::output_latency() const noexcept {
@@ -235,6 +237,9 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     strips_.assign(song.tracks.size(), MixerStrip{});
     tap_left_.assign(maximum_block_size, 0.0F);
     tap_right_.assign(maximum_block_size, 0.0F);
+    post_left_.assign(maximum_block_size, 0.0F);
+    post_right_.assign(maximum_block_size, 0.0F);
+    engine::reset_modulation(*modulation_);
     rolled_ = false;
 
     // Nothing is rendering yet, so the first arrangement is installed directly
@@ -272,7 +277,6 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     heard_tick_.store(0, std::memory_order_release);
     requested_position_.store(no_seek, std::memory_order_release);
     cursors_valid_ = false;
-    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
     return true;
 }
 
@@ -309,6 +313,17 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     engine::compile_automation(target.automation, song, clock, samples);
     // The click's beats, placed by the same clock (item 3.7).
     engine::compile_clicks(target.clicks, song.meter, clock, song.length(), samples);
+    // Keys, modulators and the render order (waves 5.1 and 5.2). A target's
+    // range is the parameter's own, read from the processor the engine holds.
+    engine::compile_routing(
+        target.routing, song,
+        [this](ProcessorAddress where, std::int32_t parameter) -> std::optional<double> {
+            const auto* instance = processor(where);
+            if (instance == nullptr) return std::nullopt;
+            for (const auto& info : instance->parameters())
+                if (info.id == parameter) return info.max - info.min;
+            return std::nullopt;
+        });
     target.song_samples = samples;
     target.clock = std::move(clock);
     target.ticks_per_beat = song.ticks_per_beat();
@@ -388,6 +403,9 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
         sample_position_ = kept;
         published_position_.store(kept, std::memory_order_release);
     }
+    // A parameter no longer modulated is sent a last modulation of 0, so the
+    // plugin does not keep the offset it had.
+    if (live_ != nullptr) engine::release_sinks(*modulation_, live_->routing, incoming->routing);
     live_ = incoming;
     song_samples_ = incoming->song_samples;
     // Done with the old slot: it is free for the next recompile.
@@ -456,6 +474,8 @@ void SongEngine::apply_mix(const Song& song) {
     set_master_gain_db(song.master_gain_db);
     engine::apply_effect_mix(song, track_chains(), *buses_);
     set_metronome(song.metronome.enabled, song.metronome.level_db);
+    // The modulators' rates, shapes, depths and macros: live, like a fader.
+    engine::apply_modulation_controls(*modulation_, song);
 }
 
 void SongEngine::set_master_gain_db(double decibels) {
@@ -513,8 +533,11 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
     auto& events = track.events;
     const auto capacity = events.size();
     const auto& timeline = timeline_for(index);
-    std::size_t count = 0;
-    // Notes the arrangement still owes a release come first.
+    // The modulators' offsets come first, at offset 0, so the events stay in
+    // time order whatever follows them (wave 5.1).
+    std::size_t count =
+        modulation_for(track_instrument(static_cast<std::uint32_t>(index)), events);
+    // Notes the arrangement still owes a release come next.
     if (release_arrangement_notes_) {
         for (std::size_t key = 0; key < track.sounding.size(); ++key) {
             if (track.sounding[key] > 0 && count < capacity) {
@@ -603,12 +626,6 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
             }
         }
     }
-    if (modulations_ != nullptr && count < capacity) {
-        const auto mod_added = modulations_->generate_events_for(
-            track_instrument(static_cast<std::uint32_t>(index)),
-            std::span{events.data() + count, capacity - count});
-        count += mod_added;
-    }
     return count;
 }
 
@@ -642,6 +659,8 @@ struct DrainContext {
     std::uint64_t end;
     const engine::ArrangementAutomation* automation;
     std::span<PluginEvent> scratch;
+    // The chunk's length, for the sidechain keys handed to inserts.
+    std::size_t frames;
 };
 } // namespace
 
@@ -654,24 +673,35 @@ void SongEngine::drain_insert_edits(void* context, PluginInstance& processor,
 std::span<const PluginEvent> SongEngine::insert_events(void* context,
                                                        ProcessorAddress where) noexcept {
     auto& chunk = *static_cast<DrainContext*>(context);
-    std::size_t count = 0;
+    // Modulation first, all at offset 0; the lanes' events, in time order,
+    // after it (wave 5.1).
+    std::size_t count = chunk.engine->modulation_for(where, chunk.scratch);
     if (chunk.rolling && chunk.automation != nullptr) {
         const auto* lanes = engine::lanes_for(*chunk.automation, where);
-        if (lanes != nullptr) {
-            count = engine::automation_events(*lanes, chunk.song_position, chunk.end, chunk.scratch);
-        }
-    }
-    if (chunk.engine->modulation_matrix() != nullptr && count < chunk.scratch.size()) {
-        const auto mod_count = chunk.engine->modulation_matrix()->generate_events_for(
-            where, chunk.scratch.subspan(count));
-        count += mod_count;
+        if (lanes != nullptr)
+            count += engine::automation_events(*lanes, chunk.song_position, chunk.end,
+                                               chunk.scratch.subspan(count));
     }
     return chunk.scratch.first(count);
 }
 
+std::size_t SongEngine::modulation_for(ProcessorAddress where,
+                                       std::span<PluginEvent> out) noexcept {
+    if (live_ == nullptr) return 0;
+    return engine::modulation_events(*modulation_, live_->routing, where, out);
+}
+
 StereoBlock SongEngine::sidechain_input(void* context, ProcessorAddress where) noexcept {
     auto& chunk = *static_cast<DrainContext*>(context);
-    return chunk.engine->get_sidechain_for(where);
+    const auto* engine = chunk.engine;
+    if (engine->live_ == nullptr) return {};
+    const auto source = engine::sidechain_source(engine->live_->routing, where);
+    if (!source || *source >= engine->tracks_.size()) return {};
+    auto& track = *engine->tracks_[*source];
+    if (track.left.size() < chunk.frames || track.right.size() < chunk.frames) return {};
+    // The source's buffer as it rendered this chunk: after its inserts, before
+    // its fader, exactly this chunk long.
+    return {{track.left.data(), chunk.frames}, {track.right.data(), chunk.frames}};
 }
 
 TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_t song_position,
@@ -692,11 +722,6 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     std::fill(output.right.begin(), output.right.end(), 0.0F);
     const auto end = song_position + frames;
 
-    if (modulations_ != nullptr) {
-        const double bpm = live_ != nullptr ? live_->clock.bpm_at_sample(static_cast<double>(song_position)) : 120.0;
-        modulations_->process(output, sample_rate_, bpm, frames);
-    }
-
     // Whatever a MIDI port and the on-screen surfaces delivered since the last
     // block, one event per track it is routed to. It is taken once,
     // before any track renders, and handed to the tracks it names below.
@@ -713,8 +738,13 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     const TransportInfo transport = transport_at(arranged, song_position, from_timeline);
     // Recorded input goes here only while the song plays and records.
     SampleRing* const capture_ring = capture ? capture_.load(std::memory_order_acquire) : nullptr;
-    DrainContext drain_context{this, song_position, from_timeline, end, &arranged.automation,
-                               std::span<PluginEvent>(automation_scratch_)};
+    DrainContext drain_context{this,
+                               song_position,
+                               from_timeline,
+                               end,
+                               &arranged.automation,
+                               std::span<PluginEvent>(automation_scratch_),
+                               frames};
     const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context,
                                   &SongEngine::insert_events, &SongEngine::sidechain_input};
     engine::begin_buses(*buses_, frames);
@@ -724,9 +754,23 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         scene_launcher_->begin_chunk(start_tick, arranged.meter);
     }
 
-    const auto render_tracks = render_order_.size() == tracks_.size() ? std::span{render_order_} : std::span<const std::size_t>{};
+    // Every LFO and macro once, at the chunk's first sample (wave 5.1). While
+    // the song plays the LFOs read their phase from where it is, so a bounce
+    // modulates as playback did.
+    {
+        const auto sample = static_cast<double>(song_position);
+        const double beats = arranged.clock.tick_at(sample) /
+                             static_cast<double>(std::max<Tick>(1, arranged.ticks_per_beat));
+        engine::advance_modulators(*modulation_, arranged.routing,
+                                   {from_timeline, sample / sample_rate_, beats, transport.bpm,
+                                    sample_rate_, frames});
+    }
+
+    // Sources of keys and followers first (wave 5.2); every track once.
+    const auto& order = arranged.routing.order;
+    const bool ordered = order.size() == tracks_.size();
     for (std::size_t i = 0; i < tracks_.size(); ++i) {
-        const std::size_t index = render_tracks.empty() ? i : render_tracks[i];
+        const std::size_t index = ordered ? order[i] : i;
         auto& track = *tracks_[index];
         // A track added after prepare() has no buffers yet and is not played.
         if (track.left.size() < frames || track.right.size() < frames) continue;
@@ -741,17 +785,6 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         std::fill(left.begin(), left.end(), 0.0F);
         std::fill(right.begin(), right.end(), 0.0F);
         const StereoBlock buffer{left, right};
-
-        for (const auto& mo : multi_outs_) {
-            if (mo.dest_track == index && mo.source_track < tracks_.size() && tracks_[mo.source_track]) {
-                const auto& src = *tracks_[mo.source_track];
-                const auto copy_frames = std::min(frames, src.left.size());
-                for (std::size_t f = 0; f < copy_frames; ++f) {
-                    buffer.left[f] += src.left[f] * mo.gain;
-                    buffer.right[f] += src.right[f] * mo.gain;
-                }
-            }
-        }
         if (track.instrument) {
             // 3. The instrument renders in place.
             track.instrument->set_transport(transport);
@@ -770,6 +803,11 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         engine::run_insert_chain(track.chain, buffer, BusKind::track,
                                  static_cast<std::uint32_t>(index), transport, drain);
         engine::apply_track_compensation(track.chain, buffer);
+        // The buffer now holds what keys a sidechain and what a follower
+        // follows: after the inserts, before the fader. It stays so for the
+        // rest of the chunk.
+        engine::follow_track(*modulation_, arranged.routing, static_cast<std::uint32_t>(index),
+                             buffer, sample_rate_);
         // 9. The strip gain for this chunk: the static gain, or the
         // automation envelope's ramp times the solo gate.
         const auto ramp = engine::chunk_strip_gain(
@@ -790,13 +828,18 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         // report the loudest of them, not whichever happened to be last.
         track.peak.store(std::max(track.peak.load(std::memory_order_relaxed), peak),
                          std::memory_order_relaxed);
+        // The post-fader signal for the output taps goes to a scratch of its
+        // own: the track's buffer must stay pre-fader for the keys.
         for (std::size_t frame = 0; frame < frames; ++frame) {
             const float fraction = static_cast<float>(frame) / static_cast<float>(frames);
-            left[frame] *= ramp.from.left + (ramp.to.left - ramp.from.left) * fraction;
-            right[frame] *= ramp.from.right + (ramp.to.right - ramp.from.right) * fraction;
+            post_left_[frame] =
+                left[frame] * (ramp.from.left + (ramp.to.left - ramp.from.left) * fraction);
+            post_right_[frame] =
+                right[frame] * (ramp.from.right + (ramp.to.right - ramp.from.right) * fraction);
         }
-        tap_output({BusKind::track, static_cast<std::uint32_t>(index)}, buffer,
-                   song_position, from_timeline);
+        tap_output({BusKind::track, static_cast<std::uint32_t>(index)},
+                   {{post_left_.data(), frames}, {post_right_.data(), frames}}, song_position,
+                   from_timeline);
     }
     release_arrangement_notes_ = false;
     engine::process_returns(*buses_, frames, transport, drain);
@@ -996,42 +1039,6 @@ void SongEngine::set_track_disk_stream(std::size_t track, DiskStream* stream) no
     if (track < tracks_.size() && tracks_[track]) {
         tracks_[track]->clips.stream = stream;
     }
-}
-
-void SongEngine::set_sidechain_route(ProcessorAddress target, std::size_t source_track) {
-    std::erase_if(sidechains_, [&](const SidechainRoute& r) { return r.target == target; });
-    sidechains_.push_back({source_track, target});
-    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
-}
-
-void SongEngine::clear_sidechain_routes() {
-    sidechains_.clear();
-    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
-}
-
-void SongEngine::set_multi_output_route(std::size_t dest_track, std::size_t source_track,
-                                       std::uint32_t aux_bus, float gain) {
-    std::erase_if(multi_outs_, [&](const MultiOutputRoute& r) { return r.dest_track == dest_track; });
-    multi_outs_.push_back({source_track, aux_bus, dest_track, gain});
-    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
-}
-
-void SongEngine::clear_multi_output_routes() {
-    multi_outs_.clear();
-    render_order_ = compute_track_render_order(tracks_.size(), sidechains_, multi_outs_);
-}
-
-StereoBlock SongEngine::get_sidechain_for(ProcessorAddress where) const noexcept {
-    for (const auto& sc : sidechains_) {
-        if (sc.target == where && sc.source_track < tracks_.size() && tracks_[sc.source_track]) {
-            const auto& src = *tracks_[sc.source_track];
-            return StereoBlock{
-                std::span<float>(const_cast<float*>(src.left.data()), src.left.size()),
-                std::span<float>(const_cast<float*>(src.right.data()), src.right.size())
-            };
-        }
-    }
-    return StereoBlock{};
 }
 
 } // namespace blokkily

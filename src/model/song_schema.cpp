@@ -80,6 +80,96 @@ bool same_control(const AutomationTarget& a, const AutomationTarget& b) {
     return a.kind != AutomationTarget::Kind::parameter || a.parameter_index == b.parameter_index;
 }
 
+// Whether a processor address names a processor a parameter can belong to: a
+// track's instrument or an insert that exists.
+bool processor_exists(const Song& song, const ProcessorAddress& address) {
+    const auto* chain = chain_of(song, address);
+    if (chain == nullptr) return false;
+    if (address.slot == -1) return address.kind == BusKind::track;
+    return address.slot >= 0 && static_cast<std::size_t>(address.slot) < chain->size();
+}
+
+bool in_range(double value, double low, double high) {
+    return std::isfinite(value) && value >= low && value <= high;
+}
+
+bool modulator_ok(const Song& song, const Modulator& modulator, std::string* why) {
+    if (modulator.kind > Modulator::Kind::follower)
+        return refuse(why, "a modulator has an unknown kind");
+    if (modulator.shape > LfoShape::sample_and_hold)
+        return refuse(why, "an LFO has an unknown shape");
+    if (!in_range(modulator.rate_hz, Modulator::minimum_rate_hz, Modulator::maximum_rate_hz) ||
+        !in_range(modulator.sync_beats, 0.0, Modulator::maximum_sync_beats))
+        return refuse(why, "an LFO's rate is out of range");
+    if (!in_range(modulator.value, 0.0, 1.0))
+        return refuse(why, "a macro's value is outside 0..1");
+    if (!in_range(modulator.attack_ms, Modulator::minimum_time_ms, Modulator::maximum_time_ms) ||
+        !in_range(modulator.release_ms, Modulator::minimum_time_ms, Modulator::maximum_time_ms))
+        return refuse(why, "a follower's attack or release is out of range");
+    if (modulator.kind == Modulator::Kind::follower &&
+        modulator.source_track >= song.tracks.size())
+        return refuse(why, "a follower follows a track that does not exist");
+    if (modulator.targets.size() > Modulator::maximum_targets)
+        return refuse(why, "a modulator has too many targets");
+    for (std::size_t i = 0; i < modulator.targets.size(); ++i) {
+        const auto& target = modulator.targets[i];
+        if (!processor_exists(song, target.processor))
+            return refuse(why, "a modulation target names a processor that does not exist");
+        if (target.parameter_index < 0)
+            return refuse(why, "a modulation target has a negative parameter index");
+        if (!in_range(target.depth, -1.0, 1.0))
+            return refuse(why, "a modulation depth is outside -1..+1");
+        for (std::size_t j = i + 1; j < modulator.targets.size(); ++j)
+            if (modulator.targets[j].processor == target.processor &&
+                modulator.targets[j].parameter_index == target.parameter_index)
+                return refuse(why, "a modulator targets one parameter twice");
+    }
+    return true;
+}
+
+// Every insert's key names a track, a track's insert never keys from its own
+// track, and no chain of keys leads back to where it started: the engine
+// renders a key's source before the track it keys, which a loop forbids.
+bool sidechains_ok(const Song& song, std::string* why) {
+    const auto keys_ok = [&](const std::vector<EffectSlot>& slots) {
+        for (const auto& slot : slots)
+            if (slot.sidechain && *slot.sidechain >= song.tracks.size()) return false;
+        return true;
+    };
+    for (const auto& bus : song.returns)
+        if (!keys_ok(bus.inserts))
+            return refuse(why, "a sidechain names a track that does not exist");
+    if (!keys_ok(song.master_inserts))
+        return refuse(why, "a sidechain names a track that does not exist");
+    const auto count = song.tracks.size();
+    std::vector<std::vector<std::size_t>> keyed_by(count);
+    for (std::size_t t = 0; t < count; ++t) {
+        if (!keys_ok(song.tracks[t].inserts))
+            return refuse(why, "a sidechain names a track that does not exist");
+        for (const auto& slot : song.tracks[t].inserts)
+            if (slot.sidechain) {
+                if (*slot.sidechain == t)
+                    return refuse(why, "a track's insert is keyed from its own track");
+                keyed_by[t].push_back(*slot.sidechain);
+            }
+    }
+    // Depth-first, colouring each track while it is on the path.
+    std::vector<int> colour(count, 0);
+    const auto loops = [&](const auto& self, std::size_t track) -> bool {
+        colour[track] = 1;
+        for (const auto source : keyed_by[track]) {
+            if (colour[source] == 1) return true;
+            if (colour[source] == 0 && self(self, source)) return true;
+        }
+        colour[track] = 2;
+        return false;
+    };
+    for (std::size_t t = 0; t < count; ++t)
+        if (colour[t] == 0 && loops(loops, t))
+            return refuse(why, "sidechain keys form a loop");
+    return true;
+}
+
 bool input_ok(const TrackInput& input) {
     return input.source <= TrackInput::Source::midi_and_audio &&
            input.monitor <= TrackInput::Monitor::on && input.midi_channel >= -1 &&
@@ -179,6 +269,11 @@ bool Song::consistent(std::string* why) const {
             targets.push_back(&lane.target);
         }
     }
+    if (!sidechains_ok(*this, why)) return false;
+    if (modulators.size() > maximum_modulators)
+        return refuse(why, "the song has too many modulators");
+    for (const auto& modulator : modulators)
+        if (!modulator_ok(*this, modulator, why)) return false;
     return true;
 }
 
@@ -211,7 +306,105 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
                 address.bus = static_cast<std::uint32_t>(moved(address.bus));
         }
     }
+    // A key from the removed track is let go; keys from the others follow
+    // their tracks.
+    const auto rekey = [&](std::vector<EffectSlot>& slots) {
+        for (auto& slot : slots) {
+            if (!slot.sidechain) continue;
+            if (*slot.sidechain == index) slot.sidechain.reset();
+            else slot.sidechain = static_cast<std::uint32_t>(moved(*slot.sidechain));
+        }
+    };
+    for (auto& track : tracks) rekey(track.inserts);
+    for (auto& bus : returns) rekey(bus.inserts);
+    rekey(master_inserts);
+    // A follower of the removed track has nothing left to follow; targets on
+    // its processors go with it.
+    std::erase_if(modulators, [index](const Modulator& modulator) {
+        return modulator.kind == Modulator::Kind::follower && modulator.source_track == index;
+    });
+    for (auto& modulator : modulators) {
+        if (modulator.kind == Modulator::Kind::follower)
+            modulator.source_track = static_cast<std::uint32_t>(moved(modulator.source_track));
+        std::erase_if(modulator.targets, [index](const ModulationTarget& target) {
+            return target.processor.kind == BusKind::track && target.processor.bus == index;
+        });
+        for (auto& target : modulator.targets)
+            if (target.processor.kind == BusKind::track)
+                target.processor.bus = static_cast<std::uint32_t>(moved(target.processor.bus));
+    }
     return map;
+}
+
+namespace {
+// Drops what drives the processor at `removed` and moves what drives the
+// processors after it on the same bus down one slot, for every automation
+// lane and modulation target; `on_bus` says whether an address is on the
+// bus concerned at all.
+template <typename OnBus>
+void forget_processor(Song& song, OnBus on_bus, std::int32_t removed) {
+    const auto gone = [&](const ProcessorAddress& address) {
+        return on_bus(address) && address.slot == removed;
+    };
+    const auto follow = [&](ProcessorAddress& address) {
+        if (on_bus(address) && address.slot > removed) --address.slot;
+    };
+    for (auto& track : song.tracks) {
+        std::erase_if(track.automation,
+                      [&](const AutomationLane& lane) { return gone(lane.target.processor); });
+        for (auto& lane : track.automation) follow(lane.target.processor);
+    }
+    for (auto& modulator : song.modulators) {
+        std::erase_if(modulator.targets,
+                      [&](const ModulationTarget& target) { return gone(target.processor); });
+        for (auto& target : modulator.targets) follow(target.processor);
+    }
+}
+} // namespace
+
+bool Song::remove_insert(BusKind kind, std::size_t bus, std::size_t slot) {
+    std::vector<EffectSlot>* chain = nullptr;
+    switch (kind) {
+    case BusKind::track: chain = bus < tracks.size() ? &tracks[bus].inserts : nullptr; break;
+    case BusKind::ret: chain = bus < returns.size() ? &returns[bus].inserts : nullptr; break;
+    case BusKind::master: chain = bus == 0 ? &master_inserts : nullptr; break;
+    }
+    if (chain == nullptr || slot >= chain->size()) return false;
+    chain->erase(chain->begin() + static_cast<std::ptrdiff_t>(slot));
+    forget_processor(
+        *this,
+        [kind, bus](const ProcessorAddress& address) {
+            return address.kind == kind && address.bus == bus;
+        },
+        static_cast<std::int32_t>(slot));
+    return true;
+}
+
+bool Song::remove_return(std::size_t bus) {
+    if (bus >= returns.size()) return false;
+    returns.erase(returns.begin() + static_cast<std::ptrdiff_t>(bus));
+    for (auto& track : tracks) {
+        std::erase_if(track.sends, [bus](const Send& send) { return send.bus == bus; });
+        for (auto& send : track.sends)
+            if (send.bus > bus) --send.bus;
+    }
+    const auto on_return = [bus](const ProcessorAddress& address) {
+        return address.kind == BusKind::ret && address.bus == bus;
+    };
+    const auto later = [bus](ProcessorAddress& address) {
+        if (address.kind == BusKind::ret && address.bus > bus) --address.bus;
+    };
+    for (auto& track : tracks) {
+        std::erase_if(track.automation,
+                      [&](const AutomationLane& lane) { return on_return(lane.target.processor); });
+        for (auto& lane : track.automation) later(lane.target.processor);
+    }
+    for (auto& modulator : modulators) {
+        std::erase_if(modulator.targets,
+                      [&](const ModulationTarget& target) { return on_return(target.processor); });
+        for (auto& target : modulator.targets) later(target.processor);
+    }
+    return true;
 }
 
 std::vector<std::optional<std::size_t>> Song::prune_audio_files() {

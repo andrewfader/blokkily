@@ -50,7 +50,10 @@ public:
 protected:
     BuiltinEffect(std::string identifier, std::span<const ParameterSpec> specs);
 
-    StereoBlock sidechain_{};
+    // The sidechain key for the samples render() is processing now: the
+    // part of the block's key that lines up with them, or empty when the
+    // effect has no key. Audio thread (inside render).
+    StereoBlock key_{};
 
     // The value a parameter has now: its automation base plus modulation,
     // clamped to its range. Audio thread (inside prepare/update/render).
@@ -77,6 +80,8 @@ private:
 
     std::string identifier_;
     std::span<const ParameterSpec> specs_;
+    // The whole block's key, as set_sidechain() handed it.
+    StereoBlock sidechain_{};
     std::unique_ptr<std::atomic<double>[]> base_;
     std::unique_ptr<double[]> modulation_;
     std::atomic<double> bpm_{120.0};

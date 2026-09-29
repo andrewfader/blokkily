@@ -85,6 +85,10 @@ struct TestSynth {
     float level = 0.25F;
     float tone = 0.0F;
     float velocity_mode = 0.0F;
+    // CLAP_EVENT_PARAM_MOD amounts, per parameter: a non-destructive offset
+    // the host replaces with each new one, heard on top of the value above
+    // (which params.value keeps reporting unmodulated).
+    float modulation[3]{};
     double sample_rate = 48000.0;
     double phase = 0.0;
     int key = 60;
@@ -179,6 +183,15 @@ float* parameter(TestSynth& synth, clap_id id) {
     }
 }
 
+// The last modulation each parameter received, and how many, for a test to
+// read the events the host sent rather than only their effect.
+std::array<std::atomic<double>, 3> modulation_seen{};
+std::atomic<long> modulations_received{0};
+float effective(const TestSynth& synth, clap_id id) {
+    const auto* self_value = parameter(const_cast<TestSynth&>(synth), id);
+    return self_value == nullptr ? 0.0F : *self_value + synth.modulation[id];
+}
+
 bool plugin_init(const clap_plugin_t* plugin) {
     auto* synth = self(plugin);
     const auto* host = synth->host;
@@ -239,8 +252,11 @@ void apply_parameter(TestSynth& synth, const clap_event_header_t* header) {
             *value = static_cast<float>(change->value);
     } else if (header->type == CLAP_EVENT_PARAM_MOD) {
         const auto* modulation = reinterpret_cast<const clap_event_param_mod_t*>(header);
-        if (auto* value = parameter(synth, modulation->param_id))
-            *value += static_cast<float>(modulation->amount);
+        if (parameter(synth, modulation->param_id) != nullptr) {
+            synth.modulation[modulation->param_id] = static_cast<float>(modulation->amount);
+            modulation_seen[modulation->param_id] = modulation->amount;
+            modulations_received.fetch_add(1);
+        }
     }
 }
 
@@ -297,17 +313,18 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
     auto** channels = process->audio_outputs[0].data32;
     std::uint32_t cursor = 0;
     const auto render_to = [&](std::uint32_t end) {
+        const float level = effective(*synth, level_id);
         for (; cursor < end; ++cursor) {
-            if (synth->velocity_mode >= 0.5F) {
-                channels[0][cursor] = channels[1][cursor] = synth->level * held_velocity(*synth);
+            if (effective(*synth, velocity_mode_id) >= 0.5F) {
+                channels[0][cursor] = channels[1][cursor] = level * held_velocity(*synth);
                 continue;
             }
             if (!synth->sounding) {
                 channels[0][cursor] = channels[1][cursor] = 0.0F;
                 continue;
             }
-            if (synth->tone < 0.5F) {
-                channels[0][cursor] = channels[1][cursor] = synth->level;
+            if (effective(*synth, tone_id) < 0.5F) {
+                channels[0][cursor] = channels[1][cursor] = level;
                 continue;
             }
             // Equal temperament from the key, moved by whatever tuning the host
@@ -315,7 +332,7 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
             // semitone and must be heard as one.
             const double frequency = 440.0 * std::pow(
                 2.0, (synth->key - 69 + synth->tuning_semitones) / 12.0);
-            const auto sample = static_cast<float>(synth->level * std::sin(synth->phase));
+            const auto sample = static_cast<float>(level * std::sin(synth->phase));
             channels[0][cursor] = channels[1][cursor] = sample;
             synth->phase += 6.283185307179586 * frequency / synth->sample_rate;
             if (synth->phase > 6.283185307179586) synth->phase -= 6.283185307179586;
@@ -782,6 +799,14 @@ extern "C" CLAP_EXPORT void blokkily_test_gui_request_close() {
     for_each_live([](TestSynth& synth) {
         if (synth.gui_created && synth.host_gui != nullptr) synth.host_gui->closed(synth.host, true);
     });
+}
+
+// The last CLAP_EVENT_PARAM_MOD amount each parameter received (Level, Tone,
+// VelocityMode), and how many modulation events arrived in all.
+extern "C" CLAP_EXPORT long blokkily_test_modulations(double* amounts) {
+    for (std::size_t index = 0; index < modulation_seen.size(); ++index)
+        amounts[index] = modulation_seen[index];
+    return modulations_received;
 }
 
 extern "C" CLAP_EXPORT void blokkily_test_last_midi_bytes(std::uint8_t* out) {

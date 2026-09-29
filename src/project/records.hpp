@@ -107,6 +107,9 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& clip_warp_records();
 // Non-linear clip/scene launcher matrix (Item 5): scene, sceneslot.
 [[nodiscard]] const RecordModule& scene_launcher_records();
+// Sidechain keys and modulators (phase 2, waves 5.1 and 5.2): sidechain,
+// modulator, modtarget (records_modulation.cpp).
+[[nodiscard]] const RecordModule& modulation_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

@@ -9,6 +9,7 @@
 #include "engine_automation.hpp"
 #include "engine_clips.hpp"
 #include "engine_metronome.hpp"
+#include "engine_modulation.hpp"
 
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/model/timebase.hpp"
@@ -33,6 +34,10 @@ struct Arrangement {
     ArrangementAutomation automation;
     // Every beat of the click (item 3.7), placed by `clock`.
     ArrangementClicks clicks;
+    // Sidechain keys, modulators and the track render order (waves 5.1 and
+    // 5.2), compiled from the song with everything else, so a route changes
+    // only when the callback takes a whole new arrangement.
+    ArrangementRouting routing;
 };
 
 } // namespace blokkily::engine

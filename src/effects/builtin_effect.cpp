@@ -97,6 +97,12 @@ void BuiltinEffect::process(StereoBlock audio, std::span<const PluginEvent> even
     const auto render_to = [&](std::size_t end) {
         if (end <= cursor) return;
         if (dirty_.exchange(false, std::memory_order_relaxed)) update();
+        // A block split by a parameter event renders in segments; each sees
+        // the key for its own samples, not the block's first ones.
+        const bool keyed = sidechain_.left.size() >= frames && sidechain_.right.size() >= frames;
+        key_ = keyed ? StereoBlock{sidechain_.left.subspan(cursor, end - cursor),
+                                   sidechain_.right.subspan(cursor, end - cursor)}
+                     : StereoBlock{};
         render(left + cursor, right + cursor, end - cursor);
         cursor = end;
     };
@@ -107,6 +113,9 @@ void BuiltinEffect::process(StereoBlock audio, std::span<const PluginEvent> even
         apply(event);
     }
     render_to(frames);
+    // A key is good for one block only.
+    sidechain_ = {};
+    key_ = {};
 }
 
 void BuiltinEffect::set_transport(const TransportInfo& transport) noexcept {

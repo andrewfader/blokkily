@@ -1,6 +1,7 @@
 #pragma once
 
 #include "blokkily/model/metronome.hpp"
+#include "blokkily/model/modulation.hpp"
 #include "blokkily/model/pattern.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/scale.hpp"
@@ -59,11 +60,15 @@ struct EffectParameter {
 
 // One insert on a track, a return bus, or the master bus. Inserts run in
 // vector order. A bypassed slot keeps its plugin loaded but passes audio
-// through untouched.
+// through untouched. `sidechain` names the track whose signal keys the effect
+// (wave 5.2): that track's audio after its own inserts and before its fader,
+// so muting or pulling down the key track never stops the ducking. A track's
+// insert cannot key from its own track, and keys may not form a loop.
 struct EffectSlot {
     PluginSlot plugin;
     bool bypass = false;
     std::vector<EffectParameter> parameters; // ids unique within the slot
+    std::optional<std::uint32_t> sidechain{};
 
     friend bool operator==(const EffectSlot&, const EffectSlot&) = default;
 };
@@ -322,6 +327,9 @@ struct Song {
     MetronomeSettings metronome;
     // The non-linear clip / scene launcher matrix (Item 5).
     SceneMatrix launcher;
+    // LFOs, macros and envelope followers, and the parameters each moves
+    // (modulation.hpp). At most maximum_modulators.
+    std::vector<Modulator> modulators;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return patterns.at(index).pattern; }
     [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {
@@ -340,8 +348,11 @@ struct Song {
     // ids, name an existing track and file, stay inside the file and fit their
     // fades; sends name existing returns, once each; effect slots name a
     // plugin format; inputs and automation lanes are well formed and every
-    // lane's target names a processor that exists. Overlapping audio clips are
-    // allowed. When it returns false and `why` is given, `why` says which rule
+    // lane's target names a processor that exists; every insert's sidechain
+    // names another track and the keys form no loop; every modulator is in
+    // range, a follower follows a track that exists, and each modulation
+    // target names a processor that exists, once per modulator. Overlapping
+    // audio clips are allowed. When it returns false and `why` is given, `why` says which rule
     // failed.
     [[nodiscard]] bool consistent(std::string* why = nullptr) const;
     // Removes track `index` with everything that belongs to it (its clips, its
@@ -350,6 +361,14 @@ struct Song {
     // every track (nothing for the removed one), or an empty vector, changing
     // nothing, when `index` does not exist or is the only track.
     std::vector<std::optional<std::size_t>> remove_track(std::size_t index);
+    // Removes insert `slot` of the bus `kind`/`bus` names, with the automation
+    // lanes and modulation targets that drive it; lanes and targets on the
+    // inserts after it follow them to their new slots. False, changing
+    // nothing, when there is no such insert.
+    bool remove_insert(BusKind kind, std::size_t bus, std::size_t slot);
+    // Removes return `bus`: the sends into it, and the automation lanes and
+    // modulation targets on its inserts; later returns move down one.
+    bool remove_return(std::size_t bus);
     // Drops audio files no audio clip plays and re-indexes the clips. Returns
     // the old-to-new index of every file. Run on save only, so that undo can
     // bring back a clip whose file is still listed.

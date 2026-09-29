@@ -8,7 +8,6 @@
 #include "blokkily/audio/event_timeline.hpp"
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/audio/sample_ring.hpp"
-#include "blokkily/audio/sidechain.hpp"
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/plugin.hpp"
@@ -27,7 +26,6 @@
 namespace blokkily {
 
 class DiskStream;
-class ModulationMatrix;
 class SceneLauncherEngine;
 
 // A parameter edit a processor made, stamped on the audio thread with where in
@@ -74,6 +72,7 @@ struct Arrangement;
 struct BusPlayback;
 struct InsertChain;
 struct MetronomePlayback;
+struct ModulationPlayback;
 struct TestAccess;
 } // namespace engine
 
@@ -87,8 +86,16 @@ struct TestAccess;
 // chain and compensation run, the strip gain is taken, sends are mixed, and the
 // track is added to the bus. After every track the returns run, the direct bus
 // is delayed to meet them, and the master inserts and gain follow. Every
-// processor is told where the song is (set_transport) before its block. A track without an instrument still runs every
-// stage after the instrument's, so what reaches its strip is heard.
+// processor is told where the song is (set_transport) before its block. A
+// track without an instrument still runs every stage after the instrument's,
+// so what reaches its strip is heard.
+//
+// Tracks render in the song's render order (waves 5.1 and 5.2): a track that
+// keys a sidechain or feeds an envelope follower renders before the tracks it
+// feeds, which read its buffer after its inserts and before its fader. The
+// modulators are evaluated before any track, and each processor is handed its
+// modulation ahead of everything else it plays in the chunk
+// (src/audio/engine/engine_modulation.hpp).
 struct OutputTap {
     BusKind kind = BusKind::master;
     std::uint32_t bus = 0;
@@ -110,18 +117,8 @@ public:
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
     void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
-    void set_modulation_matrix(ModulationMatrix* modulations) noexcept { modulations_ = modulations; }
-    [[nodiscard]] ModulationMatrix* modulation_matrix() const noexcept { return modulations_; }
     void set_scene_launcher(SceneLauncherEngine* launcher) noexcept { scene_launcher_ = launcher; }
     [[nodiscard]] SceneLauncherEngine* scene_launcher() const noexcept { return scene_launcher_; }
-
-    void set_sidechain_route(ProcessorAddress target, std::size_t source_track);
-    void clear_sidechain_routes();
-    void set_multi_output_route(std::size_t dest_track, std::size_t source_track, std::uint32_t aux_bus = 1, float gain = 1.0F);
-    void clear_multi_output_routes();
-    [[nodiscard]] std::span<const std::size_t> track_render_order() const noexcept { return render_order_; }
-
-    StereoBlock get_sidechain_for(ProcessorAddress where) const noexcept;
 
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
@@ -411,8 +408,13 @@ private:
     // The automation events an insert slot plays this chunk (item 3.1).
     static std::span<const PluginEvent> insert_events(void* context,
                                                       ProcessorAddress where) noexcept;
-    // Sidechain audio input for an insert slot
+    // The key an insert slot is sidechained from this chunk: its source
+    // track's signal after that track's inserts and before its fader, or
+    // nothing (wave 5.2).
     static StereoBlock sidechain_input(void* context, ProcessorAddress where) noexcept;
+    // Writes the modulation events for the processor at `where` from the
+    // start of `out` (wave 5.1). Callback.
+    std::size_t modulation_for(ProcessorAddress where, std::span<PluginEvent> out) noexcept;
     // Begins a count-in of `bars` bars from where the playhead rests, and
     // starts the song once it is over, capturing the notes still held into
     // it. Render callback.
@@ -517,11 +519,14 @@ private:
     // before it is handed to the tracks it names. Touched by the callback alone.
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
-    ModulationMatrix* modulations_ = nullptr;
     SceneLauncherEngine* scene_launcher_ = nullptr;
-    std::vector<SidechainRoute> sidechains_;
-    std::vector<MultiOutputRoute> multi_outs_;
-    std::vector<std::size_t> render_order_;
+    // The modulators' live controls and what the callback keeps between
+    // chunks for them (waves 5.1): allocated with the engine.
+    std::unique_ptr<engine::ModulationPlayback> modulation_;
+    // A track's post-fader signal for the output taps, so the track's own
+    // buffer stays pre-fader for the sidechain keys and followers that read
+    // it after it rendered. Sized by prepare(); callback only.
+    std::vector<float> post_left_, post_right_;
 };
 
 } // namespace blokkily
