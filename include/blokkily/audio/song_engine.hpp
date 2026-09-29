@@ -323,8 +323,10 @@ public:
     // rest; at once on the first block after the transport starts). Nothing
     // is played while the transport is stopped: a command waits for it to
     // roll, and stopping the transport stops every launched track. A launched
-    // track plays its cell instead of its arrangement. Control thread only
-    // (the queue's one producer); false when the queue is full.
+    // track plays its cell instead of its arrangement; stopped in the
+    // launcher it stays silent until the transport stops, and is then its
+    // arrangement's again. Control thread only (the queue's one producer);
+    // false when the queue is full.
     bool launch_cell(std::size_t scene, std::size_t track) noexcept;
     bool launch_scene(std::size_t scene) noexcept;
     bool stop_launched(std::size_t track) noexcept;

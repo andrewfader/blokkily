@@ -29,8 +29,10 @@
 // repeats of a clip.
 //
 // A launched track plays its cell instead of its arrangement, whose notes are
-// let go when the launcher takes the track over. Stopping the transport stops
-// every launched track.
+// let go when the launcher takes the track over. A track stopped in the
+// launcher stays silent rather than falling back to its arrangement until the
+// transport stops; stopping the transport stops every launched track and
+// hands every track back to its arrangement.
 
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/scene_launcher_engine.hpp"
@@ -130,6 +132,9 @@ struct LauncherTrack {
     std::uint32_t held_count = 0;
     // What is held is let go on the first sample of the next chunk.
     bool release = false;
+    // Stopped in the launcher while the transport rolls: silent, not back to
+    // its arrangement, until the transport stops.
+    bool parked = false;
     // The arrangement's notes on this track are owed a release.
     bool took_over = false;
     bool take_open = false;

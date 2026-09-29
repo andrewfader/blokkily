@@ -281,6 +281,34 @@ void follow_actions_case() {
     std::cerr << "follow actions: C visited " << visits_to_c << " times\n";
 }
 
+// A follow action on a song exactly one loop long: the loop's end is the
+// song's wrap, and the follow action still happens there.
+void follow_across_wrap_case() {
+    Song song;
+    song.patterns = {{"GROOVE", notes({{0, 1900, 60, 0.4F}})},
+                     {"HOOK", notes({{0, 1900, 60, 0.8F}})},
+                     {"FILL", notes({{0, 1900, 60, 0.6F}})}};
+    song.tracks = {Track{}, Track{}};
+    song.clips.clear();
+    song.launcher.add_scene("ONE");
+    song.launcher.add_scene("TWO");
+    song.launcher.quantization = LaunchQuantization::beat;
+    song.launcher.set_slot(0, 0, {.pattern = 0, .repeats = 1, .follow_action = FollowAction::next});
+    song.launcher.set_slot(0, 1, {.pattern = 1});
+    song.launcher.set_slot(1, 0, {.pattern = 2});
+    SongEngine engine;
+    prepare(engine, song);
+    require(engine.song_samples() == bar, "the song is one bar");
+    engine.set_launcher_recording(true);
+    require(engine.launch_scene(0), "launched");
+    engine.set_playing(true);
+    const auto out = render(engine, 2 * bar, {}, 1024);
+    require(near(out[1000], level(0.4) + level(0.8)), "scene one plays");
+    require(near(out[bar + 1000], level(0.6) + level(0.8)),
+            "after one loop BASS follows into scene two across the wrap, got " +
+                text(out[bar + 1000]));
+}
+
 // A follow action that stops a track, a quantized stop and the transport
 // stopping all let go of what the cell holds: the audio falls to silence on
 // the boundary rather than ringing on.
@@ -320,6 +348,38 @@ void stop_releases_case() {
     const auto stopped = render(engine, 4 * block);
     require(silent(stopped, 0, stopped.size()), "stopping the transport releases the launched note");
     require(!engine.launcher_status(0).playing, "and stops the track");
+}
+
+// A launched track plays its cell instead of its arrangement, and a track
+// stopped in the launcher stays silent until the transport stops; then the
+// arrangement is heard again.
+void arrangement_hand_back_case() {
+    Song song;
+    song.patterns = {{"ARRANGED", notes({{0, 1920, 60, 0.4F}})},
+                     {"LAUNCHED", notes({{0, 1920, 64, 0.8F}})}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 16}};
+    song.launcher.add_scene("S");
+    song.launcher.quantization = LaunchQuantization::none;
+    song.launcher.set_slot(0, 0, {.pattern = 1, .quantization = LaunchQuantization::none});
+    SongEngine engine;
+    prepare(engine, song);
+    engine.set_playing(true);
+    const auto out = render(engine, 3 * bar, [&](std::uint64_t at) {
+        if (at == 100 * block) require(engine.launch_cell(0, 0), "launched");
+        if (at == 500 * block) require(engine.stop_launched(0), "stopped");
+    });
+    require(near(out[99 * block], level(0.4)), "the arrangement plays first");
+    require(near(out[100 * block], level(0.8)),
+            "the launched cell takes the track over on its block, the arrangement's note let go");
+    require(silent(out, 500 * block, out.size()),
+            "stopped in the launcher, the track is silent, not back to its arrangement");
+    engine.set_playing(false);
+    (void)render(engine, block);
+    engine.seek(0);
+    engine.set_playing(true);
+    const auto again = render(engine, 4 * block);
+    require(near(again[10], level(0.4)), "after the transport stops, the arrangement plays again");
 }
 
 // Arrangement recording: the takes, printed into the song, play back and
@@ -529,7 +589,9 @@ int main(int argc, char** argv) {
         if (name == "quantized_launch") quantized_launch_case();
         else if (name == "downbeat_after_wrap") downbeat_after_wrap_case();
         else if (name == "follow_actions") follow_actions_case();
+        else if (name == "follow_across_wrap") follow_across_wrap_case();
         else if (name == "stop_releases") stop_releases_case();
+        else if (name == "arrangement_hand_back") arrangement_hand_back_case();
         else if (name == "record_prints_arrangement") record_prints_arrangement_case();
         else if (name == "edit_while_launched") edit_while_launched_case();
         else if (name == "serialization") serialization_case();

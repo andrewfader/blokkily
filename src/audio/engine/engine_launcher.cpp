@@ -91,6 +91,8 @@ void stop_at(Chunk& chunk, LauncherTrack& track, Tick at) noexcept {
     if (track.playing) {
         track.release = track.release || track.held_count > 0;
         close_take(chunk, track, at);
+        // Silent until the transport stops, not back to its arrangement.
+        track.parked = true;
     }
     track.playing = false;
     track.cursor_valid = false;
@@ -388,6 +390,7 @@ void reset_launcher(LauncherPlayback& playback) noexcept {
             }
         }
         track.playing = false;
+        track.parked = false;
         track.queued = LauncherTrack::Queued::none;
         track.held_count = 0;
         track.release = false;
@@ -476,6 +479,8 @@ void stop_launcher(LauncherPlayback& playback) noexcept {
             }
         }
         track.playing = false;
+        // The transport stopped: the track is its arrangement's again.
+        track.parked = false;
         track.queued = LauncherTrack::Queued::none;
         track.cursor_valid = false;
         publish(track);
@@ -485,7 +490,7 @@ void stop_launcher(LauncherPlayback& playback) noexcept {
 bool launcher_owns(const LauncherPlayback& playback, std::size_t track) noexcept {
     if (track >= playback.track_count) return false;
     const auto& state = playback.tracks[track];
-    return state.playing || state.release;
+    return state.playing || state.release || state.parked;
 }
 
 bool launcher_takes_over(LauncherPlayback& playback, std::size_t track) noexcept {
