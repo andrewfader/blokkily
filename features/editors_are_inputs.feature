@@ -159,6 +159,13 @@ Feature: Write music in whichever editor is open
     And the editor column scrolls to whatever does not fit
     Checked by the default gate at "the window opens inside the screen".
 
+  Scenario: A song with many patterns does not widen the editors
+    Given a song with more patterns than the arrangement toolbar has room for
+    When the editors are shown
+    Then every panel of the editor column fits inside its pane
+    And the pattern chips scroll, keeping the open pattern in view
+    Checked by bdd_launcher at "every editor panel fits its pane".
+
   Scenario: The inspector remains reachable in the combined view
     Given the window is 1280 by 1080 with all editors visible
     Then the complete step inspector fits inside the visible window

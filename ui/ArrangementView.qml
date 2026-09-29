@@ -31,19 +31,35 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true; spacing: 6
         SectionLabel { text: "ARRANGEMENT" }
-        Item { Layout.fillWidth: true }
-        Label { text: "shift-click lengthens  |  alt-click moves  |  right-click removes"
-            color: Theme.muted; font.pixelSize: 9 }
-        Repeater {
+        // The hint gives way first: it elides before anything is pushed off.
+        Label {
+            text: "shift-click lengthens  |  alt-click moves  |  right-click removes"
+            color: Theme.muted; font.pixelSize: 9
+            Layout.fillWidth: true; Layout.minimumWidth: 0
+            horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft
+        }
+        // However many patterns the song has, the strip takes only the room
+        // its chips need and scrolls beyond that, keeping the open pattern in
+        // view, so a long pattern list never widens the editor column.
+        ListView {
+            id: patternStrip
+            objectName: "patternStrip"
+            orientation: ListView.Horizontal
+            spacing: 6
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            implicitHeight: 26
+            Layout.fillWidth: true
+            Layout.preferredWidth: contentWidth
+            Layout.maximumWidth: contentWidth
+            Layout.minimumWidth: Math.min(contentWidth, 120)
             model: songModel.patterns
-            Chip {
+            delegate: Chip {
                 required property var modelData
                 objectName: "patternChip" + modelData.index
                 text: modelData.name
-                // Long pattern names ellipsis rather than push their
-                // siblings off the right edge of the toolbar.
-                Layout.preferredWidth: implicitWidth
-                Layout.maximumWidth: 160
+                // Long pattern names ellipsis rather than stretch the strip.
+                width: Math.min(implicitWidth, 160)
                 on: modelData.current
                 onClicked: songModel.selectPattern(modelData.index)
                 onDoubleClicked: root.renameRequested("PATTERN", modelData.index,
@@ -51,6 +67,16 @@ ColumnLayout {
                 onRightClicked: {
                     root.patternMenuRequested(modelData.index, modelData.name)
                 }
+            }
+            function showCurrent() {
+                if (songModel.currentPattern >= 0 && songModel.currentPattern < count)
+                    positionViewAtIndex(songModel.currentPattern, ListView.Contain)
+            }
+            onCountChanged: Qt.callLater(showCurrent)
+            onWidthChanged: Qt.callLater(showCurrent)
+            Connections {
+                target: songModel
+                function onSongChanged() { Qt.callLater(patternStrip.showCurrent) }
             }
         }
         // A new pattern is as long as the bar the playhead is in.

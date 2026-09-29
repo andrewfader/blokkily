@@ -313,6 +313,23 @@ void run_launcher(VerifyContext& ctx) {
           VerifyContext::usable(ctx.named("cell1_0"), 100, 30) &&
           ctx.named("cell0_0")->property("playing").toBool());
     reached("launcher: screenshot state");
+    // Three patterns used to widen the arrangement toolbar past the pane,
+    // pushing every panel of the editor column under the mixer: each must
+    // fit the pane it is drawn in.
+    {
+        auto* scroll = ctx.named(QStringLiteral("editorScroll"));
+        auto* bar = ctx.named(QStringLiteral("promptBar"));
+        bool fits = scroll != nullptr && bar != nullptr;
+        if (fits)
+            for (auto* panel : bar->parentItem()->childItems())
+                if (panel->isVisible() && panel->width() > scroll->width() + 0.5) {
+                    std::cerr << "REGRESSION: " << panel->metaObject()->className() << " is "
+                              << panel->width() << " px in a " << scroll->width() << " px pane\n";
+                    fits = false;
+                }
+        check(fits);
+    }
+    ctx.reached("every editor panel fits its pane");
     check(ctx.save_screenshot());
     reached("screenshot");
     std::ostringstream details;
