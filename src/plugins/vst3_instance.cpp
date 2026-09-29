@@ -270,7 +270,9 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
     // the sidechain input and the aux outputs live in `extra`, sized in
     // activate(), and are copied in from the key and out to wherever
     // set_aux_output() sent them.
-    static constexpr int maximum_channels = 64;
+    // Fewer than JUCE's 32 preallocated channel pointers, so wrapping the
+    // block in an AudioBuffer never allocates on the audio thread.
+    static constexpr int maximum_channels = 31;
     std::uint32_t sidechain_channels = 0;
     int sidechain_offset = 0;
     struct AuxBus {
@@ -380,7 +382,16 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
         if (stereo_out && layout.inputBuses.size() > 1 && layout.inputBuses[0] == stereo)
             try_enable(true, 1);
         if (stereo_out)
-            for (int bus = 1; bus < layout.outputBuses.size(); ++bus) try_enable(false, bus);
+            for (int bus = 1; bus < layout.outputBuses.size(); ++bus) {
+                try_enable(false, bus);
+                // Outputs past what one block can carry stay off.
+                if (plugin->getTotalNumOutputChannels() > maximum_channels) {
+                    auto back = plugin->getBusesLayout();
+                    back.outputBuses.getReference(bus) = juce::AudioChannelSet::disabled();
+                    (void)plugin->setBusesLayout(back);
+                    break;
+                }
+            }
         layout = plugin->getBusesLayout();
         input_channels = static_cast<std::uint32_t>(
             std::clamp(plugin->getMainBusNumInputChannels(), 0, 2));
