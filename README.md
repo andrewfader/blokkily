@@ -245,7 +245,8 @@ zones, loops, envelopes, kit pads and slicing. The FX browser adds CLAP, VST3
 or built-in EQ, delay, reverb and compressor inserts to the selected track,
 return or master rack. Sends are post-fader and pre-pan; returns remain audible
 when a source track is soloed. Playback and export both compensate plugin
-latency. E in an insert row opens its native window; A chooses a parameter to
+latency. An insert row names the effect as the browser lists it, on a line of
+its own; E below it opens its native window; A chooses a parameter to
 edit in the selected track's automation lane. A plugin-window gesture is one
 undo step, including gestures on return and master inserts.
 

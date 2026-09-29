@@ -68,6 +68,10 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
     // browser too.
     QObject::connect(this, &AppController::pluginsChanged,
                      this, &AppController::browserChanged);
+    // A rack row names an effect as the browser listed it.
+    if (song_ != nullptr)
+        QObject::connect(this, &AppController::pluginsChanged, this,
+                         [this] { song_->learnPluginNames(plugins_); });
     if (pattern_ != nullptr)
         QObject::connect(pattern_, &PatternModel::contentChanged, this, [this] {
             // Editing a step changes what the arrangement plays, not what plays

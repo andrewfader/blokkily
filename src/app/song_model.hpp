@@ -483,6 +483,12 @@ public:
     void setProcessorPorts(std::vector<blokkily::ProcessorAddress> keyable,
                            std::vector<int> instrument_outputs);
     [[nodiscard]] int instrumentOutputs(int track) const;
+    // What the plugins the scan found call themselves ("Blokkily Test
+    // Effect"), keyed by format and file (and identifier, for a file that
+    // holds several), so a rack row names an effect as the browser does
+    // rather than by its file name. Names learned are kept: a plugin the
+    // song holds stays named after a later scan lists fewer. Not history.
+    void learnPluginNames(const QVariantList& plugins);
     // Breaks output `output` (1 is the first after the main one) of track
     // `track`'s instrument out to a mixer channel of its own (wave 5.2): a new
     // track, "<NAME> AUX n", fed by that output and selected, as one step of
@@ -561,6 +567,8 @@ private:
     std::vector<blokkily::AudioClipId> rendering_clips_;
     std::vector<blokkily::ProcessorAddress> keyable_inserts_;
     std::vector<int> instrument_outputs_;
+    std::map<std::string, QString> plugin_names_;
+    [[nodiscard]] QString effectLabel(const blokkily::PluginSlot& slot) const;
     [[nodiscard]] bool validTrack(int track) const;
     [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
     // The cell of the grid, when the scene and the track exist.

@@ -16,7 +16,7 @@ Rectangle {
                                      ? rack.inserts.filter(slot => slot.keyable).length : 0
     Layout.fillWidth: true
     Layout.minimumHeight: 92
-    implicitHeight: 78 + Math.max(1, rows) * 30 + keyedRows * 24
+    implicitHeight: 78 + Math.max(1, rows) * 50 + keyedRows * 24
     radius: 6
     color: Theme.panel
     border.color: Theme.line
@@ -64,16 +64,18 @@ Rectangle {
                 required property int index
                 objectName: "insertRow" + index
                 Layout.fillWidth: true
-                implicitHeight: modelData.keyable ? 50 : 26; radius: 4
+                implicitHeight: modelData.keyable ? 70 : 46; radius: 4
                 color: modelData.bypass ? "#15161a" : Theme.raised
                 border.color: Theme.line
                 ColumnLayout {
                     anchors.fill: parent; anchors.leftMargin: 6; anchors.rightMargin: 4
-                    anchors.topMargin: 3; anchors.bottomMargin: 3
-                    spacing: 4
+                    anchors.topMargin: 4; anchors.bottomMargin: 4
+                    spacing: 3
+                    // The effect's name has a line of its own, so the chips
+                    // below it never squeeze it to "Blokkil...".
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 3
+                        spacing: 5
                         Rectangle {
                             Layout.preferredWidth: 32; Layout.preferredHeight: 15; radius: 3
                             color: modelData.format === "CLAP" ? Theme.acid
@@ -87,17 +89,23 @@ Rectangle {
                             Layout.fillWidth: true
                             text: modelData.name
                             color: modelData.bypass ? Theme.muted : Theme.ink
-                            font.pixelSize: 10; font.bold: true; elide: Text.ElideRight
+                            font.pixelSize: 11; font.bold: true; elide: Text.ElideRight
                         }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 3
                         Chip {
                             objectName: "insertEditor" + index
-                            text: "E"; implicitHeight: 20; implicitWidth: 22
+                            text: "E"; implicitHeight: 20; implicitWidth: 26
+                            accessibleLabel: "Open the plugin window"
                             on: { appController.openEditors; return appController.insertEditorOpen(root.rack.kind, root.rack.bus, index) }
                             onClicked: appController.toggleInsertEditor(root.rack.kind, root.rack.bus, index)
                         }
                         Chip {
                             objectName: "insertAutomation" + index
-                            text: "A"; implicitHeight: 20; implicitWidth: 22
+                            text: "A"; implicitHeight: 20; implicitWidth: 26
+                            accessibleLabel: "Automate a parameter"
                             onClicked: parameters.open()
                             Menu {
                                 id: parameters
@@ -114,6 +122,7 @@ Rectangle {
                                 }
                             }
                         }
+                        Item { Layout.fillWidth: true }
                         Chip {
                             objectName: "bypass" + index
                             text: "BYP"; implicitHeight: 20; implicitWidth: 40; accent: Theme.amber
@@ -124,6 +133,7 @@ Rectangle {
                         Chip {
                             objectName: "removeInsert" + index
                             text: "×"; implicitHeight: 20; implicitWidth: 22
+                            accessibleLabel: "Remove the insert"
                             onClicked: songModel.removeInsert(root.rack.kind, root.rack.bus, index)
                         }
                     }

@@ -139,6 +139,13 @@ bool VerifyContext::usable(const QQuickItem* item, double width, double height) 
     return item != nullptr && item->width() >= width && item->height() >= height;
 }
 
+bool VerifyContext::reads_whole(const QQuickItem* label, const QString& text) {
+    if (label == nullptr || !label->isVisible() || label->property("text").toString() != text)
+        return false;
+    const double wanted = label->implicitWidth();
+    return wanted > 0.0 && label->width() + 0.5 >= wanted && label->height() >= 8.0;
+}
+
 bool VerifyContext::save_screenshot() const {
     return save_screenshot_to(parser.value("screenshot"));
 }

@@ -219,6 +219,7 @@ void run_modulation(VerifyContext& ctx) {
     check(key_chip != nullptr && key_chip->property("text").toString() == "KICK" &&
           key_chip->property("on").toBool());
     check(VerifyContext::usable(ctx.named("insertName0"), 40, 10));
+    check(VerifyContext::reads_whole(ctx.named("insertName0"), "Compressor"));
     reached("modulation: the rack keys the compressor from the kick");
 
     // Heard: the bass alone passes open (the silent key compresses nothing);

@@ -90,6 +90,9 @@ public:
     // Shown is not the same as usable: a panel squeezed to nothing by a
     // neighbour still reports itself visible.
     static bool usable(const QQuickItem* item, double width, double height);
+    // A label that reads in full: it shows `text` and is laid out at least
+    // as wide as its text wants (implicitWidth), so nothing is elided.
+    static bool reads_whole(const QQuickItem* label, const QString& text);
 
     // Renders the real scene and writes it where --screenshot says. The gate
     // checks dimensions and that pixels vary; a person or an agent still has

@@ -173,6 +173,13 @@ void run_effects(VerifyContext& ctx) {
           controller.engine()->processor({BusKind::track, 0, 0}) != nullptr);
     check(controller.outputLatency() == 64);
     check(VerifyContext::usable(ctx.named("insertRow0"), 150, 20));
+    // The effect's name reads in full at the standard mixer width: the
+    // row's chips do not squeeze it into "Blokkil...".
+    check(VerifyContext::reads_whole(ctx.named("insertName0"), "Blokkily Test Effect"));
+    check(VerifyContext::usable(ctx.named("bypass0"), 30, 16) &&
+          VerifyContext::usable(ctx.named("removeInsert0"), 16, 16) &&
+          VerifyContext::usable(ctx.named("insertEditor0"), 16, 16) &&
+          VerifyContext::usable(ctx.named("insertAutomation0"), 16, 16));
     const float through = heard();
     check(near(through, 0.0625F));
     reached("effects: an inserted effect is heard");

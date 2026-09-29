@@ -155,6 +155,14 @@ Feature: Effects process tracks, returns and the master, in time with one anothe
     Then the rack lists it, the synth keeps running as the same instance
     And the track is heard at 0.0625 with 64 samples of latency
 
+  # bdd_effects: "effects: an inserted effect is heard" (regression); bdd_modulation: "modulation: the rack keys the compressor from the kick"
+  Scenario: The rack names an insert in full at the standard mixer width
+    Given the mixer at its standard width with the CLAP effect inserted on a track
+    When the rack is drawn
+    Then the insert's name reads "Blokkily Test Effect", as the browser lists it, not its file name
+    And the name label is at least as wide as its text, on a line above the E, A, BYP and remove chips
+    And the built-in compressor reads "Compressor" in full the same way
+
   # bdd_effects: "effects: bypass is live and undoable"
   Scenario: Bypass from the rack is live and undoable
     When the producer clicks BYP on the insert

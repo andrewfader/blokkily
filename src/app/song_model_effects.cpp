@@ -35,8 +35,8 @@ std::optional<blokkily::BusKind> bus_kind_from(const QString& name) {
     return std::nullopt;
 }
 
-// What a rack row calls an effect: a built-in by its own name, a plugin by
-// its file.
+// What a rack row calls an effect the scan has not named: a built-in by its
+// own name, a plugin by its file.
 QString effect_label(const blokkily::PluginSlot& slot) {
     if (slot.format == blokkily::builtin_effect_format)
         for (const auto& effect : blokkily::builtin_effects())
@@ -123,7 +123,7 @@ QVariantMap SongModel::rack() const {
                              key >= 0;
         inserts.push_back(QVariantMap{
             {"index", static_cast<int>(index)},
-            {"name", effect_label(slot.plugin)},
+            {"name", effectLabel(slot.plugin)},
             {"format", format_badge(slot.plugin)},
             {"bypass", slot.bypass},
             {"keyable", keyable},
@@ -136,6 +136,41 @@ QVariantMap SongModel::rack() const {
             {"bus", static_cast<int>(where.bus)},
             {"title", title},
             {"inserts", inserts}};
+}
+
+namespace {
+std::string plugin_key(const std::string& format, const std::string& path,
+                       const std::string& identifier) {
+    return format + '\n' + path + '\n' + identifier;
+}
+} // namespace
+
+void SongModel::learnPluginNames(const QVariantList& plugins) {
+    bool learned = false;
+    for (const auto& entry : plugins) {
+        const auto row = entry.toMap();
+        const auto name = row.value("name").toString();
+        const auto path = row.value("path").toString().toStdString();
+        if (name.isEmpty() || path.empty()) continue;
+        const auto format = row.value("format").toString().toStdString();
+        const auto identifier = row.value("identifier").toString().toStdString();
+        for (const auto& key : {plugin_key(format, path, identifier), plugin_key(format, path, {})}) {
+            auto& known = plugin_names_[key];
+            learned = learned || known != name;
+            known = name;
+        }
+    }
+    if (learned) emit songChanged();
+}
+
+QString SongModel::effectLabel(const blokkily::PluginSlot& slot) const {
+    if (slot.format != blokkily::builtin_effect_format) {
+        auto found = plugin_names_.find(plugin_key(slot.format, slot.path, slot.identifier));
+        if (found == plugin_names_.end())
+            found = plugin_names_.find(plugin_key(slot.format, slot.path, {}));
+        if (found != plugin_names_.end()) return found->second;
+    }
+    return effect_label(slot);
 }
 
 void SongModel::setProcessorPorts(std::vector<blokkily::ProcessorAddress> keyable,
