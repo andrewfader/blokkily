@@ -220,17 +220,29 @@ struct PatternSlot {
 // the scene launcher printed that stopped part-way through a loop): nothing
 // starts from the cut on, and a note still sounding there is released there.
 // It is never longer than the repeats it cuts.
+// `offset`, when not 0, trims the clip's front: it sounds from that many
+// ticks into its repeats (which may be past the first), so the tail of a clip
+// split around a printed take plays exactly what it played before, loop
+// numbers included. What starts before the trim is not played. `length`
+// counts from `start`, after the trim.
 struct Clip {
     std::size_t track = 0;
     std::size_t pattern = 0;
     Tick start = 0;
     std::uint32_t repeats = 1;
     Tick length = 0;
+    Tick offset = 0;
 
     // The ticks the clip covers, given its pattern's length.
     [[nodiscard]] Tick span(Tick pattern_length) const noexcept {
-        const Tick whole = pattern_length * static_cast<Tick>(repeats < 1 ? 1 : repeats);
+        const Tick repeated = pattern_length * static_cast<Tick>(repeats < 1 ? 1 : repeats);
+        const Tick whole = repeated > offset ? repeated - offset : 0;
         return length > 0 && length < whole ? length : whole;
+    }
+    // Where in the pattern tick `at` of the song falls, for a tick the clip
+    // covers.
+    [[nodiscard]] Tick pattern_tick(Tick at, Tick pattern_length) const noexcept {
+        return pattern_length <= 0 ? 0 : (at - start + offset) % pattern_length;
     }
 };
 
@@ -420,10 +432,16 @@ struct Song {
     // pattern `pattern` on track `track` from `start` to `end`, as clips of
     // at most `cycle` repeats each (the loops a launched pattern repeats in;
     // a cycle of 1 is one clip), the last one cut at `end`. A clip of that track the take covers makes
-    // room: one that begins inside the take goes, and one that runs into it
-    // is cut where the take begins (what it held after the take is not kept).
+    // room: it is split around the take. What it played before the take stays
+    // (cut where the take begins), and what it played after the take's end
+    // stays too, as a clip trimmed (Clip::offset) to go on exactly where it
+    // would have been; only the stretch the take covers goes.
     // False, changing nothing, when the track or the pattern does not exist
     // or the take is empty.
+    // Keeps every clip of pattern `pattern` inside its repeats after the
+    // pattern's length changed: a trim past them keeps its place in the loop,
+    // a cut past them is dropped.
+    void fit_clips(std::size_t pattern);
     bool print_take(std::size_t track, std::size_t pattern, Tick start, Tick end,
                     std::uint32_t cycle = 1);
     // An id no audio clip in the song uses yet.

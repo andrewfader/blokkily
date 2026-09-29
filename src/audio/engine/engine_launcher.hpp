@@ -47,6 +47,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -172,6 +173,47 @@ struct LauncherPlayback {
 };
 
 inline constexpr std::uint64_t no_launcher_boundary = std::numeric_limits<std::uint64_t>::max();
+
+// What the launcher is doing, carried from one engine to the next when the
+// graph is rebuilt (a track or an instrument added, changed or removed), so
+// a launched loop keeps playing, in phase, through the rebuild: which cell
+// each track plays and where in its loop (in session ticks, which run on
+// unbroken), what is queued, the notes it holds and the take it is
+// recording. Commands not yet played are carried too.
+struct LauncherHandoff {
+    struct Track {
+        bool playing = false;
+        bool parked = false;
+        std::uint32_t scene = 0;
+        std::int32_t pattern = -1;
+        Tick start = 0;
+        std::uint32_t loop = 0;
+        LauncherTrack::Queued queued = LauncherTrack::Queued::none;
+        std::uint32_t queued_scene = 0;
+        Tick queued_at = 0;
+        std::vector<LauncherNote> held;
+        bool take_open = false;
+        LauncherTake take{};
+    };
+    bool rolling = false;
+    double expected_session = 0.0;
+    Tick expected_tick = 0;
+    std::uint64_t random = 0;
+    std::vector<Track> tracks;
+    std::vector<LauncherCommand> commands;
+};
+
+// Control thread, with the callback not running: what `playback` is doing.
+// The commands are taken off its queue.
+[[nodiscard]] LauncherHandoff launcher_handoff(LauncherPlayback& playback);
+// Control thread, after prepare_launcher() and before the callback runs:
+// carries `handoff` into `playback`. `remap` says where each old track went
+// (entry i is old track i's new index, or empty when it was removed); without
+// one, tracks keep their indices. A track that no longer exists is dropped,
+// its open take with it. The first chunk the callback renders places the
+// session where the old engine left it, whatever the song position.
+void resume_launcher(LauncherPlayback& playback, const LauncherHandoff& handoff,
+                     const std::vector<std::optional<std::size_t>>* remap);
 
 // Control thread, with the callback not running: room for `tracks` tracks,
 // everything stopped, the random follow action seeded.

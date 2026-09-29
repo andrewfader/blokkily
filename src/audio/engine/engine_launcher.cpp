@@ -380,8 +380,95 @@ void prepare_launcher(LauncherPlayback& playback, std::size_t tracks, std::uint6
     playback.expected_session = 0.0;
     playback.expected_tick = 0;
     playback.arranged = nullptr;
+    playback.dropped_takes.store(0, std::memory_order_relaxed);
     playback.random = seed * 0x9E3779B97F4A7C15ULL + 0x632BE59BD9B4E019ULL;
     if (playback.random == 0) playback.random = 1;
+}
+
+LauncherHandoff launcher_handoff(LauncherPlayback& playback) {
+    LauncherHandoff handoff;
+    handoff.rolling = playback.rolling;
+    handoff.expected_session = playback.expected_session;
+    handoff.expected_tick = playback.expected_tick;
+    handoff.random = playback.random;
+    handoff.tracks.resize(playback.track_count);
+    for (std::size_t index = 0; index < playback.track_count; ++index) {
+        const auto& track = playback.tracks[index];
+        auto& carried = handoff.tracks[index];
+        carried.playing = track.playing;
+        carried.parked = track.parked;
+        carried.scene = track.scene;
+        carried.pattern = track.pattern;
+        carried.start = track.start;
+        carried.loop = track.loop;
+        carried.queued = track.queued;
+        carried.queued_scene = track.queued_scene;
+        carried.queued_at = track.queued_at;
+        carried.held.assign(track.held.begin(), track.held.begin() + track.held_count);
+        carried.take_open = track.take_open;
+        carried.take = track.take;
+    }
+    LauncherCommand command;
+    while (playback.commands.pop(command)) handoff.commands.push_back(command);
+    return handoff;
+}
+
+void resume_launcher(LauncherPlayback& playback, const LauncherHandoff& handoff,
+                     const std::vector<std::optional<std::size_t>>* remap) {
+    const auto moved = [&](std::size_t old) -> std::optional<std::size_t> {
+        const auto to = remap == nullptr ? std::optional<std::size_t>{old}
+                        : old < remap->size() ? (*remap)[old]
+                                              : std::nullopt;
+        if (!to || *to >= playback.track_count) return std::nullopt;
+        return to;
+    };
+    if (handoff.rolling) {
+        playback.rolling = true;
+        playback.expected_session = handoff.expected_session;
+        playback.expected_tick = handoff.expected_tick;
+        // Nothing has been rendered: the first chunk takes the session up
+        // from expected_session, wherever this engine's song position is.
+        playback.expected = std::numeric_limits<std::uint64_t>::max();
+        playback.arranged = nullptr;
+    }
+    if (handoff.random != 0) playback.random = handoff.random;
+    for (std::size_t old = 0; old < handoff.tracks.size(); ++old) {
+        const auto to = moved(old);
+        if (!to) continue;
+        const auto& carried = handoff.tracks[old];
+        auto& track = playback.tracks[*to];
+        if (handoff.rolling) {
+            track.playing = carried.playing;
+            track.parked = carried.parked;
+            track.scene = carried.scene;
+            track.pattern = carried.pattern;
+            track.start = carried.start;
+            track.loop = carried.loop;
+            track.queued = carried.queued;
+            track.queued_scene = carried.queued_scene;
+            track.queued_at = carried.queued_at;
+            track.held_count = static_cast<std::uint32_t>(
+                std::min(carried.held.size(), track.held.size()));
+            std::copy_n(carried.held.begin(), track.held_count, track.held.begin());
+            track.take_open = carried.take_open;
+            track.take = carried.take;
+            track.take.track = static_cast<std::uint32_t>(*to);
+            track.cursor_valid = false;
+            track.release = false;
+            // The old engine already let the arrangement go on this track.
+            track.took_over = false;
+        }
+        publish(track);
+    }
+    for (auto command : handoff.commands) {
+        if (command.type == LauncherCommand::Type::launch_cell ||
+            command.type == LauncherCommand::Type::stop_track) {
+            const auto to = moved(command.track);
+            if (!to) continue;
+            command.track = static_cast<std::uint32_t>(*to);
+        }
+        (void)playback.commands.push(command);
+    }
 }
 
 void reset_launcher(LauncherPlayback& playback) noexcept {

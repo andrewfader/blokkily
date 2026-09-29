@@ -322,7 +322,12 @@ the render callback, and a launched track plays its cell instead of its
 arrangement until the transport stops. With REC ARRANGEMENT on, every stretch
 a track played from one cell is printed into the arrangement as clips when it
 ends, one step of undo each; the printed arrangement plays and exports what
-was heard, sample for sample. The grid is saved with the song.
+was heard, sample for sample. A take printed over a longer clip splits it,
+keeping what the clip played after the take. Adding or removing a track or
+changing an instrument mid-jam rebuilds the engine without stopping the jam:
+launched cells play on in phase, and the playhead stays where it was. A
+launch the engine's queue has no room for is refused and said in the status
+line, as is a take lost to a full take queue. The grid is saved with the song.
 
 MIDI keyboards play the pitch wheel, control changes and pressure into the
 track's instrument on whatever channel they send (SoundFont, VST3, CLAP and
@@ -375,10 +380,9 @@ to persist those references. Original files are kept so undo remains playable.
   previous block's level. The sync divisions are straight note values (no
   dotted or triplet ones), and a "bar" among them is four beats whatever the
   meter.
-- The scene launcher has no per-scene tempo; launched tracks stop when the
-  engine is rebuilt (a track or instrument added, changed or removed) and for
-  an export, which is always the arrangement. A take printed over a clip that
-  ran past the take's end cuts that clip where the take began.
+- The scene launcher has no per-scene tempo, and an export is always the
+  arrangement (launched tracks are not in it). A clip's tail kept after a
+  printed take does not chase a controller value set before its trim.
 - Output recording chooses one bus per pass. Bounce additional racks for a
   set of stems. A partial live pass ends when recording stops and does not
   automatically append effect tails; offline stems include them.

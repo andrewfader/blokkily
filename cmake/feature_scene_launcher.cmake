@@ -43,7 +43,11 @@ if(BLOKKILY_BUILD_TESTS)
             arrangement_hand_back
             record_prints_arrangement
             edit_while_launched
-            serialization)
+            serialization
+            survives_rebuild
+            rebuild_keeps_takes
+            full_queues
+            print_keeps_tail)
         add_test(NAME scene_launcher_${launcher_case}
             COMMAND blokkily_scene_launcher_tests ${launcher_case})
         set_tests_properties(scene_launcher_${launcher_case} PROPERTIES
@@ -52,6 +56,7 @@ if(BLOKKILY_BUILD_TESTS)
     endforeach()
     set_property(TEST scene_launcher_record_prints_arrangement APPEND PROPERTY LABELS "export")
     set_property(TEST scene_launcher_serialization APPEND PROPERTY LABELS "project;schema")
+    set_property(TEST scene_launcher_print_keeps_tail APPEND PROPERTY LABELS "project;schema")
 
     blokkily_add_realtime_case(scene_launcher LABELS "audio;launcher;clap")
 

@@ -22,7 +22,7 @@ void AppController::seekToPatternStep(int step) {
         const auto length = song.patterns[open].pattern.length();
         const auto span = clip.span(length);
         if (at < clip.start || at >= clip.start + span) continue;
-        pass = clip.start + (at - clip.start) / length * length;
+        pass = at - clip.pattern_tick(at, length);
         break;
     }
     seekToTick(static_cast<double>(pass + static_cast<blokkily::Tick>(step) * 120));

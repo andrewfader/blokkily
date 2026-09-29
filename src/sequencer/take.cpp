@@ -50,7 +50,7 @@ TakeTarget take_target(const Song& song, std::size_t track, Tick tick,
         const Tick length = song.patterns[clip.pattern].pattern.length();
         const Tick span = clip.span(length);
         if (tick >= clip.start && tick < clip.start + span)
-            return {clip.pattern, (tick - clip.start) % length};
+            return {clip.pattern, clip.pattern_tick(tick, length)};
     }
     const auto pattern = std::min(open_pattern, song.patterns.size() - 1);
     const Tick length = song.patterns[pattern].pattern.length();

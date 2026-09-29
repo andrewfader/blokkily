@@ -78,8 +78,11 @@ void write_core(const Project& project, WriteContext& context) {
             << clip.repeats;
         // A cut (a launcher take stopped part-way through a loop) is a sixth
         // field, written only when there is one, so older readers keep
-        // reading every clip that has none.
-        if (clip.length > 0) out << ' ' << clip.length;
+        // reading every clip that has none. A trim (the tail of a clip a
+        // printed take split) is a seventh, after a cut of 0 when uncut;
+        // a reader from before trims refuses it rather than play it wrong.
+        if (clip.length > 0 || clip.offset > 0) out << ' ' << clip.length;
+        if (clip.offset > 0) out << ' ' << clip.offset;
         out << '\n';
     }
 }
@@ -284,15 +287,18 @@ bool parse_clip(const Fields& fields, ParseContext& context) {
     const auto pattern_index = fields.integer(2);
     const auto start = fields.integer(3);
     const auto repeats = fields.integer(4);
-    const bool cut = fields.count(6);
+    const bool trimmed = fields.count(7);
+    const bool cut = fields.count(6) || trimmed;
     const auto length = cut ? fields.integer(5) : std::optional<long long>{0};
+    const auto offset = trimmed ? fields.integer(6) : std::optional<long long>{0};
     if (!(fields.count(5) || cut) || !track || !pattern_index || !start || !repeats ||
-        !length || *track < 0 || *pattern_index < 0 || *start < 0 || *repeats <= 0 ||
-        *repeats > 0xFFFF || *length < 0 || (cut && *length == 0))
+        !length || !offset || *track < 0 || *pattern_index < 0 || *start < 0 || *repeats <= 0 ||
+        *repeats > 0xFFFF || *length < 0 || (cut && !trimmed && *length == 0) ||
+        (trimmed && *offset <= 0))
         return context.fail("malformed clip record");
     context.clips.push_back({static_cast<std::size_t>(*track),
                              static_cast<std::size_t>(*pattern_index), *start,
-                             static_cast<std::uint32_t>(*repeats), *length});
+                             static_cast<std::uint32_t>(*repeats), *length, *offset});
     return true;
 }
 

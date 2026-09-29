@@ -577,6 +577,247 @@ void serialization_case() {
             "its names read as they were written");
 }
 
+// features/scene_launcher.feature: a launched loop survives a rebuild of the
+// graph. Engine A plays a launched cell; a track is added mid-jam, so the
+// application builds engine B (the instruments carried over as the same
+// instances, the launcher handed over, the playhead kept). What A and then B
+// render is sample for sample what one engine that was never rebuilt renders:
+// the loop keeps playing, in phase, and the note held across the rebuild is
+// let go where the pattern says.
+void survives_rebuild_case() {
+    auto song = session(1, 16);
+    // Half a bar on, half off, with a short note every other loop: the phase
+    // and the loop count can both be read off the samples.
+    song.patterns.push_back({"LOOP", notes({{0, 960, 60, 0.8F}, {1440, 240, 62, 0.4F, 2}})});
+    song.launcher.add_scene("JAM");
+    song.launcher.quantization = LaunchQuantization::none;
+    song.launcher.set_slot(0, 0, {.pattern = 1});
+    require(song.consistent(), "valid");
+
+    // The reference: never rebuilt.
+    SongEngine reference;
+    prepare(reference, song);
+    require(reference.launch_cell(0, 0), "launched");
+    reference.set_playing(true);
+    const std::uint64_t total = 6 * bar;
+    const auto expected = render(reference, total);
+
+    // A, rebuilt a quarter of the way into the second loop (the note held).
+    SongEngine a;
+    prepare(a, song);
+    require(a.launch_cell(0, 0), "launched");
+    a.set_playing(true);
+    const std::uint64_t switch_at = (bar + bar / 4) / block * block;
+    auto heard = render(a, switch_at);
+    require(a.launcher_status(0).playing, "A plays the cell");
+
+    // The rebuild, as AppController::rebuildEngine does it: a track is added
+    // at the front, so the jam's track moves from 0 to 1.
+    auto grown = song;
+    grown.tracks.insert(grown.tracks.begin(), Track{});
+    for (auto& clip : grown.clips) ++clip.track;
+    grown.launcher.set_slot(0, 1, *song.launcher.slot(0, 0));
+    grown.launcher.clear_slot(0, 0);
+    require(grown.consistent(), "the grown song is valid");
+    const std::vector<std::optional<std::size_t>> remap{1};
+    const auto handoff = a.launcher_handoff();
+    const auto playhead = a.sample_position();
+    SongEngine b;
+    for (auto& released : a.release_processors()) {
+        auto where = released.where;
+        where.bus = 1;
+        b.set_processor(where, std::move(released.instance));
+    }
+    b.set_instrument(0, synth());
+    std::string error;
+    require(b.prepare(grown, rate, 1024, 0, &error), "B prepares: " + error);
+    b.resume_launcher(*handoff, &remap);
+    b.seek(playhead);
+    b.set_playing(true);
+    require(b.launcher_status(1).playing && !b.launcher_status(0).playing,
+            "B shows the carried cell playing on the moved track before it renders");
+    const auto after = render(b, total - switch_at);
+    heard.insert(heard.end(), after.begin(), after.end());
+
+    std::uint64_t differing = 0, first = heard.size();
+    for (std::size_t at = 0; at < heard.size(); ++at)
+        if (!near(heard[at], expected[at], 1e-6)) {
+            ++differing;
+            first = std::min<std::uint64_t>(first, at);
+        }
+    require(differing == 0, "the rebuilt engine plays the loop on in phase; " +
+                                std::to_string(differing) + " samples differ, the first at " +
+                                std::to_string(first));
+    require(near(heard[switch_at + 10], level(0.8)) &&
+                silent(heard, bar + bar / 2, bar + bar / 2 + 1000) &&
+                near(heard[2 * bar + 10], level(0.8)),
+            "the held note sounds through the rebuild, stops at its end, and the loop goes on");
+    require(probe::rising_edges(after, 1e-4F) >= 4, "and B is not silence");
+}
+
+// A take that finished before a rebuild comes back from the old engine, and
+// a take still open carries on in the new one: printed, the two are exactly
+// what was launched.
+void rebuild_keeps_takes_case() {
+    auto song = session(1, 16);
+    song.patterns.push_back({"A", notes({{0, 960, 60, 0.4F}})});
+    song.patterns.push_back({"B", notes({{0, 960, 60, 0.8F}})});
+    song.launcher.add_scene("ONE");
+    song.launcher.add_scene("TWO");
+    song.launcher.quantization = LaunchQuantization::bar;
+    song.launcher.set_slot(0, 0, {.pattern = 1, .quantization = LaunchQuantization::bar});
+    song.launcher.set_slot(1, 0, {.pattern = 2, .quantization = LaunchQuantization::bar});
+    SongEngine a;
+    prepare(a, song);
+    a.set_launcher_recording(true);
+    require(a.launch_cell(0, 0), "launched");
+    a.set_playing(true);
+    (void)render(a, bar + bar / 2, [&](std::uint64_t at) {
+        if (at == bar / 2 / block * block) require(a.launch_cell(1, 0), "B queued for bar 1");
+    });
+    // The take of A ended on bar 1: finished before the rebuild.
+    LauncherTake done;
+    require(a.take_launcher_take(done) && done.pattern == 1 && done.start == 0 &&
+                done.end == 1920,
+            "the finished take is handed back before the old engine goes");
+    const auto handoff = a.launcher_handoff();
+    const auto playhead = a.sample_position();
+    SongEngine b;
+    for (auto& released : a.release_processors())
+        b.set_processor(released.where, std::move(released.instance));
+    std::string error;
+    require(b.prepare(song, rate, 1024, 0, &error), "B prepares: " + error);
+    b.set_launcher_recording(true);
+    b.resume_launcher(*handoff);
+    b.seek(playhead);
+    b.set_playing(true);
+    (void)render(b, bar, [&](std::uint64_t at) {
+        // Stopped with the grid's bar quantization: on bar 2.
+        if (at == bar / 4 / block * block) require(b.stop_launched(0), "stopped");
+    });
+    LauncherTake open;
+    const bool finished = b.take_launcher_take(open);
+    require(finished && open.pattern == 2 && open.start == 1920 && open.end == 2 * 1920,
+            "the take open across the rebuild is finished by the new engine: " +
+                std::to_string(open.start) + " .. " + std::to_string(open.end));
+    require(!b.take_launcher_take(open), "nothing else");
+}
+
+// A full command queue refuses a launch and counts it; a full take queue
+// drops the take and counts it. Neither crashes the callback or corrupts
+// what plays.
+void full_queues_case() {
+    auto song = session(1, 16);
+    song.patterns.push_back({"TICK", notes({{0, 60, 60, 0.8F}}, 120)});
+    song.launcher.add_scene("S");
+    song.launcher.quantization = LaunchQuantization::none;
+    song.launcher.set_slot(0, 0, {.pattern = 1, .repeats = 1,
+                                  .quantization = LaunchQuantization::none,
+                                  .follow_action = FollowAction::again});
+    SongEngine engine;
+    prepare(engine, song);
+    std::size_t accepted = 0;
+    for (int command = 0; command < 300; ++command)
+        if (engine.launch_cell(0, 0)) ++accepted;
+    require(accepted == 256 && engine.refused_launcher_commands() == 44,
+            "the command queue takes 256 and refuses and counts the rest: " +
+                std::to_string(accepted) + " / " +
+                std::to_string(engine.refused_launcher_commands()));
+    engine.set_launcher_recording(true);
+    engine.set_playing(true);
+    // Every loop of the one-beat-quarter pattern is a take (follow: again),
+    // and nobody drains them: 1100 loops overflow the 1024 the queue holds.
+    const auto out = render(engine, 1100 * 120 * per_tick, {}, 1024);
+    require(engine.launcher_status(0).playing, "the cell still plays");
+    require(engine.dropped_launcher_takes() >= 1100 - 1024 - 1,
+            "the takes that did not fit are counted: " +
+                std::to_string(engine.dropped_launcher_takes()));
+    std::size_t drained = 0;
+    LauncherTake take;
+    while (engine.take_launcher_take(take)) ++drained;
+    require(drained == 1024 - 1 || drained == 1024,
+            "the queue holds what it can: " + std::to_string(drained));
+    // What plays is unharmed: the last loop sounds its note on its downbeat.
+    const auto last_loop = (1100 - 1) * 120 * per_tick;
+    require(near(out[last_loop + 10], level(0.8)) && silent(out, last_loop + 61 * per_tick,
+                                                            last_loop + 119 * per_tick),
+            "the loops play on");
+}
+
+// Printing a take over a clip that runs past the take's end keeps the clip's
+// tail: the take is cut into it, and before and after the take the song
+// plays exactly what it played before. Saved and read back the same; a file
+// written before trims still loads, and a malformed trim is refused.
+void print_keeps_tail_case() {
+    auto song = session(1, 8);
+    // A step on every other loop: the tail must go on counting loops.
+    song.patterns.push_back({"LONG", notes({{0, 480, 60, 0.4F}, {960, 480, 62, 0.6F, 2}})});
+    song.patterns.push_back({"TAKE", notes({{0, 1900, 64, 0.8F}})});
+    song.clips.push_back({0, 1, 0, 4});
+    require(song.consistent(), "valid");
+    SongEngine before;
+    prepare(before, song);
+    before.set_playing(true);
+    const auto original = render(before, 4 * bar);
+
+    auto printed = song;
+    // A take of TAKE from half-way through bar 1 to half-way through bar 2.
+    require(printed.print_take(0, 2, 1920 + 960, 2 * 1920 + 960, 1), "the take prints");
+    require(printed.consistent(), "the printed song is valid");
+    std::vector<Clip> long_clips;
+    for (const auto& clip : printed.clips)
+        if (clip.track == 0 && clip.pattern == 1) long_clips.push_back(clip);
+    require(long_clips.size() == 2 && long_clips[0].start == 0 &&
+                long_clips[0].span(1920) == 1920 + 960 && long_clips[1].start == 2 * 1920 + 960 &&
+                long_clips[1].offset == 2 * 1920 + 960 && long_clips[1].span(1920) == 1920 + 960,
+            "the clip is split around the take: its head and its tail both kept");
+    SongEngine after;
+    prepare(after, printed);
+    after.set_playing(true);
+    const auto played = render(after, 4 * bar);
+    const auto take_from = (1920 + 960) * per_tick;
+    const auto take_to = (2 * 1920 + 960) * per_tick;
+    std::uint64_t differing = 0;
+    for (std::uint64_t at = 0; at < played.size(); ++at) {
+        if (at >= take_from && at < take_to) continue;
+        if (!near(played[at], original[at])) ++differing;
+    }
+    require(differing == 0, "before and after the take the song plays as before; " +
+                                std::to_string(differing) + " samples differ");
+    require(near(played[take_from + 100], level(0.8)),
+            "the take plays where it was printed");
+    // The every-other-loop step alternates in the tail as it did: it sounds in
+    // one of loops 3 and 4 (bars 2 and 3, the tail's first and second loop)
+    // and not the other.
+    const double third = played[2 * bar + 960 * per_tick + 100];
+    const double fourth = played[3 * bar + 960 * per_tick + 100];
+    std::cerr << "tail: loop 3 step " << third << ", loop 4 step " << fourth << '\n';
+    require((near(third, level(0.6)) && near(fourth, 0.0)) ||
+                (near(third, 0.0) && near(fourth, level(0.6))),
+            "the tail keeps the loop numbers: the every-other step still alternates");
+
+    Project project;
+    project.song = printed;
+    const auto saved = ProjectFile::serialize(project);
+    const auto record = "clip 0 1 " + std::to_string(2 * 1920 + 960) + " 4 0 " +
+                        std::to_string(2 * 1920 + 960) + "\n";
+    require(saved.find(record) != std::string::npos, "the tail is saved as a trimmed clip");
+    std::string error;
+    const auto loaded = ProjectFile::parse(saved, &error);
+    require(loaded && ProjectFile::serialize(*loaded) == saved,
+            "and reads back byte for byte: " + error);
+    auto bad = saved;
+    bad.replace(bad.find(record), record.size(), "clip 0 1 5760 4 0 0\n");
+    require(!ProjectFile::parse(bad, &error), "a zero trim is refused");
+    bad = saved;
+    bad.replace(bad.find(record), record.size(), "clip 0 1 5760 4 0 7680\n");
+    require(!ProjectFile::parse(bad, &error), "a trim past the repeats is refused: " + error);
+    Project plain;
+    plain.song = song;
+    require(ProjectFile::parse(ProjectFile::serialize(plain), &error).has_value(),
+            "a file with no trims loads as before");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -595,6 +836,10 @@ int main(int argc, char** argv) {
         else if (name == "record_prints_arrangement") record_prints_arrangement_case();
         else if (name == "edit_while_launched") edit_while_launched_case();
         else if (name == "serialization") serialization_case();
+        else if (name == "survives_rebuild") survives_rebuild_case();
+        else if (name == "rebuild_keeps_takes") rebuild_keeps_takes_case();
+        else if (name == "full_queues") full_queues_case();
+        else if (name == "print_keeps_tail") print_keeps_tail_case();
         else {
             std::cerr << "Unknown case: " << name << "\n";
             return 2;

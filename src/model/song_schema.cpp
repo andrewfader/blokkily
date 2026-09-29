@@ -219,7 +219,9 @@ bool Song::consistent(std::string* why) const {
     for (const auto& clip : clips) {
         const Tick whole = patterns[clip.pattern].pattern.length() *
                            static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
-        if (clip.length < 0 || clip.length > whole)
+        if (clip.offset < 0 || clip.offset >= whole)
+            return refuse(why, "a clip is trimmed outside the repeats it plays");
+        if (clip.length < 0 || clip.length > whole - clip.offset)
             return refuse(why, "a clip is cut outside the repeats it plays");
     }
 

@@ -173,7 +173,9 @@ void run_launcher(VerifyContext& ctx) {
     check(VerifyContext::usable(ctx.named("launcherGrid"), 600, 150));
     for (const auto& [scene, track, pattern] :
          std::vector<std::tuple<int, int, int>>{{0, 0, 0}, {0, 1, 1}, {1, 0, 2}}) {
-        song.selectPattern(pattern);
+        // The open pattern is chosen from its chip, as a producer does.
+        check(click_named(QString("patternChip%1").arg(pattern)));
+        check(song.currentPattern() == pattern);
         auto* cell = ctx.named(QString("cell%1_%2").arg(scene).arg(track));
         check(VerifyContext::usable(cell, 100, 30));
         check(click(cell));
@@ -222,18 +224,57 @@ void run_launcher(VerifyContext& ctx) {
     const float followed = play_to(bar + 8192);
     std::cerr << "launcher: after one loop " << followed << '\n';
     check(near(followed, level(0.6, 0) + level(0.8, 1)));
+    reached("launcher: the follow action moves BASS to the next scene");
+
+    // --- 4b. A track added mid-jam rebuilds the graph: the take the follow
+    // action finished is printed first, and the launched cells play on in
+    // phase through the new engine, from where the song had got to. --------
+    {
+        const int before = controller.rebuildCount();
+        const auto position = played;
+        check(controller.launcherTakesPrinted() == 0);
+        check(click_named("addTrackButton"));
+        check(controller.rebuildCount() == before + 1 && song.song().tracks.size() == 3);
+        check(controller.launcherTakesPrinted() == 1);
+        const auto bass = controller.engine()->launcher_status(0);
+        const auto lead = controller.engine()->launcher_status(1);
+        check(bass.playing && bass.scene == 1 && lead.playing && lead.scene == 0);
+        // The loops go on: both cells are heard in the next block, and in the
+        // gap before bar 2 (their notes end 20 ticks before the bar) they are
+        // silent exactly where the old engine would have been.
+        const float carried = play_to(position + 512);
+        check(near(carried, level(0.6, 0) + level(0.8, 1)));
+        // The playhead went on from where it was, not from the song's start.
+        const auto song_samples = std::max<std::uint64_t>(1, controller.engine()->song_samples());
+        check(controller.engine()->sample_position() % song_samples ==
+              (position + 512) % song_samples);
+        std::cerr << "launcher: playhead " << controller.engine()->sample_position() << " of "
+                  << song_samples << ", played " << position + 512 << '\n';
+        (void)play_to(2 * bar - 512);
+        const float in_gap = play_to(2 * bar);
+        check(in_gap == 0.0F);
+        const float next_bar = play_to(2 * bar + 4096);
+        check(near(next_bar, level(0.6, 0) + level(0.8, 1)));
+        std::cerr << "launcher: across the rebuild " << carried << ", gap block " << in_gap
+                  << ", bar 2 " << next_bar << '\n';
+        // The track goes again (a rebuild too); the cells play on.
+        check(song.deleteTrack(2));
+        check(controller.engine() != nullptr && controller.engine()->launcher_status(0).playing &&
+              controller.engine()->launcher_status(1).playing);
+    }
+    reached("launcher: launched cells play on in phase through a rebuild");
     controller.pollLauncher();
     lay_out();
     check(ctx.named("cell1_0")->property("playing").toBool() &&
           !ctx.named("cell0_0")->property("playing").toBool());
-    reached("launcher: the follow action moves BASS to the next scene");
 
     // --- 5. Stopped from the rendered stop chips, on the beat. ------------
     check(click_named("stopTrack1"));
-    const float bass_alone = play_to(bar + 8192 + 2 * static_cast<std::uint64_t>(rate / 2.0));
+    const auto resumed = 2 * bar + 4096;
+    const float bass_alone = play_to(resumed + 2 * static_cast<std::uint64_t>(rate / 2.0));
     check(near(bass_alone, level(0.6, 0)));
     check(click_named("stopAllLaunched"));
-    const float silence = play_to(bar + 8192 + 4 * static_cast<std::uint64_t>(rate / 2.0));
+    const float silence = play_to(resumed + 4 * static_cast<std::uint64_t>(rate / 2.0));
     check(silence == 0.0F);
     controller.pollLauncher();
     lay_out();
@@ -282,9 +323,9 @@ void run_launcher(VerifyContext& ctx) {
         };
         check(near(at(bar / 2), level(0.4, 0) + level(0.8, 1)));
         check(near(at(bar + 4096), level(0.6, 0) + level(0.8, 1)));
-        check(near(at(bar + 3 * bar / 8), level(0.6, 0)));
+        check(near(at(2 * bar + 3 * bar / 8), level(0.6, 0)));
         std::cerr << "launcher: export bar 0 " << at(bar / 2) << ", bar 1 " << at(bar + 4096)
-                  << " then " << at(bar + 3 * bar / 8) << '\n';
+                  << " then " << at(2 * bar + 3 * bar / 8) << '\n';
     }
     reached("launcher: the project keeps the grid and the takes, and exports them");
 
@@ -302,6 +343,19 @@ void run_launcher(VerifyContext& ctx) {
     // --- The picture: scene 1 playing in the grid, the cell inspector open. -
     check(window->setProperty("view", "LAUNCH"));
     check(controller.launchScene(0));
+    // A command queue filled faster than the callback drains it refuses
+    // what does not fit, counts it and says so; nothing crashes and what
+    // was queued still plays.
+    {
+        int accepted = 0;
+        for (int launch = 0; launch < 300; ++launch)
+            if (controller.launchScene(0)) ++accepted;
+        check(accepted == 255 && controller.launcherRefusedCommands() == 45);
+        check(controller.status().contains("refused"));
+        std::cerr << "launcher: " << accepted << " launches queued, "
+                  << controller.launcherRefusedCommands() << " refused: "
+                  << controller.status().toStdString() << '\n';
+    }
     for (int block = 0; block < 4; ++block) (void)ctx.pump();
     controller.pollLauncher();
     check(click_named("cell0_0", Qt::RightButton));

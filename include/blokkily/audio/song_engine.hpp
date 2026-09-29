@@ -74,6 +74,7 @@ struct InsertChain;
 struct MetronomePlayback;
 struct ModulationPlayback;
 struct LauncherPlayback;
+struct LauncherHandoff;
 struct TestAccess;
 class StreamPool;
 } // namespace engine
@@ -361,6 +362,23 @@ public:
     [[nodiscard]] bool launcher_recording() const noexcept;
     // The next finished take, oldest first. Control thread only.
     bool take_launcher_take(LauncherTake& take) noexcept;
+    // Takes the callback could not hand back because the take queue was
+    // full (the control thread did not drain it for over a thousand takes),
+    // and launches or stops refused because the command queue was full.
+    // Counted since prepare(); any thread.
+    [[nodiscard]] std::uint32_t dropped_launcher_takes() const noexcept;
+    [[nodiscard]] std::uint32_t refused_launcher_commands() const noexcept;
+    // Carrying the launcher across a rebuild of the graph. Before the old
+    // engine goes (its callback stopped, its finished takes drained):
+    // launcher_handoff() says what every track is doing. After this engine
+    // is prepared and before its callback runs: resume_launcher() carries it
+    // in, so launched cells keep playing in phase, queued launches still
+    // land, held notes are still let go and an open take carries on. `remap`
+    // says where each old track went (see TrackRemap in the application);
+    // null keeps indices.
+    [[nodiscard]] std::shared_ptr<const engine::LauncherHandoff> launcher_handoff();
+    void resume_launcher(const engine::LauncherHandoff& handoff,
+                         const std::vector<std::optional<std::size_t>>* remap = nullptr);
 
     // --- Metronome and count-in (item 3.7, decision 14) ---------------------
     // The click: on or off, and its level (0 dB puts a downbeat at full
@@ -571,6 +589,9 @@ private:
     // The scene launcher's commands, tracks and takes (wave 6.1): allocated
     // with the engine, sized by prepare().
     std::unique_ptr<engine::LauncherPlayback> launcher_;
+    std::atomic<std::uint32_t> refused_commands_{0};
+    bool send_launcher_command(std::uint8_t type, std::uint32_t track,
+                               std::uint32_t scene) noexcept;
     // The modulators' live controls and what the callback keeps between
     // chunks for them (waves 5.1): allocated with the engine.
     std::unique_ptr<engine::ModulationPlayback> modulation_;

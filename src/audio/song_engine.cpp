@@ -245,6 +245,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     post_right_.assign(maximum_block_size, 0.0F);
     engine::reset_modulation(*modulation_);
     engine::prepare_launcher(*launcher_, song.tracks.size(), seed);
+    refused_commands_.store(0, std::memory_order_relaxed);
     rolled_ = false;
 
     // Nothing is rendering yet, so the first arrangement is installed directly
@@ -1139,24 +1140,35 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
                           std::memory_order_release);
 }
 
+bool SongEngine::send_launcher_command(std::uint8_t type, std::uint32_t track,
+                                       std::uint32_t scene) noexcept {
+    const bool sent = launcher_->commands.push(
+        {static_cast<engine::LauncherCommand::Type>(type), track, scene});
+    if (!sent) refused_commands_.fetch_add(1, std::memory_order_relaxed);
+    return sent;
+}
+
 bool SongEngine::launch_cell(std::size_t scene, std::size_t track) noexcept {
-    return launcher_->commands.push({engine::LauncherCommand::Type::launch_cell,
-                                     static_cast<std::uint32_t>(track),
-                                     static_cast<std::uint32_t>(scene)});
+    return send_launcher_command(
+        static_cast<std::uint8_t>(engine::LauncherCommand::Type::launch_cell),
+        static_cast<std::uint32_t>(track), static_cast<std::uint32_t>(scene));
 }
 
 bool SongEngine::launch_scene(std::size_t scene) noexcept {
-    return launcher_->commands.push(
-        {engine::LauncherCommand::Type::launch_scene, 0, static_cast<std::uint32_t>(scene)});
+    return send_launcher_command(
+        static_cast<std::uint8_t>(engine::LauncherCommand::Type::launch_scene), 0,
+        static_cast<std::uint32_t>(scene));
 }
 
 bool SongEngine::stop_launched(std::size_t track) noexcept {
-    return launcher_->commands.push(
-        {engine::LauncherCommand::Type::stop_track, static_cast<std::uint32_t>(track), 0});
+    return send_launcher_command(
+        static_cast<std::uint8_t>(engine::LauncherCommand::Type::stop_track),
+        static_cast<std::uint32_t>(track), 0);
 }
 
 bool SongEngine::stop_all_launched() noexcept {
-    return launcher_->commands.push({engine::LauncherCommand::Type::stop_all, 0, 0});
+    return send_launcher_command(
+        static_cast<std::uint8_t>(engine::LauncherCommand::Type::stop_all), 0, 0);
 }
 
 LauncherTrackStatus SongEngine::launcher_status(std::size_t track) const noexcept {
@@ -1169,6 +1181,23 @@ void SongEngine::set_launcher_recording(bool recording) noexcept {
 
 bool SongEngine::launcher_recording() const noexcept {
     return launcher_->recording.load(std::memory_order_acquire);
+}
+
+std::uint32_t SongEngine::dropped_launcher_takes() const noexcept {
+    return launcher_->dropped_takes.load(std::memory_order_relaxed);
+}
+
+std::uint32_t SongEngine::refused_launcher_commands() const noexcept {
+    return refused_commands_.load(std::memory_order_relaxed);
+}
+
+std::shared_ptr<const engine::LauncherHandoff> SongEngine::launcher_handoff() {
+    return std::make_shared<const engine::LauncherHandoff>(engine::launcher_handoff(*launcher_));
+}
+
+void SongEngine::resume_launcher(const engine::LauncherHandoff& handoff,
+                                 const std::vector<std::optional<std::size_t>>* remap) {
+    engine::resume_launcher(*launcher_, handoff, remap);
 }
 
 bool SongEngine::take_launcher_take(LauncherTake& take) noexcept {

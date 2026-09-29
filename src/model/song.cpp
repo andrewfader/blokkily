@@ -43,26 +43,46 @@ bool Song::print_take(std::size_t track, std::size_t pattern, Tick start, Tick e
     if (length <= 0) return false;
     cycle = std::max<std::uint32_t>(1, cycle);
 
-    // Room for the take on its track.
+    // Room for the take on its track: every clip it covers is split around
+    // it, keeping what the clip played before and after.
     std::vector<Clip> kept;
-    kept.reserve(clips.size() + 4);
+    kept.reserve(clips.size() + 8);
     for (auto clip : clips) {
         if (clip.track != track || clip.pattern >= patterns.size()) {
             kept.push_back(clip);
             continue;
         }
         const Tick own = patterns[clip.pattern].pattern.length();
-        const Tick clip_end = clip.start + clip.span(own);
-        if (clip_end <= start || clip.start >= end) {
+        const Tick span = clip.span(own);
+        const Tick clip_end = clip.start + span;
+        if (own <= 0 || clip_end <= start || clip.start >= end) {
             kept.push_back(clip);
             continue;
         }
-        if (clip.start >= start) continue;
-        // Runs into the take: cut where it begins.
-        const Tick cut = start - clip.start;
-        clip.repeats = static_cast<std::uint32_t>((cut + own - 1) / own);
-        clip.length = cut == own * static_cast<Tick>(clip.repeats) ? 0 : cut;
-        kept.push_back(clip);
+        const Tick repeated = own * static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
+        if (clip.start < start) {
+            // Runs into the take: cut where it begins.
+            auto head = clip;
+            const Tick cut = start - clip.start;
+            head.repeats = static_cast<std::uint32_t>((cut + clip.offset + own - 1) / own);
+            const Tick whole = own * static_cast<Tick>(head.repeats) - clip.offset;
+            head.length = cut == whole ? 0 : cut;
+            kept.push_back(head);
+        }
+        if (clip_end > end) {
+            // Runs on past the take: its tail goes on from the take's end,
+            // trimmed to where the clip had got to there.
+            auto tail = clip;
+            const Tick skipped = end - clip.start;
+            tail.start = end;
+            tail.offset = clip.offset + skipped;
+            // The repeats before the trim stay counted, so the tail's loops
+            // number as the clip's did (a step that plays every other loop
+            // keeps alternating).
+            const Tick left = clip_end - end;
+            tail.length = left == repeated - tail.offset ? 0 : left;
+            kept.push_back(tail);
+        }
     }
     // The take, a cycle of loops at a time, so each clip's loops number from
     // 1 exactly as the launcher's did. A pattern whose loops are all alike
@@ -77,6 +97,18 @@ bool Song::print_take(std::size_t track, std::size_t pattern, Tick start, Tick e
     }
     clips = std::move(kept);
     return true;
+}
+
+void Song::fit_clips(std::size_t pattern) {
+    if (pattern >= patterns.size()) return;
+    const Tick own = patterns[pattern].pattern.length();
+    if (own <= 0) return;
+    for (auto& clip : clips) {
+        if (clip.pattern != pattern) continue;
+        const Tick repeated = own * static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
+        if (clip.offset >= repeated) clip.offset %= own;
+        if (clip.length > repeated - clip.offset) clip.length = 0;
+    }
 }
 
 bool Song::any_solo() const {
@@ -109,25 +141,33 @@ ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
         // of what is still sounding there.
         const bool cut = clip.length > 0 && clip.span(source.length()) == clip.length;
         const Tick end = clip.start + clip.span(source.length());
+        // Where the first repetition would begin were the clip not trimmed
+        // (Clip::offset): nothing before its start is played.
+        const Tick origin = clip.start - clip.offset;
+        const bool trimmed = clip.offset > 0;
         for (std::uint32_t repeat = 0; repeat < repeats; ++repeat) {
-            const Tick offset = clip.start + static_cast<Tick>(repeat) * source.length();
+            const Tick offset = origin + static_cast<Tick>(repeat) * source.length();
             if (offset >= end) break;
+            if (trimmed && offset + source.length() <= clip.start) continue;
             // Each repetition is the next loop of the pattern, so a step set to
             // play every other loop still alternates across the arrangement.
             const auto compiled = scheduler.render(source, repeat + 1, seed);
             for (auto note : compiled.notes) {
                 note.start += offset;
+                if (trimmed && note.start < clip.start) continue;
                 if (cut && note.start >= end) continue;
                 if (cut && note.start + note.duration > end) note.duration = end - note.start;
                 arranged.notes.push_back(note);
             }
             for (auto parameter : compiled.parameters) {
                 parameter.start += offset;
+                if (trimmed && parameter.start < clip.start) continue;
                 if (cut && parameter.start >= end) continue;
                 arranged.parameters.push_back(parameter);
             }
             for (auto control : compiled.continuous) {
                 control.start += offset;
+                if (trimmed && control.start < clip.start) continue;
                 if (cut && control.start >= end) continue;
                 arranged.continuous.push_back(control);
             }

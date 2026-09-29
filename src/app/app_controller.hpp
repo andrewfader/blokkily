@@ -450,10 +450,16 @@ public:
     // history per take.
     Q_INVOKABLE void toggleLauncherRecording();
     // Reads the launcher's status and prints the takes that came back. Runs
-    // with the meters; callable directly.
-    void pollLauncher();
+    // with the meters; callable directly. `remap` places the takes of an
+    // engine whose tracks have since moved (a rebuild after a deletion).
+    void pollLauncher(const blokkily::TrackRemap* remap = nullptr);
     // Takes printed since the controller started.
     int launcherTakesPrinted() const noexcept { return launcher_takes_; }
+    // Takes lost because the engine's take queue was full, and launches or
+    // stops refused because its command queue was full, since the controller
+    // started (every engine counted). Each is also said in the status line.
+    int launcherLostTakes() const noexcept { return launcher_lost_takes_; }
+    int launcherRefusedCommands() const noexcept { return launcher_refused_commands_; }
 
     // --- Metronome and count-in (item 3.7; app_controller_metronome.cpp) ----
     bool countingIn() const noexcept { return counting_in_; }
@@ -722,4 +728,14 @@ private:
     QVariantList launcher_state_;
     bool launcher_recording_ = false;
     int launcher_takes_ = 0;
+    int launcher_lost_takes_ = 0;
+    int launcher_refused_commands_ = 0;
+    // What the running engine had reported of each when last polled.
+    std::uint32_t engine_lost_takes_ = 0;
+    std::uint32_t engine_refused_commands_ = 0;
+    // Counts what the engine lost since the last poll into the totals.
+    void countLauncherLosses();
+    // While a rebuild prints the old engine's takes: the song edit that
+    // printing makes must not start a rebuild of its own.
+    bool rebuilding_ = false;
 };

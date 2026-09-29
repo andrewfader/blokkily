@@ -63,6 +63,7 @@ bool SongModel::setPatternSteps(int steps) {
     // Clicks on the length spinner arrive one by one; each is its own step.
     checkpoint();
     pattern = pattern.with_length(length);
+    song_.fit_clips(static_cast<std::size_t>(std::max(0, current_pattern_)));
     // The clips that play this pattern are now a different length, so the
     // arrangement is recompiled.
     notifyStructureChanged();

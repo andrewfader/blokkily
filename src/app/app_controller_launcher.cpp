@@ -23,6 +23,7 @@ bool AppController::launchCell(int scene, int track) {
     if (!engine_) return false;
     const bool queued = engine_->launch_cell(static_cast<std::size_t>(scene),
                                              static_cast<std::size_t>(track));
+    countLauncherLosses();
     // Queued before the transport starts, so it plays from the first block.
     if (queued && transport_ != nullptr && !transport_->playing()) togglePlayback();
     return queued;
@@ -37,18 +38,23 @@ bool AppController::launchScene(int scene) {
     if (!engine_ && !rolling) togglePlayback();
     if (!engine_) return false;
     const bool queued = engine_->launch_scene(static_cast<std::size_t>(scene));
+    countLauncherLosses();
     if (queued && transport_ != nullptr && !transport_->playing()) togglePlayback();
     return queued;
 }
 
 bool AppController::stopLauncherTrack(int track) {
     if (!engine_ || track < 0) return false;
-    return engine_->stop_launched(static_cast<std::size_t>(track));
+    const bool queued = engine_->stop_launched(static_cast<std::size_t>(track));
+    countLauncherLosses();
+    return queued;
 }
 
 bool AppController::stopLauncher() {
     if (!engine_) return false;
-    return engine_->stop_all_launched();
+    const bool queued = engine_->stop_all_launched();
+    countLauncherLosses();
+    return queued;
 }
 
 void AppController::toggleLauncherRecording() {
@@ -57,7 +63,31 @@ void AppController::toggleLauncherRecording() {
     emit launcherChanged();
 }
 
-void AppController::pollLauncher() {
+void AppController::countLauncherLosses() {
+    if (!engine_) return;
+    const auto lost = engine_->dropped_launcher_takes();
+    const auto refused = engine_->refused_launcher_commands();
+    const auto more_lost = lost >= engine_lost_takes_ ? lost - engine_lost_takes_ : lost;
+    const auto more_refused =
+        refused >= engine_refused_commands_ ? refused - engine_refused_commands_ : refused;
+    engine_lost_takes_ = lost;
+    engine_refused_commands_ = refused;
+    if (more_lost == 0 && more_refused == 0) return;
+    launcher_lost_takes_ += static_cast<int>(more_lost);
+    launcher_refused_commands_ += static_cast<int>(more_refused);
+    // Said, not swallowed: a performance that was not printed, or a launch
+    // that never happened, is something the producer must know about.
+    status_ = more_lost > 0
+                  ? QString("Launcher · %1 take%2 lost: the take queue was full")
+                        .arg(launcher_lost_takes_).arg(launcher_lost_takes_ == 1 ? "" : "s")
+                  : QString("Launcher · %1 launch%2 refused: the command queue was full")
+                        .arg(launcher_refused_commands_)
+                        .arg(launcher_refused_commands_ == 1 ? "" : "es");
+    emit statusChanged();
+    emit launcherChanged();
+}
+
+void AppController::pollLauncher(const blokkily::TrackRemap* remap) {
     if (!engine_ || song_ == nullptr) return;
     QVariantList state;
     const auto tracks = std::min<std::size_t>(engine_->track_count(), song_->song().tracks.size());
@@ -73,10 +103,16 @@ void AppController::pollLauncher() {
     launcher_state_ = std::move(state);
     blokkily::LauncherTake take;
     while (engine_->take_launcher_take(take)) {
+        if (remap != nullptr) {
+            // Taken on a track that has since moved, or gone.
+            if (take.track >= remap->size() || !(*remap)[take.track]) continue;
+            take.track = static_cast<std::uint32_t>(*(*remap)[take.track]);
+        }
         if (song_->printLauncherTake(take)) {
             ++launcher_takes_;
             changed = true;
         }
     }
+    countLauncherLosses();
     if (changed) emit launcherChanged();
 }

@@ -85,6 +85,9 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         });
     if (song_ != nullptr) {
         QObject::connect(song_, &SongModel::structureChanged, this, [this] {
+            // Takes printed while a rebuild retires its engine: that rebuild
+            // compiles the song they were printed into.
+            if (rebuilding_) return;
             // A clip moved on the timeline is the same kind of change as a
             // step edit. A track added or an instrument swapped is not: that
             // needs a graph the running engine does not have.
@@ -507,9 +510,24 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     }
     forgetSoundingNotes();
     if (engine_) engine_->connect_input(nullptr);
-    // Takes the old engine finished are printed before it goes; launched
-    // tracks do not carry into the new graph.
-    pollLauncher();
+    // Takes the old engine finished are printed before it goes, into the
+    // song the new engine is compiled from; what the launcher is doing now
+    // (launched cells, their phase, queued launches, open takes) is carried
+    // into the new graph, and so is the playhead, as a tick of the song.
+    std::shared_ptr<const blokkily::engine::LauncherHandoff> launched;
+    std::optional<double> playhead;
+    if (engine_) {
+        rebuilding_ = true;
+        pollLauncher(remap);
+        rebuilding_ = false;
+        countLauncherLosses();
+        launched = engine_->launcher_handoff();
+        if (engine_->song_samples() > 0)
+            playhead = engine_->published_clock().tick_at(
+                static_cast<double>(engine_->sample_position() % engine_->song_samples()));
+    }
+    engine_lost_takes_ = 0;
+    engine_refused_commands_ = 0;
     engine_.reset();
     engine_signature_ = {};
 
@@ -554,6 +572,10 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
         return false;
     }
     blokkily::load_fresh_state(*next, song, build);
+    if (launched) next->resume_launcher(*launched, remap);
+    if (playhead && next->song_samples() > 0)
+        next->seek(blokkily::sample_for_tick(next->published_clock(), *playhead) %
+                   next->song_samples());
     engine_ = std::move(next);
     publishProcessorPorts();
     // Open editors follow their tracks; one whose instance was replaced has
