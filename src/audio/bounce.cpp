@@ -55,6 +55,10 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // session's.
     const bool had_metronome = engine.metronome_enabled();
     engine.set_metronome_enabled(options.include_metronome);
+    // Streamed clips (wave 4.2) are read from disk on this thread before
+    // they are played: an export never waits on, or is short of, a worker.
+    const bool was_blocking = engine.blocking_disk_reads();
+    engine.set_blocking_disk_reads(true);
     engine.set_playing(true);
     engine.rewind();
     // The export is the song from silence: whatever playback left in the
@@ -113,6 +117,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     for (auto& [instance, state] : states)
         if (!state.empty()) restored = instance->load_state(state) && restored;
     engine.set_bounce_tap(previous_tap);
+    engine.set_blocking_disk_reads(was_blocking);
     engine.set_metronome_enabled(had_metronome);
     engine.set_playing(was_playing);
     engine.seek(resume_at);

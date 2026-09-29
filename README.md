@@ -307,6 +307,16 @@ a track played from one cell is printed into the arrangement as clips when it
 ends, one step of undo each; the printed arrangement plays and exports what
 was heard, sample for sample. The grid is saved with the song.
 
+Audio clips whose decoded size exceeds the streaming threshold (128 MiB by
+default; `BLOKKILY_STREAM_THRESHOLD_BYTES` overrides it) stream from disk
+instead of being decoded into RAM: a background worker fills one lock-free
+ring per clip, resampled to the engine rate with the same converter as the
+in-memory path, and the render callback only reads it. Streams follow the
+song (cued ahead of a clip's start and of the song's wrap, relocated on a
+locate); a ring that runs dry fades out and back in rather than clicking.
+An export reads streamed clips blocking on its own thread, so it equals the
+streamed playback sample for sample.
+
 Imported files stay where they are. Recordings go into `<project>.audio/`, or
 a temporary session folder before the first save. COLLECT copies referenced
 clips and sampler samples into the saved project's audio folder, deduplicates
@@ -317,11 +327,11 @@ to persist those references. Original files are kept so undo remains playable.
 
 - MIDI input handles notes; pitch bend, sustain, other controllers and MIDI
   clock are not recorded. Notes are timestamped to the callback block.
-- Long audio files stream from disk through lock-free ring buffers on a
-  background worker rather than consuming RAM; an underrun softly fades to
-  silence rather than clicking. RAM decoding remains the path for short
-  files and sampler playback. Comping (taking alternate passes of a recorded
-  lane) is not here yet.
+- Comping (taking alternate passes of a recorded lane) is not here yet.
+- Disk streaming covers unwarped audio clips only: a warped clip is decoded
+  into memory to be stretched, and the sampler always decodes. A single
+  streamed clip that plays across the song's wrap point dips briefly at the
+  wrap (one stream per clip).
 - The sampler panel loads one file at a time; it has no multi-sample import
   wizard, velocity-layer editor or waveform editing surface.
 - Step parameter locks target the track instrument. Insert parameters use

@@ -51,7 +51,8 @@ SongEngine::SongEngine()
     : buses_(std::make_unique<engine::BusPlayback>()),
       metronome_(std::make_unique<engine::MetronomePlayback>()),
       launcher_(std::make_unique<engine::LauncherPlayback>()),
-      modulation_(std::make_unique<engine::ModulationPlayback>()) {}
+      modulation_(std::make_unique<engine::ModulationPlayback>()),
+      streams_(std::make_unique<engine::StreamPool>()) {}
 SongEngine::~SongEngine() = default;
 
 std::unique_ptr<PluginInstance>* SongEngine::processor_slot(ProcessorAddress where) const {
@@ -261,6 +262,8 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
         track.cursor = 0;
         track.left.assign(maximum_block_size, 0.0F);
         track.right.assign(maximum_block_size, 0.0F);
+        track.clips.stream_left.assign(maximum_block_size, 0.0F);
+        track.clips.stream_right.assign(maximum_block_size, 0.0F);
         // The chunk's events live here rather than on the callback's stack.
         track.events.assign(engine::maximum_events_per_chunk, PluginEvent{});
         engine::release_automation(track.automation);
@@ -311,7 +314,7 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
             return fail("more than 256 simultaneous events on one track");
     }
     // 5. Audio clips: regions placed by the same clock as the events.
-    engine::compile_clip_regions(target.clips, song, clock, assets, renditions);
+    engine::compile_clip_regions(target.clips, song, clock, assets, renditions, streams_.get());
     // Automation: strip envelopes and parameter lanes, placed by the same
     // clock (item 3.1).
     engine::compile_automation(target.automation, song, clock, samples);
@@ -807,7 +810,8 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         }
         // 5. Audio-clip regions, from the arrangement only.
         engine::sum_clip_regions(track.clips, arranged.clips, index, buffer, song_position,
-                                 from_timeline);
+                                 from_timeline, blocking_reads_.load(std::memory_order_relaxed),
+                                 song_samples_);
         // 6. Input monitoring; a capture taps the raw input here.
         engine::add_input_monitoring(track.input, buffer, input, capture_ring,
                                      static_cast<std::uint32_t>(index), song_position);
@@ -1095,10 +1099,8 @@ bool SongEngine::take_launcher_take(LauncherTake& take) noexcept {
     return launcher_->takes.pop(take);
 }
 
-void SongEngine::set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept {
-    if (track < tracks_.size() && tracks_[track]) {
-        tracks_[track]->clips.stream = stream;
-    }
-}
+void SongEngine::set_disk_stream_workers(std::size_t threads) { streams_->set_workers(threads); }
+
+bool SongEngine::service_disk_streams() { return streams_->service(); }
 
 } // namespace blokkily

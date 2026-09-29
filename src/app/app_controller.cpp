@@ -22,6 +22,7 @@
 #include <QtGlobal>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <functional>
 #include <optional>
@@ -55,6 +56,13 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
           // one shares the recompile.
           [this](std::function<void()> work) { QTimer::singleShot(0, this, std::move(work)); }),
       audio_output_(std::move(output)) {
+    // Audio clips larger than this (decoded) stream from disk (wave 4.2).
+    // The environment can lower it, so a gate streams a short file.
+    if (const char* threshold = std::getenv("BLOKKILY_STREAM_THRESHOLD_BYTES")) {
+        char* end = nullptr;
+        const auto bytes = std::strtoull(threshold, &end, 10);
+        if (end != threshold) assets_->set_stream_threshold(bytes);
+    }
     // What the browser lists follows both what the scan found and what the
     // producer has typed, so a plugin arriving mid-scan reaches a filtered
     // browser too.

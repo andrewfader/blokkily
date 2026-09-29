@@ -22,6 +22,14 @@ inline constexpr std::size_t audio_peak_block = 256;
 // min/max overview for drawing. Immutable once shared. The audio thread only
 // ever holds raw pointers into it; the owning shared_ptr is released on the
 // control thread.
+// A file too large to hold decoded (wave 4.2): the asset carries its frame
+// count and overview but no samples, and whatever plays it streams it from
+// `path` at the asset's rate (disk_stream.hpp).
+struct StreamedFile {
+    std::filesystem::path path;
+    AudioFileInfo native;
+};
+
 struct AudioAsset {
     std::uint32_t rate = 0;
     std::uint64_t frames = 0;
@@ -30,6 +38,9 @@ struct AudioAsset {
     std::optional<LoopPoints> loop;
     std::optional<int> root_key;
     std::vector<std::pair<float, float>> peaks;   // min/max per audio_peak_block frames
+    // Set when the samples stay on disk; `left` and `right` are then empty.
+    std::optional<StreamedFile> streamed;
+    [[nodiscard]] bool is_streamed() const noexcept { return streamed.has_value(); }
 };
 
 using AudioAssetPtr = std::shared_ptr<const AudioAsset>;
@@ -46,6 +57,16 @@ using AudioAssets = std::vector<AudioAssetPtr>;
 // thread.
 class AudioAssetCache {
 public:
+    // Whether a load may leave a large file on disk (wave 4.2). Only audio
+    // clips stream; the sampler, warp renditions and tempo detection need
+    // the samples and always load into memory.
+    enum class Residency { memory, stream_if_large };
+    // Files whose decoded size at the requested rate (frames x channels x 4
+    // bytes) exceeds this stream from disk when loaded with stream_if_large.
+    static constexpr std::uint64_t default_stream_threshold = std::uint64_t{128} << 20;
+    void set_stream_threshold(std::uint64_t bytes) noexcept { stream_threshold_ = bytes; }
+    [[nodiscard]] std::uint64_t stream_threshold() const noexcept { return stream_threshold_; }
+
     // Returns the file decoded at `target_rate`: 0 keeps the file's own rate
     // (the sampler plays at a ratio), anything else resamples to it (clips
     // play sample-exact at the engine rate). A second load of the same file at
@@ -56,7 +77,8 @@ public:
     // from it, the file is reported as missing (null, with a reason): a file
     // replaced behind the project's back is never played wrong.
     AudioAssetPtr load(const std::filesystem::path& file, double target_rate,
-                       std::optional<AudioFileInfo> expect, std::string* error = nullptr);
+                       std::optional<AudioFileInfo> expect, std::string* error = nullptr,
+                       Residency residency = Residency::memory);
 
     // Registers audio that already exists in memory, such as a recorded take,
     // under the path it is (or will be) written to. Later loads of that path
@@ -102,11 +124,18 @@ private:
         AudioFileInfo native;
         std::optional<Stamp> stamp;   // nullopt: inserted from memory, trusted
         std::map<std::uint32_t, AudioAssetPtr> by_rate;   // 0 = native rate
+        std::map<std::uint32_t, AudioAssetPtr> streamed;  // by requested rate
     };
 
     std::map<std::filesystem::path, Entry> entries_;
     std::map<std::string, AudioAssetPtr> derived_;
     std::uint64_t decodes_ = 0;
+    std::uint64_t stream_threshold_ = default_stream_threshold;
 };
+
+// Opens `file` for streaming at `rate` and reads it through once for its
+// overview: an asset with no samples (StreamedFile). Null on failure.
+[[nodiscard]] AudioAssetPtr make_streamed_asset(const std::filesystem::path& file,
+                                                std::uint32_t rate, std::string* error = nullptr);
 
 } // namespace blokkily

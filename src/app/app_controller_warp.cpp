@@ -49,7 +49,16 @@ blokkily::ClipRenditions AppController::clipRenditions(double rate) {
     for (const auto& clip : song.audio_clips) {
         if (!clip.warp.active() || clip.file >= clip_assets_.size() || !clip_assets_[clip.file])
             continue;   // unwarped, or its file is missing
-        const auto& source = clip_assets_[clip.file];
+        auto source = clip_assets_[clip.file];
+        // A streamed file (wave 4.2) is decoded into memory for warping: a
+        // stretch reads the whole clip. The rendition then plays from memory.
+        if (source->is_streamed()) {
+            const auto& file = song.audio_files[clip.file];
+            source = assets_->load(file.path, rate,
+                                   blokkily::AudioFileInfo{file.frames, file.sample_rate,
+                                                           file.channels});
+            if (!source) continue;
+        }
         auto plan = blokkily::plan_clip_warp(song, clip, clock, source->frames);
         if (!plan) continue;
         auto key = plan->key();
@@ -122,7 +131,15 @@ double AppController::detectClipTempo(qint64 id) {
     if (found == song.audio_clips.end() || found->file >= clip_assets_.size() ||
         !clip_assets_[found->file] || found->file >= song.audio_files.size())
         return 0.0;
-    const auto& asset = *clip_assets_[found->file];
+    auto held = clip_assets_[found->file];
+    if (held->is_streamed()) {
+        // Tempo detection reads samples; a streamed file is decoded for it.
+        const auto& file = song.audio_files[found->file];
+        held = assets_->load(file.path, held->rate,
+                             blokkily::AudioFileInfo{file.frames, file.sample_rate, file.channels});
+        if (!held) return 0.0;
+    }
+    const auto& asset = *held;
     const auto file_rate = song.audio_files[found->file].sample_rate;
     if (file_rate == 0) return 0.0;
     // The clip's own stretch of the file, at the rate it was decoded for.

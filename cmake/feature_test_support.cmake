@@ -19,7 +19,8 @@ if(BLOKKILY_BUILD_TESTS)
     target_include_directories(blokkily_realtime_checks PRIVATE tests)
     target_link_libraries(blokkily_realtime_checks PRIVATE blokkily_core)
     target_compile_definitions(blokkily_realtime_checks PRIVATE
-        BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>")
+        BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
+        BLOKKILY_REALTIME_WORK="${CMAKE_BINARY_DIR}/realtime-work")
     target_compile_options(blokkily_realtime_checks PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_realtime_checks blokkily_test_clap)

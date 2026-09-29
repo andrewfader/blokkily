@@ -16,23 +16,61 @@ std::uint64_t to_engine_frames(std::uint64_t frames, double ratio) {
 
 } // namespace
 
+StreamPool::StreamPool() = default;
+StreamPool::~StreamPool() = default;
+
+void StreamPool::set_workers(std::size_t workers) {
+    workers_ = workers;
+    if (!service_) return;
+    service_ = std::make_unique<DiskStreamService>(workers_);
+    for (const auto& [key, stream] : streams_) service_->register_stream(stream);
+}
+
+std::shared_ptr<DiskStream> StreamPool::acquire(std::uint64_t clip, const StreamedFile& file,
+                                                std::uint32_t rate, std::uint64_t first_frame) {
+    const Key key{clip, file.path, rate};
+    if (auto found = streams_.find(key); found != streams_.end()) return found->second;
+    auto stream = std::make_shared<DiskStream>(file.path, static_cast<double>(rate),
+                                               first_frame);
+    if (!stream->is_open()) return nullptr;
+    if (!service_) service_ = std::make_unique<DiskStreamService>(workers_);
+    service_->register_stream(stream);
+    streams_.emplace(key, stream);
+    return stream;
+}
+
+void StreamPool::purge() {
+    // Only the pool holds these: no arrangement slot, so no region the
+    // callback can reach, points at them. A worker filling one right now
+    // holds it too, and lets it go on its own thread.
+    std::erase_if(streams_, [](const auto& held) { return held.second.use_count() <= 1; });
+}
+
+bool StreamPool::service() { return service_ && service_->service(); }
+
 void compile_clip_regions(ArrangementClips& target, const Song& song, const TickClock& clock,
-                          const AudioAssets& assets, const ClipRenditions& renditions) {
+                          const AudioAssets& assets, const ClipRenditions& renditions,
+                          StreamPool* pool) {
     // Replacing `held` drops whatever the slot's previous arrangement owned.
     // This runs on the control thread, into a slot the callback is neither
     // playing nor about to pick up, so the last owner of a retired buffer
     // lets go of it here and never on the audio thread.
     target.held = assets;
+    target.streams.clear();
     target.tracks.resize(song.tracks.size());
     for (auto& regions : target.tracks) regions.clear();
 
     const auto engine_rate = static_cast<std::uint32_t>(std::lround(clock.sample_rate()));
+    // Two seconds ahead: far more than a disk takes to answer, and inside a
+    // ring's reach.
+    target.cue_window = static_cast<std::uint64_t>(engine_rate) * 2;
     for (const auto& clip : song.audio_clips) {
         if (clip.track >= song.tracks.size() || clip.file >= song.audio_files.size()) continue;
         if (clip.file >= assets.size() || !assets[clip.file]) continue;   // missing
         const AudioAsset& asset = *assets[clip.file];
         const auto file_rate = song.audio_files[clip.file].sample_rate;
-        if (asset.rate != engine_rate || file_rate == 0 || asset.left.empty()) continue;
+        if (asset.rate != engine_rate || file_rate == 0) continue;
+        if (asset.is_streamed() ? asset.frames == 0 : asset.left.empty()) continue;
 
         if (clip.warp.active()) {
             // A warped clip plays its rendition from its first frame, or
@@ -83,9 +121,18 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
         region.start = sample_for_tick(clock, static_cast<double>(clip.start));
         region.frames = std::min(available, to_engine_frames(clip.length_frames, ratio));
         if (region.frames == 0) continue;
-        region.left = asset.left.data() + offset;
-        region.right = asset.right.size() == asset.left.size() ? asset.right.data() + offset
-                                                               : region.left;
+        if (asset.is_streamed()) {
+            if (pool == nullptr) continue;
+            auto stream = pool->acquire(clip.id, *asset.streamed, engine_rate, offset);
+            if (!stream) continue;
+            region.stream = stream.get();
+            region.first = offset;
+            target.streams.push_back(std::move(stream));
+        } else {
+            region.left = asset.left.data() + offset;
+            region.right = asset.right.size() == asset.left.size() ? asset.right.data() + offset
+                                                                   : region.left;
+        }
         region.gain = static_cast<float>(db_to_linear(clip.gain_db));
         region.fade_in = std::min(region.frames, to_engine_frames(clip.fade_in_frames, ratio));
         region.fade_out = std::min(region.frames - region.fade_in,
@@ -95,17 +142,44 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
     for (auto& regions : target.tracks)
         std::stable_sort(regions.begin(), regions.end(),
                          [](const ClipRegion& a, const ClipRegion& b) { return a.start < b.start; });
+    if (pool != nullptr) pool->purge();
 }
 
+namespace {
+// Points every streamed clip near the playhead at the frame it will play
+// first: a clip about to start (or, past the song's end, about to start
+// again) at its first frame, and, on a stopped song, the clip the playhead
+// rests in at the frame under it.
+void cue_streams(const std::vector<ClipRegion>& regions, std::uint64_t window,
+                 std::uint64_t song_position, bool from_timeline,
+                 std::uint64_t song_samples) noexcept {
+    for (const ClipRegion& region : regions) {
+        if (region.stream == nullptr) continue;
+        const auto region_end = region.start + region.frames;
+        if (song_position >= region.start && song_position < region_end) {
+            if (!from_timeline)
+                region.stream->cue(region.first + (song_position - region.start));
+            continue;
+        }
+        std::uint64_t distance = 0;
+        if (region.start > song_position) distance = region.start - song_position;
+        else if (song_samples > song_position) distance = song_samples - song_position + region.start;
+        else continue;
+        if (distance <= window) region.stream->cue(region.first);
+    }
+}
+} // namespace
+
 void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std::size_t track,
-                      StereoBlock buffer, std::uint64_t song_position,
-                      bool from_timeline) noexcept {
+                      StereoBlock buffer, std::uint64_t song_position, bool from_timeline,
+                      bool blocking, std::uint64_t song_samples) noexcept {
+    if (track < clips.tracks.size() && !clips.streams.empty())
+        cue_streams(clips.tracks[track], clips.cue_window, song_position, from_timeline,
+                    song_samples);
     // Clips play from the arrangement, so a stopped song hears none of them.
     if (!from_timeline) return;
     if (playback.test_source != nullptr)
         playback.test_source(playback.test_context, buffer, song_position);
-    if (playback.stream != nullptr)
-        playback.stream->read_and_sum(buffer);
     if (track >= clips.tracks.size()) return;
 
     const auto frames = std::min(buffer.left.size(), buffer.right.size());
@@ -123,6 +197,22 @@ void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std
         const double fade_in = static_cast<double>(region.fade_in);
         const double fade_out = static_cast<double>(region.fade_out);
         const auto fade_out_from = region.frames - region.fade_out;
+        const float* left = region.left;
+        const float* right = region.right;
+        std::uint64_t base = 0;   // region frame of left[0]
+        if (region.stream != nullptr) {
+            // The stream's frames for this stretch, then the same gain and
+            // fades as a clip in memory.
+            const auto count = static_cast<std::size_t>(to - from);
+            if (count > playback.stream_left.size() || count > playback.stream_right.size())
+                continue;
+            region.stream->read(region.first + (from - region.start),
+                                {playback.stream_left.data(), count},
+                                {playback.stream_right.data(), count}, blocking);
+            left = playback.stream_left.data();
+            right = playback.stream_right.data();
+            base = from - region.start;
+        }
         for (auto sample = from; sample < to; ++sample) {
             const auto frame = sample - region.start;
             double gain = region.gain;
@@ -131,8 +221,8 @@ void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std
                 gain *= static_cast<double>(region.frames - 1 - frame) / fade_out;
             const auto at = static_cast<std::size_t>(sample - song_position);
             // Summed, never assigned: overlapping clips all sound.
-            buffer.left[at] += static_cast<float>(region.left[frame] * gain);
-            buffer.right[at] += static_cast<float>(region.right[frame] * gain);
+            buffer.left[at] += static_cast<float>(left[frame - base] * gain);
+            buffer.right[at] += static_cast<float>(right[frame - base] * gain);
         }
     }
 }

@@ -89,7 +89,8 @@ bool AppController::importAudio(const QString& path, int track, double tick) {
     // The decode, and the resample to the engine's rate, run on a thread of
     // their own with a store of their own: a minute of audio takes longer
     // than a frame of the interface. Only the finished asset crosses back.
-    imports_.emplace(ticket, std::thread([this, ticket, file, track, tick, rate] {
+    const auto threshold = assets_->stream_threshold();
+    imports_.emplace(ticket, std::thread([this, ticket, file, track, tick, rate, threshold] {
         auto result = std::make_shared<ImportResult>();
         result->file = file;
         result->track = track;
@@ -97,7 +98,11 @@ bool AppController::importAudio(const QString& path, int track, double tick) {
         result->info = blokkily::probe_audio_file(file, &result->error);
         if (result->info) {
             blokkily::AudioAssetCache own;
-            result->asset = own.load(file, rate, result->info, &result->error);
+            // A long file stays on disk and streams (wave 4.2), under the
+            // same threshold the project's own cache uses.
+            own.set_stream_threshold(threshold);
+            result->asset = own.load(file, rate, result->info, &result->error,
+                                     blokkily::AudioAssetCache::Residency::stream_if_large);
         }
         QMetaObject::invokeMethod(
             this, [this, ticket, result] { finishImport(ticket, *result); },

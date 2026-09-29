@@ -55,6 +55,14 @@ All audio files and clip waveforms are held fully in RAM via [`AudioAssetCache`]
 * **Lock-Free Ring Buffers:** Each streaming clip channel maintains a dual-buffer ring.
 * **Audio Thread Safety:** The audio callback (`SongEngine::process_chunk`) only reads from pre-filled buffers. If starvation occurs, it softly fades out without blocking or allocating.
 
+### 3. Status: done for unwarped audio clips
+* **Where it applies.** `AudioAssetCache::load(..., Residency::stream_if_large)` (used by `load_clip_assets` and the import worker) returns a streamed asset (`AudioAsset::streamed`, no samples, frames and overview read through the stream) when the decoded size at the engine rate exceeds the threshold (default 128 MiB, `set_stream_threshold`, `BLOKKILY_STREAM_THRESHOLD_BYTES` in the app). Warped clips, tempo detection and the sampler decode into memory.
+* **Engine.** `compile_clip_regions` gives each streamed clip a `DiskStream` from the engine's `StreamPool` (one per clip, kept across recompiles, owned by the arrangement slots that reference it, released on the control thread). The region applies gain and fades exactly as for a clip in memory. Streams are cued two seconds ahead of a clip's start, including across the song's wrap, and to the frame under a parked playhead.
+* **Handshake.** The consumer (callback) owns the ring's read side and requests positions with one atomic word (generation + frame); the producer (`DiskStreamService` worker, or a blocking reader) seeks, publishes where that generation begins in the ring, and the consumer skips to it. The producer mutex is never taken by the live callback. `StreamReader` resamples with libsamplerate's best sinc, one mono converter per channel like `resample()`, starting a converter on an exactly aligned input frame 8192 frames before a seek target; it matches the in-memory resample to within 2e-5, and exactly at the engine's own rate.
+* **Starvation.** 128-sample fades on a dry ring, on recovery and on relocation; the ring keeps 128 frames in reserve so a fade-out is always audio. A late stream skips ahead to stay in time with the song.
+* **Export.** `bounce_song` sets `SongEngine::set_blocking_disk_reads`, so the bounce thread fills each ring before reading it: same engine path, never starved.
+* **Not done.** A single clip that spans the song's wrap point relocates at the wrap (brief dip) because one stream cannot be in two places. Streaming is not used for warped clips.
+
 ---
 
 ## Wave 5.1: Universal Dynamic Modulation Engine (Item 3)

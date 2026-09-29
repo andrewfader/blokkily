@@ -75,6 +75,7 @@ struct MetronomePlayback;
 struct ModulationPlayback;
 struct LauncherPlayback;
 struct TestAccess;
+class StreamPool;
 } // namespace engine
 
 // Plays a whole arrangement: every track renders its own timeline through its
@@ -117,7 +118,26 @@ public:
     // returned by process(). All buses still render normally.
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
-    void set_track_disk_stream(std::size_t track, DiskStream* stream) noexcept;
+    // --- Disk streaming (wave 4.2) -------------------------------------------
+    // Audio clips whose asset is streamed (AudioAsset::streamed) play from
+    // disk through a ring per clip, filled by `threads` background threads
+    // (default 1). With 0, nothing fills the rings until
+    // service_disk_streams() is called: a test decides when the disk answers.
+    // Control thread, before prepare() or with the device stopped.
+    void set_disk_stream_workers(std::size_t threads);
+    // One pass filling every stream's ring on the calling thread, which is
+    // never the render callback. True if any ring took data.
+    bool service_disk_streams();
+    // Streams read blocking: every frame is read from the file before it is
+    // played, on the thread calling process(). Only for an offline render
+    // with the device stopped (bounce_song() sets it); the live callback
+    // never blocks, and plays silence with short fades while a ring is dry.
+    void set_blocking_disk_reads(bool blocking) noexcept {
+        blocking_reads_.store(blocking, std::memory_order_release);
+    }
+    [[nodiscard]] bool blocking_disk_reads() const noexcept {
+        return blocking_reads_.load(std::memory_order_acquire);
+    }
 
     ~SongEngine();
     SongEngine(const SongEngine&) = delete;
@@ -555,6 +575,10 @@ private:
     // buffer stays pre-fader for the sidechain keys and followers that read
     // it after it rendered. Sized by prepare(); callback only.
     std::vector<float> post_left_, post_right_;
+    // The streams of streamed clips (wave 4.2) and the workers that fill
+    // their rings; the arrangement slots share ownership of the streams.
+    std::unique_ptr<engine::StreamPool> streams_;
+    std::atomic<bool> blocking_reads_{false};
 };
 
 } // namespace blokkily

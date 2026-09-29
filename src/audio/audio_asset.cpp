@@ -1,5 +1,7 @@
 #include "blokkily/audio/audio_asset.hpp"
 
+#include "blokkily/audio/disk_stream.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -29,7 +31,40 @@ std::uint64_t scaled(std::uint64_t frame, double ratio) {
     return static_cast<std::uint64_t>(std::llround(static_cast<double>(frame) * ratio));
 }
 
+// What `native` would take decoded at `rate` (0 = its own), in bytes.
+std::uint64_t decoded_bytes(const AudioFileInfo& native, std::uint32_t rate) {
+    const double ratio = rate == 0 || native.sample_rate == 0
+                             ? 1.0
+                             : static_cast<double>(rate) / native.sample_rate;
+    const auto frames = static_cast<std::uint64_t>(std::llround(static_cast<double>(native.frames) * ratio));
+    return frames * std::min<std::uint64_t>(2, native.channels) * sizeof(float);
+}
+
 } // namespace
+
+AudioAssetPtr make_streamed_asset(const std::filesystem::path& file, std::uint32_t rate,
+                                  std::string* error) {
+    StreamReader reader;
+    if (!reader.open(file, rate, error)) return nullptr;
+    auto asset = std::make_shared<AudioAsset>();
+    asset->rate = rate == 0 ? reader.native().sample_rate : rate;
+    asset->frames = reader.frames();
+    asset->streamed = StreamedFile{file, reader.native()};
+    // The overview, read through once with the reader that plays it, a
+    // block at a time: never the whole file in memory.
+    constexpr std::size_t blocks_per_read = 64;
+    std::vector<float> left(audio_peak_block * blocks_per_read);
+    std::vector<float> right(left.size());
+    asset->peaks.reserve((asset->frames + audio_peak_block - 1) / audio_peak_block);
+    for (std::uint64_t at = 0; at < asset->frames; at += left.size()) {
+        const auto count = static_cast<std::size_t>(
+            std::min<std::uint64_t>(left.size(), asset->frames - at));
+        reader.read(left.data(), right.data(), count);
+        const auto peaks = compute_peaks({left.data(), count}, {right.data(), count});
+        asset->peaks.insert(asset->peaks.end(), peaks.begin(), peaks.end());
+    }
+    return asset;
+}
 
 std::vector<std::pair<float, float>> compute_peaks(std::span<const float> left,
                                                    std::span<const float> right) {
@@ -54,12 +89,13 @@ std::vector<std::pair<float, float>> compute_peaks(std::span<const float> left,
 
 std::size_t AudioAssetCache::size() const noexcept {
     std::size_t count = 0;
-    for (const auto& [path, entry] : entries_) count += entry.by_rate.size();
+    for (const auto& [path, entry] : entries_) count += entry.by_rate.size() + entry.streamed.size();
     return count;
 }
 
 AudioAssetPtr AudioAssetCache::load(const std::filesystem::path& file, double target_rate,
-                                    std::optional<AudioFileInfo> expect, std::string* error) {
+                                    std::optional<AudioFileInfo> expect, std::string* error,
+                                    Residency residency) {
     if (!std::isfinite(target_rate) || target_rate < 0.0 || target_rate > 1.0e6) {
         fail(error, "cannot load " + file.string() + ": the target sample rate is not valid");
         return nullptr;
@@ -87,21 +123,41 @@ AudioAssetPtr AudioAssetCache::load(const std::filesystem::path& file, double ta
                                 describe(*expect) + " but the file has " + describe(entry.native));
                 return nullptr;
             }
-            const std::uint32_t rate = requested == entry.native.sample_rate ? 0 : requested;
-            if (auto asset = entry.by_rate.find(rate); asset != entry.by_rate.end()) {
-                return asset->second;
+            if (residency == Residency::stream_if_large &&
+                decoded_bytes(entry.native, requested) > stream_threshold_) {
+                const auto rate = requested == 0 ? entry.native.sample_rate : requested;
+                if (auto asset = entry.streamed.find(rate); asset != entry.streamed.end())
+                    return asset->second;
+            } else {
+                const std::uint32_t rate = requested == entry.native.sample_rate ? 0 : requested;
+                if (auto asset = entry.by_rate.find(rate); asset != entry.by_rate.end()) {
+                    return asset->second;
+                }
             }
         }
     }
 
-    // Check the header before paying for a decode that would be refused.
-    if (expect.has_value()) {
+    // Check the header before paying for a decode that would be refused, and
+    // to know whether the file is large enough to stream.
+    if (expect.has_value() || residency == Residency::stream_if_large) {
         const auto info = probe_audio_file(key, error);
         if (!info.has_value()) return nullptr;
-        if (*info != *expect) {
+        if (expect.has_value() && *info != *expect) {
             fail(error, file.string() + " is missing: the project expects " + describe(*expect) +
                             " but the file has " + describe(*info));
             return nullptr;
+        }
+        if (residency == Residency::stream_if_large &&
+            decoded_bytes(*info, requested) > stream_threshold_) {
+            const auto rate = requested == 0 ? info->sample_rate : requested;
+            auto asset = make_streamed_asset(key, rate, error);
+            if (!asset) return nullptr;
+            Entry& entry = entries_[key];
+            if (entry.native != *info) entry = Entry{};
+            entry.native = *info;
+            entry.stamp = stamp;
+            entry.streamed[rate] = asset;
+            return asset;
         }
     }
 
@@ -166,6 +222,10 @@ void AudioAssetCache::adopt(const std::filesystem::path& file, const AudioFileIn
     if (entry.native != native || entry.stamp != stamp) entry = Entry{};
     entry.native = native;
     entry.stamp = stamp;
+    if (asset->is_streamed()) {
+        entry.streamed[asset->rate] = std::move(asset);
+        return;
+    }
     const std::uint32_t rate = asset->rate == native.sample_rate ? 0 : asset->rate;
     entry.by_rate[rate] = std::move(asset);
 }
@@ -189,7 +249,11 @@ void AudioAssetCache::purge_unused() {
     for (auto entry = entries_.begin(); entry != entries_.end();) {
         std::erase_if(entry->second.by_rate,
                       [](const auto& held) { return held.second.use_count() <= 1; });
-        entry = entry->second.by_rate.empty() ? entries_.erase(entry) : std::next(entry);
+        std::erase_if(entry->second.streamed,
+                      [](const auto& held) { return held.second.use_count() <= 1; });
+        entry = entry->second.by_rate.empty() && entry->second.streamed.empty()
+                    ? entries_.erase(entry)
+                    : std::next(entry);
     }
 }
 

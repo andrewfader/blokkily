@@ -21,7 +21,7 @@ AudioAssets load_clip_assets(const Song& song, AudioAssetCache& cache, double en
         std::string error;
         assets[index] = cache.load(file.path, engine_rate,
                                    AudioFileInfo{file.frames, file.sample_rate, file.channels},
-                                   &error);
+                                   &error, AudioAssetCache::Residency::stream_if_large);
         if (!assets[index] && report != nullptr) {
             report->missing[index] = true;
             report->reasons[index] = error.empty() ? file.path.string() + " is missing" : error;
