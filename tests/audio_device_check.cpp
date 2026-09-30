@@ -65,7 +65,7 @@ private:
 // tracks, so a dropped track shows up as a halved peak rather than as nothing.
 blokkily::Song two_track_song() {
     blokkily::Song song;
-    song.patterns = {{"Check", {}}};
+    song.patterns = {{"Check", blokkily::Pattern{}}};
     song.tracks = {blokkily::Track{"One", {}, {}}, blokkily::Track{"Two", {}, {}}};
     blokkily::Trigger held;
     held.start = 0;
