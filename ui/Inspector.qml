@@ -46,7 +46,7 @@ Rectangle {
                 text: patternModel.selected.noteName !== undefined
                       ? patternModel.selected.noteName : ""
                 color: Theme.amber; font.pixelSize: 26; font.bold: true
-                font.family: "monospace"
+                font.family: Theme.mono
             }
             RowLayout {
                 spacing: 4
@@ -259,7 +259,7 @@ Rectangle {
                                 text: patternModel.selected.voiceUnits
                                       ? patternModel.selected.voiceUnits[voiceColumn.index] : ""
                                 color: voiceColumn.modelData > 0.8 ? Theme.bg : Theme.ink
-                                font.pixelSize: 10; font.family: "monospace"; font.bold: true
+                                font.pixelSize: 10; font.family: Theme.mono; font.bold: true
                             }
                             MouseArea {
                                 anchors.fill: parent
@@ -287,7 +287,7 @@ Rectangle {
                             Layout.alignment: Qt.AlignHCenter
                             text: patternModel.selected.voiceNames
                                   ? patternModel.selected.voiceNames[voiceColumn.index] : ""
-                            color: Theme.muted; font.pixelSize: 9; font.family: "monospace"
+                            color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                         }
                         Label {
                             objectName: "voiceLen" + voiceColumn.index
@@ -296,7 +296,7 @@ Rectangle {
                                   ? (patternModel.selected.voiceLengths[voiceColumn.index] / 120)
                                         .toFixed(1)
                                   : ""
-                            color: Theme.blue; font.pixelSize: 9; font.family: "monospace"
+                            color: Theme.blue; font.pixelSize: 9; font.family: Theme.mono
                         }
                     }
                 }

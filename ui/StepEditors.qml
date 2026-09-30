@@ -98,7 +98,7 @@ ColumnLayout {
                         color: cell.active ? (cell.tall && cell.velocity < 0.92
                                               ? Theme.ink : "#0e0f12")
                                            : (cell.onBeat ? Theme.ink : Theme.muted)
-                        font.family: "monospace"; font.pixelSize: 11
+                        font.family: Theme.mono; font.pixelSize: 11
                         font.bold: cell.onBeat
                     }
                     Label {
@@ -106,7 +106,7 @@ ColumnLayout {
                         anchors.bottom: parent.bottom; anchors.bottomMargin: 11
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: cell.row ? cell.row.noteName : ""
-                        color: "#0e0f12"; font.family: "monospace"
+                        color: "#0e0f12"; font.family: Theme.mono
                         font.pixelSize: 10; font.bold: true
                     }
                     // Lock and ratchet badges: the two things a step can
@@ -192,14 +192,14 @@ ColumnLayout {
                     Label {
                         objectName: "octaveReadout"
                         text: "O" + root.entryOctave; color: Theme.amber
-                        font.family: "monospace"; font.pixelSize: 11; font.bold: true
+                        font.family: Theme.mono; font.pixelSize: 11; font.bold: true
                     }
                     Chip {
                         objectName: "octaveUp"; text: "OCT+"
                         onClicked: root.octavePicked(Math.min(8, root.entryOctave + 1))
                     }
                     Label { text: "TYPE ZSXDCVGBHNJM  ·  DRAG VEL/FX"; color: Theme.muted
-                        font.pixelSize: 9; font.family: "monospace" }
+                        font.pixelSize: 9; font.family: Theme.mono }
                 }
                 Rectangle {
                     Layout.fillWidth: true; implicitHeight: 22; radius: 3
@@ -208,13 +208,13 @@ ColumnLayout {
                         anchors.fill: parent; anchors.leftMargin: 10
                         anchors.rightMargin: 10; spacing: 0
                         Label { Layout.preferredWidth: 34; text: "ROW"; color: Theme.muted
-                            font.family: "monospace"; font.pixelSize: 10 }
+                            font.family: Theme.mono; font.pixelSize: 10 }
                         Label { Layout.preferredWidth: 62; text: "NOTE"; color: Theme.muted
-                            font.family: "monospace"; font.pixelSize: 10 }
+                            font.family: Theme.mono; font.pixelSize: 10 }
                         Label { Layout.preferredWidth: 44; text: "VEL"; color: Theme.muted
-                            font.family: "monospace"; font.pixelSize: 10 }
+                            font.family: Theme.mono; font.pixelSize: 10 }
                         Label { Layout.fillWidth: true; text: "FX"; color: Theme.muted
-                            font.family: "monospace"; font.pixelSize: 10 }
+                            font.family: Theme.mono; font.pixelSize: 10 }
                     }
                 }
                 // Every row is shown, empty ones included — a tracker that
@@ -261,7 +261,7 @@ ColumnLayout {
                                     Layout.preferredWidth: 34
                                     text: trackRow.index.toString(16).toUpperCase().padStart(2, "0")
                                     color: trackRow.index % 4 === 0 ? Theme.ink : Theme.muted
-                                    font.family: "monospace"
+                                    font.family: Theme.mono
                                     font.pixelSize: trackRow.rowFont
                                 }
                                 // The note column is where a tracker
@@ -278,7 +278,7 @@ ColumnLayout {
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: trackRow.row ? trackRow.row.noteName : "---"
                                         color: trackRow.row && trackRow.row.active ? Theme.acid : "#3d434e"
-                                        font.family: "monospace"
+                                        font.family: Theme.mono
                                         font.pixelSize: trackRow.rowFont
                                         font.bold: trackRow.row && trackRow.row.active
                                     }
@@ -320,7 +320,7 @@ ColumnLayout {
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: trackRow.row ? trackRow.row.velocityHex : "--"
                                         color: trackRow.row && trackRow.row.active ? Theme.ink : "#3d434e"
-                                        font.family: "monospace"
+                                        font.family: Theme.mono
                                         font.pixelSize: trackRow.rowFont
                                     }
                                     MouseArea {
@@ -356,7 +356,7 @@ ColumnLayout {
                                         text: trackRow.row ? trackRow.row.lockText : "---"
                                         color: trackRow.row && trackRow.row.hasLock
                                                ? Theme.amber : "#3d434e"
-                                        font.family: "monospace"
+                                        font.family: Theme.mono
                                         font.pixelSize: trackRow.rowFont
                                         font.bold: trackRow.row && trackRow.row.hasLock
                                     }
@@ -435,7 +435,7 @@ ColumnLayout {
                         horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                     Label {
                         text: patternModel.lowKey + "-" + patternModel.highKey + " KEYS"
-                        color: Theme.muted; font.pixelSize: 9; font.family: "monospace"
+                        color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                     }
                 }
                 Item {
@@ -474,7 +474,7 @@ ColumnLayout {
                                 anchors.right: parent.right; anchors.rightMargin: 5
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "C" + (key / 12 - 1)
-                                color: Theme.ink; font.pixelSize: 9; font.family: "monospace"
+                                color: Theme.ink; font.pixelSize: 9; font.family: Theme.mono
                                 font.bold: true
                             }
                             MouseArea {
@@ -779,7 +779,7 @@ ColumnLayout {
                             objectName: "controllerNumber"
                             visible: rollControls.laneKind === "cc"
                             text: "CC " + rollControls.laneController
-                            color: Theme.ink; font.pixelSize: 10; font.family: "monospace"
+                            color: Theme.ink; font.pixelSize: 10; font.family: Theme.mono
                         }
                         Chip {
                             objectName: "controllerNumberUp"
@@ -797,7 +797,7 @@ ColumnLayout {
                         Label {
                             objectName: "controllerPointCount"
                             text: rollControls.lanePoints.length + " PTS"
-                            color: Theme.muted; font.pixelSize: 9; font.family: "monospace"
+                            color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                         }
                     }
                     Rectangle {

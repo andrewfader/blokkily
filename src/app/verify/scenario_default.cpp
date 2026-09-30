@@ -15,6 +15,9 @@
 #include <QFileInfo>
 #include <QLibrary>
 #include <QMetaObject>
+#include <QFont>
+#include <QFontInfo>
+#include <QGuiApplication>
 #include <QScreen>
 #include <QTimer>
 #include <QVariantMap>
@@ -112,6 +115,22 @@ struct DefaultScenario {
             valid = fits && valid;
         }
         reached("the window opens inside the screen");
+        {
+            // The layout is measured in the bundled faces on every machine:
+            // the interface font and the readout face must both be the
+            // application's own, not a system font answering to the name.
+            // The window's font is what every control inherits and draws.
+            const auto ui = QFontInfo(ctx.window->property("font").value<QFont>()).family();
+            const auto mono = QFontInfo(QFont(QStringLiteral("JetBrains Mono"))).family();
+            const bool ok = ui == QStringLiteral("IBM Plex Sans") &&
+                            mono == QStringLiteral("JetBrains Mono");
+            if (!ok)
+                std::cerr << "REGRESSION: the UI is drawn in " << ui.toStdString()
+                          << " and readouts in " << mono.toStdString()
+                          << ", not the bundled IBM Plex Sans / JetBrains Mono\n";
+            valid = ok && valid;
+        }
+        reached("the interface is drawn in the bundled typefaces");
         reached("demonstration pattern");
         // Startup discovery is exercised with real format fixtures but
         // isolated from plugins installed on the test host.

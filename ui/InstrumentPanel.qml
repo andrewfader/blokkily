@@ -104,7 +104,7 @@ ColumnLayout {
                 objectName: "midiActivity"
                 visible: appController.midiPort !== ""
                 text: appController.midiActivity
-                color: Theme.muted; font.pixelSize: 10; font.family: "monospace"
+                color: Theme.muted; font.pixelSize: 10; font.family: Theme.mono
             }
             Label { text: "\u25be"; color: Theme.muted; font.pixelSize: 10 }
         }
@@ -218,7 +218,7 @@ ColumnLayout {
                       ? appController.browserTotal
                       : appController.browserPlugins.length + "/"
                         + appController.browserTotal
-                color: Theme.muted; font.pixelSize: 10; font.family: "monospace"
+                color: Theme.muted; font.pixelSize: 10; font.family: Theme.mono
             }
         }
     }

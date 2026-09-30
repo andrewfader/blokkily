@@ -36,7 +36,7 @@ Rectangle {
         contentItem: Label {
             text: spin.textFromValue(spin.value, spin.locale)
             color: spin.enabled ? Theme.ink : Theme.muted
-            font.pixelSize: 11; font.family: "monospace"; font.bold: true
+            font.pixelSize: 11; font.family: Theme.mono; font.bold: true
             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
         }
         down.indicator: Rectangle {
@@ -113,7 +113,7 @@ Rectangle {
             Label {
                 objectName: "samplerZone"
                 text: panel.hasZone ? (panel.sampler.zone + 1) + "/" + panel.sampler.zones : "0/0"
-                color: Theme.muted; font.pixelSize: 10; font.family: "monospace"
+                color: Theme.muted; font.pixelSize: 10; font.family: Theme.mono
             }
             Chip {
                 objectName: "samplerZoneNext"

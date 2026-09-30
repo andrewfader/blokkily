@@ -105,7 +105,10 @@ gates.
 links the Rubber Band Library, which is licensed under the GPL (version 2 or
 later) unless a commercial licence is bought from its authors. A Blokkily
 binary built with it is therefore subject to the GPL. JUCE and the CLAP headers are vendored
-under `third_party/`.
+under `third_party/`. The interface typefaces, IBM Plex Sans and JetBrains Mono, are
+bundled in `resources/fonts/` under the SIL Open Font License 1.1 (licence
+texts beside them), so the layout draws the same on every desktop whatever
+its default font.
 
 ```sh
 cmake -S . -B build -G Ninja

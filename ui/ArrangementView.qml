@@ -136,7 +136,7 @@ ColumnLayout {
                             text: (rulerCell.index + 1).toString()
                             color: transport.bar === rulerCell.index ? "#0e0f12" : Theme.muted
                             font.pixelSize: 9; font.bold: true
-                            font.family: "monospace"
+                            font.family: Theme.mono
                         }
                         Label {
                             objectName: "rulerMeter" + rulerCell.index
@@ -147,7 +147,7 @@ ColumnLayout {
                                   ? rulerCell.entry.numerator + "/" + rulerCell.entry.denominator : ""
                             color: transport.bar === rulerCell.index ? "#0e0f12" : Theme.amber
                             font.pixelSize: 9; font.bold: true
-                            font.family: "monospace"
+                            font.family: Theme.mono
                         }
                         // A click puts the playhead on the bar; the right
                         // button offers the meters the bar can take.
@@ -185,7 +185,7 @@ ColumnLayout {
                         Label { anchors.horizontalCenter: parent.horizontalCenter
                             objectName: "laneTempoReadout"
                             text: transport.bpm.toFixed(1); color: Theme.amber
-                            font.pixelSize: 10; font.bold: true; font.family: "monospace" }
+                            font.pixelSize: 10; font.bold: true; font.family: Theme.mono }
                     }
                 }
                 TempoLane {
@@ -368,7 +368,7 @@ ColumnLayout {
                                   && songModel.automationLanes[songModel.selectedLane] !== undefined
                                   ? songModel.automationLanes[songModel.selectedLane].name : "—"
                             color: Theme.record
-                            font.pixelSize: 10; font.bold: true; font.family: "monospace" }
+                            font.pixelSize: 10; font.bold: true; font.family: Theme.mono }
                         Label { width: parent.width; horizontalAlignment: Text.AlignHCenter
                             text: songModel.automationLanes.length > 1
                                   ? (songModel.selectedLane + 1) + "/" + songModel.automationLanes.length

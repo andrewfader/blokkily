@@ -32,7 +32,7 @@ ColumnLayout {
                     font.pixelSize: 10; font.letterSpacing: 1 }
                 Item { Layout.fillWidth: true }
                 Label { text: send.modelData.levelText; color: Theme.ink
-                    font.pixelSize: 11; font.family: "monospace"; font.bold: true }
+                    font.pixelSize: 11; font.family: Theme.mono; font.bold: true }
                 Chip {
                     objectName: "sendPre" + root.trackIndex + "_" + send.modelData.bus
                     text: "PRE"; implicitHeight: 18; accent: Theme.amber

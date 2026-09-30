@@ -68,7 +68,7 @@ ColumnLayout {
             Layout.preferredWidth: 26
             horizontalAlignment: Text.AlignRight
             text: (songModel.metronomeLevelDb > 0 ? "+" : "") + songModel.metronomeLevelDb.toFixed(1)
-            color: Theme.muted; font.family: "monospace"; font.pixelSize: 9; font.bold: true
+            color: Theme.muted; font.family: Theme.mono; font.pixelSize: 9; font.bold: true
         }
     }
 }

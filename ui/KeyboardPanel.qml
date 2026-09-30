@@ -56,7 +56,7 @@ Rectangle {
             }
             Label { objectName: "divisionReadout"
                 text: songModel.divisions + " STEPS"; color: Theme.muted
-                font.pixelSize: 10; font.family: "monospace" }
+                font.pixelSize: 10; font.family: Theme.mono }
             SectionLabel { text: "SCALE" }
             Picker {
                 objectName: "scalePicker"
@@ -71,7 +71,7 @@ Rectangle {
             }
             Label { objectName: "rootReadout"; text: songModel.rootName
                 color: Theme.acid; font.pixelSize: 11; font.bold: true
-                font.family: "monospace" }
+                font.family: Theme.mono }
             Chip {
                 objectName: "rootUp"; text: ">"
                 onClicked: songModel.setRootDegree(songModel.rootDegree + 1)
@@ -84,7 +84,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
             Label { objectName: "lastPlayed"
                 text: "PLAYED " + keyboardModel.lastPlayed
-                color: Theme.ink; font.pixelSize: 11; font.family: "monospace" }
+                color: Theme.ink; font.pixelSize: 11; font.family: Theme.mono }
         }
 
         // Which surface is under the hands, and the one setting
@@ -309,7 +309,7 @@ Rectangle {
                             text: modelData.label
                             color: modelData.root ? "#0e0f12"
                                    : (modelData.accidental ? Theme.muted : Theme.ink)
-                            font.pixelSize: 9; font.family: "monospace"
+                            font.pixelSize: 9; font.family: Theme.mono
                             font.bold: modelData.root
                         }
                         // The retune is the whole point in a
@@ -323,7 +323,7 @@ Rectangle {
                                         <= cellItem.width * 0.9
                             text: modelData.retune
                             color: modelData.root ? "#0e0f12" : Theme.blue
-                            font.pixelSize: 8; font.family: "monospace"
+                            font.pixelSize: 8; font.family: Theme.mono
                         }
                     }
 

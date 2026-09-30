@@ -6,6 +6,10 @@
 
 #include "../llm/scripted_backend.hpp"
 
+#include <cstdio>
+
+#include <QFont>
+#include <QFontDatabase>
 #include <QGuiApplication>
 
 #include <QCommandLineParser>
@@ -22,6 +26,26 @@ int main(int argc, char* argv[]) {
 
     QGuiApplication::setApplicationName("Blokkily");
     QGuiApplication::setOrganizationName("Blokkily");
+
+    // The layout is drawn for the bundled faces; without them it would take
+    // the metrics of whatever the system calls sans-serif and could run off
+    // the window. Each face is used by the family name it registers under.
+    const auto family_of = [](const char* face) {
+        const int id = QFontDatabase::addApplicationFont(QString::fromLatin1(face));
+        const auto families = QFontDatabase::applicationFontFamilies(id);
+        if (families.isEmpty()) {
+            std::fprintf(stderr, "Blokkily: could not load the bundled font %s\n", face);
+            return QString();
+        }
+        return families.front();
+    };
+    const QString interface_family = family_of(":/fonts/IBMPlexSans-Regular.ttf");
+    (void)family_of(":/fonts/IBMPlexSans-Bold.ttf");
+    (void)family_of(":/fonts/JetBrainsMono-Regular.ttf");
+    (void)family_of(":/fonts/JetBrainsMono-Bold.ttf");
+    QFont interface_font(interface_family);
+    interface_font.setPixelSize(12);
+    QGuiApplication::setFont(interface_font);
 
     QCommandLineParser parser;
     parser.addHelpOption();

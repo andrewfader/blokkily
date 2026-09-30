@@ -35,7 +35,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: appController.editorReadout !== "" ? appController.editorReadout : "—"
                 color: appController.editorReadout !== "" ? Theme.ink : Theme.muted
-                font.pixelSize: 11; font.bold: true; font.family: "monospace"
+                font.pixelSize: 11; font.bold: true; font.family: Theme.mono
                 elide: Text.ElideRight
             }
             Label {

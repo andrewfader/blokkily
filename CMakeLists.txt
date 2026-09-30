@@ -158,6 +158,18 @@ if(BLOKKILY_BUILD_GUI)
         VERSION 1.0
         QML_FILES ${BLOKKILY_QML_FILES}
     )
+    # The UI's own typefaces (both SIL OFL 1.1, licences beside them). The
+    # layout is drawn for their metrics, so it looks - and the gates measure
+    # - the same on every machine rather than depending on whichever font
+    # the system calls "sans-serif".
+    qt_add_resources(blokkily "blokkily_fonts"
+        PREFIX "/fonts"
+        BASE resources/fonts
+        FILES
+            resources/fonts/IBMPlexSans-Regular.ttf
+            resources/fonts/IBMPlexSans-Bold.ttf
+            resources/fonts/JetBrainsMono-Regular.ttf
+            resources/fonts/JetBrainsMono-Bold.ttf)
     target_link_libraries(blokkily PRIVATE blokkily_core
         Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2
         Qt6::QuickShapes)

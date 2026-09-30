@@ -34,7 +34,7 @@ ToolBar {
                 border.color: transport.playing ? Theme.acid : Theme.line
                 Label { anchors.centerIn: parent; text: transport.playing ? "||" : ">"
                     color: transport.playing ? "#0e0f12" : Theme.ink
-                    font.family: "monospace"; font.pixelSize: 14; font.bold: true }
+                    font.family: Theme.mono; font.pixelSize: 14; font.bold: true }
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                     onClicked: appController.togglePlayback() }
             }
@@ -56,7 +56,7 @@ ToolBar {
                 implicitWidth: 30; implicitHeight: 28; radius: 4
                 color: Theme.raised; border.color: Theme.line
                 Label { anchors.centerIn: parent; text: "|<"; color: Theme.ink
-                    font.family: "monospace"; font.pixelSize: 12; font.bold: true }
+                    font.family: Theme.mono; font.pixelSize: 12; font.bold: true }
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                     onClicked: appController.rewindPlayback() }
             }
@@ -72,7 +72,7 @@ ToolBar {
                 anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 0
                 Label { objectName: "positionReadout"; text: transport.position
                     color: transport.playing ? Theme.acid : Theme.ink
-                    font.family: "monospace"; font.pixelSize: 13; font.bold: true }
+                    font.family: Theme.mono; font.pixelSize: 13; font.bold: true }
                 Item { Layout.fillWidth: true }
                 Label { text: "BAR"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1 }
             }
@@ -89,14 +89,14 @@ ToolBar {
                 anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 0
                 Label { objectName: "tempoReadout"; visible: !tempoField.visible
                     text: transport.bpm.toFixed(2); color: Theme.ink
-                    font.family: "monospace"; font.pixelSize: 13; font.bold: true }
+                    font.family: Theme.mono; font.pixelSize: 13; font.bold: true }
                 TextField {
                     id: tempoField
                     objectName: "tempoField"
                     visible: false
                     Layout.fillWidth: true
                     padding: 0; background: Item {}
-                    color: Theme.acid; font.family: "monospace"; font.pixelSize: 13; font.bold: true
+                    color: Theme.acid; font.family: Theme.mono; font.pixelSize: 13; font.bold: true
                     validator: DoubleValidator { bottom: 20; top: 300; decimals: 2 }
                     inputMethodHints: Qt.ImhFormattedNumbersOnly
                     function finish() { visible = false; root.focusHome.forceActiveFocus() }
@@ -147,7 +147,7 @@ ToolBar {
                 objectName: "meterReadout"
                 anchors.centerIn: parent
                 text: transport.meter.replace("/", " / ")
-                color: Theme.ink; font.family: "monospace"; font.pixelSize: 12; font.bold: true
+                color: Theme.ink; font.family: Theme.mono; font.pixelSize: 12; font.bold: true
             }
             MouseArea {
                 id: meterMouse
@@ -195,7 +195,21 @@ ToolBar {
 
         Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: Theme.line }
 
-        Label { text: patternModel.eventCount + " EVENTS"; color: Theme.muted; font.pixelSize: 11 }
+        // The least needed readout on the bar: it elides first when the bar is
+        // short of room, so the controls after it never run off the window.
+        Label {
+            id: eventCount
+            objectName: "eventCount"
+            readonly property string full: patternModel.eventCount + " EVENTS"
+            TextMetrics { id: eventCountFull; font: eventCount.font; text: eventCount.full }
+            // Short of room it keeps the number and drops the word.
+            text: width + 0.5 >= eventCountFull.advanceWidth ? full : patternModel.eventCount
+            color: Theme.muted; font.pixelSize: 11
+            elide: Text.ElideRight
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.maximumWidth: eventCountFull.advanceWidth
+        }
         Chip { objectName: "rescanButton"; text: appController.scanning ? "SCANNING…" : "RESCAN PLUGINS"
                onClicked: appController.rescanPlugins() }
     }

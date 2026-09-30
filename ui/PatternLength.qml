@@ -34,7 +34,7 @@ Rectangle {
             horizontalAlignment: Text.AlignHCenter
             text: patternModel.stepCount + " ST"
             color: patternModel.stepCount === 16 ? Theme.muted : Theme.amber
-            font.pixelSize: 9; font.bold: true; font.family: "monospace"
+            font.pixelSize: 9; font.bold: true; font.family: Theme.mono
         }
         Rectangle {
             objectName: "patternLengthUp"

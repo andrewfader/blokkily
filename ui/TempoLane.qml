@@ -186,7 +186,7 @@ Rectangle {
                 y: handle.y + handle.height / 2 > lane.height / 2 ? handle.y - height + 2
                                                                   : handle.y + handle.height - 2
                 text: point.modelData.bpm.toFixed(point.modelData.bpm % 1 === 0 ? 0 : 2)
-                color: Theme.ink; font.pixelSize: 9; font.family: "monospace"
+                color: Theme.ink; font.pixelSize: 9; font.family: Theme.mono
                 font.bold: true
             }
             // The ramp switch sits halfway to the next point.
@@ -204,7 +204,7 @@ Rectangle {
                     anchors.centerIn: parent
                     text: point.ramp ? "/" : "┐"
                     color: point.ramp ? "#0e0f12" : Theme.muted
-                    font.pixelSize: 9; font.bold: true; font.family: "monospace"
+                    font.pixelSize: 9; font.bold: true; font.family: Theme.mono
                 }
                 MouseArea {
                     anchors.fill: parent

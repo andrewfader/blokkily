@@ -27,7 +27,7 @@ ColumnLayout {
         Label { text: label; color: Theme.muted; font.pixelSize: 10; font.letterSpacing: 1 }
         Item { Layout.fillWidth: true }
         Label { text: readout; color: enabled ? Theme.ink : Theme.muted
-            font.pixelSize: 11; font.family: "monospace"; font.bold: true }
+            font.pixelSize: 11; font.family: Theme.mono; font.bold: true }
     }
     Slider {
         Layout.fillWidth: true

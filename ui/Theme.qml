@@ -14,4 +14,11 @@ QtObject {
     readonly property color amber: "#ffb340"
     // Recording, and nothing else: a red that means the song is being written.
     readonly property color record: "#ff4d5e"
+    // The bundled interface face. The window sets it for every control, so a
+    // desktop theme (qt6ct, Plasma) cannot swap in a font whose metrics the
+    // layout was not drawn for.
+    readonly property string sans: "IBM Plex Sans"
+    // The bundled readout face (gui_main.cpp registers it): counters, keys
+    // and values line up in columns on every machine.
+    readonly property string mono: "JetBrains Mono"
 }

@@ -37,7 +37,7 @@ Popup {
         Layout.preferredWidth: 64
         Layout.preferredHeight: 26
         color: Theme.ink
-        font.family: "monospace"; font.pixelSize: 12; font.bold: true
+        font.family: Theme.mono; font.pixelSize: 12; font.bold: true
         selectByMouse: true
         horizontalAlignment: TextInput.AlignRight
         inputMethodHints: Qt.ImhFormattedNumbersOnly

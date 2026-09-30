@@ -20,6 +20,8 @@ ApplicationWindow {
     // The session's name, and a dot while it holds changes that are not on disk.
     title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + " \u2014 Blokkily"
     color: Theme.bg
+    font.family: Theme.sans
+    font.pixelSize: 12
 
     // STEP / TRACKER / PIANO focus one editor; ALL keeps every projection on
     // screen at once, which is the point of the instrument. LAUNCH shows the
