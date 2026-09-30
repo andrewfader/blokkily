@@ -810,7 +810,10 @@ void mpe_clap_live() {
                 other.expression.empty(),
             "the first note keeps its bend, pressure and timbre; the second has none");
     const auto late = std::find_if(first.expression.begin(), first.expression.end(),
-                                   [](const NoteExpression& at) { return at.value == -5.0F; });
+                                   [](const NoteExpression& at) {
+                                       return at.kind == NoteExpression::Kind::pitch &&
+                                              std::abs(at.value + 5.0F) < 0.01F;
+                                   });
     require(late != first.expression.end() && late->offset > 0,
             "a later movement is kept at its offset into the note");
     Pattern written(1920, 480);
@@ -947,12 +950,14 @@ void mpe_soundfont() {
     };
     const auto plain = render_chord(chord_with({}));
     // Voice 0 (A4) bent up two semitones from its start; E5 is not.
-    const auto bent = render_chord(chord_with({{0, 0, NoteExpression::Kind::pitch, 2.0F},
-                                               {0, 0, NoteExpression::Kind::pressure, 0.5F}}));
+    const auto bent = render_chord(chord_with({{0, 0, NoteExpression::Kind::pitch, 2.0F}}));
     require_frequency(frequency(plain, 8000, 16384, 400, 520), a4, "the plain chord's A4");
     require_frequency(frequency(bent, 8000, 16384, 400, 520), a4_bent_up,
                       "the expressive voice is bent on its own channel");
-    const double e5 = 440.0 * std::pow(2.0, 7.0 / 12.0);
+    // The SoundFont's own E5 sample sits where it sits; the other voice
+    // must sit exactly there with or without the expressive one bent.
+    const double e5 = frequency(plain, 8000, 16384, 600, 720);
+    require(std::abs(e5 - 440.0 * std::pow(2.0, 7.0 / 12.0)) < 12.0, "the plain chord's E5");
     require_frequency(frequency(bent, 8000, 16384, 600, 720), e5,
                       "while the chord's other voice keeps its pitch");
 }

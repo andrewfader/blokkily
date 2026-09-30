@@ -554,6 +554,52 @@ void run_midi(VerifyContext& ctx) {
     }
     reached("midi: the wheel is recorded into the pattern and marked in the piano roll");
 
+    // features/continuous_midi.feature: MPE switched on from the rendered
+    // MIDI IN panel; a note on member channel 2, bent and pressed while the
+    // armed song runs, is written with its own expression.
+    {
+        check(!transport.playing() && !controller.mpe());
+        auto* chip = named("mpeChip");
+        check(VerifyContext::usable(chip, 24, 14));
+        if (chip != nullptr)
+            click_at(chip, {chip->width() / 2, chip->height() / 2}, Qt::LeftButton);
+        lay_out();
+        check(controller.mpe() && chip != nullptr && chip->property("on").toBool());
+        const auto expressive = [&song] {
+            std::size_t count = 0;
+            for (const auto& named_pattern : song.song().patterns)
+                for (const auto& trigger : named_pattern.pattern.events())
+                    count += trigger.expression.size();
+            return count;
+        };
+        const auto before = expressive();
+        controller.seekToBar(1);
+        controller.togglePlayback();
+        (void)pump();
+        check(send(0x91, 67, 100));
+        (void)pump();
+        for (int move = 1; move <= 6; ++move) {
+            check(send(0xE1, 0, 64 + move * 4));   // the note's own bend
+            check(send(0xD1, move * 20, 0));       // and its own pressure
+            (void)pump();
+        }
+        check(send(0x81, 67, 0));
+        (void)pump();
+        controller.togglePlayback();
+        (void)pump();
+        settle(40);
+        lay_out();
+        const auto after = expressive();
+        check(after >= before + 6);
+        if (after < before + 6)
+            std::cerr << "REGRESSION: an MPE note was recorded without its expression ("
+                      << before << " -> " << after << ")\n";
+        controller.setMpe(false);
+        lay_out();
+        check(!controller.mpe());
+    }
+    reached("midi: an MPE note is recorded with its own bend and pressure");
+
     // Left armed with the take in view, and the panel naming the port
     // and the last key, for the screenshot.
     check(send(0x90, 64, 96) && send(0x80, 64, 0));

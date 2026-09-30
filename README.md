@@ -342,6 +342,12 @@ MOD, EXPR, any numbered CC or PRESSURE, from its picker): drag to draw a
 stroke, drag a point to move it, right-click to erase; each gesture is one
 undo step and the running song plays it on its next block.
 
+MPE keyboards: switch on MPE on the MIDI IN panel (or let the keyboard send
+its MPE configuration message). Each note's own bend, CC 74 and pressure move
+that note alone, are recorded with it, and are played back as CLAP note
+expressions, or on a channel of the note's own for SoundFont and VST3
+instruments (see features/continuous_midi.feature for what each hears).
+
 Audio clips whose decoded size exceeds the streaming threshold (128 MiB by
 default; `BLOKKILY_STREAM_THRESHOLD_BYTES` overrides it) stream from disk
 instead of being decoded into RAM: a background worker fills one lock-free
@@ -360,8 +366,12 @@ to persist those references. Original files are kept so undo remains playable.
 
 ## What is not here yet
 
-- MPE is not supported: per-channel controllers from a keyboard are merged
-  onto the track's one instrument. MIDI clock is not read. The built-in
+- MPE covers the lower zone from the MPE chip (an upper zone only from the
+  keyboard's configuration message). Per-note expression is recorded and
+  played but not drawn in an editor. VST3 instruments hear per-note pitch
+  only within a two-semitone channel bend; SoundFonts have no CC 74 timbre
+  unless the SF2 maps it; the sampler takes per-note pitch only. MIDI clock
+  is not read. The built-in
   sampler ignores poly pressure; the controller lane does not edit poly
   pressure. Notes and controllers are timestamped to
   the callback block.

@@ -21,7 +21,7 @@ if(BLOKKILY_BUILD_TESTS)
         message(FATAL_ERROR "continuous MIDI tests require a test SoundFont; set BLOKKILY_TEST_SF2")
     endif()
     add_executable(blokkily_continuous_midi_tests tests/continuous_midi_tests.cpp)
-    target_include_directories(blokkily_continuous_midi_tests PRIVATE tests)
+    target_include_directories(blokkily_continuous_midi_tests PRIVATE tests third_party/clap/include)
     target_link_libraries(blokkily_continuous_midi_tests PRIVATE blokkily_core ${CMAKE_DL_LIBS})
     target_compile_definitions(blokkily_continuous_midi_tests PRIVATE
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"

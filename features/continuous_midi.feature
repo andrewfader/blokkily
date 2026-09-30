@@ -24,10 +24,37 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
   right button erases; each gesture is one step of history in the canonical
   pattern, and the running engine plays it without a rebuild.
 
-  Not done: MPE (per-note pitch, pressure and timbre) is not supported; a
-  keyboard's per-channel controllers are merged onto the one instrument.
-  Controller movements are stamped at the block they arrived in, as notes
-  are. The built-in sampler ignores poly pressure; the SoundFont and VST3
+  MPE: with the MIDI IN panel's MPE chip on (the lower zone, member channels
+  2-16, per-note pitch range 48 semitones), or turned on by the keyboard's
+  MPE Configuration Message (RPN 6), a member channel's pitch bend, CC 74 and
+  channel pressure (and poly pressure there) become per-note expression of
+  the note it holds (PluginEvent::note_expression), and that note is marked
+  expressive. It is recorded with the note (NoteExpression on the trigger,
+  per voice, at its offset into the note; kept on its voice when a take
+  makes a chord), saved as additive `express` records, played at its
+  sample by the arrangement, the launcher and an export. What each target
+  hears:
+    CLAP: CLAP_EVENT_NOTE_EXPRESSION tuning (retune plus bend), brightness
+    and pressure, addressed by key - nothing degrades.
+    SoundFont: the note gets a FluidSynth channel of its own with a 48
+    semitone bend range; pitch is exact, timbre is CC 74 and pressure is
+    channel pressure on that channel, which the SF2 default modulators turn
+    into nothing and vibrato depth respectively unless the SoundFont maps
+    them. At most 15 expressive or retuned notes sound at once; the oldest
+    gives its channel up.
+    VST3: the note gets a MIDI voice channel of its own (2-16) through the
+    JUCE host; pitch is its pitch bend within the two semitones the adapter
+    announces (a larger per-note bend is clamped there), timbre CC 74 (which
+    stays on the channel until changed), pressure channel pressure. No
+    VST3 note-expression events are sent.
+    Sampler: per-note pitch only; timbre and pressure are ignored.
+  Master-channel messages, and other CCs on a member channel, still reach
+  the whole instrument.
+
+  Not done: Controller movements are stamped at the block they arrived in, as
+  notes are. Per-note expression is not drawn or edited in any editor (it
+  travels with its step when the step is moved, copied or transposed). No
+  upper-zone MPE chip (the keyboard's configuration message sets it). The built-in sampler ignores poly pressure; the SoundFont and VST3
   paths send it on the channel holding its key.
 
   Executable: tests/continuous_midi_tests.cpp (CTest continuous_midi_<case>),
@@ -131,9 +158,50 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
     When MOD is picked and the lane clicked half way up, and CC with its number raised to 8 is picked and the lane clicked at the top
     Then CC 1 holds 64 and CC 8 holds 127 on their ticks, and the bend is untouched
 
+  # continuous_midi_mpe_clap_live
+  Scenario: An MPE keyboard plays each note's own expression into CLAP and records it
+    Given the CLAP fixture and a keyboard that sends the MPE Configuration Message for 15 members
+    When channel 2 sends a +12 bend and full pressure, then a note, then CC 74, and channel 3 a second note
+    Then the first note is heard louder by its own pressure and brighter by its own timbre, the second untouched
+    And CLAP is sent tuning, pressure and brightness note expressions for key 69 alone
+    And the take keeps the first note's bend, pressure, timbre and later bend at their offsets, and writes them onto its step
+
+  # continuous_midi_mpe_clap_playback
+  Scenario: Recorded per-note expression plays back to CLAP as note expressions, on its sample
+    Given a note with pressure 1.0 at 250 ticks and +12 semitones at 500
+    When the song plays through the CLAP fixture
+    Then the level doubles on sample 12500 exactly, and the note expressions arrive at their block offsets
+    And in a chord only the voice that carries the pressure is pressed
+    And a launched loop of the pattern plays it sample for sample as the arrangement does, and the export reads back equal
+
+  # continuous_midi_mpe_soundfont
+  Scenario: A SoundFont bends one note of a chord through its own channel
+    Given an A4-E5 chord on a real SF2 whose A4 carries a +2 semitone per-note bend
+    Then the A4 sounds at 493.9 Hz while the E5 sounds where it does without the bend
+
+  # continuous_midi_mpe_vst3
+  Scenario: A VST3 instrument hears per-note expression on the note's own channel
+    Given the suite-built VST3 fixture through the production JUCE host
+    When a note carries +1 semitone, or +7, or pressure 1.0 at tick 400
+    Then it sounds a semitone up; the +7 is clamped to the channel's two semitones; the pressure doubles its level
+
+  # continuous_midi_mpe_records
+  Scenario: Per-note expression is saved with its note
+    When a song whose note carries expression is saved
+    Then each value is an express record, read back byte for byte, and an older file loads with none
+    And malformed express records (a missing voice, trigger or pattern, a bad kind, offset or value) are refused
+    And a take that merges two expressive notes into a chord keeps each voice's expression on its voice
+
+  # bdd_midi_recording: "midi: an MPE note is recorded with its own bend and pressure"
+  Scenario: MPE is switched on in the application and an MPE note is recorded
+    Given the real application with an armed song and the deterministic keyboard
+    When the MPE chip is clicked on the MIDI IN panel and a note on channel 2 is bent and pressed while the song plays
+    Then the pattern holds the note with its own expression, and the chip turns MPE off again
+
   # realtime_continuous_midi
   Scenario: Playing and chasing controllers never allocates on the audio thread
-    Given a pattern full of wheel and mod-wheel movements on the CLAP fixture
-    And a keyboard bending and pressing on the same track
+    Given a pattern full of wheel, mod-wheel and poly pressure movements on the CLAP fixture
+    And a note carrying pitch, pressure and timbre expression
+    And a keyboard bending and pressing on the same track, and MPE notes struck, bent, pressed and let go
     When SongEngine::process runs 1000 times across loop wraps and seeks
     Then no allocation happens inside it
