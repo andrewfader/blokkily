@@ -16,6 +16,7 @@
 #include <QPointF>
 
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <utility>
@@ -200,7 +201,10 @@ void run_stems(VerifyContext& ctx) {
 
     // --- A new stem can be written to straight away. ------------------------
     const auto patterns_before = song.song().patterns.size();
-    controller.addTrack();
+    // The General MIDI bank it is given is the gate's own fixture, so the
+    // result does not hang on which banks this machine has installed.
+    controller.addTrack(
+        {std::filesystem::path(ctx.parser.value("soundfont-fixture").toStdString()).parent_path()});
     const int fresh = song.selectedTrack();
     const int verse_fresh = song.partOf(0, fresh);
     // It has an empty part of VERSE, placed where VERSE plays.

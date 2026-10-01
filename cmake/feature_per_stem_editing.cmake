@@ -20,6 +20,7 @@ if(BLOKKILY_BUILD_GUI)
         add_test(NAME bdd_per_stem_editing
             COMMAND blokkily --verify --scenario stems
                 --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --soundfont-fixture ${BLOKKILY_TEST_SF2}
                 --project ${CMAKE_BINARY_DIR}/artifacts/per-stem-editing/stems.blok
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/per-stem-editing.png)
         set_tests_properties(bdd_per_stem_editing PROPERTIES

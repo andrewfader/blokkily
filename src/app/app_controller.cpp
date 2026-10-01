@@ -425,14 +425,16 @@ bool AppController::loadDefaultInstrument(const std::vector<std::filesystem::pat
     return engine_ != nullptr;
 }
 
-void AppController::addTrack() {
+void AppController::addTrack() { addTrack(blokkily::SoundFontCatalog::system_paths()); }
+
+void AppController::addTrack(const std::vector<std::filesystem::path>& roots) {
     if (song_ == nullptr) return;
     // The bank the session already plays is the one a new track most likely
     // wants, and it is already loaded, so it costs nothing to reach for.
     std::filesystem::path bank;
     for (const auto& track : song_->song().tracks)
         if (track.instrument.format == "SoundFont") { bank = track.instrument.path; break; }
-    if (bank.empty()) bank = findDefaultBank(blokkily::SoundFontCatalog::system_paths());
+    if (bank.empty()) bank = findDefaultBank(roots);
     // A numbered track names no instrument family, so it opens on the piano.
     song_->addTrack(bank.empty() ? blokkily::InstrumentSlot{} : defaultSlot(bank, "TRACK"));
 }

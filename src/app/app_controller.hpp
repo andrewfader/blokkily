@@ -206,6 +206,10 @@ public:
     // A track added from the interface is given something to play: the bank
     // the session already uses, or the machine's General MIDI bank.
     Q_INVOKABLE void addTrack();
+    // The same, with the General MIDI bank looked for under roots the caller
+    // names, so verification proves it against its own fixture rather than
+    // against whatever banks happen to be installed on the machine.
+    void addTrack(const std::vector<std::filesystem::path>& roots);
     // Writes to the file the session came from. False when there is none yet,
     // and the interface asks where to save instead.
     Q_INVOKABLE bool saveProjectInPlace();
