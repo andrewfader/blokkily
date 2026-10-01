@@ -216,6 +216,11 @@ bool Song::consistent(std::string* why) const {
     for (const auto& clip : clips)
         if (clip.track >= tracks.size() || clip.pattern >= patterns.size() || clip.start < 0)
             return refuse(why, "a clip refers to a track or pattern that does not exist");
+    // With sections, every section has exactly one part for every track, all
+    // the same length, and every part belongs to a section and a track that
+    // exist.
+    if (!sections.empty() && !sections_whole())
+        return refuse(why, "the sections do not hold exactly one part per track");
     for (const auto& clip : clips) {
         const Tick whole = patterns[clip.pattern].pattern.length() *
                            static_cast<Tick>(std::max<std::uint32_t>(1, clip.repeats));
@@ -327,6 +332,12 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
     launcher.remove_track(index);
     std::erase_if(clips, [index](const Clip& clip) { return clip.track == index; });
     for (auto& clip : clips) clip.track = moved(clip.track);
+    // Its part of every section goes with it.
+    if (!sections.empty()) {
+        for (std::size_t slot = patterns.size(); slot-- > 0;)
+            if (patterns[slot].track == index) remove_pattern(slot);
+        for (auto& slot : patterns) slot.track = moved(slot.track);
+    }
     std::erase_if(audio_clips, [index](const AudioClip& clip) { return clip.track == index; });
     for (auto& clip : audio_clips) clip.track = moved(clip.track);
 

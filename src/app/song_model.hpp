@@ -30,7 +30,11 @@ class SongModel final : public QObject {
     // whenever the song changes.
     Q_PROPERTY(QVariantList lanes READ lanes NOTIFY songChanged)
     Q_PROPERTY(int trackCount READ trackCount NOTIFY songChanged)
+    // The part being edited: the open section's part for the selected track.
     Q_PROPERTY(int currentPattern READ currentPattern NOTIFY songChanged)
+    // The sections (what the interface calls patterns) and the open one.
+    Q_PROPERTY(QVariantList sections READ sections NOTIFY songChanged)
+    Q_PROPERTY(int currentSection READ currentSection NOTIFY songChanged)
     Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY songChanged)
     Q_PROPERTY(int bars READ bars NOTIFY songChanged)
     // Every bar the timeline shows, laid out by the meter map (plan F-A): one
@@ -144,7 +148,11 @@ public:
     QVariantList clips() const;
     QVariantList lanes() const;
     int trackCount() const noexcept { return static_cast<int>(song_.tracks.size()); }
-    int currentPattern() const noexcept { return current_pattern_; }
+    QVariantList sections() const;
+    int currentPattern() const;
+    int currentSection() const noexcept { return current_section_; }
+    // The part track `track` plays in section `section`, or -1.
+    Q_INVOKABLE int partOf(int section, int track) const;
     int selectedTrack() const noexcept { return selected_track_; }
     int bars() const;
     QVariantList barLayout() const;
@@ -170,22 +178,29 @@ public:
     bool autoScale() const noexcept { return song_.auto_scale; }
 
     Q_INVOKABLE void selectTrack(int track);
+    // Opens pattern `pattern`: its section, with its track selected, so it is
+    // the part the editors show.
     Q_INVOKABLE void selectPattern(int pattern);
+    // Opens section `section` for the selected track.
+    Q_INVOKABLE void selectSection(int section);
     Q_INVOKABLE void addTrack();
     // A new track that arrives already carrying an instrument, as one edit and
     // one rebuild of the audio graph rather than two.
     void addTrack(const blokkily::InstrumentSlot& instrument);
-    // A new pattern as long as bar `bar` of the song (the first bar when none
-    // is given), so a pattern made in a 7/8 bar has fourteen steps.
+    // A new section, with an empty part for every track, as long as bar `bar`
+    // of the song (the first bar when none is given), so a pattern made in a
+    // 7/8 bar has fourteen steps. It is opened.
     Q_INVOKABLE void addPattern(int bar = -1);
-    // Makes the open pattern `steps` sixteenths long (1 to 64). Steps past the
-    // new end are dropped; one step of history.
+    // Makes the open section `steps` sixteenths long (1 to 64), every part of
+    // it. Steps past the new end are dropped; one step of history.
     Q_INVOKABLE bool setPatternSteps(int steps);
-    // Pattern and track housekeeping. A copy of the open pattern is how a
-    // variation is started; a name is how a lane is found again.
+    // Section and track housekeeping. A copy of the open section, every
+    // track's part of it, is how a variation is started; clearing empties
+    // every part; deleting takes section `section` with its parts and clips.
+    // A name is how a lane is found again.
     Q_INVOKABLE void duplicatePattern();
     Q_INVOKABLE void clearPattern();
-    Q_INVOKABLE bool deletePattern(int pattern);
+    Q_INVOKABLE bool deletePattern(int section);
     Q_INVOKABLE bool deleteTrack(int track);
     // While structureChanged is being emitted for a deleted track: where each
     // track before the deletion went (entry i is old track i's new index, or
@@ -194,7 +209,8 @@ public:
     const std::vector<std::optional<std::size_t>>* pendingTrackRemap() const {
         return track_remap_ ? &*track_remap_ : nullptr;
     }
-    Q_INVOKABLE void renamePattern(int pattern, const QString& name);
+    // Renames section `section` and every part of it.
+    Q_INVOKABLE void renamePattern(int section, const QString& name);
     Q_INVOKABLE void renameTrack(int track, const QString& name);
     Q_INVOKABLE bool undo();
     Q_INVOKABLE bool redo();
@@ -232,13 +248,18 @@ public:
     // every file the song, and every step of its history, names at a key of
     // `moved` now names the value. Not a step of history.
     void relocateAudioFiles(const std::map<std::filesystem::path, std::filesystem::path>& moved);
-    // Arrangement editing. An empty bar takes the open pattern; a filled bar
-    // is opened rather than erased — the right button takes a clip away.
+    // Arrangement editing. placeClip puts the open section's part for that
+    // track on that track alone; placeSection puts the open section on every
+    // track free at that bar, which is what pressing an empty bar does. A
+    // filled bar is opened rather than erased — the right button takes a clip
+    // away.
     Q_INVOKABLE void placeClip(int track, int bar);
+    Q_INVOKABLE void placeSection(int bar);
     Q_INVOKABLE bool removeClip(int track, int bar);
     Q_INVOKABLE void toggleClip(int track, int bar);
-    // Opens whatever clip covers that cell: selects its track and its pattern.
-    // Returns the pattern index, or -1 when the cell is empty.
+    // Opens whatever clip covers that cell: selects its track and the section
+    // its part belongs to. Returns the part's pattern index, or -1 when the
+    // cell is empty.
     Q_INVOKABLE int openClip(int track, int bar);
     // How many times the clip covering that bar runs back-to-back. Lengthening
     // a clip is not the same as placing another of the same pattern — each
@@ -588,7 +609,7 @@ private:
     // so returning to the saved state is recognised as clean.
     struct Snapshot {
         blokkily::Song song;
-        int current_pattern = 0;
+        int current_section = 0;
         int selected_track = 0;
         std::uint64_t id = 0;
     };
@@ -599,7 +620,8 @@ private:
     static void keepInputs(const blokkily::Song& live, blokkily::Song& restored);
 
     blokkily::Song song_;
-    int current_pattern_ = 0;
+    // The open section; the editors show its part for the selected track.
+    int current_section_ = 0;
     int selected_track_ = 0;
     std::vector<float> peaks_;
     std::optional<std::vector<std::optional<std::size_t>>> track_remap_;

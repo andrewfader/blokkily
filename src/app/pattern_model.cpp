@@ -313,6 +313,36 @@ int PatternModel::eraseControls(const QString& kind, int controller, int fromTic
     return static_cast<int>(erased);
 }
 
+QVariantList PatternModel::stemRows() const {
+    QVariantList rows;
+    if (song_ == nullptr) return rows;
+    const auto& song = song_->song();
+    const int steps = stepCount();
+    for (int track = 0; track < song_->trackCount(); ++track) {
+        QVariantList on;
+        for (int step = 0; step < steps; ++step) on.push_back(false);
+        const int part = song_->partOf(song_->currentSection(), track);
+        if (part >= 0)
+            for (const auto& trigger : song.patterns[static_cast<std::size_t>(part)].pattern.events()) {
+                const auto step = static_cast<int>(trigger.start / ticks_per_step);
+                if (step >= 0 && step < steps) on[step] = true;
+            }
+        QVariantMap row;
+        row["track"] = track;
+        row["name"] = QString::fromStdString(song.tracks[static_cast<std::size_t>(track)].name);
+        row["selected"] = track == song_->selectedTrack();
+        row["steps"] = on;
+        rows.push_back(row);
+    }
+    return rows;
+}
+
+void PatternModel::toggleStemStep(int track, int step, int key) {
+    if (song_ == nullptr || track < 0 || track >= song_->trackCount()) return;
+    song_->selectTrack(track);
+    toggleStep(step, key);
+}
+
 QVariantList PatternModel::steps() const {
     QVariantList rows;
     rows.reserve(stepCount());

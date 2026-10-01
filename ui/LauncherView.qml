@@ -191,7 +191,7 @@ Rectangle {
                                             appController.launchCell(sceneRow.index, cell.index)
                                         else
                                             songModel.setLauncherCell(sceneRow.index, cell.index,
-                                                                      songModel.currentPattern)
+                                                songModel.partOf(songModel.currentSection, cell.index))
                                         if (root.focusHome) root.focusHome.forceActiveFocus()
                                     }
                                 }
@@ -237,11 +237,14 @@ Rectangle {
             Picker {
                 objectName: "cellPattern"
                 implicitHeight: 22
-                choices: songModel.patterns.map(pattern => pattern.name)
+                // A cell plays its track's part of the chosen pattern.
+                choices: songModel.sections.map(section => section.name)
                 value: root.selectedCell !== null ? root.selectedCell.name : ""
                 onPicked: function(name) {
                     const index = choices.indexOf(name)
-                    if (index >= 0) songModel.setLauncherCell(root.selectedScene, root.selectedTrack, index)
+                    if (index >= 0)
+                        songModel.setLauncherCell(root.selectedScene, root.selectedTrack,
+                                                  songModel.partOf(index, root.selectedTrack))
                 }
             }
             SectionLabel { text: "LOOPS" }

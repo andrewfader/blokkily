@@ -50,7 +50,8 @@ ColumnLayout {
                 Label { Layout.fillWidth: true; text: appController.soundfontStatus
                     color: Theme.muted; font.pixelSize: 10; elide: Text.ElideMiddle
                     visible: appController.activeInstrument === "Choose an instrument" }
-                Label { Layout.fillWidth: true; text: appController.activeInstrument
+                Label { objectName: "selectedInstrument"
+                    Layout.fillWidth: true; text: appController.activeInstrument
                     color: Theme.acid; font.pixelSize: 10; elide: Text.ElideMiddle
                     visible: appController.activeInstrument !== "Choose an instrument" }
             }

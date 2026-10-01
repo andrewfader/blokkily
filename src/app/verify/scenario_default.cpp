@@ -947,24 +947,33 @@ struct DefaultScenario {
             auto* cell = arrangeCell(track, bar);
             return cell != nullptr && cell->property("filled").toBool();
         };
+        // A clip of a part with nothing in it yet: the stem's part of a
+        // section placed there, drawn as an outline.
+        const auto cellHollow = [&](int track, int bar) {
+            auto* cell = arrangeCell(track, bar);
+            return cell != nullptr && cell->property("hollow").toBool();
+        };
         valid = valid && item("arrangement") != nullptr;
         valid = valid && song.trackCount() == 3;   // CLAP, VST3, and SoundFont
         if (auto* scroll = item("editorScroll"))
             scroll->setProperty("contentY", 0);
         (void)window->grabWindow();
         valid = valid && cellFilled(0, 0) && cellFilled(0, 3) && !cellFilled(0, 5);
-        valid = valid && !cellFilled(1, 0) && cellFilled(1, 2);
+        // Track 1 plays nothing of VERSE yet, but VERSE plays there on every
+        // stem: its empty part is placed, an outline; CHORUS it plays.
+        valid = valid && cellFilled(1, 0) && cellHollow(1, 0) && cellFilled(1, 2) &&
+                !cellHollow(1, 2);
 
-        const int clips_before = song.clips().size();
-        song.placeClip(1, 0);
-        (void)window->grabWindow();
-        valid = valid && song.clips().size() == clips_before + 1 && cellFilled(1, 0);
         // The right button takes a clip away through the same song API the
         // timeline's MouseArea calls; a left click on a filled cell never does.
+        const int clips_before = song.clips().size();
         valid = valid && arrangeCell(1, 0) != nullptr;
         valid = valid && song.removeClip(1, 0);
         (void)window->grabWindow();
-        valid = valid && song.clips().size() == clips_before && !cellFilled(1, 0);
+        valid = valid && song.clips().size() == clips_before - 1 && !cellFilled(1, 0);
+        song.placeClip(1, 0);
+        (void)window->grabWindow();
+        valid = valid && song.clips().size() == clips_before && cellFilled(1, 0);
 
         // Opening a filled clip puts its pattern in every editor and seeks
         // the engine to that bar — again the same path the MouseArea takes.
@@ -972,12 +981,14 @@ struct DefaultScenario {
             song.selectPattern(0);
             song.selectTrack(0);
             valid = valid && arrangeCell(1, 2) != nullptr && cellFilled(1, 2);
-            valid = valid && song.openClip(1, 2) == 1;
+            // Track 1's own part of CHORUS.
+            const int chorus = song.partOf(1, 1);
+            valid = valid && chorus >= 0 && song.openClip(1, 2) == chorus;
             controller.seekToBar(2);
             const auto title = item("patternTitle") == nullptr
                 ? QString()
                 : item("patternTitle")->property("text").toString();
-            valid = valid && song.currentPattern() == 1
+            valid = valid && song.currentPattern() == chorus && song.currentSection() == 1
                           && song.selectedTrack() == 1
                           && title == "CHORUS"
                           && transport.bar() == 2
@@ -1124,10 +1135,12 @@ struct DefaultScenario {
             const auto lay_out = [this] { (void)window->grabWindow(); };
             if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
 
-            // A fresh pattern to work in. Adding it is itself an edit.
-            const int patterns_before = song.patterns().size();
+            // A fresh pattern to work in. Adding it is itself an edit. A
+            // pattern is a section, with an empty part for every track.
+            const int patterns_before = song.sections().size();
             song.addPattern();
-            valid = valid && song.patterns().size() == patterns_before + 1
+            valid = valid && song.sections().size() == patterns_before + 1
+                          && song.currentSection() == patterns_before
                           && pattern.rowCount() == 0 && song.canUndo();
             reached("workflow: a pattern to work in");
 
@@ -1207,26 +1220,26 @@ struct DefaultScenario {
             // edits like any other.
             const int events_before_copy = pattern.rowCount();
             const QString copied_from =
-                song.patterns().at(song.currentPattern()).toMap().value("name").toString();
+                song.sections().at(song.currentSection()).toMap().value("name").toString();
             song.duplicatePattern();
-            const int copy = song.currentPattern();
-            valid = valid && song.patterns().size() == patterns_before + 2
+            const int copy = song.currentSection();
+            valid = valid && song.sections().size() == patterns_before + 2
                           && pattern.rowCount() == events_before_copy
-                          && song.patterns().at(copy).toMap().value("name").toString()
+                          && song.sections().at(copy).toMap().value("name").toString()
                                  == copied_from + " 2";
             song.renamePattern(copy, "  drop  ");
-            valid = valid && song.patterns().at(copy).toMap().value("name").toString() == "DROP"
+            valid = valid && song.sections().at(copy).toMap().value("name").toString() == "DROP"
                           && item("patternTitle")->property("text").toString() == "DROP";
             song.clearPattern();
             valid = valid && pattern.rowCount() == 0;
             valid = valid && song.deletePattern(copy)
-                          && song.patterns().size() == patterns_before + 1;
+                          && song.sections().size() == patterns_before + 1;
             reached("workflow: duplicate, rename, clear and delete a pattern");
 
             // Deleting a pattern takes its clips and keeps every other clip
             // on the pattern it named.
             {
-                const int doomed = song.currentPattern();
+                const int doomed = song.currentSection();
                 song.toggleClip(0, 7);
                 const int clips_with = song.clips().size();
                 valid = valid && song.hasClip(0, 7);
@@ -1237,7 +1250,7 @@ struct DefaultScenario {
                                          < song.patterns().size();
                 song.undo();
                 valid = valid && song.hasClip(0, 7)
-                              && song.patterns().size() == patterns_before + 1;
+                              && song.sections().size() == patterns_before + 1;
                 song.undo();
                 valid = valid && !song.hasClip(0, 7);
             }
@@ -1327,9 +1340,14 @@ struct DefaultScenario {
             {
                 song.toggleClip(added, 1);
                 const int clips_with = song.clips().size();
+                // Its own clip, and its parts of sections placed elsewhere.
+                int its_clips = 0;
+                for (const auto& clip : song.clips())
+                    if (clip.toMap().value("track").toInt() == added) ++its_clips;
+                valid = valid && its_clips >= 1;
                 valid = valid && song.deleteTrack(added);
                 valid = valid && song.trackCount() == tracks_before
-                              && song.clips().size() == clips_with - 1;
+                              && song.clips().size() == clips_with - its_clips;
                 valid = valid && controller.engine() != nullptr
                               && controller.engine()->track_count()
                                      == static_cast<std::size_t>(tracks_before);
@@ -1462,8 +1480,8 @@ struct DefaultScenario {
 
             // Leave the song as the later scenarios expect it: without the
             // pattern this section added.
-            while (song.patterns().size() > patterns_before)
-                if (!song.deletePattern(song.patterns().size() - 1)) { valid = false; break; }
+            while (song.sections().size() > patterns_before)
+                if (!song.deletePattern(song.sections().size() - 1)) { valid = false; break; }
             song.selectPattern(0);
             song.selectTrack(0);
             valid = valid && song.trackCount() == tracks_before;

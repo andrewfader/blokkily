@@ -143,6 +143,14 @@ void run_launcher(VerifyContext& ctx) {
         configured.patterns = {{"GROOVE", held_note(0.4F)}, {"HOOK", held_note(0.8F)},
                                {"FILL", held_note(0.6F)}};
         configured.clips.clear();
+        // Each pattern is a section whose part on either track holds its note,
+        // so a cell plays it on whichever track the cell is in.
+        configured.sections.clear();
+        configured.launcher = SceneMatrix{};
+        configured.adopt_sections();
+        for (std::size_t section = 0; section < 3; ++section)
+            configured.patterns[*configured.part(section, 1)].pattern =
+                configured.patterns[*configured.part(section, 0)].pattern;
         configured.launcher = SceneMatrix{};
         configured.modulators.clear();
         song.replace(std::move(configured));
@@ -175,13 +183,15 @@ void run_launcher(VerifyContext& ctx) {
          std::vector<std::tuple<int, int, int>>{{0, 0, 0}, {0, 1, 1}, {1, 0, 2}}) {
         // The open pattern is chosen from its chip, as a producer does.
         check(click_named(QString("patternChip%1").arg(pattern)));
-        check(song.currentPattern() == pattern);
+        check(song.currentSection() == pattern);
         auto* cell = ctx.named(QString("cell%1_%2").arg(scene).arg(track));
         check(VerifyContext::usable(cell, 100, 30));
         check(click(cell));
+        // The cell plays its own track's part of the open pattern.
         const auto& slot = song.song().launcher.slot(static_cast<std::size_t>(scene),
                                                      static_cast<std::size_t>(track));
-        check(slot.has_value() && slot->pattern == static_cast<std::size_t>(pattern));
+        const int part = song.partOf(pattern, track);
+        check(part >= 0 && slot.has_value() && slot->pattern == static_cast<std::size_t>(part));
     }
     check(cell_row(0, 0).value("name").toString() == "GROOVE" &&
           cell_row(1, 0).value("name").toString() == "FILL" &&
@@ -291,7 +301,12 @@ void run_launcher(VerifyContext& ctx) {
                 return clip.track == track && clip.pattern == pattern && clip.start == start;
             });
         };
-        check(clips.size() == 3 && on(0, 0, 0) && on(0, 2, 1920) && on(1, 1, 0));
+        // Each take is a clip of its track's part of the pattern it played.
+        const auto part = [&](int section, int track) {
+            return static_cast<std::size_t>(std::max(0, song.partOf(section, track)));
+        };
+        check(clips.size() == 3 && on(0, part(0, 0), 0) && on(0, part(2, 0), 1920) &&
+              on(1, part(1, 1), 0));
         check(song.song().consistent() && song.canUndo());
         // The last take undone and redone, alone.
         check(song.undo() && song.song().clips.size() == 2);
@@ -331,9 +346,11 @@ void run_launcher(VerifyContext& ctx) {
 
     // --- 8. Deleting a pattern keeps the grid pointing at the right ones. --
     check(song.deletePattern(0));
+    // HOOK and FILL move down to sections 0 and 1; the cells name the same
+    // parts of them as before.
     check(song.song().consistent() && !song.song().launcher.slot(0, 0).has_value() &&
-          song.song().launcher.slot(0, 1)->pattern == 0 &&
-          song.song().launcher.slot(1, 0)->pattern == 1);
+          static_cast<int>(song.song().launcher.slot(0, 1)->pattern) == song.partOf(0, 1) &&
+          static_cast<int>(song.song().launcher.slot(1, 0)->pattern) == song.partOf(1, 0));
     lay_out();
     check(cell_row(0, 1).value("name").toString() == "HOOK" &&
           cell_row(1, 0).value("name").toString() == "FILL");

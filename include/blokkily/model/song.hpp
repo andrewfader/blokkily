@@ -208,9 +208,26 @@ struct Track {
     std::optional<InstrumentOutput> source{};
 };
 
+// One part of a section: the notes one track plays in it. `section` and
+// `track` say which. In a song without sections (Song::sections empty) they
+// mean nothing and every slot is a pattern of its own, as before sections.
 struct PatternSlot {
     std::string name = "Pattern";
     Pattern pattern{1920, 480};
+    std::size_t section = 0;
+    std::size_t track = 0;
+};
+
+// A section of the song: what a producer calls a pattern (VERSE, CHORUS).
+// It holds one part (a PatternSlot) for every track, all the same length, so
+// selecting a track edits that track's part of the open section and adding a
+// track gives it an empty part in every section. A clip still places one
+// part on one track's timeline, so each track's lane can leave a section out
+// or play another section's part in a bar.
+struct Section {
+    std::string name = "Pattern";
+
+    friend bool operator==(const Section&, const Section&) = default;
 };
 
 // One placement of a pattern on one track's timeline. `repeats` is how many
@@ -343,6 +360,9 @@ struct Song {
     std::vector<PatternSlot> patterns{PatternSlot{}};
     std::vector<Track> tracks{Track{}};
     std::vector<Clip> clips{Clip{}};
+    // The sections the patterns are parts of (Section). Empty in a song built
+    // without them; adopt_sections() gives such a song its sections.
+    std::vector<Section> sections;
     double master_gain_db = 0.0;
     // The tuning and scale the song is written in. Editors, keyboards, and the
     // engine all read these, so nothing can be in a different key from the
@@ -444,6 +464,39 @@ struct Song {
     void fit_clips(std::size_t pattern);
     bool print_take(std::size_t track, std::size_t pattern, Tick start, Tick end,
                     std::uint32_t cycle = 1);
+    // --- Sections (song_sections.cpp) --------------------------------------
+    // The part track `track` plays in section `section`, or nothing.
+    [[nodiscard]] std::optional<std::size_t> part(std::size_t section, std::size_t track) const;
+    // Gives a song without sections its sections, keeping what it plays: each
+    // pattern becomes a section, the part of the first track that plays it
+    // (track 0 when none does); every other track that plays it gets a copy
+    // of its own, with its clips and launcher cells moved onto that copy; and
+    // every other track gets an empty part, placed wherever its section is
+    // and the track is free. Sections that do not fit the patterns and tracks
+    // (sections_whole() is false: a song edited as a list of patterns) are
+    // rebuilt the same way. A song whose sections fit, or with no tracks, is
+    // left alone.
+    void adopt_sections();
+    // Whether the song has sections and they fit its patterns and tracks:
+    // exactly one part per section and track, all of a section's parts the
+    // same length.
+    [[nodiscard]] bool sections_whole() const;
+    // Adds a section of `length` ticks at `ticks_per_beat`, with an empty part
+    // for every track. Returns its index.
+    std::size_t add_section(std::string name, Tick length, Tick ticks_per_beat);
+    // Track `track` was appended: gives it an empty part in every section.
+    void add_track_parts(std::size_t track);
+    // Removes section `section` with its parts, their clips and launcher
+    // cells; later patterns and sections move down. False, changing nothing,
+    // when it does not exist or is the only one.
+    bool remove_section(std::size_t section);
+    // Removes pattern `index` with its clips and launcher cells; later
+    // patterns move down. Does not touch sections.
+    void remove_pattern(std::size_t index);
+    // Places section `section` from `start` on every track whose timeline is
+    // free there, as one clip of its part each. Returns how many it placed.
+    std::size_t place_section(std::size_t section, Tick start);
+
     // An id no audio clip in the song uses yet.
     [[nodiscard]] AudioClipId next_audio_clip_id() const;
     // Compiles one track's whole timeline into song-absolute ticks, expanding

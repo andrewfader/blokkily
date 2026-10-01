@@ -17,7 +17,7 @@ constexpr qint64 merge_window_ms = 1200;
 } // namespace
 
 SongModel::Snapshot SongModel::snapshot() const {
-    return {song_, current_pattern_, selected_track_, state_id_};
+    return {song_, current_section_, selected_track_, state_id_};
 }
 
 void SongModel::restore(Snapshot snapshot) {
@@ -46,8 +46,8 @@ void SongModel::restore(Snapshot snapshot) {
         return false;
     }();
     song_ = std::move(snapshot.song);
-    current_pattern_ = qBound(0, snapshot.current_pattern,
-                              static_cast<int>(song_.patterns.size()) - 1);
+    current_section_ = qBound(0, snapshot.current_section,
+                              std::max(0, static_cast<int>(song_.sections.size()) - 1));
     selected_track_ = qBound(0, snapshot.selected_track,
                              static_cast<int>(song_.tracks.size()) - 1);
     state_id_ = snapshot.id;

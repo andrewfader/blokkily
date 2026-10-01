@@ -424,7 +424,8 @@ foreach(blokkily_feature
         scene_launcher
         wave2_fixes
         llm_assistant
-        cross_feature)
+        cross_feature
+        per_stem_editing)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

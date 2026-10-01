@@ -37,6 +37,11 @@ QVariantList SongModel::lanes() const {
             const auto* clip = clipAt(track, bar);
             QVariantMap cell;
             cell["filled"] = clip != nullptr;
+            // A part with nothing in it yet: drawn quietly, still a clip that
+            // plays whatever is written into it.
+            cell["empty"] = clip != nullptr &&
+                            song_.patterns[clip->pattern].pattern.events().empty() &&
+                            song_.patterns[clip->pattern].pattern.continuous().empty();
             cell["start"] = clip != nullptr && clip->start == barStart(bar);
             cell["pattern"] = clip == nullptr ? -1 : static_cast<int>(clip->pattern);
             cell["repeats"] = clip == nullptr ? 0 : static_cast<int>(clip->repeats);
@@ -53,10 +58,22 @@ QVariantList SongModel::lanes() const {
 
 void SongModel::placeClip(int track, int bar) {
     if (!validTrack(track) || bar < 0 || clipAt(track, bar) != nullptr) return;
+    const int part = partOf(current_section_, track);
+    if (part < 0) return;
     checkpoint();
-    song_.clips.push_back({static_cast<std::size_t>(track),
-                           static_cast<std::size_t>(current_pattern_),
+    song_.clips.push_back({static_cast<std::size_t>(track), static_cast<std::size_t>(part),
                            barStart(bar), 1});
+    notifyStructureChanged();
+}
+
+void SongModel::placeSection(int bar) {
+    if (bar < 0) return;
+    // Nothing to do, and no step of history, when every track is busy there.
+    auto trial = song_;
+    if (trial.place_section(static_cast<std::size_t>(current_section_), barStart(bar)) == 0)
+        return;
+    checkpoint();
+    song_ = std::move(trial);
     notifyStructureChanged();
 }
 
@@ -78,9 +95,10 @@ void SongModel::toggleClip(int track, int bar) {
 int SongModel::openClip(int track, int bar) {
     const auto* covering = clipAt(track, bar);
     if (covering == nullptr) return -1;
+    const int part = static_cast<int>(covering->pattern);
     selectTrack(track);
-    selectPattern(static_cast<int>(covering->pattern));
-    return static_cast<int>(covering->pattern);
+    selectSection(static_cast<int>(song_.patterns[static_cast<std::size_t>(part)].section));
+    return part;
 }
 
 bool SongModel::setClipRepeats(int track, int bar, int repeats) {

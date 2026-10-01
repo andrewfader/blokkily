@@ -339,6 +339,7 @@ int SongModel::addInstrumentOutput(int track, int output) {
     channel.source = wanted;
     auto trial = song_;
     trial.tracks.push_back(channel);
+    trial.add_track_parts(trial.tracks.size() - 1);
     if (!trial.consistent()) return -1;
     checkpoint();
     song_ = std::move(trial);

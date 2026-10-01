@@ -80,6 +80,9 @@ SongModel::SongModel(QObject* parent) : QObject(parent) {
         trigger.musical_data = blokkily::Note{static_cast<std::int16_t>(key), 0.8F, 0.0F};
         (void)song_.patterns[1].pattern.add(trigger);
     }
+    // Each pattern becomes a section with a part for every track; BASS gets
+    // its own copy of the CHORUS it shares with DRUMS.
+    song_.adopt_sections();
 }
 
 bool SongModel::validTrack(int track) const {
@@ -87,11 +90,39 @@ bool SongModel::validTrack(int track) const {
 }
 
 blokkily::Pattern& SongModel::editPattern() {
-    return song_.patterns[static_cast<std::size_t>(current_pattern_)].pattern;
+    return song_.patterns[static_cast<std::size_t>(currentPattern())].pattern;
 }
 
 const blokkily::Pattern& SongModel::editPattern() const {
-    return song_.patterns[static_cast<std::size_t>(current_pattern_)].pattern;
+    return song_.patterns[static_cast<std::size_t>(currentPattern())].pattern;
+}
+
+int SongModel::currentPattern() const {
+    const auto part = song_.part(static_cast<std::size_t>(current_section_),
+                                 static_cast<std::size_t>(std::max(0, selected_track_)));
+    return part ? static_cast<int>(*part) : 0;
+}
+
+int SongModel::partOf(int section, int track) const {
+    if (section < 0 || !validTrack(track)) return -1;
+    const auto part = song_.part(static_cast<std::size_t>(section), static_cast<std::size_t>(track));
+    return part ? static_cast<int>(*part) : -1;
+}
+
+QVariantList SongModel::sections() const {
+    QVariantList rows;
+    for (std::size_t index = 0; index < song_.sections.size(); ++index) {
+        int events = 0;
+        for (const auto& slot : song_.patterns)
+            if (slot.section == index) events += static_cast<int>(slot.pattern.events().size());
+        QVariantMap row;
+        row["index"] = static_cast<int>(index);
+        row["name"] = QString::fromStdString(song_.sections[index].name);
+        row["events"] = events;
+        row["current"] = static_cast<int>(index) == current_section_;
+        rows.push_back(row);
+    }
+    return rows;
 }
 
 int SongModel::bars() const {
@@ -178,7 +209,9 @@ QVariantList SongModel::patterns() const {
         row["index"] = static_cast<int>(index);
         row["name"] = QString::fromStdString(song_.patterns[index].name);
         row["events"] = static_cast<int>(song_.patterns[index].pattern.events().size());
-        row["current"] = static_cast<int>(index) == current_pattern_;
+        row["section"] = static_cast<int>(song_.patterns[index].section);
+        row["track"] = static_cast<int>(song_.patterns[index].track);
+        row["current"] = static_cast<int>(index) == currentPattern();
         rows.push_back(row);
     }
     return rows;
@@ -205,6 +238,8 @@ void SongModel::selectTrack(int track) {
     if (!validTrack(track)) return;
     // Choosing a track also points the effect rack back at its inserts.
     if (track == selected_track_ && rack_kind_ == blokkily::BusKind::track) return;
+    // The open section stays open: the editors now show this track's part of
+    // it, so moving between stems never changes what is being worked on.
     selected_track_ = track;
     rack_kind_ = blokkily::BusKind::track;
     emit songChanged();
@@ -212,8 +247,17 @@ void SongModel::selectTrack(int track) {
 
 void SongModel::selectPattern(int pattern) {
     if (pattern < 0 || static_cast<std::size_t>(pattern) >= song_.patterns.size()) return;
-    if (pattern == current_pattern_) return;
-    current_pattern_ = pattern;
+    if (pattern == currentPattern()) return;
+    const auto& slot = song_.patterns[static_cast<std::size_t>(pattern)];
+    current_section_ = static_cast<int>(slot.section);
+    selected_track_ = static_cast<int>(slot.track);
+    emit songChanged();
+}
+
+void SongModel::selectSection(int section) {
+    if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return;
+    if (section == current_section_) return;
+    current_section_ = section;
     emit songChanged();
 }
 
@@ -231,6 +275,9 @@ void SongModel::addTrack(const blokkily::InstrumentSlot& instrument) {
     };
     while (taken(number)) ++number;
     song_.tracks.push_back({QString("TRACK %1").arg(number).toStdString(), instrument, {}});
+    // An empty part in every section, playing wherever its section does, so
+    // the new track can be written to straight away.
+    song_.add_track_parts(song_.tracks.size() - 1);
     peaks_.push_back(0.0F);
     selected_track_ = static_cast<int>(song_.tracks.size()) - 1;
     notifyStructureChanged();
@@ -240,9 +287,8 @@ void SongModel::addPattern(int bar) {
     checkpoint();
     // As long as the bar it is made for, so it fills that bar exactly.
     const auto length = std::max<blokkily::Tick>(1, barTicks(std::max(0, bar)));
-    song_.patterns.push_back({QString("PATTERN %1").arg(song_.patterns.size() + 1).toStdString(),
-                              blokkily::Pattern(length, 480)});
-    current_pattern_ = static_cast<int>(song_.patterns.size()) - 1;
+    current_section_ = static_cast<int>(song_.add_section(
+        QString("PATTERN %1").arg(song_.sections.size() + 1).toStdString(), length, 480));
     notifyStructureChanged();
 }
 
@@ -253,7 +299,9 @@ void SongModel::replace(blokkily::Song song) {
     take_recorded_ = false;
     if (song_.patterns.empty()) song_.patterns.push_back({"PATTERN 1", blokkily::Pattern(1920, 480)});
     if (song_.tracks.empty()) song_.tracks.push_back({"TRACK 1", {}, {}});
-    current_pattern_ = 0;
+    // A song from before sections is given them here, playing as it did.
+    song_.adopt_sections();
+    current_section_ = 0;
     selected_track_ = 0;
     peaks_.assign(song_.tracks.size(), 0.0F);
     clearHistory();
@@ -304,48 +352,55 @@ std::string display_name(const QString& name) {
 
 void SongModel::duplicatePattern() {
     checkpoint();
-    auto copy = song_.patterns[static_cast<std::size_t>(current_pattern_)];
+    const auto source = static_cast<std::size_t>(current_section_);
     // "VERSE" becomes "VERSE 2", then "VERSE 3": a copy is named after what it
     // copies, and never collides with a name already in the song.
-    const QString base = QString::fromStdString(copy.name);
+    const QString base = QString::fromStdString(song_.sections[source].name);
+    std::string name;
     for (int suffix = 2;; ++suffix) {
         const auto candidate = QString("%1 %2").arg(base).arg(suffix).toStdString();
-        const bool taken = std::any_of(song_.patterns.begin(), song_.patterns.end(),
-            [&](const blokkily::PatternSlot& slot) { return slot.name == candidate; });
-        if (!taken) { copy.name = candidate; break; }
+        const bool taken = std::any_of(song_.sections.begin(), song_.sections.end(),
+            [&](const blokkily::Section& section) { return section.name == candidate; });
+        if (!taken) { name = candidate; break; }
     }
-    song_.patterns.push_back(std::move(copy));
-    current_pattern_ = static_cast<int>(song_.patterns.size()) - 1;
+    const auto& first = editPattern();
+    const auto copy = song_.add_section(name, first.length(), first.ticks_per_beat());
+    // Every track's part is copied, notes and controller movements alike.
+    for (std::size_t track = 0; track < song_.tracks.size(); ++track) {
+        const auto from = song_.part(source, track);
+        const auto to = song_.part(copy, track);
+        if (from && to) song_.patterns[*to].pattern = song_.patterns[*from].pattern;
+    }
+    current_section_ = static_cast<int>(copy);
     notifyStructureChanged();
 }
 
 void SongModel::clearPattern() {
-    auto& pattern = song_.patterns[static_cast<std::size_t>(current_pattern_)].pattern;
-    if (pattern.events().empty()) return;
+    const auto section = static_cast<std::size_t>(current_section_);
+    const bool empty = std::all_of(song_.patterns.begin(), song_.patterns.end(),
+        [section](const blokkily::PatternSlot& slot) {
+            return slot.section != section ||
+                   (slot.pattern.events().empty() && slot.pattern.continuous().empty());
+        });
+    if (empty) return;
     checkpoint();
-    pattern = blokkily::Pattern(pattern.length(), pattern.ticks_per_beat());
+    for (auto& slot : song_.patterns)
+        if (slot.section == section)
+            slot.pattern = blokkily::Pattern(slot.pattern.length(), slot.pattern.ticks_per_beat());
     notifyStructureChanged();
 }
 
-bool SongModel::deletePattern(int index) {
-    // A song always has a pattern open, so the last one stays.
-    if (index < 0 || static_cast<std::size_t>(index) >= song_.patterns.size() ||
-        song_.patterns.size() < 2)
+bool SongModel::deletePattern(int section) {
+    // A song always has a section open, so the last one stays.
+    if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size() ||
+        song_.sections.size() < 2)
         return false;
     checkpoint();
-    const auto removed = static_cast<std::size_t>(index);
-    song_.patterns.erase(song_.patterns.begin() + index);
-    // Its clips go with it, and every clip of a later pattern still names the
-    // same pattern after the list closes up.
-    std::erase_if(song_.clips, [removed](const blokkily::Clip& clip) {
-        return clip.pattern == removed;
-    });
-    for (auto& clip : song_.clips)
-        if (clip.pattern > removed) --clip.pattern;
-    // The launcher's cells follow the same rule: a cell of the pattern is
-    // emptied, a cell of a later one moves down with it.
-    song_.launcher.remove_pattern(removed);
-    if (current_pattern_ >= index && current_pattern_ > 0) --current_pattern_;
+    // Its parts go, with their clips and launcher cells; everything naming a
+    // later pattern or section still names the same one after the lists close
+    // up.
+    (void)song_.remove_section(static_cast<std::size_t>(section));
+    if (current_section_ >= section && current_section_ > 0) --current_section_;
     notifyStructureChanged();
     return true;
 }
@@ -367,13 +422,16 @@ bool SongModel::deleteTrack(int track) {
     return true;
 }
 
-void SongModel::renamePattern(int index, const QString& name) {
-    if (index < 0 || static_cast<std::size_t>(index) >= song_.patterns.size()) return;
+void SongModel::renamePattern(int section, const QString& name) {
+    if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return;
     const auto wanted = display_name(name);
-    auto& slot = song_.patterns[static_cast<std::size_t>(index)];
-    if (wanted.empty() || wanted == slot.name) return;
+    auto& target = song_.sections[static_cast<std::size_t>(section)];
+    if (wanted.empty() || wanted == target.name) return;
     checkpoint();
-    slot.name = wanted;
+    target.name = wanted;
+    // Each part carries its section's name, so a lane's clip reads the same.
+    for (auto& slot : song_.patterns)
+        if (slot.section == static_cast<std::size_t>(section)) slot.name = wanted;
     emit songChanged();
 }
 

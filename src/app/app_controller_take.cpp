@@ -243,10 +243,15 @@ void AppController::commitTake(
     auto& song = song_->song();
     // One step of history for the whole take: notes and automation alike.
     song_->checkpointTake();
-    const auto open = static_cast<std::size_t>(std::max(0, song_->currentPattern()));
+    // Where no clip of the track is under a note, it goes into the track's own
+    // part of the open section.
+    const auto open = [this](std::size_t track) {
+        const int part = song_->partOf(song_->currentSection(), static_cast<int>(track));
+        return static_cast<std::size_t>(part >= 0 ? part : std::max(0, song_->currentPattern()));
+    };
     for (auto& [track, note] : notes) {
         if (track >= song.tracks.size()) continue;
-        const auto target = blokkily::take_target(song, track, note.start, open);
+        const auto target = blokkily::take_target(song, track, note.start, open(track));
         note.start = target.offset;
         (void)blokkily::write_played(song.patterns[target.pattern].pattern, note,
                                      PatternModel::ticks_per_step);
@@ -254,7 +259,7 @@ void AppController::commitTake(
     // Controller movements go where the notes played at the same place go.
     for (auto& [track, control] : controls) {
         if (track >= song.tracks.size()) continue;
-        const auto target = blokkily::take_target(song, track, control.tick, open);
+        const auto target = blokkily::take_target(song, track, control.tick, open(track));
         control.tick = target.offset;
         blokkily::write_continuous(song.patterns[target.pattern].pattern, control);
     }

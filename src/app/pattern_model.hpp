@@ -39,6 +39,10 @@ class PatternModel final : public QAbstractListModel {
     // fourteen for a 7/8 one, or whatever its LEN was set to. The grid, the
     // tracker and the roll each draw this many columns.
     Q_PROPERTY(int stepCount READ stepCount NOTIFY patternChanged)
+    // The stem rack: every track's part of the open section, one row each,
+    // as {track, name, selected, steps: [bool per step]}, so the whole
+    // pattern is seen at once and any stem's steps are a click away.
+    Q_PROPERTY(QVariantList stemRows READ stemRows NOTIFY patternChanged)
 
 public:
     // A step is a sixteenth note, whatever the meter or the pattern's length.
@@ -52,6 +56,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     QVariantList steps() const;
+    QVariantList stemRows() const;
     QVariantList controls() const;
     QVariantMap selected() const;
     int selectedStep() const noexcept { return selected_step_; }
@@ -84,6 +89,9 @@ public:
     Q_INVOKABLE int eraseControls(const QString& kind, int controller, int fromTick, int toTick);
 
     Q_INVOKABLE void toggleStep(int step, int key = 60);
+    // Toggles a step on track `track`'s part of the open section, from the
+    // stem rack: the track is selected, so the editors follow it there.
+    Q_INVOKABLE void toggleStemStep(int track, int step, int key = 60);
     Q_INVOKABLE bool hasStep(int step) const;
     Q_INVOKABLE int stepDuration(int step) const;
     Q_INVOKABLE int stepKey(int step) const;

@@ -150,10 +150,10 @@ ApplicationWindow {
         MenuItem { text: "Rename…"
             onTriggered: renamePopup.ask("PATTERN", patternMenu.target, patternMenu.name) }
         MenuItem { text: "Duplicate"
-            onTriggered: { songModel.selectPattern(patternMenu.target); songModel.duplicatePattern() } }
+            onTriggered: { songModel.selectSection(patternMenu.target); songModel.duplicatePattern() } }
         MenuItem { text: "Clear steps"
-            onTriggered: { songModel.selectPattern(patternMenu.target); songModel.clearPattern() } }
-        MenuItem { text: "Delete"; enabled: songModel.patterns.length > 1
+            onTriggered: { songModel.selectSection(patternMenu.target); songModel.clearPattern() } }
+        MenuItem { text: "Delete"; enabled: songModel.sections.length > 1
             onTriggered: songModel.deletePattern(patternMenu.target) }
     }
 
@@ -443,6 +443,14 @@ ApplicationWindow {
                             color: Theme.ink; font.pixelSize: 16; font.bold: true
                             font.letterSpacing: 0.5
                         }
+                        // Whose part of the pattern the editors below show.
+                        Label {
+                            objectName: "patternStem"
+                            text: songModel.tracks[songModel.selectedTrack] !== undefined
+                                  ? "· " + songModel.tracks[songModel.selectedTrack].name : ""
+                            color: Theme.acid; font.pixelSize: 11; font.bold: true
+                            font.letterSpacing: 0.5
+                        }
                         PatternLength {}
                         Rectangle {
                             implicitWidth: 52; implicitHeight: 18; radius: 3
@@ -450,9 +458,12 @@ ApplicationWindow {
                             Label { anchors.centerIn: parent; text: songModel.bars + " BARS"
                                 color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 0.5 }
                         }
-                        Item { Layout.fillWidth: true }
+                        // The hint gives way first: it elides before the
+                        // title, the stem or the length is pushed off.
                         Label { text: "SPACE play  |  HOME rewind  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
-                            color: Theme.muted; font.pixelSize: 10 }
+                            color: Theme.muted; font.pixelSize: 10
+                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                            horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft }
                     }
 
                     PromptBar {

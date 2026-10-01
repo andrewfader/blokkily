@@ -153,6 +153,8 @@ int SongModel::addAudioTrack() {
     blokkily::Track track;
     track.name = QString("AUDIO %1").arg(number).toStdString();
     song_.tracks.push_back(std::move(track));
+    // Every track has its part of every section, an audio track too.
+    song_.add_track_parts(song_.tracks.size() - 1);
     peaks_.push_back(0.0F);
     selected_track_ = static_cast<int>(song_.tracks.size()) - 1;
     notifyStructureChanged();

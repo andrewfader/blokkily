@@ -57,13 +57,17 @@ QVariantList SongModel::tempoPoints() const {
 
 bool SongModel::setPatternSteps(int steps) {
     if (steps < 1 || steps > 64) return false;
-    auto& pattern = editPattern();
     const auto length = static_cast<blokkily::Tick>(steps) * 120;
-    if (pattern.length() == length) return true;
+    if (editPattern().length() == length) return true;
     // Clicks on the length spinner arrive one by one; each is its own step.
     checkpoint();
-    pattern = pattern.with_length(length);
-    song_.fit_clips(static_cast<std::size_t>(std::max(0, current_pattern_)));
+    // Every part of the section keeps the section's length.
+    for (std::size_t index = 0; index < song_.patterns.size(); ++index) {
+        auto& slot = song_.patterns[index];
+        if (slot.section != static_cast<std::size_t>(current_section_)) continue;
+        slot.pattern = slot.pattern.with_length(length);
+        song_.fit_clips(index);
+    }
     // The clips that play this pattern are now a different length, so the
     // arrangement is recompiled.
     notifyStructureChanged();

@@ -130,6 +130,10 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         };
         QObject::connect(song_, &SongModel::songChanged, this, follow);
         QObject::connect(song_, &SongModel::tuningChanged, this, follow);
+        // The devices card names the selected track's instrument, so it is
+        // read again whenever the selection or a track changes.
+        QObject::connect(song_, &SongModel::songChanged, this,
+                         &AppController::activeInstrumentChanged);
         follow();
         connectSampler();
         connectAudioInput();
@@ -1128,11 +1132,12 @@ bool AppController::loadProject(const QString& path) {
     clip_assets_.clear();
     assets_->purge_unused();
     const auto tracks = project->song.tracks.size();
-    const auto patterns = project->song.patterns.size();
     // The project's folder is known before its instruments are created, so a
     // sample named relative to it is found by the first engine built for it.
     project_path_ = path;
     song_->replace(std::move(project->song));
+    // Patterns as the producer sees them: sections, not one per track.
+    const auto patterns = song_->song().sections.size();
     if (pattern_ != nullptr) pattern_->refresh();
     song_->markSaved();
     project_status_ = QString("Restored from disk");

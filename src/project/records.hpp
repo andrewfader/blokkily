@@ -64,6 +64,15 @@ struct ParseContext {
     // Controller movements as read (records_continuous.cpp), by pattern
     // index, placed into the patterns once the core module has built them.
     std::vector<std::pair<std::size_t, ContinuousEvent>> continuous;
+    // Sections and the part each pattern is (records_sections.cpp): the
+    // pattern, its section and its track. Applied after every other module.
+    std::vector<Section> sections;
+    struct PartRecord {
+        std::size_t pattern = 0;
+        std::size_t section = 0;
+        std::size_t track = 0;
+    };
+    std::vector<PartRecord> parts;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -118,6 +127,9 @@ struct RecordModule {
 // (records_continuous.cpp).
 [[nodiscard]] const RecordModule& continuous_records();
 [[nodiscard]] const RecordModule& expression_records();
+// Sections (records_sections.cpp): section, part. Runs last, once the
+// patterns they name are built.
+[[nodiscard]] const RecordModule& sections_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

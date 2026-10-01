@@ -28,6 +28,7 @@ std::span<const RecordModule* const> record_modules() {
         &modulation_records(),
         &continuous_records(),
         &expression_records(),
+        &sections_records(),
     };
     return modules;
 }
@@ -82,7 +83,7 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
     }
 
     Project project;
-    project_io::ParseContext context{project, static_cast<int>(*version), base_dir, error, {}, {}, {}, {}, {}, {}, {}, {}};
+    project_io::ParseContext context{project, static_cast<int>(*version), base_dir, error, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
 
     while (std::getline(stream, line)) {
         if (line.empty()) continue;

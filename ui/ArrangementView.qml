@@ -33,14 +33,15 @@ ColumnLayout {
         SectionLabel { text: "ARRANGEMENT" }
         // The hint gives way first: it elides before anything is pushed off.
         Label {
-            text: "shift-click lengthens  |  alt-click moves  |  right-click removes"
+            text: "click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes"
             color: Theme.muted; font.pixelSize: 9
             Layout.fillWidth: true; Layout.minimumWidth: 0
             horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft
         }
-        // However many patterns the song has, the strip takes only the room
-        // its chips need and scrolls beyond that, keeping the open pattern in
-        // view, so a long pattern list never widens the editor column.
+        // The song's patterns: its sections, each holding a part for every
+        // stem. However many there are, the strip takes only the room its
+        // chips need and scrolls beyond that, keeping the open one in view, so
+        // a long list never widens the editor column.
         ListView {
             id: patternStrip
             objectName: "patternStrip"
@@ -53,7 +54,7 @@ ColumnLayout {
             Layout.preferredWidth: contentWidth
             Layout.maximumWidth: contentWidth
             Layout.minimumWidth: Math.min(contentWidth, 120)
-            model: songModel.patterns
+            model: songModel.sections
             delegate: Chip {
                 required property var modelData
                 objectName: "patternChip" + modelData.index
@@ -61,7 +62,7 @@ ColumnLayout {
                 // Long pattern names ellipsis rather than stretch the strip.
                 width: Math.min(implicitWidth, 160)
                 on: modelData.current
-                onClicked: songModel.selectPattern(modelData.index)
+                onClicked: songModel.selectSection(modelData.index)
                 onDoubleClicked: root.renameRequested("PATTERN", modelData.index,
                                                       modelData.name)
                 onRightClicked: {
@@ -69,8 +70,8 @@ ColumnLayout {
                 }
             }
             function showCurrent() {
-                if (songModel.currentPattern >= 0 && songModel.currentPattern < count)
-                    positionViewAtIndex(songModel.currentPattern, ListView.Contain)
+                if (songModel.currentSection >= 0 && songModel.currentSection < count)
+                    positionViewAtIndex(songModel.currentSection, ListView.Contain)
             }
             onCountChanged: Qt.callLater(showCurrent)
             onWidthChanged: Qt.callLater(showCurrent)
@@ -196,15 +197,20 @@ ColumnLayout {
                 }
             }
 
+            // One row per track, counted rather than listed: the track list
+            // is a new value after every change of the song, and rows built
+            // from it would be thrown away and remade by any click that
+            // selects a track, taking the click's second half with them.
             Repeater {
-                model: songModel.tracks
+                model: songModel.trackCount
                 RowLayout {
-                    required property var modelData
+                    required property int index
                     // Named so the bar cells below do not have
                     // to reach through their own delegate scope.
-                    readonly property var track: modelData
-                    readonly property int trackIndex: modelData.index
-                    objectName: "arrangeRow" + modelData.index
+                    readonly property var track: songModel.tracks[index] !== undefined
+                                                 ? songModel.tracks[index] : ({})
+                    readonly property int trackIndex: index
+                    objectName: "arrangeRow" + index
                     Layout.fillWidth: true
                     Layout.preferredHeight: 22
                     spacing: 2
@@ -232,9 +238,14 @@ ColumnLayout {
                             cursorShape: Qt.PointingHandCursor
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             onClicked: function(mouse) {
-                                songModel.selectTrack(trackIndex)
+                                // Selecting rebuilds this row, so read what
+                                // the menu needs before selecting.
+                                const view = root
+                                const index = trackIndex
+                                const name = track.name
+                                songModel.selectTrack(index)
                                 if (mouse.button !== Qt.RightButton) return
-                                root.trackMenuRequested(trackIndex, track.name)
+                                view.trackMenuRequested(index, name)
                             }
                             onDoubleClicked: root.renameRequested("TRACK", trackIndex,
                                                                   track.name)
@@ -250,11 +261,15 @@ ColumnLayout {
                                 songModel.lanes[trackIndex] !== undefined
                                 ? songModel.lanes[trackIndex][index] : undefined
                             property bool filled: cell !== undefined && cell.filled
+                            // The stem's part of this pattern has nothing in
+                            // it yet: an outline, still ready to play.
+                            property bool hollow: filled && cell.empty
                             Layout.preferredWidth: root.barWidth(index)
                             Layout.preferredHeight: 22
                             radius: 3
                             readonly property bool atPlayhead: transport.bar === index
-                            color: filled ? (track.audible ? Theme.blue : Theme.line)
+                            color: hollow ? "#1a2233"
+                                 : filled ? (track.audible ? Theme.blue : Theme.line)
                                           : (index % 4 === 0 ? "#191c22" : "#15171c")
                             border.color: atPlayhead ? Theme.acid
                                         : filled ? Theme.blue : "#212530"
@@ -265,7 +280,7 @@ ColumnLayout {
                                 // The clip is named where it
                                 // starts; its repeats carry on.
                                 text: parent.cell.start ? parent.cell.name : "·"
-                                color: "#0e0f12"
+                                color: parent.hollow ? Theme.muted : "#0e0f12"
                                 font.pixelSize: 9; font.bold: true
                                 elide: Text.ElideRight
                                 width: parent.width - 6
@@ -280,62 +295,66 @@ ColumnLayout {
                                 // even when the composed click does not.
                                 onPressed: function(mouse) {
                                     root.focusHome.forceActiveFocus()
-                                    songModel.selectTrack(trackIndex)
+                                    // Selecting the track changes the song, and
+                                    // every change rebuilds these rows, so this
+                                    // delegate is gone after the first call:
+                                    // read what the press needs beforehand.
+                                    const model = songModel
+                                    const controller = appController
+                                    const track = trackIndex
+                                    const bar = index
+                                    const filled = parent.filled
+                                    const cell = parent.cell
+                                    const lane = model.lanes[track]
+                                    const playhead = transport.bar
+                                    mouse.accepted = true
+                                    model.selectTrack(track)
                                     if (mouse.button === Qt.RightButton) {
                                         // The right button takes a clip away;
                                         // the left button never does.
-                                        songModel.removeClip(trackIndex, index)
-                                        mouse.accepted = true
+                                        model.removeClip(track, bar)
                                         return
                                     }
                                     // Shift+click sets how many bars the clip
                                     // runs: on a filled cell it ends there; on
                                     // an empty cell it extends the earlier clip.
                                     if (mouse.modifiers & Qt.ShiftModifier) {
-                                        if (parent.filled && parent.cell
-                                            && parent.cell.startBar >= 0) {
-                                            songModel.setClipRepeats(
-                                                trackIndex, parent.cell.startBar,
-                                                Math.max(1, index
-                                                    - parent.cell.startBar + 1))
+                                        if (filled && cell && cell.startBar >= 0) {
+                                            model.setClipRepeats(
+                                                track, cell.startBar,
+                                                Math.max(1, bar - cell.startBar + 1))
                                         } else {
-                                            for (var b = index - 1; b >= 0; --b) {
-                                                var earlier =
-                                                    songModel.lanes[trackIndex][b]
+                                            for (var b = bar - 1; b >= 0; --b) {
+                                                var earlier = lane[b]
                                                 if (earlier !== undefined
                                                     && earlier.filled) {
-                                                    songModel.setClipRepeats(
-                                                        trackIndex,
-                                                        earlier.startBar,
-                                                        index - earlier.startBar
-                                                            + 1)
+                                                    model.setClipRepeats(
+                                                        track, earlier.startBar,
+                                                        bar - earlier.startBar + 1)
                                                     break
                                                 }
                                             }
                                         }
-                                        mouse.accepted = true
                                         return
                                     }
                                     // Alt+click on an empty bar moves the clip
                                     // the playhead is sitting in on this track.
-                                    if ((mouse.modifiers & Qt.AltModifier)
-                                        && !parent.filled) {
-                                        if (songModel.moveClip(
-                                                trackIndex, transport.bar, index)) {
-                                            mouse.accepted = true
-                                            return
-                                        }
+                                    if ((mouse.modifiers & Qt.AltModifier) && !filled) {
+                                        if (model.moveClip(track, playhead, bar)) return
                                     }
-                                    if (parent.filled) {
+                                    if (filled) {
                                         // Opening a clip puts its pattern in
                                         // every editor and puts the playhead
                                         // where that clip starts sounding.
-                                        songModel.openClip(trackIndex, index)
-                                        appController.seekToBar(index)
+                                        model.openClip(track, bar)
+                                        controller.seekToBar(bar)
+                                    } else if (mouse.modifiers & Qt.ControlModifier) {
+                                        // This stem alone plays its part here.
+                                        model.placeClip(track, bar)
                                     } else {
-                                        songModel.placeClip(trackIndex, index)
+                                        // The open pattern, every stem's part.
+                                        model.placeSection(bar)
                                     }
-                                    mouse.accepted = true
                                 }
                             }
                         }

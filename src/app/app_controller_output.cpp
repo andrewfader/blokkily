@@ -79,6 +79,7 @@ void AppController::finishOutputTake() {
             if (destination < 0) {
                 destination = static_cast<int>(song.tracks.size());
                 song.tracks.push_back(output_track("RESAMPLE"));
+                song.add_track_parts(song.tracks.size() - 1);
             }
             take.track = static_cast<std::uint32_t>(destination);
             assets_->adopt(take.file, {take.frames, take.sample_rate, take.channels}, take.audio);
@@ -130,6 +131,7 @@ bool AppController::bounceRackInPlace(bool muteSource) {
             auto track = output_track(song_->rack().value("title").toString().toStdString() + " STEM");
             if (rendered.any_solo()) track.mix.solo = true;
             rendered.tracks.push_back(std::move(track));
+            rendered.add_track_parts(rendered.tracks.size() - 1);
             blokkily::RecordedTake take{static_cast<std::uint32_t>(count), 0, report->frames, 2,
                 static_cast<std::uint32_t>(std::lround(engine_->sample_rate())), file, asset, {}};
             if (blokkily::commit_take(rendered, take, engine_->published_clock(), 0)) {

@@ -33,8 +33,10 @@ ColumnLayout {
         id: gridSection
         Layout.fillWidth: true
         Layout.fillHeight: root.view === "STEP"
-        Layout.preferredHeight: 104
-        Layout.maximumHeight: root.view === "STEP" ? 100000 : 104
+        // The detailed grid's 104, plus a row of the stem rack per track.
+        Layout.preferredHeight: 104 + stemRack.implicitHeight + spacing
+        Layout.maximumHeight: root.view === "STEP" ? 100000
+                                                   : 104 + stemRack.implicitHeight + spacing
         spacing: 5
         visible: root.view === "ALL" || root.view === "STEP"
         RowLayout {
@@ -43,6 +45,81 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
             Label { text: "click toggles  |  shift-click selects  |  CTRL-click seeks  |  CTRL+1..0 toggles"; color: Theme.muted
                 font.pixelSize: 9 }
+        }
+        // The stem rack: every stem's part of the open pattern, one row each,
+        // as a channel rack shows it. The name picks the stem the editors
+        // below show; a step toggles on that stem's own part.
+        ColumnLayout {
+            id: stemRack
+            objectName: "stemRack"
+            Layout.fillWidth: true
+            // Its rows fill their own height, which would otherwise make the
+            // rack compete with the detailed grid for the section's room.
+            Layout.fillHeight: false
+            spacing: 3
+            Repeater {
+                model: patternModel.stemRows
+                RowLayout {
+                    id: rackRow
+                    required property var modelData
+                    required property int index
+                    objectName: "stemRow" + index
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: 16
+                    Layout.maximumHeight: 16
+                    spacing: 3
+                    Rectangle {
+                        objectName: "stemName" + rackRow.index
+                        Layout.preferredWidth: 72; Layout.fillHeight: true
+                        radius: 3
+                        color: rackRow.modelData.selected ? Theme.raised : "transparent"
+                        border.color: rackRow.modelData.selected ? Theme.acid : Theme.line
+                        Label {
+                            anchors.fill: parent; anchors.leftMargin: 5; anchors.rightMargin: 3
+                            verticalAlignment: Text.AlignVCenter
+                            text: (rackRow.modelData.selected ? "▸ " : "") + rackRow.modelData.name
+                            color: rackRow.modelData.selected ? Theme.acid : Theme.ink
+                            font.pixelSize: 9; font.bold: true; elide: Text.ElideRight
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                // Read before selecting: the rows are rebuilt.
+                                const track = rackRow.modelData.track
+                                const home = root.focusHome
+                                songModel.selectTrack(track)
+                                if (home) home.forceActiveFocus()
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: rackRow.modelData.steps
+                        Rectangle {
+                            required property var modelData
+                            required property int index
+                            objectName: "stemStep" + rackRow.index + "-" + index
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            radius: 2
+                            color: modelData ? (rackRow.modelData.selected ? Theme.acid : Theme.blue)
+                                             : (index % 4 === 0 ? "#262a33" : Theme.panel)
+                            border.color: transport.step === index ? Theme.ink : Theme.line
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    const track = rackRow.modelData.track
+                                    const step = parent.index
+                                    const home = root.focusHome
+                                    patternModel.toggleStemStep(track, step, root.entryBase)
+                                    if (home) home.forceActiveFocus()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         RowLayout {
             objectName: "stepGrid"

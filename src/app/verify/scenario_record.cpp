@@ -116,8 +116,14 @@ void run_record(VerifyContext& ctx) {
     song.setTrackGain(0, 0.0);
     song.setTrackGain(1, 0.0);
     // Bar 1: VERSE under track 0 and CHORUS under track 1, two patterns.
-    song.selectPattern(1);
+    // VERSE plays on every stem, so track 1's (empty) part of it is taken out
+    // of bar 1 to make room, and track 1's own part of CHORUS goes there.
+    check(song.removeClip(1, 0));
+    song.selectSection(1);
     song.placeClip(1, 0);
+    const int chorus_part = song.partOf(1, 1);
+    const auto chorus = static_cast<std::size_t>(std::max(0, chorus_part));
+    check(chorus_part >= 0 && song.song().clips.back().pattern == chorus);
     song.selectTrack(0);
     check(window->setProperty("view", "ALL"));
     lay_out();
@@ -265,7 +271,7 @@ void run_record(VerifyContext& ctx) {
     const auto tracker_at = place(tracker_tick, length);
     check(piano_at.micro != 0 && tracker_at.micro != 0 && piano_at.step != tracker_at.step);
     std::ostringstream landed;
-    for (const std::size_t index : {verse, std::size_t{1}}) {
+    for (const std::size_t index : {verse, chorus}) {
         const auto& held = song.song().patterns.at(index).pattern;
         const auto* piano_trigger = trigger_on(held, piano_at.step);
         const auto* tracker_trigger = trigger_on(held, tracker_at.step);
@@ -282,8 +288,11 @@ void run_record(VerifyContext& ctx) {
                << tracker_at.micro << ")";
     }
     if (!ctx.valid) std::cerr << "record take:" << landed.str() << '\n';
-    // The open pattern (track 1's CHORUS) shows them in every editor.
-    check(song.currentPattern() == 1);
+    // Track 1's CHORUS, opened by selecting track 1, shows them in every
+    // editor.
+    song.selectTrack(1);
+    lay_out();
+    check(song.currentPattern() == static_cast<int>(chorus));
     check(ctx.rendered_step(piano_at.step) && ctx.rendered_step(tracker_at.step));
     check(ctx.roll_draws(piano_at.step) && ctx.roll_draws(tracker_at.step));
     check(pattern.selectedStep() == cursor && !pattern.hasStep(cursor));
@@ -305,7 +314,7 @@ void run_record(VerifyContext& ctx) {
     check(song.undo());
     check(!pattern.hasStep(cursor) && still_armed());
     check(song.undo());
-    check(trigger_on(song.song().patterns.at(1).pattern, piano_at.step) == nullptr &&
+    check(trigger_on(song.song().patterns.at(chorus).pattern, piano_at.step) == nullptr &&
           still_armed());
     // Disarming between steps of history is not undone either.
     song.toggleArm(0);
@@ -314,7 +323,7 @@ void run_record(VerifyContext& ctx) {
     song.toggleArm(0);
     check(song.redo());
     check(pattern.hasStep(cursor) && still_armed());
-    check(holds_key(trigger_on(song.song().patterns.at(1).pattern, piano_at.step), piano_key));
+    check(holds_key(trigger_on(song.song().patterns.at(chorus).pattern, piano_at.step), piano_key));
     // Across a step that adds or removes a track, every other track keeps its
     // arm, and a track brought back keeps the arm it had.
     song.addTrack();
@@ -358,7 +367,7 @@ void run_record(VerifyContext& ctx) {
     reached("record: arm and channel are saved and loaded");
 
     // Left with the take in the editors and both strips armed.
-    song.selectPattern(1);
+    song.selectPattern(static_cast<int>(chorus));
     pattern.selectStep(piano_at.step);
     if (auto* editors = ctx.item("editorScroll")) editors->setProperty("contentY", 0.0);
     settle(40);
