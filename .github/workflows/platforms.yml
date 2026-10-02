@@ -53,16 +53,35 @@ jobs:
           curl -fsSL -o basic.sf2 "$TEST_SF2_URL"
           echo "$TEST_SF2_SHA256  basic.sf2" | sha256sum -c -
 
+      # Each step pipes through tee; pipefail keeps a failure a failure.
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
+        run: |
+          set -o pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBLOKKILY_TEST_SF2="$PWD/basic.sf2" 2>&1 | tee configure.log
 
       # -k 0 keeps going past the first failure, so one run lists every
       # translation unit that does not yet compile here.
       - name: Build
-        run: cmake --build build -- -k 0
+        run: |
+          set -o pipefail
+          cmake --build build -- -k 0 2>&1 | tee build.log
 
       - name: Run Test Suite
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          set -o pipefail
+          ctest --test-dir build --output-on-failure 2>&1 | tee test.log
+
+      # The failing step's errors as annotations, readable from the run page
+      # and the checks API without downloading the full log.
+      - name: Report errors
+        if: failure()
+        run: |
+          for f in configure.log build.log test.log; do
+            [ -f "$f" ] || continue
+            grep -E -A4 "CMake Error|error:|Error [0-9]|FAILED|\*\*\*Failed|Not Run|Could not find|not found" "$f" | head -c 30000 > errors.txt || true
+            [ -s errors.txt ] || tail -c 20000 "$f" > errors.txt
+            echo "::error title=$f::$(tr -d '\r' < errors.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          done
 
       - name: Upload Test Artifacts
         if: always()
@@ -78,6 +97,11 @@ jobs:
     name: macOS (Homebrew, experimental)
     runs-on: macos-latest
     continue-on-error: true
+    defaults:
+      run:
+        # bash here means bash -eo pipefail, so a step piped through tee
+        # still fails.
+        shell: bash
     steps:
       - name: Install dependencies
         run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
@@ -96,13 +120,25 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
-            -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
+            -DBLOKKILY_TEST_SF2="$PWD/basic.sf2" 2>&1 | tee configure.log
 
       - name: Build
-        run: cmake --build build -- -k 0
+        run: cmake --build build -- -k 0 2>&1 | tee build.log
 
       - name: Run Test Suite
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure 2>&1 | tee test.log
+
+      # The failing step's errors as annotations, readable from the run page
+      # and the checks API without downloading the full log.
+      - name: Report errors
+        if: failure()
+        run: |
+          for f in configure.log build.log test.log; do
+            [ -f "$f" ] || continue
+            grep -E -A4 "CMake Error|error:|Error [0-9]|FAILED|\*\*\*Failed|Not Run|Could not find|not found" "$f" | head -c 30000 > errors.txt || true
+            [ -s errors.txt ] || tail -c 20000 "$f" > errors.txt
+            echo "::error title=$f::$(tr -d '\r' < errors.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          done
 
       - name: Upload Test Artifacts
         if: always()
