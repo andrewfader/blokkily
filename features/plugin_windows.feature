@@ -9,6 +9,7 @@ Feature: Native plugin windows
   #   gate   = bdd_plugin_windows, reached() labels "plugin windows: ..."
   #   nodisp = blokkily_editor_nodisplay_check
   #   x11    = plugin_window_display_check (skips with 77 without an X server)
+  #   xwl    = plugin_window_xwayland_check (skips with 77 without Wayland and an X server)
   #   rt     = realtime_plugin_windows
 
   Scenario: The run loop serves plugin timers and descriptors
@@ -132,6 +133,16 @@ Feature: Native plugin windows
     Then it is embedded in a host window of 320 x 200 physical pixels
     And the centre pixel grabbed from the server is the editor's #C8FF3C
     And closing the window closes the editor
+
+  Scenario: On a Wayland desktop an X11 editor is drawn inside a host window on XWayland
+    # xwl
+    Given Qt on a Wayland compositor that also runs an X server
+    And the VST3 fixture, whose editor is X11 only, as every JUCE-built editor is
+    When its editor is opened
+    Then it is embedded in an X11 window the host made on the X server
+    And the centre pixel grabbed from the server is the editor's #C8FF3C
+    When the window manager asks that window to close
+    Then the editor closes
 
   Scenario: An open editor costs the audio thread nothing
     # rt

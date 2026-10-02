@@ -14,8 +14,11 @@
 //    JUCE) refuses it with "Plugin window needs an X11 display", and one that
 //    only records it (the CLAP fixture) embeds.
 //  - On Wayland a CLAP editor that supports the Wayland API is embedded in a
-//    Qt Wayland surface. An X11-only editor floats as the plugin's own X11
-//    top-level through XWayland when it can; otherwise it is refused.
+//    Qt Wayland surface. An X11 editor is embedded in an X11 top-level the
+//    host makes itself through XWayland (X11HostWindows), as it would be in a
+//    Qt xcb window: many editors (every JUCE-built CLAP) can only be
+//    embedded. Without an X server it floats as the plugin's own top-level
+//    when it can; otherwise it is refused.
 //
 // The editor sizes itself in physical pixels, so the host window is made
 // that size divided by the device pixel ratio. An editor whose instance is
@@ -30,17 +33,23 @@
 #include <QString>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
 
+class QSocketNotifier;
 class QWindow;
+class X11HostWindows;
 
 class PluginWindows final : public QObject {
     Q_OBJECT
 public:
-    enum class Placement { embedded, floating };
+    // embedded: in a Qt window. xwayland: in an X11 window the host made on
+    // its own X connection, because Qt is on Wayland. floating: the plugin's
+    // own top-level.
+    enum class Placement { embedded, xwayland, floating };
 
     explicit PluginWindows(QObject* parent = nullptr);
     // Closes every editor that is still open.
@@ -58,8 +67,10 @@ public:
     [[nodiscard]] bool isOpen(blokkily::ProcessorAddress where) const;
     [[nodiscard]] std::size_t count() const noexcept { return editors_.size(); }
     [[nodiscard]] std::vector<blokkily::ProcessorAddress> openAddresses() const;
-    // The Qt window an embedded editor lives in; nullptr for a floating one.
+    // The Qt window an embedded editor lives in; nullptr for any other.
     [[nodiscard]] QWindow* window(blokkily::ProcessorAddress where) const;
+    // The X11 window an xwayland editor lives in; 0 for any other.
+    [[nodiscard]] std::uintptr_t x11Window(blokkily::ProcessorAddress where) const;
     [[nodiscard]] std::optional<Placement> placement(blokkily::ProcessorAddress where) const;
     [[nodiscard]] blokkily::PluginInstance* instance(blokkily::ProcessorAddress where) const;
     // How many times an editor at `where` has asked its window to resize.
@@ -80,6 +91,14 @@ private:
     struct Editor;
     // Drops an editor's entry and its window, without calling the instance.
     void forget(Editor* editor);
+    // The X connection xwayland editors' windows are made on, opened when
+    // the first is needed; nullptr when there is no X server.
+    X11HostWindows* x11();
+    // Closes the editors whose window the user closed.
+    void serveX11();
+    std::unique_ptr<X11HostWindows> x11_;
+    QSocketNotifier* x11_events_ = nullptr;
+    bool x11_tried_ = false;
     std::vector<std::unique_ptr<Editor>> editors_;
     // Editors the plugin closed, kept until the adapter has returned.
     std::vector<std::unique_ptr<Editor>> retired_;

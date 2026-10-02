@@ -1,7 +1,11 @@
 #include "plugin_windows.hpp"
 
+#include "x11_host_window.hpp"
+
 #include <QEvent>
 #include <QGuiApplication>
+#include <QScreen>
+#include <QSocketNotifier>
 #include <QTimer>
 #include <QWindow>
 
@@ -38,6 +42,7 @@ struct PluginWindows::Editor final : blokkily::EditorHost {
     blokkily::ProcessorAddress where;
     blokkily::PluginInstance* instance = nullptr;
     HostWindow* window = nullptr;   // owned; deleted later, never inside its own event
+    std::uintptr_t x11_window = 0;  // owned, on owner->x11_; for Placement::xwayland
     Placement placement = Placement::embedded;
     int resizes = 0;
 
@@ -47,6 +52,7 @@ struct PluginWindows::Editor final : blokkily::EditorHost {
             window->hide();
             window->deleteLater();
         }
+        if (x11_window != 0 && owner->x11_) owner->x11_->destroy(x11_window);
     }
     void request_resize(std::uint32_t width, std::uint32_t height) override {
         ++resizes;
@@ -54,12 +60,16 @@ struct PluginWindows::Editor final : blokkily::EditorHost {
             const auto ratio = window->devicePixelRatio();
             window->resize(logical(width, ratio), logical(height, ratio));
         }
+        // An X11 editor under XWayland is as many X pixels as it asks for.
+        if (x11_window != 0) owner->x11_->resize(x11_window, width, height);
     }
     void request_show() override {
         if (window != nullptr) window->show();
+        if (x11_window != 0) owner->x11_->show(x11_window);
     }
     void request_hide() override {
         if (window != nullptr) window->hide();
+        if (x11_window != 0) owner->x11_->hide(x11_window);
     }
     // The editor is gone: the plugin closed it, or its instance is being
     // destroyed. The instance must not be called again.
@@ -74,6 +84,8 @@ PluginWindows::PluginWindows(QObject* parent) : QObject(parent) {}
 PluginWindows::~PluginWindows() {
     closeAll();
     retired_.clear();
+    // The notifier goes before the connection whose descriptor it watches.
+    delete x11_events_;
 }
 
 bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInstance& instance,
@@ -92,7 +104,11 @@ bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInsta
     const WindowApi parent_api = wayland_parent ? WindowApi::wayland : WindowApi::x11;
     const bool embed = (x11_parent || wayland_parent) &&
                        instance.supports_editor(parent_api, false);
-    if (!embed && !instance.supports_editor(WindowApi::x11, true))
+    // On Wayland an X11 editor is embedded in a window of the host's own on
+    // the X server, when there is one.
+    const bool xwayland = wayland_parent && !embed &&
+                          instance.supports_editor(WindowApi::x11, false) && x11() != nullptr;
+    if (!embed && !xwayland && !instance.supports_editor(WindowApi::x11, true))
         return fail(QStringLiteral("Plugin window needs an X11 display"));
 
     auto editor = std::make_unique<Editor>();
@@ -121,6 +137,25 @@ bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInsta
         auto* raw = editor.get();
         editor->window->on_close = [this, raw] { (void)close(raw->where); };
         editor->window->show();
+    } else if (xwayland) {
+        editor->placement = Placement::xwayland;
+        editor->x11_window = x11_->create(title.toStdString(), 320, 200);
+        if (editor->x11_window == 0) return fail(QStringLiteral("Plugin window needs an X11 display"));
+        // The scale Qt draws this screen at; the X server under a Wayland
+        // desktop counts the same physical pixels.
+        const auto* screen = QGuiApplication::primaryScreen();
+        const blokkily::NativeParent parent{WindowApi::x11, editor->x11_window,
+                                            screen != nullptr ? screen->devicePixelRatio() : 1.0};
+        if (!instance.open_editor(&parent, *editor, &size, &reason)) {
+            editor->instance = nullptr;
+            return fail(QString::fromStdString(reason));
+        }
+        if (size.width > 0 && size.height > 0)
+            x11_->resize(editor->x11_window, size.width, size.height);
+        x11_->show(editor->x11_window);
+        // Sync on create may have queued events the descriptor will not
+        // announce again.
+        QTimer::singleShot(0, this, [this] { serveX11(); });
     } else {
         editor->placement = Placement::floating;
         if (!instance.open_editor(nullptr, *editor, &size, &reason)) {
@@ -165,6 +200,7 @@ void PluginWindows::forget(Editor* editor) {
     auto kept = std::move(*found);
     editors_.erase(found);
     if (kept->window != nullptr) kept->window->hide();
+    if (kept->x11_window != 0) x11_->hide(kept->x11_window);
     retired_.push_back(std::move(kept));
     QTimer::singleShot(0, this, [this] { retired_.clear(); });
     emit changed();
@@ -185,6 +221,33 @@ QWindow* PluginWindows::window(blokkily::ProcessorAddress where) const {
     for (const auto& editor : editors_)
         if (editor->where == where) return editor->window;
     return nullptr;
+}
+
+std::uintptr_t PluginWindows::x11Window(blokkily::ProcessorAddress where) const {
+    for (const auto& editor : editors_)
+        if (editor->where == where) return editor->x11_window;
+    return 0;
+}
+
+X11HostWindows* PluginWindows::x11() {
+    if (!x11_tried_) {
+        x11_tried_ = true;
+        x11_ = X11HostWindows::connect();
+        if (x11_) {
+            x11_events_ = new QSocketNotifier(x11_->descriptor(), QSocketNotifier::Read, this);
+            connect(x11_events_, &QSocketNotifier::activated, this, [this] { serveX11(); });
+        }
+    }
+    return x11_.get();
+}
+
+void PluginWindows::serveX11() {
+    if (!x11_) return;
+    for (const auto window : x11_->take_close_requests()) {
+        const auto found = std::find_if(editors_.begin(), editors_.end(),
+            [&](const auto& editor) { return editor->x11_window == window; });
+        if (found != editors_.end()) (void)close((*found)->where);
+    }
 }
 
 std::optional<PluginWindows::Placement> PluginWindows::placement(

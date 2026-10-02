@@ -292,6 +292,15 @@ must be the editor's colour. It keeps the session's `DISPLAY` and skips (exit
 without Xvfb. `blokkily_editor_nodisplay_check` covers that machine: with
 `DISPLAY` unset or empty a VST3 editor is refused before JUCE touches X.
 
+`build/artifacts/plugin-window-xwayland.png` — from
+`plugin_window_xwayland_check`, the same proof with Qt on Wayland, as the
+application runs on a Wayland desktop such as GNOME. The VST3 fixture's editor
+is X11 only, as every JUCE-built editor is (many, such as Dexed's or Odin2's
+CLAP, can only be embedded), so it must be embedded in the X11 top-level the host makes on its own connection to XWayland, and the centre
+pixel read back from the X server must be `#C8FF3C`. A `WM_DELETE_WINDOW`
+request sent to that window, as a window manager sends it, must close the
+editor. It skips (exit 77) without both a Wayland compositor and an X server.
+
 `build/artifacts/effects.png` — from the `bdd_effects` gate
 (`blokkily --verify --scenario effects`), which runs the interface scenarios of
 `features/effects.feature`. The CLAP effect fixture is scanned beside the

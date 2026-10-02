@@ -18,6 +18,8 @@ if(BLOKKILY_BUILD_GUI)
         src/app/plugin_run_loop_qt.hpp
         src/app/plugin_windows.cpp
         src/app/plugin_windows.hpp
+        src/app/x11_host_window.cpp
+        src/app/x11_host_window.hpp
         src/app/app_controller_editors.cpp
         src/app/song_model_plugins.cpp
         src/app/verify/scenario_plugin_windows.cpp)
@@ -116,7 +118,9 @@ if(BLOKKILY_BUILD_TESTS)
             src/app/plugin_run_loop_qt.cpp
             src/app/plugin_run_loop_qt.hpp
             src/app/plugin_windows.cpp
-            src/app/plugin_windows.hpp)
+            src/app/plugin_windows.hpp
+            src/app/x11_host_window.cpp
+            src/app/x11_host_window.hpp)
         target_include_directories(blokkily_plugin_window_display_check PRIVATE src/app)
         target_link_libraries(blokkily_plugin_window_display_check PRIVATE
             blokkily_core Qt6::Core Qt6::Gui)
@@ -129,6 +133,18 @@ if(BLOKKILY_BUILD_TESTS)
         set_tests_properties(plugin_window_display_check PROPERTIES
             LABELS "integration;screenshot;display;plugins;windows;vst3"
             ENVIRONMENT "QT_QPA_PLATFORM=xcb;ALSA_CONFIG_PATH=/dev/null;WAYLAND_DISPLAY=;GDK_BACKEND=x11"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 60)
+
+        # The same proof with Qt on Wayland, as the application runs on a
+        # Wayland desktop: the editor is embedded in the host's own X11 window
+        # on XWayland. It keeps the session's WAYLAND_DISPLAY and DISPLAY and
+        # skips with 77 where either is missing.
+        add_test(NAME plugin_window_xwayland_check
+            COMMAND blokkily_plugin_window_display_check xwayland)
+        set_tests_properties(plugin_window_xwayland_check PROPERTIES
+            LABELS "integration;screenshot;display;plugins;windows;vst3"
+            ENVIRONMENT "QT_QPA_PLATFORM=wayland;ALSA_CONFIG_PATH=/dev/null"
             SKIP_RETURN_CODE 77
             TIMEOUT 60)
     endif()
