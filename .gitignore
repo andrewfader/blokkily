@@ -2,3 +2,5 @@
 /.cache/
 compile_commands.json
 /Testing/
+/tests/fixtures/llm_cassettes/*.recording.jsonl
+/tests/fixtures/llm_cassettes/*.failed.jsonl

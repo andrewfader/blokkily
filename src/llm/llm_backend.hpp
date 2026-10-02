@@ -58,8 +58,9 @@ public:
     void setNetworkForTesting(QNetworkAccessManager* network);
 
 protected:
-    // The backend's network access, created on first use. The scripted
-    // backend never asks for one.
+    // The backend's network access, created on first use: the live network,
+    // or the cassette BLOKKILY_LLM_CASSETTE names. The scripted backend never
+    // asks for one.
     [[nodiscard]] QNetworkAccessManager* network();
 
 private:
@@ -104,7 +105,9 @@ private:
 //   BLOKKILY_OPENROUTER_KEY    API key for OpenRouter (routes to any
 //                              vendor); same shape as ChatGPT
 //   BLOKKILY_OPENROUTER_URL    (default https://openrouter.ai/api)
-//   BLOKKILY_OPENROUTER_MODEL  (default openai/gpt-4o-mini)
+//   BLOKKILY_OPENROUTER_MODEL  (default openrouter/free: OpenRouter
+//                              routes to whichever free model is up,
+//                              so an unfunded key still answers)
 [[nodiscard]] std::unique_ptr<LlmBackend> makeBackend(const QString& name,
                                                       QObject* parent = nullptr);
 

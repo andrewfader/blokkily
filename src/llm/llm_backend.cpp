@@ -4,6 +4,8 @@
 
 #include "llm_backend.hpp"
 
+#include "http_cassette.hpp"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -20,6 +22,9 @@ void LlmBackend::setNetworkForTesting(QNetworkAccessManager* network) {
 }
 
 QNetworkAccessManager* LlmBackend::network() {
+    // BLOKKILY_LLM_CASSETTE puts a recording or replaying network in place
+    // of the live one (http_cassette.hpp).
+    if (network_ == nullptr) network_ = cassetteFromEnvironment(this);
     if (network_ == nullptr) network_ = new QNetworkAccessManager(this);
     return network_;
 }

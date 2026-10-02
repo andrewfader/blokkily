@@ -145,7 +145,7 @@ std::unique_ptr<LlmBackend> makeOpenRouterBackend(QObject* parent) {
     return std::make_unique<OpenAiCompatibleBackend>(
         Vendor{QStringLiteral("OpenRouter"), "BLOKKILY_OPENROUTER_KEY",
                "BLOKKILY_OPENROUTER_URL", QStringLiteral("https://openrouter.ai/api"),
-               "BLOKKILY_OPENROUTER_MODEL", QStringLiteral("openai/gpt-4o-mini")},
+               "BLOKKILY_OPENROUTER_MODEL", QStringLiteral("openrouter/free")},
         parent);
 }
 

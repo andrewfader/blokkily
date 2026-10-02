@@ -27,6 +27,14 @@ Feature: LLM composition assistant
     Then parsing succeeds with the fenced object
     Checked by llm_parse_fenced_and_padded.
 
+  Scenario: A reasoning model's thinking is not mistaken for its answer
+    Given a reply that thinks aloud in a <think> block quoting braces of its
+      draft, then answers with valid JSON
+    When the reply is parsed
+    Then parsing succeeds with the answer's triggers, not the draft's
+    Checked by llm_parse_skips_reasoning, and by bdd_llm_live_minimax, whose
+    recorded MiniMax-M3 answers think before they answer.
+
   Scenario: Pure prose is rejected, not crashed on
     Given a reply holding no JSON at all
     When the reply is parsed
@@ -198,3 +206,35 @@ Feature: LLM composition assistant
     Then the bar is no longer busy and the prompt field accepts input
     And the old backend's answer never becomes a proposal
     Checked by bdd_llm_assistant.
+
+  Scenario: A recorded exchange answers again without the provider
+    Given a backend recording to a cassette while its provider answers
+    When the same request is sent with the cassette replaying instead
+    Then the recorded answer comes back with no provider to ask
+    Checked by llm_cassette_records_and_replays.
+
+  Scenario: A request the cassette never saw fails readably
+    Given a cassette holding one recorded exchange
+    When a different prompt is sent, or the recorded one is sent twice
+    Then the reply is not ok and the error names the backend and the
+      cassette, so a changed prompt or context shows up as a failure
+    Checked by llm_cassette_unrecorded_request_fails.
+
+  Scenario: No credential reaches a cassette
+    Given a provider that refuses the key and echoes it back in its error
+    When the exchange is recorded
+    Then the cassette holds the HTTP status and the refusal with the key
+      redacted, and the replayed refusal reads like the live one
+    Checked by llm_cassette_scrubs_credentials.
+
+  Scenario: A live model's answer reaches the pattern, end to end
+    Given the application on a live backend whose provider's answers were
+      recorded by scripts/record-llm-cassettes.sh
+    When the producer types two prompts into the rendered bar and applies
+      each answer
+    Then each answer is proposed before it is written, Apply writes exactly
+      the proposal inside the pattern, the editors show it, and one undo
+      takes a generation back
+    Checked by bdd_llm_live_<backend> (verify scenario "llm_live") for each
+    cassette in tests/fixtures/llm_cassettes/, which also saves
+    build/artifacts/llm-live-<backend>.png.

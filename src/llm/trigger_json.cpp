@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <cmath>
@@ -158,7 +159,16 @@ std::optional<Trigger> triggerFromJson(const QJsonObject& object, Tick ticks_per
 }
 
 std::optional<QJsonObject> extractJsonObject(const QString& text, QString* error) {
-    QString trimmed = text.trimmed();
+    QString trimmed = text;
+    // Reasoning models (MiniMax-M3, DeepSeek-R1, Qwen3) think aloud in a
+    // <think> block before answering, and the thinking quotes braces from
+    // its drafts. Only what follows the thinking is the answer.
+    static const QRegularExpression thinking(
+        QStringLiteral("<think>.*?</think>"),
+        QRegularExpression::DotMatchesEverythingOption |
+            QRegularExpression::CaseInsensitiveOption);
+    trimmed.remove(thinking);
+    trimmed = trimmed.trimmed();
     // Models like to fence JSON in a markdown block; strip the fence.
     if (trimmed.startsWith(QLatin1String("```"))) {
         const auto firstNewline = trimmed.indexOf(QLatin1Char('\n'));

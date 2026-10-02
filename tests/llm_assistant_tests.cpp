@@ -6,6 +6,7 @@
 // Run with a case name; each case is its own CTest test (llm_<case>).
 // features/llm_assistant.feature names the scenario each case executes.
 
+#include "http_cassette.hpp"
 #include "scripted_backend.hpp"
 #include "system_prompt.hpp"
 #include "trigger_json.hpp"
@@ -20,6 +21,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QTimer>
 
@@ -102,6 +104,21 @@ void parse_fenced_and_padded_case() {
     require(result.ok, "fenced reply must parse: " + result.error.toStdString());
     require(result.response.triggers.size() == 1, "one trigger expected");
     require(result.response.triggers[0].start == 3 * tps, "fenced trigger misplaced");
+}
+
+// Scenario: a reasoning model's thinking ahead of its answer is skipped.
+// MiniMax-M3 (and other reasoning models) put a <think> block before the
+// JSON, and the thinking quotes braces of its own draft.
+void parse_skips_reasoning_case() {
+    const auto result = parseResponse(
+        QStringLiteral("<think>\nThe producer wants one note. Something like {\"step\": 0} "
+                       "with key 60; the shape is {mode, triggers}.\n</think>\n\n"
+                       "{\"mode\": \"replace\", \"triggers\": [{\"step\": 5, "
+                       "\"note\": {\"key\": 62}}]}"),
+        tps, steps, key_limit);
+    require(result.ok, "reply after reasoning must parse: " + result.error.toStdString());
+    require(result.response.triggers.size() == 1, "one trigger expected");
+    require(result.response.triggers[0].start == 5 * tps, "the answer's trigger, not the draft's");
 }
 
 // Scenario: pure prose is rejected, not crashed on.
@@ -283,6 +300,7 @@ public:
         // Public facade over Qt's protected hooks, so the owning
         // CapturingNetworkAccessManager can drive the reply without
         // friending the test class into Qt's internals.
+        using QNetworkReply::setAttribute;
         using QNetworkReply::setError;
         using QNetworkReply::setFinished;
 
@@ -296,6 +314,8 @@ public:
         QByteArray body;
         QByteArray response_body;
         QNetworkReply::NetworkError error = QNetworkReply::NoError;
+        int status = 0; // the HTTP status to answer with, when not 0
+        int requests = 0;
     };
 
     Capture capture;
@@ -308,7 +328,10 @@ public:
             return QNetworkAccessManager::createRequest(op, req, outgoing);
         }
         capture.request = req;
+        ++capture.requests;
         auto* reply = new PendingReply(this, req, capture.response_body);
+        if (capture.status != 0)
+            reply->setAttribute(QNetworkRequest::HttpStatusCodeAttribute, capture.status);
         if (capture.error != QNetworkReply::NoError)
             reply->setError(capture.error, QStringLiteral("synthetic error"));
         // Defer finishing one tick so it lands on the event loop the way a
@@ -372,7 +395,7 @@ const std::vector<Vendor>& vendors() {
          "BLOKKILY_OPENAI_MODEL", "https://api.openai.com/v1/chat/completions", "gpt-4o-mini"},
         {"openrouter", Dialect::chat, "OpenRouter", "BLOKKILY_OPENROUTER_KEY",
          "BLOKKILY_OPENROUTER_URL", "BLOKKILY_OPENROUTER_MODEL",
-         "https://openrouter.ai/api/v1/chat/completions", "openai/gpt-4o-mini"},
+         "https://openrouter.ai/api/v1/chat/completions", "openrouter/free"},
         {"gemini", Dialect::gemini, "Gemini", "BLOKKILY_GEMINI_KEY", nullptr,
          "BLOKKILY_GEMINI_MODEL",
          "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -581,6 +604,142 @@ void backend_uses_custom_url_and_model_case(const Vendor& vendor) {
             "the picker must name the model in use");
 }
 
+const QByteArray secretKey = "sk-cassette-secret-0123456789";
+
+// The cassette tests stand the capturing network in for the provider, so
+// recording is proved without a socket, a key, or a firewall's say-so; the
+// live provider is what scripts/record-llm-cassettes.sh records against.
+const QByteArray providerUrl = "https://llm.example.test";
+
+// The MiniMax backend keyed with secretKey, recording to `path` through
+// `upstream` (the stand-in provider).
+std::unique_ptr<LlmBackend> recordingBackend(const QString& path,
+                                             CapturingNetworkAccessManager* upstream,
+                                             QObject* parent) {
+    qputenv("BLOKKILY_MINIMAX_KEY", secretKey);
+    qputenv("BLOKKILY_MINIMAX_URL", providerUrl);
+    qunsetenv("BLOKKILY_MINIMAX_MODEL");
+    qunsetenv("BLOKKILY_LLM_CASSETTE");
+    auto backend = makeBackend(QStringLiteral("minimax"), parent);
+    backend->setNetworkForTesting(new CassetteNetworkAccessManager(
+        CassetteNetworkAccessManager::Mode::record, path, nullptr, upstream));
+    return backend;
+}
+
+// The same backend replaying `path`, chosen the way a run chooses it: by
+// BLOKKILY_LLM_CASSETTE, with no network of its own.
+std::unique_ptr<LlmBackend> replayingBackend(const QString& path, QObject* parent) {
+    qputenv("BLOKKILY_MINIMAX_KEY", secretKey);
+    qputenv("BLOKKILY_MINIMAX_URL", providerUrl);
+    qunsetenv("BLOKKILY_MINIMAX_MODEL");
+    qputenv("BLOKKILY_LLM_CASSETTE", path.toUtf8());
+    qunsetenv("BLOKKILY_LLM_CASSETTE_MODE");
+    return makeBackend(QStringLiteral("minimax"), parent);
+}
+
+QByteArray readAll(const QString& path) {
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly), "the cassette must exist: " + path.toStdString());
+    return file.readAll();
+}
+
+// Scenario: a recorded exchange answers again with no server.
+void cassette_records_and_replays_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    QTemporaryDir dir;
+    const auto path = dir.filePath(QStringLiteral("tape.jsonl"));
+    Reply recorded;
+    {
+        auto* provider = new CapturingNetworkAccessManager;
+        provider->capture.status = 200;
+        provider->capture.response_body = successBody(Dialect::chat, oneNote);
+        auto backend = recordingBackend(path, provider, &app);
+        runBackend(backend.get(), sampleRequest(), recorded);
+        require(provider->capture.requests == 1, "recording must reach the provider");
+        require(provider->capture.request.rawHeader("Authorization") == "Bearer " + secretKey,
+                "the provider must still receive the key while recording");
+    }
+    require(recorded.ok, "the recorded reply must succeed: " + recorded.error.toStdString());
+    const auto tape = readAll(path);
+    require(tape.count('\n') == 1, "one exchange, one line");
+    require(tape.contains("/v1/chat/completions") && tape.contains("MiniMax-M3"),
+            "the cassette must hold the request it saw");
+
+    // The provider is gone: only the cassette can answer now.
+    auto backend = replayingBackend(path, &app);
+    Reply replayed;
+    runBackend(backend.get(), sampleRequest(), replayed);
+    require(replayed.ok, "replay must succeed: " + replayed.error.toStdString());
+    require(replayed.text == recorded.text, "replay must give back the recorded answer");
+    const auto parsed = parseResponse(replayed.text, tps, steps, key_limit);
+    require(parsed.ok && parsed.response.triggers.size() == 1,
+            "the replayed answer must parse into the recorded trigger");
+}
+
+// Scenario: a request the cassette never saw fails readably.
+void cassette_unrecorded_request_fails_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    QTemporaryDir dir;
+    const auto path = dir.filePath(QStringLiteral("tape.jsonl"));
+    {
+        auto* provider = new CapturingNetworkAccessManager;
+        provider->capture.status = 200;
+        provider->capture.response_body = successBody(Dialect::chat, oneNote);
+        auto backend = recordingBackend(path, provider, &app);
+        Reply recorded;
+        runBackend(backend.get(), sampleRequest(), recorded);
+    }
+    auto backend = replayingBackend(path, &app);
+    auto changed = sampleRequest();
+    changed.prompt = QStringLiteral("something the model was never asked");
+    Reply reply;
+    runBackend(backend.get(), changed, reply);
+    require(!reply.ok, "an unrecorded request must not be answered");
+    require(reply.error.contains("MiniMax") && reply.error.contains("tape.jsonl") &&
+                reply.error.contains("record it again"),
+            "the error must name the backend and the cassette: " + reply.error.toStdString());
+    // Each recorded exchange answers once: asking the same thing twice needs
+    // two recordings, as two live calls would have been two answers.
+    Reply first;
+    Reply second;
+    runBackend(backend.get(), sampleRequest(), first);
+    runBackend(backend.get(), sampleRequest(), second);
+    require(first.ok && !second.ok, "an exchange must be used up by its replay");
+}
+
+// Scenario: no credential reaches the cassette, even one the provider
+// echoes back in its refusal.
+void cassette_scrubs_credentials_case() {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    QTemporaryDir dir;
+    const auto path = dir.filePath(QStringLiteral("tape.jsonl"));
+    const auto refusal = QJsonDocument(QJsonObject{{"error", QJsonObject{
+        {"message", QStringLiteral("Incorrect API key provided: %1")
+                        .arg(QString::fromUtf8(secretKey))}}}}).toJson();
+    Reply recorded;
+    {
+        auto* provider = new CapturingNetworkAccessManager;
+        provider->capture.status = 401;
+        provider->capture.error = QNetworkReply::AuthenticationRequiredError;
+        provider->capture.response_body = refusal;
+        auto backend = recordingBackend(path, provider, &app);
+        runBackend(backend.get(), sampleRequest(), recorded);
+    }
+    require(!recorded.ok && recorded.error.contains("Incorrect API key"),
+            "the live refusal must reach the producer: " + recorded.error.toStdString());
+    const auto tape = readAll(path);
+    require(!tape.contains(secretKey), "the key must never be written to the cassette");
+    require(tape.contains("<redacted>"), "the echoed key must be shown as redacted");
+    require(tape.contains("\"status\":401"), "the HTTP status must be recorded");
+
+    auto backend = replayingBackend(path, &app);
+    Reply replayed;
+    runBackend(backend.get(), sampleRequest(), replayed);
+    require(!replayed.ok && replayed.error.startsWith("MiniMax error: Incorrect API key"),
+            "the replayed refusal must read like the live one: " +
+                replayed.error.toStdString());
+}
+
 // Runs "<vendor>_backend_<scenario>"; false when the name is not one.
 bool runBackendCase(const std::string& name) {
     const auto marker = name.find("_backend_");
@@ -610,12 +769,16 @@ int main(int argc, char** argv) {
         if (name == "parse_replace") parse_replace_case();
         else if (name == "parse_add_and_modify") parse_add_and_modify_case();
         else if (name == "parse_fenced_and_padded") parse_fenced_and_padded_case();
+        else if (name == "parse_skips_reasoning") parse_skips_reasoning_case();
         else if (name == "parse_rejects_prose") parse_rejects_prose_case();
         else if (name == "parse_clamps_and_repairs") parse_clamps_and_repairs_case();
         else if (name == "parse_drops_out_of_pattern") parse_drops_out_of_pattern_case();
         else if (name == "roundtrip_triggers") roundtrip_triggers_case();
         else if (name == "scripted_backend_answers") scripted_backend_answers_case(argc, argv);
         else if (name == "prompt_documents_schema") prompt_documents_schema_case();
+        else if (name == "cassette_records_and_replays") cassette_records_and_replays_case();
+        else if (name == "cassette_unrecorded_request_fails") cassette_unrecorded_request_fails_case();
+        else if (name == "cassette_scrubs_credentials") cassette_scrubs_credentials_case();
         else if (!runBackendCase(name)) throw std::runtime_error("unknown case " + name);
         std::cout << name << " passed\n";
         return 0;

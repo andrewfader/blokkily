@@ -18,6 +18,8 @@ checkpoint the editors use. The audio thread never sees an LLM call.
 src/llm/
   llm_backend.{hpp,cpp}     -- the QObject seam every backend answers through,
                                the registry, and the shared network test seam
+  http_cassette.{hpp,cpp}   -- VCR-style recording and replay of a backend's
+                               HTTP exchanges (BLOKKILY_LLM_CASSETTE)
   trigger_json.{hpp,cpp}    -- the JSON wire dialect (mode, triggers)
   system_prompt.{hpp,cpp}   -- the standing instructions the model is given
   ollama_backend.cpp        -- local Ollama (default), no key
@@ -29,6 +31,8 @@ src/llm/
 src/app/
   llm_model.{hpp,cpp}       -- QML-facing bridge: ask, proposal, apply, discard
   verify/scenario_llm.cpp   -- the bdd_llm_assistant gate
+  verify/scenario_llm_live.cpp
+                            -- the live-backend gate, recorded or replayed
 ui/
   PromptBar.qml             -- the bar in the editor column
 features/
@@ -36,6 +40,9 @@ features/
 tests/
   llm_assistant_tests.cpp   -- wire-format and scripted backend cases
   fixtures/llm_script.jsonl -- the scripted backend's prompts and replies
+  fixtures/llm_cassettes/   -- recorded exchanges with live providers
+scripts/
+  record-llm-cassettes.sh   -- records the live gate against real providers
 ```
 
 ## Wire format
@@ -63,7 +70,9 @@ or writes the format.
 }
 ```
 
-The parser tolerates markdown fences and prose padding around the object,
+The parser skips a reasoning model's `<think>…</think>` block (MiniMax-M3
+thinks aloud before every answer, quoting braces from its drafts), and
+tolerates markdown fences and prose padding around the object,
 clamps out-of-range fields (probability, ratchets, key, velocity, length),
 drops triggers past the pattern's end, and admits every repair in
 `corrections[]` so the bar can say what was repaired in plain language.
@@ -76,7 +85,7 @@ drops triggers past the pattern's end, and admits every repair in
 | `gemini`     | `generativelanguage.googleapis.com`                        | `BLOKKILY_GEMINI_KEY`     | `gemini-2.5-flash`   |
 | `minimax`    | `https://api.minimax.io` (`BLOKKILY_MINIMAX_URL`)          | `BLOKKILY_MINIMAX_KEY`    | `MiniMax-M3`         |
 | `chatgpt`    | `https://api.openai.com` (`BLOKKILY_OPENAI_URL`)           | `BLOKKILY_OPENAI_KEY`     | `gpt-4o-mini`        |
-| `openrouter` | `https://openrouter.ai/api` (`BLOKKILY_OPENROUTER_URL`)    | `BLOKKILY_OPENROUTER_KEY` | `openai/gpt-4o-mini` |
+| `openrouter` | `https://openrouter.ai/api` (`BLOKKILY_OPENROUTER_URL`)    | `BLOKKILY_OPENROUTER_KEY` | `openrouter/free`    |
 
 Every model is overridable with `BLOKKILY_<NAME>_MODEL` (`BLOKKILY_OPENAI_MODEL`
 for ChatGPT). `BLOKKILY_LLM_BACKEND` picks the backend the bar opens on;
@@ -125,4 +134,41 @@ keyboard back to the editor.
   dropped), then prompt → proposal → discard → apply → undo → redo → add →
   apply, and saves three screenshots: idle, proposal, and end-of-scenario.
 
+- `bdd_llm_live_<backend>`: one gate per cassette in
+  `tests/fixtures/llm_cassettes/`. It drives `--scenario llm_live` through
+  the rendered bar on that live backend, two prompts, apply and undo, with
+  every HTTP exchange answered from the recording.
+
 The network is never a test dependency.
+
+## Recording live providers
+
+The unit tests prove each backend against the request and reply shapes we
+believe the provider uses; a cassette proves them against what the provider
+actually said. `http_cassette.cpp` records like a VCR:
+
+```
+scripts/record-llm-cassettes.sh minimax      # any of: minimax chatgpt
+                                             # openrouter gemini ollama
+```
+
+runs the live gate against the provider with its key, and on `BDD PASS`
+writes `tests/fixtures/llm_cassettes/<backend>.jsonl` — one line per
+exchange: method, URL and JSON body of the request, then the HTTP status,
+transport error and body of the answer. Request headers are not recorded,
+and every credential the request carried is replaced with `<redacted>`
+wherever it appears, including a provider echoing it in an error. A failed
+recording is kept as `<backend>.failed.jsonl` for reading.
+
+Re-run CMake afterwards and the cassette becomes a `bdd_llm_live_<backend>`
+gate. Replay matches method, URL and body exactly and answers each exchange
+once, so a change to the system prompt, the session context or the request
+shape fails the gate with an error naming the cassette: record again.
+
+The same two variables work on the application itself, to keep or replay a
+session with a real provider:
+
+| variable                     | meaning                                   |
+|------------------------------|-------------------------------------------|
+| `BLOKKILY_LLM_CASSETTE`      | the JSONL file                            |
+| `BLOKKILY_LLM_CASSETTE_MODE` | `record` calls the provider and appends; anything else replays |

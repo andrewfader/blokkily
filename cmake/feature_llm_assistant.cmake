@@ -17,6 +17,8 @@ if(BLOKKILY_BUILD_GUI)
         src/llm/trigger_json.hpp
         src/llm/llm_backend.hpp
         src/llm/llm_backend.cpp
+        src/llm/http_cassette.cpp
+        src/llm/http_cassette.hpp
         src/llm/openai_compatible_backend.cpp
         src/llm/ollama_backend.cpp
         src/llm/gemini_backend.cpp
@@ -26,7 +28,8 @@ if(BLOKKILY_BUILD_GUI)
         src/llm/system_prompt.hpp
         src/app/llm_model.cpp
         src/app/llm_model.hpp
-        src/app/verify/scenario_llm.cpp)
+        src/app/verify/scenario_llm.cpp
+        src/app/verify/scenario_llm_live.cpp)
     target_include_directories(blokkily PRIVATE src/llm)
     target_link_libraries(blokkily PRIVATE Qt6::Network)
     set_source_files_properties(ui/PromptBar.qml PROPERTIES
@@ -45,6 +48,7 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
     add_executable(blokkily_llm_tests tests/llm_assistant_tests.cpp
         src/llm/trigger_json.cpp
         src/llm/llm_backend.cpp
+        src/llm/http_cassette.cpp
         src/llm/openai_compatible_backend.cpp
         src/llm/scripted_backend.cpp
         src/llm/system_prompt.cpp
@@ -59,9 +63,11 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
     # Ollama has no missing-key case, Gemini's endpoint has no URL override.
     set(llm_backend_cases builds_request parses_reply network_error_is_readable
         server_error_is_readable)
-    set(llm_cases parse_replace parse_add_and_modify parse_fenced_and_padded
+    set(llm_cases parse_replace parse_add_and_modify parse_fenced_and_padded parse_skips_reasoning
         parse_rejects_prose parse_clamps_and_repairs parse_drops_out_of_pattern
-        roundtrip_triggers scripted_backend_answers prompt_documents_schema)
+        roundtrip_triggers scripted_backend_answers prompt_documents_schema
+        cassette_records_and_replays cassette_unrecorded_request_fails
+        cassette_scrubs_credentials)
     foreach(vendor minimax openai openrouter gemini ollama)
         foreach(backend_case ${llm_backend_cases})
             list(APPEND llm_cases ${vendor}_backend_${backend_case})
@@ -95,4 +101,33 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
         LABELS "bdd;e2e;integration;screenshot;llm"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV};BLOKKILY_LLM_SCRIPT=${CMAKE_SOURCE_DIR}/tests/fixtures/llm_script.jsonl"
         TIMEOUT 120)
+endif()
+
+if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
+    # A live model, replayed: scripts/record-llm-cassettes.sh drives
+    # `--scenario llm_live` against a provider for real and keeps every
+    # exchange in tests/fixtures/llm_cassettes/<backend>.jsonl; each committed
+    # cassette becomes a gate that drives the same scenario through the
+    # production backend, its request building and reply parsing, answered
+    # from the cassette. No key, no network: the key variable only has to be
+    # set for the backend to send, and the URL and model are pinned to the
+    # defaults the cassette was recorded against.
+    foreach(backend minimax chatgpt openrouter gemini ollama)
+        set(cassette ${CMAKE_SOURCE_DIR}/tests/fixtures/llm_cassettes/${backend}.jsonl)
+        if(NOT EXISTS ${cassette})
+            continue()
+        endif()
+        string(TOUPPER ${backend} vendor)
+        if(backend STREQUAL "chatgpt")
+            set(vendor OPENAI)
+        endif()
+        add_test(NAME bdd_llm_live_${backend}
+            COMMAND blokkily --verify --scenario llm_live
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/llm-live-${backend}.png)
+        set_tests_properties(bdd_llm_live_${backend} PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;llm"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV};BLOKKILY_LLM_BACKEND=${backend};BLOKKILY_LLM_CASSETTE=${cassette};BLOKKILY_LLM_CASSETTE_MODE=replay;BLOKKILY_${vendor}_KEY=replayed;BLOKKILY_${vendor}_URL=;BLOKKILY_${vendor}_MODEL="
+            TIMEOUT 120)
+    endforeach()
 endif()
