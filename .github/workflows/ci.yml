@@ -13,8 +13,12 @@ on:
 
 jobs:
   build-and-test:
-    name: Build & Test (Arch Linux)
+    name: Build & Test (Arch Linux, ${{ matrix.build_type }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
     container:
       image: archlinux:base-devel
     steps:
@@ -43,10 +47,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-ci-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/*.cmake') }}-${{ github.sha }}
+          key: ccache-ci-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/*.cmake') }}-${{ github.sha }}
           restore-keys: |
-            ccache-ci-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/*.cmake') }}-
-            ccache-ci-${{ runner.os }}-
+            ccache-ci-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/*.cmake') }}-
+            ccache-ci-${{ runner.os }}-${{ matrix.build_type }}-
 
       - name: Initialize ccache
         run: |
@@ -54,7 +58,7 @@ jobs:
           ccache -z
 
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
       - name: Build
         run: cmake --build build
@@ -65,11 +69,31 @@ jobs:
       - name: Run Test Suite
         run: ctest --test-dir build --output-on-failure
 
+      # Every push gets installable packages, not only tagged releases; the
+      # tag-driven release.yml still publishes the GitHub Release itself.
+      - name: Build Packages with CPack
+        if: matrix.build_type == 'Release'
+        run: |
+          cmake --build build --target package package_source
+          cd build
+          sha256sum blokkily-*.tar.* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload Release Packages
+        if: matrix.build_type == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: blokkily-linux-${{ github.sha }}
+          path: |
+            build/blokkily-*.tar.*
+            build/SHA256SUMS
+          if-no-files-found: error
+
       - name: Upload Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
+          name: test-artifacts-${{ matrix.build_type }}
           path: |
             build/artifacts/
             build/Testing/Temporary/

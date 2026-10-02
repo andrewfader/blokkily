@@ -1,0 +1,115 @@
+name: Platforms
+
+# Windows and macOS are not supported yet. These legs show how far each
+# platform gets (configure, build, tests) without blocking anything: a failing
+# leg is reported, but the run still passes. Once a platform is green, move it
+# into ci.yml and drop continue-on-error.
+
+on:
+  push:
+    branches:
+      - main
+      - 'ci/**'
+    tags-ignore:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  # The suite's test SoundFont, which Arch gets from the freewheeling package.
+  # Pinned to an upstream commit and checked, so the fixture cannot drift.
+  TEST_SF2_URL: https://raw.githubusercontent.com/free-wheeling/freewheeling/2ec066ee67614300a8b3dc61de7d059971883747/data/basic.sf2
+  TEST_SF2_SHA256: 2e6cf4a8a1d78e6be3b00a0c22358d3ceec8c5a27a000714e65215e3f9b1d15a
+
+jobs:
+  windows:
+    name: Windows (MSYS2 UCRT64, experimental)
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Install MSYS2 and dependencies
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          pacboy: >-
+            gcc:p cmake:p ninja:p pkgconf:p
+            qt6-base:p qt6-declarative:p qt6-shadertools:p qt6-svg:p
+            fluidsynth:p rtaudio:p rtmidi:p
+            libsndfile:p libsamplerate:p rubberband:p
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch test SoundFont
+        run: |
+          curl -fsSL -o basic.sf2 "$TEST_SF2_URL"
+          echo "$TEST_SF2_SHA256  basic.sf2" | sha256sum -c -
+
+      - name: Configure CMake
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
+
+      # -k 0 keeps going past the first failure, so one run lists every
+      # translation unit that does not yet compile here.
+      - name: Build
+        run: cmake --build build -- -k 0
+
+      - name: Run Test Suite
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-windows
+          path: |
+            build/artifacts/
+            build/Testing/Temporary/
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS (Homebrew, experimental)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - name: Install dependencies
+        run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch test SoundFont
+        run: |
+          curl -fsSL -o basic.sf2 "$TEST_SF2_URL"
+          echo "$TEST_SF2_SHA256  basic.sf2" | shasum -a 256 -c -
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
+            -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
+
+      - name: Build
+        run: cmake --build build -- -k 0
+
+      - name: Run Test Suite
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-macos
+          path: |
+            build/artifacts/
+            build/Testing/Temporary/
+          if-no-files-found: ignore
