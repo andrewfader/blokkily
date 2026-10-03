@@ -31,6 +31,18 @@ struct Host final : blokkily::EditorHost {
     void closed() override { ++calls; }
 };
 
+// DISPLAY set to `value`, or unset when it is null.
+void set_display(const char* value) {
+#if defined(_WIN32)
+    _putenv_s("DISPLAY", value == nullptr ? "" : value);
+#else
+    if (value == nullptr)
+        unsetenv("DISPLAY");
+    else
+        setenv("DISPLAY", value, 1);
+#endif
+}
+
 bool refused(blokkily::Vst3PluginInstance& plugin, const char* situation) {
     using namespace blokkily;
     Host host;
@@ -62,9 +74,9 @@ int main() {
         return 1;
     }
     bool ok = true;
-    unsetenv("DISPLAY");
+    set_display(nullptr);
     ok = refused(*plugin, "DISPLAY unset") && ok;
-    setenv("DISPLAY", "", 1);
+    set_display("");
     ok = refused(*plugin, "DISPLAY empty") && ok;
 
     // Refusing left the instrument as it was.

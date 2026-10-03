@@ -467,6 +467,22 @@ if(BLOKKILY_COVERAGE)
     target_link_options(blokkily_core INTERFACE --coverage)
 endif()
 
+# A package's .pc file may ask for -lpthread, which MSVC has no library for;
+# its threads are the C++ runtime's own.
+if(MSVC)
+    foreach(package FLUIDSYNTH RTAUDIO RTMIDI SNDFILE SAMPLERATE RUBBERBAND)
+        if(NOT TARGET PkgConfig::${package})
+            continue()
+        endif()
+        get_target_property(libraries PkgConfig::${package} INTERFACE_LINK_LIBRARIES)
+        if(libraries)
+            list(FILTER libraries EXCLUDE REGEX "(^|[/\\])(-l)?pthread(\\.lib)?$")
+            set_target_properties(PkgConfig::${package} PROPERTIES
+                INTERFACE_LINK_LIBRARIES "${libraries}")
+        endif()
+    endforeach()
+endif()
+
 # Binary and source packaging with CPack
 set(CPACK_PACKAGE_NAME "blokkily")
 set(CPACK_PACKAGE_VENDOR "Blokkily")

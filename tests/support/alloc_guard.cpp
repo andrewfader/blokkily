@@ -4,6 +4,10 @@
 #include <cstdlib>
 #include <new>
 
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
+
 // The replaced global allocator. Everything here runs inside operator new, so
 // it may not allocate itself: the per-thread state is plain constant-
 // initialised data, which needs no dynamic TLS initialisation on first use.
@@ -44,12 +48,24 @@ void* allocate(std::size_t size, std::size_t alignment, bool may_throw) {
     const std::size_t request = size == 0 ? 1 : size;
     for (;;) {
         void* pointer = nullptr;
+#if defined(_WIN32)
+        // Windows has no posix_memalign, and what _aligned_malloc returns
+        // must go back through _aligned_free, so every aligned form takes it
+        // and the aligned deletes give it back (release_aligned).
+        if (alignment == 0) {
+            pointer = std::malloc(request);
+        } else {
+            const auto align = alignment < sizeof(void*) ? sizeof(void*) : alignment;
+            pointer = _aligned_malloc(request, align);
+        }
+#else
         if (alignment <= alignof(std::max_align_t)) {
             pointer = std::malloc(request);
         } else {
             const auto align = alignment < sizeof(void*) ? sizeof(void*) : alignment;
             if (posix_memalign(&pointer, align, request) != 0) pointer = nullptr;
         }
+#endif
         if (pointer != nullptr) return pointer;
         const auto handler = std::get_new_handler();
         if (handler == nullptr) {
@@ -71,6 +87,16 @@ void* allocate(std::size_t size, std::size_t alignment, bool may_throw) {
 void release(void* pointer) noexcept {
     note_deallocation(pointer);
     std::free(pointer);
+}
+
+// What an aligned operator new returned.
+void release_aligned(void* pointer) noexcept {
+#if defined(_WIN32)
+    note_deallocation(pointer);
+    _aligned_free(pointer);
+#else
+    release(pointer);
+#endif
 }
 
 } // namespace
@@ -126,15 +152,17 @@ void operator delete(void* pointer, std::size_t) noexcept { release(pointer); }
 void operator delete[](void* pointer, std::size_t) noexcept { release(pointer); }
 void operator delete(void* pointer, const std::nothrow_t&) noexcept { release(pointer); }
 void operator delete[](void* pointer, const std::nothrow_t&) noexcept { release(pointer); }
-void operator delete(void* pointer, std::align_val_t) noexcept { release(pointer); }
-void operator delete[](void* pointer, std::align_val_t) noexcept { release(pointer); }
-void operator delete(void* pointer, std::size_t, std::align_val_t) noexcept { release(pointer); }
+void operator delete(void* pointer, std::align_val_t) noexcept { release_aligned(pointer); }
+void operator delete[](void* pointer, std::align_val_t) noexcept { release_aligned(pointer); }
+void operator delete(void* pointer, std::size_t, std::align_val_t) noexcept {
+    release_aligned(pointer);
+}
 void operator delete[](void* pointer, std::size_t, std::align_val_t) noexcept {
-    release(pointer);
+    release_aligned(pointer);
 }
 void operator delete(void* pointer, std::align_val_t, const std::nothrow_t&) noexcept {
-    release(pointer);
+    release_aligned(pointer);
 }
 void operator delete[](void* pointer, std::align_val_t, const std::nothrow_t&) noexcept {
-    release(pointer);
+    release_aligned(pointer);
 }
