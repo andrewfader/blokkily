@@ -1,6 +1,7 @@
 #include "blokkily/plugins/clap_instance.hpp"
 
 #include "blokkily/audio/event_queue.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/plugin_run_loop.hpp"
 
 #include <clap/clap.h>
@@ -25,36 +26,14 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
-
 namespace blokkily {
 namespace {
 
-void* open_library(const std::filesystem::path& path) {
-#if defined(_WIN32)
-    return LoadLibraryW(path.c_str());
-#else
-    return dlopen(path.c_str(), RTLD_LOCAL | RTLD_NOW);
-#endif
-}
-void close_library(void* library) {
-#if defined(_WIN32)
-    if (library) FreeLibrary(static_cast<HMODULE>(library));
-#else
-    if (library) dlclose(library);
-#endif
-}
+void* open_library(const std::filesystem::path& path) { return dynamic_library::open(path); }
+void close_library(void* library) { dynamic_library::close(library); }
 const clap_plugin_entry_t* find_entry(void* library) {
-#if defined(_WIN32)
     return reinterpret_cast<const clap_plugin_entry_t*>(
-        GetProcAddress(static_cast<HMODULE>(library), "clap_entry"));
-#else
-    return reinterpret_cast<const clap_plugin_entry_t*>(dlsym(library, "clap_entry"));
-#endif
+        dynamic_library::symbol(library, "clap_entry"));
 }
 
 // True on a thread while it is inside this host's process(): that is what

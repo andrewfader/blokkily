@@ -10,11 +10,11 @@
 #include "fixtures/test_clap_gui.hpp"
 
 #include "blokkily/audio/mixer.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 
 #include <QCoreApplication>
 #include <QWindow>
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <array>
@@ -29,13 +29,13 @@ namespace {
 namespace gui = blokkily::test_clap_gui;
 
 // A hook of the CLAP fixture, from the module the application itself loaded
-// (RTLD_NOLOAD refuses to load a second copy).
+// (open_loaded() never loads a second copy).
 template <typename Function>
 Function fixture_hook(const QString& path, const char* name) {
-    void* module = dlopen(path.toStdString().c_str(), RTLD_NOW | RTLD_NOLOAD);
+    void* module = blokkily::dynamic_library::open_loaded(path.toStdString());
     if (module == nullptr) return nullptr;
-    auto* function = reinterpret_cast<Function>(dlsym(module, name));
-    dlclose(module);
+    auto* function = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(module, name));
+    blokkily::dynamic_library::close(module);
     return function;
 }
 
@@ -107,7 +107,7 @@ void run_plugin_windows(VerifyContext& ctx) {
     // The fixture's report lives in its module; a reference held here keeps
     // it loaded (and its counts running) across a project load, which
     // destroys every instance and would otherwise unload it.
-    void* keep_fixture = dlopen(clap.toStdString().c_str(), RTLD_NOW | RTLD_NOLOAD);
+    void* keep_fixture = blokkily::dynamic_library::open_loaded(clap.toStdString());
     check(keep_fixture != nullptr);
     check(controller.engine() != nullptr && song.song().tracks.at(0).instrument.format == "CLAP" &&
           song.song().tracks.at(1).instrument.format == "VST3");

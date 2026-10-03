@@ -11,8 +11,12 @@
 #include <clap/ext/thread-check.h>
 #include <clap/ext/timer-support.h>
 
+#if defined(_WIN32)
+#include <io.h>  // read, write, close
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -564,8 +568,13 @@ constexpr clap_plugin_tail_t tail_extension{tail_get};
 namespace gui_report_field = blokkily::test_clap_gui;
 
 // A non-blocking, close-on-exec pipe, as pipe2() makes on Linux; macOS has no
-// pipe2(), so the flags are set one descriptor at a time.
+// pipe2(), so the flags are set one descriptor at a time. Windows hosts watch
+// no descriptors (clap.posix-fd-support is POSIX only), so there is none.
 bool open_gui_pipe(int (&fds)[2]) {
+#if defined(_WIN32)
+    (void)fds;
+    return false;
+#else
     if (pipe(fds) != 0) return false;
     for (const int fd : fds) {
         if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) != 0 ||
@@ -577,6 +586,7 @@ bool open_gui_pipe(int (&fds)[2]) {
         }
     }
     return true;
+#endif
 }
 
 bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool) {

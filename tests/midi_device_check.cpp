@@ -15,6 +15,7 @@
 #include "blokkily/midi/midi_input.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "support/process_id.hpp"
 
 #include <RtMidi.h>
 
@@ -25,7 +26,6 @@
 #include <string>
 #include <thread>
 
-#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -60,7 +60,8 @@ int main(int argc, char* argv[]) {
     // The keyboard: a virtual port, which is what a controller's driver makes.
     // Named for this process, so two suites running side by side each open
     // their own keyboard rather than the other's.
-    const std::string port_label = "Test Keyboard " + std::to_string(::getpid());
+    const std::string port_label =
+        "Test Keyboard " + std::to_string(blokkily::test::process_id());
     std::unique_ptr<RtMidiOut> keyboard;
     try {
         keyboard = std::make_unique<RtMidiOut>(RtMidi::UNSPECIFIED, "Test Controller");

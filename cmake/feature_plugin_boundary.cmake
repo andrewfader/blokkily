@@ -20,7 +20,9 @@ if(BLOKKILY_BUILD_TESTS)
     target_compile_definitions(blokkily_plugin_boundary_tests PRIVATE
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
         BLOKKILY_TEST_CLAP_INPUT_PATH="$<TARGET_FILE:blokkily_test_clap_input>"
-        BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..")
+        BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
+        # The bundle's own binary, wherever the platform puts it inside.
+        BLOKKILY_TEST_VST3_BINARY="$<TARGET_FILE:blokkily_test_vst3_VST3>")
     target_compile_options(blokkily_plugin_boundary_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_plugin_boundary_tests
@@ -57,7 +59,8 @@ if(BLOKKILY_BUILD_TESTS)
     # The audio-thread half of the boundary (set_transport, process,
     # take_parameter_edits) allocates nothing, for both formats.
     target_compile_definitions(blokkily_realtime_checks PRIVATE
-        BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..")
+        BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
+        BLOKKILY_TEST_VST3_BINARY="$<TARGET_FILE:blokkily_test_vst3_VST3>")
     target_link_libraries(blokkily_realtime_checks PRIVATE ${CMAKE_DL_LIBS})
     add_dependencies(blokkily_realtime_checks blokkily_test_vst3_VST3)
     blokkily_add_realtime_case(plugin_edits LABELS "clap;vst3;plugins;parameters;integration")

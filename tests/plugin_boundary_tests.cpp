@@ -7,9 +7,9 @@
 // features/plugin_boundary.feature maps its scenarios to these cases.
 
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
-#include <dlfcn.h>
 
 #include <array>
 #include <chrono>
@@ -42,10 +42,10 @@ bool near(double actual, double expected, double tolerance = 0.006) {
 // without loading a second copy.
 template <typename Function>
 Function fixture_hook(const std::filesystem::path& binary, const char* name) {
-    void* library = dlopen(binary.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    void* library = blokkily::dynamic_library::open_loaded(binary);
     require(library != nullptr, "the fixture must already be loaded by the host: " + binary.string());
-    auto* hook = reinterpret_cast<Function>(dlsym(library, name));
-    dlclose(library);
+    auto* hook = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(library, name));
+    blokkily::dynamic_library::close(library);
     require(hook != nullptr, std::string("the fixture must export ") + name);
     return hook;
 }
@@ -340,9 +340,7 @@ float vst3_level(PluginInstance& plugin, std::span<const PluginEvent> events = {
 
 using Vst3Turn = void (*)(float);
 Vst3Turn vst3_turn_hook() {
-    return fixture_hook<Vst3Turn>(std::filesystem::path(BLOKKILY_TEST_VST3_PATH) / "Contents" /
-                                      "x86_64-linux" / "Blokkily Test VST3.so",
-                                  "blokkily_test_vst3_turn");
+    return fixture_hook<Vst3Turn>(BLOKKILY_TEST_VST3_BINARY, "blokkily_test_vst3_turn");
 }
 
 // Regression (fails before 1.4): a state loaded into a running VST3 moved the

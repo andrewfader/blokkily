@@ -18,12 +18,12 @@
 #include "blokkily/instruments/soundfont_synth.hpp"
 #include "blokkily/midi/midi_input.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 #include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/take.hpp"
 
 #include <clap/events.h>
-#include <dlfcn.h>
 
 #include <array>
 #include <cmath>
@@ -680,12 +680,14 @@ struct ExpressionSeen {
 // The note expressions the CLAP fixture was sent since the last call, from
 // its exported log.
 std::vector<ExpressionSeen> clap_expressions() {
-    void* library = dlopen(BLOKKILY_TEST_CLAP_PATH, RTLD_NOW | RTLD_NOLOAD);
+    void* library = blokkily::dynamic_library::open_loaded(BLOKKILY_TEST_CLAP_PATH);
     require(library != nullptr, "the CLAP fixture is loaded");
     using Report = int (*)(int*, int*, double*, std::uint32_t*, int);
     using Clear = void (*)();
-    auto* report = reinterpret_cast<Report>(dlsym(library, "blokkily_test_expressions"));
-    auto* clear = reinterpret_cast<Clear>(dlsym(library, "blokkily_test_clear_expressions"));
+    auto* report = reinterpret_cast<Report>(
+        blokkily::dynamic_library::symbol(library, "blokkily_test_expressions"));
+    auto* clear = reinterpret_cast<Clear>(
+        blokkily::dynamic_library::symbol(library, "blokkily_test_clear_expressions"));
     require(report != nullptr && clear != nullptr, "the fixture reports its note expressions");
     std::array<int, 4096> ids{}, keys{};
     std::array<double, 4096> values{};
@@ -696,7 +698,7 @@ std::vector<ExpressionSeen> clap_expressions() {
         out.push_back({ids[static_cast<std::size_t>(index)], keys[static_cast<std::size_t>(index)],
                        values[static_cast<std::size_t>(index)],
                        times[static_cast<std::size_t>(index)]});
-    dlclose(library);
+    blokkily::dynamic_library::close(library);
     clear();
     return out;
 }

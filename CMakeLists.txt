@@ -21,6 +21,12 @@ pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
 pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
 pkg_check_modules(RTMIDI REQUIRED IMPORTED_TARGET rtmidi)
 
+# windows.h otherwise defines min and max as macros, which break std::min
+# and std::max everywhere it is included.
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -41,6 +47,7 @@ add_library(blokkily_core
     src/project/records_core.cpp
     src/plugins/clap_catalog.cpp
     src/plugins/clap_instance.cpp
+    src/plugins/dynamic_library.cpp
     src/plugins/plugin_scan.cpp
     src/instruments/soundfont_catalog.cpp
     src/instruments/soundfont_synth.cpp
@@ -257,6 +264,7 @@ if(BLOKKILY_BUILD_TESTS)
     # The project file policy (plan F-F): old formats open, saves are stable,
     # and paths inside the project folder are stored relative to it.
     add_executable(blokkily_project_format_tests tests/project_format_tests.cpp)
+    target_include_directories(blokkily_project_format_tests PRIVATE tests)
     target_link_libraries(blokkily_project_format_tests PRIVATE blokkily_core)
     add_test(NAME project_format COMMAND blokkily_project_format_tests)
     set_tests_properties(project_format PROPERTIES
@@ -297,6 +305,7 @@ if(BLOKKILY_BUILD_TESTS)
     # side is the deterministic pump; the MIDI side is real, so the check skips
     # itself where there is no MIDI server rather than failing.
     add_executable(blokkily_midi_device_check tests/midi_device_check.cpp)
+    target_include_directories(blokkily_midi_device_check PRIVATE tests)
     target_link_libraries(blokkily_midi_device_check PRIVATE blokkily_core PkgConfig::RTMIDI)
     add_dependencies(blokkily_midi_device_check blokkily_test_clap)
     add_test(NAME midi_device_input

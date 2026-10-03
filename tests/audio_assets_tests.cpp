@@ -8,6 +8,7 @@
 
 #include "fixtures/audio_fixture_content.hpp"
 #include "support/audio_probe.hpp"
+#include "support/process_id.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -16,7 +17,6 @@
 #include <iostream>
 #include <span>
 #include <string>
-#include <unistd.h>
 
 using namespace blokkily;
 namespace fx = blokkily::audio_fixtures;
@@ -276,8 +276,9 @@ int main() {
         take.rate = 48000;
         take.left = {0.0F, 0.5F, -0.25F};
         take.right = {0.0F, -0.5F, 0.75F};
-        const auto path = std::filesystem::temp_directory_path() /
-                          ("blokkily-take-" + std::to_string(::getpid()) + ".wav");
+        const auto path =
+            std::filesystem::temp_directory_path() /
+            ("blokkily-take-" + std::to_string(blokkily::test::process_id()) + ".wav");
         cache.insert(path, take);
         const auto loaded = cache.load(path, 48000.0, AudioFileInfo{3, 48000, 2}, &error);
         check(loaded && loaded->frames == 3 && loaded->right[2] == 0.75F, "an inserted take is found: " + error);
@@ -289,7 +290,7 @@ int main() {
     // Scenario: A file changed on disk is decoded again.
     {
         const auto dir = std::filesystem::temp_directory_path() /
-                         ("blokkily-assets-" + std::to_string(::getpid()));
+                         ("blokkily-assets-" + std::to_string(blokkily::test::process_id()));
         std::filesystem::create_directories(dir);
         const auto copy = dir / "changing.wav";
         std::filesystem::copy_file(fixtures / "sine1k_44k1_pcm16.wav", copy,

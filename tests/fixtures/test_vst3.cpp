@@ -175,7 +175,12 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new TestVst3Pr
 // message thread, so the turn runs there: at once when the caller is that
 // thread (a host whose main thread the plugin adopted, as a headless host's
 // is), otherwise posted to it, in which case it arrives asynchronously.
-extern "C" __attribute__((visibility("default"))) void blokkily_test_vst3_turn(float value) {
+#if defined(_WIN32)
+#define BLOKKILY_FIXTURE_EXPORT __declspec(dllexport)
+#else
+#define BLOKKILY_FIXTURE_EXPORT __attribute__((visibility("default")))
+#endif
+extern "C" BLOKKILY_FIXTURE_EXPORT void blokkily_test_vst3_turn(float value) {
     const auto turn = [value] {
         const std::lock_guard lock(live_mutex);
         for (auto* processor : live_processors) processor->turn_level(value);

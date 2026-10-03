@@ -12,12 +12,12 @@
 
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/audio/wave_file.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 
 #include <QCoreApplication>
 #include <QVariantList>
 #include <QVariantMap>
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <cmath>
@@ -309,10 +309,10 @@ void run_effects(VerifyContext& ctx) {
     // while inactive or announce a new tail either.
     {
         const auto path = parser.value("clap-effect-fixture").toStdString();
-        void* module = dlopen(path.c_str(), RTLD_NOW | RTLD_NOLOAD);
+        void* module = blokkily::dynamic_library::open_loaded(path);
         check(module != nullptr);
         const auto symbol = [module](const char* name) {
-            return module == nullptr ? nullptr : dlsym(module, name);
+            return module == nullptr ? nullptr : blokkily::dynamic_library::symbol(module, name);
         };
         auto* request = reinterpret_cast<void (*)()>(
             symbol("blokkily_test_effect_request_callback"));
@@ -335,7 +335,7 @@ void run_effects(VerifyContext& ctx) {
             std::cerr << "effects: on_main_thread served " << direct << " directly, " << timed
                       << " by the timer, for " << live << " effect instance(s)\n";
         }
-        if (module != nullptr) dlclose(module);
+        if (module != nullptr) blokkily::dynamic_library::close(module);
     }
     reached("effects: an insert's main-thread callback is served");
 

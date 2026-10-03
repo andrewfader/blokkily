@@ -3,13 +3,13 @@
 
 #include "blokkily/project/paths.hpp"
 #include "blokkily/project/project.hpp"
+#include "support/process_id.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 
 using namespace blokkily;
 
@@ -104,8 +104,9 @@ int main() {
             check(first == second, "serialize is byte-identical twice in a row");
             check(first == v5_text, "serialize reproduces the file it was parsed from");
 
-            const auto folder = std::filesystem::temp_directory_path() /
-                                ("blokkily-project-format-" + std::to_string(::getpid()));
+            const auto folder =
+                std::filesystem::temp_directory_path() /
+                ("blokkily-project-format-" + std::to_string(blokkily::test::process_id()));
             std::filesystem::remove_all(folder);
             const auto one = folder / "one.blok";
             const auto two = folder / "nested" / "two.blok";

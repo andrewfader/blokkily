@@ -19,10 +19,10 @@
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/automation_take.hpp"
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <cmath>
@@ -193,10 +193,10 @@ Stereo bounce_and_compare(SongEngine& engine, const std::string& name) {
 
 template <typename Function>
 Function fixture_hook(const char* binary, const char* name) {
-    void* library = dlopen(binary, RTLD_NOW | RTLD_NOLOAD);
+    void* library = blokkily::dynamic_library::open_loaded(binary);
     require(library != nullptr, std::string("the fixture must already be loaded: ") + binary);
-    auto* function = reinterpret_cast<Function>(dlsym(library, name));
-    dlclose(library);
+    auto* function = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(library, name));
+    blokkily::dynamic_library::close(library);
     require(function != nullptr, std::string("the fixture must export ") + name);
     return function;
 }

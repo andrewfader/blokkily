@@ -1,5 +1,7 @@
 #include "blokkily/audio/audio_file.hpp"
 
+#include "blokkily/audio/sndfile_path.hpp"
+
 #include <samplerate.h>
 #include <sndfile.h>
 
@@ -68,7 +70,7 @@ bool open_for_reading(const std::filesystem::path& file, SndFile& sound, std::st
     if (!std::filesystem::is_regular_file(file, failure)) {
         return fail(error, "not an audio file: " + file.string() + " does not exist");
     }
-    sound.handle = sf_open(file.c_str(), SFM_READ, &sound.info);
+    sound.handle = sf_open(sndfile_path(file).c_str(), SFM_READ, &sound.info);
     if (sound.handle == nullptr) {
         return fail(error, "cannot read " + file.string() + ": " + sf_strerror(nullptr));
     }

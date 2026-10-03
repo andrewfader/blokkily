@@ -1,5 +1,7 @@
 #include "blokkily/audio/disk_stream.hpp"
 
+#include "blokkily/audio/sndfile_path.hpp"
+
 #include <samplerate.h>
 #include <sndfile.h>
 
@@ -106,7 +108,7 @@ bool StreamReader::open(const std::filesystem::path& path, double engine_rate,
                         std::string* error) {
     impl_ = std::make_unique<Impl>();
     SF_INFO info{};
-    SNDFILE* file = sf_open(path.string().c_str(), SFM_READ, &info);
+    SNDFILE* file = sf_open(sndfile_path(path).c_str(), SFM_READ, &info);
     if (file == nullptr) {
         if (error != nullptr) *error = "cannot open " + path.string() + ": " + sf_strerror(nullptr);
         return false;

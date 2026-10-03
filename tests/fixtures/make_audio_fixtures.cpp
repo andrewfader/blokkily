@@ -131,7 +131,7 @@ bool save_with_sndfile(const std::filesystem::path& file, int format, int channe
     info.samplerate = static_cast<int>(rate);
     info.channels = channels;
     info.format = format;
-    SNDFILE* sound = sf_open(file.c_str(), SFM_WRITE, &info);
+    SNDFILE* sound = sf_open(file.string().c_str(), SFM_WRITE, &info);
     if (sound == nullptr) {
         std::cerr << "cannot write " << file << ": " << sf_strerror(nullptr) << '\n';
         return false;

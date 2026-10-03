@@ -8,6 +8,7 @@
 // features/metronome.feature names the scenario each case executes.
 
 #include "support/audio_probe.hpp"
+#include "support/process_id.hpp"
 
 #include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/song_engine.hpp"
@@ -16,7 +17,6 @@
 #include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/take.hpp"
 
-#include <unistd.h>
 
 #include <algorithm>
 #include <cmath>
@@ -145,7 +145,7 @@ void require_accents(std::span<const float> samples, const std::vector<std::size
 
 std::filesystem::path scratch_file(const std::string& name) {
     return std::filesystem::temp_directory_path() /
-           ("blokkily-metronome-" + std::to_string(::getpid()) + "-" + name);
+           ("blokkily-metronome-" + std::to_string(blokkily::test::process_id()) + "-" + name);
 }
 
 // --------------------------------------------------------------- the click

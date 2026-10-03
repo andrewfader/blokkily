@@ -16,8 +16,8 @@
 
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 
-#include <dlfcn.h>
 
 #include <cstdint>
 #include <string>
@@ -100,11 +100,11 @@ BLOKKILY_REALTIME_CASE(automation) {
             "the CLAP fixtures must load through the production adapter: " + error);
     require(engine.prepare(song, 48000.0, block, 0, &error), "prepare: " + error);
 
-    void* module = dlopen(BLOKKILY_TEST_CLAP_PATH, RTLD_NOW | RTLD_NOLOAD);
+    void* module = blokkily::dynamic_library::open_loaded(BLOKKILY_TEST_CLAP_PATH);
     require(module != nullptr, "the CLAP fixture is loaded");
     const auto turn = reinterpret_cast<void (*)(std::uint32_t, double)>(
-        dlsym(module, "blokkily_test_gui_turn"));
-    dlclose(module);
+        blokkily::dynamic_library::symbol(module, "blokkily_test_gui_turn"));
+    blokkily::dynamic_library::close(module);
     require(turn != nullptr, "the CLAP fixture exports blokkily_test_gui_turn");
 
     std::vector<float> left(calls * block, -1.0F);

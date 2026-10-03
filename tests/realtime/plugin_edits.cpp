@@ -13,9 +13,9 @@
 #include "../support/audio_probe.hpp"
 
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
-#include <dlfcn.h>
 
 #include <array>
 #include <cmath>
@@ -34,10 +34,10 @@ constexpr std::size_t turn_every = 100;
 
 template <typename Function>
 Function hook(const std::filesystem::path& binary, const char* name) {
-    void* library = dlopen(binary.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    void* library = blokkily::dynamic_library::open_loaded(binary);
     require(library != nullptr, "the fixture must already be loaded: " + binary.string());
-    auto* function = reinterpret_cast<Function>(dlsym(library, name));
-    dlclose(library);
+    auto* function = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(library, name));
+    blokkily::dynamic_library::close(library);
     require(function != nullptr, std::string("the fixture must export ") + name);
     return function;
 }
@@ -114,9 +114,7 @@ BLOKKILY_REALTIME_CASE(plugin_edits) {
 
     auto vst3 = Vst3PluginInstance::create(BLOKKILY_TEST_VST3_PATH, 0, &error);
     require(vst3 != nullptr, "the VST3 fixture must load through JUCE: " + error);
-    const auto vst3_turn = hook<void (*)(float)>(
-        std::filesystem::path(BLOKKILY_TEST_VST3_PATH) / "Contents" / "x86_64-linux" /
-            "Blokkily Test VST3.so",
-        "blokkily_test_vst3_turn");
+    const auto vst3_turn =
+        hook<void (*)(float)>(BLOKKILY_TEST_VST3_BINARY, "blokkily_test_vst3_turn");
     run(*vst3, [&](double level) { vst3_turn(static_cast<float>(level)); }, "VST3", false);
 }

@@ -25,10 +25,10 @@
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/plugin_run_loop.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <array>
@@ -59,13 +59,13 @@ InstrumentSlot clap_slot() { return {"CLAP", BLOKKILY_TEST_CLAP_PATH, clap_id, {
 
 // The fixture's exported hooks, from the very module the adapter loaded.
 void* fixture() {
-    static void* module = dlopen(BLOKKILY_TEST_CLAP_PATH, RTLD_NOW);
+    static void* module = blokkily::dynamic_library::open(BLOKKILY_TEST_CLAP_PATH);
     require(module != nullptr, "the CLAP fixture must load");
     return module;
 }
 template <typename Function>
 Function hook(const char* name) {
-    auto* function = reinterpret_cast<Function>(dlsym(fixture(), name));
+    auto* function = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(fixture(), name));
     require(function != nullptr, std::string("the CLAP fixture must export ") + name);
     return function;
 }

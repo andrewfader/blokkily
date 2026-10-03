@@ -22,10 +22,10 @@
 
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/plugin_run_loop.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
-#include <dlfcn.h>
 
 #include <array>
 #include <cmath>
@@ -47,10 +47,10 @@ struct SilentHost final : blokkily::EditorHost {
 
 template <typename Function>
 Function hook(const std::filesystem::path& binary, const char* name) {
-    void* module = dlopen(binary.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    void* module = blokkily::dynamic_library::open_loaded(binary);
     require(module != nullptr, "the fixture is loaded: " + binary.string());
-    auto* function = reinterpret_cast<Function>(dlsym(module, name));
-    dlclose(module);
+    auto* function = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(module, name));
+    blokkily::dynamic_library::close(module);
     require(function != nullptr, std::string("the fixture exports ") + name);
     return function;
 }
@@ -83,10 +83,8 @@ void through_the_engine() {
 
     const auto clap_turn =
         hook<void (*)(std::uint32_t, double)>(BLOKKILY_TEST_CLAP_PATH, "blokkily_test_gui_turn");
-    const auto vst3_turn = hook<void (*)(float)>(
-        std::filesystem::path(BLOKKILY_TEST_VST3_PATH) / "Contents" / "x86_64-linux" /
-            "Blokkily Test VST3.so",
-        "blokkily_test_vst3_turn");
+    const auto vst3_turn =
+        hook<void (*)(float)>(BLOKKILY_TEST_VST3_BINARY, "blokkily_test_vst3_turn");
 
     constexpr std::size_t calls = 1000, block = 256;
     std::vector<float> left(block), right(block);
@@ -152,11 +150,11 @@ BLOKKILY_REALTIME_CASE(plugin_windows) {
     require(loop.timer_count() == 1 && loop.fd_count() == 1, "the editor is served by the run loop");
     require(plugin->activate(48000.0, 1, 256), "the plugin activates");
 
-    void* module = dlopen(BLOKKILY_TEST_CLAP_PATH, RTLD_NOW | RTLD_NOLOAD);
+    void* module = blokkily::dynamic_library::open_loaded(BLOKKILY_TEST_CLAP_PATH);
     require(module != nullptr, "the fixture is loaded");
     auto* turn = reinterpret_cast<void (*)(std::uint32_t, double)>(
-        dlsym(module, "blokkily_test_gui_turn"));
-    dlclose(module);
+        blokkily::dynamic_library::symbol(module, "blokkily_test_gui_turn"));
+    blokkily::dynamic_library::close(module);
     require(turn != nullptr, "the fixture exports its knob");
 
     constexpr std::size_t calls = 1000, block = 256;

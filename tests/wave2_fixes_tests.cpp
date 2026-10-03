@@ -19,9 +19,9 @@
 #include "blokkily/effects/builtin.hpp"
 #include "blokkily/midi/input_routes.hpp"
 #include "blokkily/midi/midi_input.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/sequencer/take.hpp"
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <array>
@@ -440,10 +440,10 @@ void take_on_heard_beat_case() {
 
 template <typename Function>
 Function effect_hook(const char* name) {
-    void* module = dlopen(BLOKKILY_TEST_CLAP_EFFECT_PATH, RTLD_NOW | RTLD_NOLOAD);
+    void* module = blokkily::dynamic_library::open_loaded(BLOKKILY_TEST_CLAP_EFFECT_PATH);
     require(module != nullptr, "the CLAP effect fixture is loaded");
-    auto* function = reinterpret_cast<Function>(dlsym(module, name));
-    dlclose(module);
+    auto* function = reinterpret_cast<Function>(blokkily::dynamic_library::symbol(module, name));
+    blokkily::dynamic_library::close(module);
     require(function != nullptr, std::string("the fixture exports ") + name);
     return function;
 }

@@ -2,10 +2,10 @@
 #include "sampler_processor.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/project/paths.hpp"
 
 #include <QCoreApplication>
-#include <dlfcn.h>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -38,8 +38,8 @@ void run_cross(VerifyContext& ctx) {
     model.replace(std::move(configured)); controller.flushRecompile(); layout();
     check(controller.selectMidiPort(0));
     ctx.reached("cross: real effects on each bus");
-    void* library=dlopen(ctx.parser.value("clap-effect-fixture").toStdString().c_str(),RTLD_NOW|RTLD_NOLOAD);
-    auto turn=library?reinterpret_cast<void(*)(double)>(dlsym(library,"blokkily_test_effect_turn")):nullptr;
+    void* library=blokkily::dynamic_library::open_loaded(ctx.parser.value("clap-effect-fixture").toStdString());
+    auto turn=library?reinterpret_cast<void(*)(double)>(blokkily::dynamic_library::symbol(library,"blokkily_test_effect_turn")):nullptr;
     check(turn!=nullptr);
     for(const auto kind:{QString("track"),QString("return"),QString("master")}) {
         model.selectRack(kind,0); layout();
@@ -62,7 +62,7 @@ void run_cross(VerifyContext& ctx) {
         check(!model.automationLanes().empty());
         check(controller.toggleInsertEditor(kind,0,0));
     }
-    if(library)dlclose(library);
+    if(library)blokkily::dynamic_library::close(library);
     ctx.reached("cross: track return and master gestures undo and redo");
     // Hear the lane on the track insert: a zero gain mutes the synth through
     // the complete engine. Removing it brings the sound back.

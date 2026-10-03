@@ -6,9 +6,10 @@
 
 #include "verify/harness.hpp"
 
+#include "blokkily/plugins/dynamic_library.hpp"
+
 #include <QCoreApplication>
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <cmath>
@@ -28,15 +29,16 @@ struct FixtureLog {
 };
 
 // The CLAP fixture's lifecycle log, read from the module the application
-// itself loaded; RTLD_NOLOAD refuses to load a second copy.
+// itself loaded; open_loaded() never loads a second copy.
 FixtureLog fixture_log(const QString& path) {
     FixtureLog log;
-    void* module = dlopen(path.toStdString().c_str(), RTLD_NOW | RTLD_NOLOAD);
+    void* module = blokkily::dynamic_library::open_loaded(path.toStdString());
     if (module == nullptr) return log;
     using Counts = void (*)(long*, long*);
-    if (auto counts = reinterpret_cast<Counts>(dlsym(module, "blokkily_test_instance_counts")))
+    if (auto counts = reinterpret_cast<Counts>(
+            blokkily::dynamic_library::symbol(module, "blokkily_test_instance_counts")))
         counts(&log.created, &log.destroyed);
-    dlclose(module);
+    blokkily::dynamic_library::close(module);
     return log;
 }
 

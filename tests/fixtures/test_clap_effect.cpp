@@ -220,7 +220,12 @@ struct State {
     double gain;
 };
 bool save_state(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
-    const State state{state_tag, self(plugin)->gain};
+    // Zeroed first: the padding after the tag is written too, and a save must
+    // give the same bytes every time.
+    State state;
+    std::memset(&state, 0, sizeof state);
+    state.tag = state_tag;
+    state.gain = self(plugin)->gain;
     const auto* bytes = reinterpret_cast<const char*>(&state);
     std::size_t written = 0;
     while (written < sizeof state) {

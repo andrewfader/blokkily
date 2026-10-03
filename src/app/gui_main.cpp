@@ -15,6 +15,7 @@
 #include <QCommandLineParser>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTimer>
 
@@ -26,6 +27,11 @@ int main(int argc, char* argv[]) {
 
     QGuiApplication::setApplicationName("Blokkily");
     QGuiApplication::setOrganizationName("Blokkily");
+
+    // The controls are restyled throughout, which only a non-native style
+    // allows; Fusion is what Linux picks by default, so every platform now
+    // draws the same thing rather than macOS's or Windows' native controls.
+    QQuickStyle::setStyle(QStringLiteral("Fusion"));
 
     // The layout is drawn for the bundled faces; without them it would take
     // the metrics of whatever the system calls sans-serif and could run off

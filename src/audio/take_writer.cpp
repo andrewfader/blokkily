@@ -1,6 +1,7 @@
 #include "blokkily/audio/take_writer.hpp"
 
 #include "blokkily/audio/audio_clips.hpp"
+#include "blokkily/audio/sndfile_path.hpp"
 
 #include <sndfile.h>
 
@@ -88,7 +89,7 @@ void TakeWriter::write_chunk(const CaptureHeader& header, const std::vector<floa
         info.samplerate = static_cast<int>(sample_rate_);
         info.channels = header.channels;
         info.format = SF_FORMAT_WAV | SF_FORMAT_FLOAT;
-        open->handle = sf_open(take.file.c_str(), SFM_WRITE, &info);
+        open->handle = sf_open(sndfile_path(take.file).c_str(), SFM_WRITE, &info);
         if (open->handle == nullptr) take.error = sf_strerror(nullptr);
         open->next_sample = header.song_sample;
     }

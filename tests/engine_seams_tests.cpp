@@ -23,9 +23,9 @@
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/instruments/soundfont_synth.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <cmath>
@@ -97,10 +97,11 @@ struct FixtureLog {
     long destroyed = 0;
 };
 FixtureLog fixture_log() {
-    static void* module = dlopen(BLOKKILY_TEST_CLAP_PATH, RTLD_NOW);
+    static void* module = blokkily::dynamic_library::open(BLOKKILY_TEST_CLAP_PATH);
     require(module != nullptr, "the CLAP fixture must load");
     using Counts = void (*)(long*, long*);
-    auto counts = reinterpret_cast<Counts>(dlsym(module, "blokkily_test_instance_counts"));
+    auto counts = reinterpret_cast<Counts>(
+        blokkily::dynamic_library::symbol(module, "blokkily_test_instance_counts"));
     require(counts != nullptr, "the CLAP fixture must export its lifecycle log");
     FixtureLog log;
     counts(&log.created, &log.destroyed);
