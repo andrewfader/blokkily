@@ -58,9 +58,9 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.*'
+          # The newest Qt aqt can install; it cannot read 6.11's repository.
+          version: '6.10.*'
           arch: win64_msvc2022_64
-          # Qt6QuickShapes is a public package from 6.10 on; the app links it.
           modules: qtshadertools
           cache: true
 

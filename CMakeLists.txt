@@ -99,7 +99,10 @@ include(GNUInstallDirs)
 install(TARGETS blokkily_cli blokkily_scan RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
 if(BLOKKILY_BUILD_GUI)
-    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 QuickShapes Network)
+    # QtQuick.Shapes is a QML import every Qt 6 has; only newer releases also
+    # ship it as a public C++ package, which is linked where there is one.
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 Network
+        OPTIONAL_COMPONENTS QuickShapes)
     qt_standard_project_setup(REQUIRES 6.5)
     qt_policy(SET QTP0004 NEW)
     qt_add_executable(blokkily
@@ -176,8 +179,10 @@ if(BLOKKILY_BUILD_GUI)
             resources/fonts/JetBrainsMono-Regular.ttf
             resources/fonts/JetBrainsMono-Bold.ttf)
     target_link_libraries(blokkily PRIVATE blokkily_core
-        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2
-        Qt6::QuickShapes)
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+    if(TARGET Qt6::QuickShapes)
+        target_link_libraries(blokkily PRIVATE Qt6::QuickShapes)
+    endif()
     # The application looks for the scan helper beside itself.
     add_dependencies(blokkily blokkily_scan)
 
