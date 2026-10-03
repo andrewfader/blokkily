@@ -45,11 +45,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/AppData/Local/vcpkg/archives
-          key: vcpkg-${{ runner.os }}-fluidsynth-rtaudio-rtmidi-pkgconf-v1
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/platforms.yml') }}
+          # vcpkg's archives are keyed by content, so any older set helps.
+          restore-keys: vcpkg-${{ runner.os }}-
 
       - name: Install dependencies with vcpkg
         run: |
-          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" fluidsynth rtaudio rtmidi pkgconf
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" fluidsynth rtaudio rtmidi libsndfile libsamplerate rubberband pkgconf
           root="$(cygpath -m "$VCPKG_INSTALLATION_ROOT/installed/$VCPKG_TRIPLET")"
           echo "VCPKG_ROOT_DIR=$root" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$root/lib/pkgconfig;$root/share/pkgconfig" >> "$GITHUB_ENV"
