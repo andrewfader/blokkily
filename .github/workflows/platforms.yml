@@ -25,62 +25,87 @@ env:
 
 jobs:
   windows:
-    name: Windows (MSYS2 UCRT64, experimental)
+    # JUCE refuses MinGW, so Windows builds with MSVC: dependencies from
+    # vcpkg, Qt from the official binaries, pkg-config from vcpkg's pkgconf.
+    name: Windows (MSVC, experimental)
     runs-on: windows-latest
     continue-on-error: true
     defaults:
       run:
-        shell: msys2 {0}
+        shell: bash
+    env:
+      VCPKG_TRIPLET: x64-windows
     steps:
-      - name: Install MSYS2 and dependencies
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          pacboy: >-
-            gcc:p cmake:p ninja:p pkgconf:p
-            qt6-base:p qt6-declarative:p qt6-shadertools:p qt6-svg:p
-            fluidsynth:p rtaudio:p rtmidi:p
-            libsndfile:p libsamplerate:p rubberband:p
-
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-fluidsynth-rtaudio-rtmidi-pkgconf-v1
+
+      - name: Install dependencies with vcpkg
+        run: |
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" fluidsynth rtaudio rtmidi pkgconf
+          root="$(cygpath -m "$VCPKG_INSTALLATION_ROOT/installed/$VCPKG_TRIPLET")"
+          echo "VCPKG_ROOT_DIR=$root" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$root/lib/pkgconfig;$root/share/pkgconfig" >> "$GITHUB_ENV"
+          echo "$(cygpath -w "$root/bin")" >> "$GITHUB_PATH"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          arch: win64_msvc2022_64
+          modules: qtshadertools
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Fetch test SoundFont
         run: |
           curl -fsSL -o basic.sf2 "$TEST_SF2_URL"
           echo "$TEST_SF2_SHA256  basic.sf2" | sha256sum -c -
 
-      # Each step pipes through tee; pipefail keeps a failure a failure.
       - name: Configure CMake
         run: |
-          set -o pipefail
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBLOKKILY_TEST_SF2="$PWD/basic.sf2" 2>&1 | tee configure.log
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_PREFIX_PATH="$VCPKG_ROOT_DIR" \
+            -DPKG_CONFIG_EXECUTABLE="$VCPKG_ROOT_DIR/tools/pkgconf/pkgconf.exe" \
+            -DBLOKKILY_TEST_SF2="$PWD/basic.sf2" 2>&1 | tee configure.log
 
       # -k 0 keeps going past the first failure, so one run lists every
       # translation unit that does not yet compile here.
       - name: Build
-        run: |
-          set -o pipefail
-          cmake --build build -- -k 0 2>&1 | tee build.log
+        run: cmake --build build -- -k 0 2>&1 | tee build.log
 
       - name: Run Test Suite
-        run: |
-          set -o pipefail
-          ctest --test-dir build --output-on-failure 2>&1 | tee test.log
+        run: ctest --test-dir build --output-on-failure 2>&1 | tee test.log
 
       # The failing step's errors as annotations, readable from the run page
       # and the checks API without downloading the full log.
       - name: Report errors
         if: failure()
         run: |
+          # Only the diagnostic lines, not the compile commands around them,
+          # split so no annotation is long enough for GitHub to truncate.
           for f in configure.log build.log test.log; do
             [ -f "$f" ] || continue
-            grep -E -A4 "CMake Error|error:|Error [0-9]|FAILED|\*\*\*Failed|Not Run|Could not find|not found" "$f" | head -c 30000 > errors.txt || true
-            [ -s errors.txt ] || tail -c 20000 "$f" > errors.txt
-            echo "::error title=$f::$(tr -d '\r' < errors.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            tr -d '\r' < "$f" | grep -E "CMake Error|^FAILED|error|Undefined symbols|referenced from|^ld:|\*\*\*Failed|Not Run|tests passed|Could not find|not found" \
+              | grep -vE "^(/usr/bin/|\[[0-9]+/[0-9]+\])" | awk '!seen[$0]++' | cut -c1-400 > errors.txt || true
+            [ -s errors.txt ] || tail -n 60 "$f" | cut -c1-400 > errors.txt
+            split -l 40 errors.txt chunk.
+            n=0
+            for c in chunk.*; do
+              n=$((n + 1)); [ $n -le 9 ] || break
+              echo "::error title=$f ($n)::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"
+            done
+            rm -f chunk.*
           done
 
       - name: Upload Test Artifacts
@@ -133,11 +158,20 @@ jobs:
       - name: Report errors
         if: failure()
         run: |
+          # Only the diagnostic lines, not the compile commands around them,
+          # split so no annotation is long enough for GitHub to truncate.
           for f in configure.log build.log test.log; do
             [ -f "$f" ] || continue
-            grep -E -A4 "CMake Error|error:|Error [0-9]|FAILED|\*\*\*Failed|Not Run|Could not find|not found" "$f" | head -c 30000 > errors.txt || true
-            [ -s errors.txt ] || tail -c 20000 "$f" > errors.txt
-            echo "::error title=$f::$(tr -d '\r' < errors.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            tr -d '\r' < "$f" | grep -E "CMake Error|^FAILED|error|Undefined symbols|referenced from|^ld:|\*\*\*Failed|Not Run|tests passed|Could not find|not found" \
+              | grep -vE "^(/usr/bin/|\[[0-9]+/[0-9]+\])" | awk '!seen[$0]++' | cut -c1-400 > errors.txt || true
+            [ -s errors.txt ] || tail -n 60 "$f" | cut -c1-400 > errors.txt
+            split -l 40 errors.txt chunk.
+            n=0
+            for c in chunk.*; do
+              n=$((n + 1)); [ $n -le 9 ] || break
+              echo "::error title=$f ($n)::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"
+            done
+            rm -f chunk.*
           done
 
       - name: Upload Test Artifacts

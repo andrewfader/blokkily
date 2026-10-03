@@ -563,6 +563,22 @@ constexpr clap_plugin_tail_t tail_extension{tail_get};
 // display.
 namespace gui_report_field = blokkily::test_clap_gui;
 
+// A non-blocking, close-on-exec pipe, as pipe2() makes on Linux; macOS has no
+// pipe2(), so the flags are set one descriptor at a time.
+bool open_gui_pipe(int (&fds)[2]) {
+    if (pipe(fds) != 0) return false;
+    for (const int fd : fds) {
+        if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) != 0 ||
+            fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
+            close(fds[0]);
+            close(fds[1]);
+            fds[0] = fds[1] = -1;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool) {
     return api != nullptr && (std::strcmp(api, CLAP_WINDOW_API_X11) == 0 ||
                               std::strcmp(api, CLAP_WINDOW_API_WAYLAND) == 0);
@@ -591,7 +607,7 @@ bool gui_create(const clap_plugin_t* plugin, const char* api, bool is_floating) 
         gui_count(gui_report_field::timers_registered);
     else
         synth->gui_timer = CLAP_INVALID_ID;
-    if (synth->host_fds != nullptr && pipe2(synth->gui_pipe, O_NONBLOCK | O_CLOEXEC) == 0) {
+    if (synth->host_fds != nullptr && open_gui_pipe(synth->gui_pipe)) {
         synth->gui_fd_registered =
             synth->host_fds->register_fd(synth->host, synth->gui_pipe[0], CLAP_POSIX_FD_READ);
         if (synth->gui_fd_registered) gui_count(gui_report_field::fds_registered);

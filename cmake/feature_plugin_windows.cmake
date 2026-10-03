@@ -18,11 +18,16 @@ if(BLOKKILY_BUILD_GUI)
         src/app/plugin_run_loop_qt.hpp
         src/app/plugin_windows.cpp
         src/app/plugin_windows.hpp
-        src/app/x11_host_window.cpp
         src/app/x11_host_window.hpp
         src/app/app_controller_editors.cpp
         src/app/song_model_plugins.cpp
         src/app/verify/scenario_plugin_windows.cpp)
+    # XWayland host windows exist only where there is an X server to reach.
+    if(UNIX AND NOT APPLE)
+        target_sources(blokkily PRIVATE src/app/x11_host_window.cpp)
+    else()
+        target_sources(blokkily PRIVATE src/app/x11_host_window_none.cpp)
+    endif()
     # The scenario reads the CLAP fixture's editor report by the fixture's own
     # field numbering.
     set_source_files_properties(src/app/verify/scenario_plugin_windows.cpp PROPERTIES
@@ -109,43 +114,46 @@ if(BLOKKILY_BUILD_TESTS)
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 120)
 
-        # The only real-pixel proof: the VST3 fixture's editor embedded in a
-        # real Qt xcb window on a real X server, grabbed back from the server.
-        # It keeps the session's DISPLAY (the point is a real display) and
-        # skips with 77 where there is no X server to connect to.
-        add_executable(blokkily_plugin_window_display_check
-            tests/plugin_window_display_check.cpp
-            src/app/plugin_run_loop_qt.cpp
-            src/app/plugin_run_loop_qt.hpp
-            src/app/plugin_windows.cpp
-            src/app/plugin_windows.hpp
-            src/app/x11_host_window.cpp
-            src/app/x11_host_window.hpp)
-        target_include_directories(blokkily_plugin_window_display_check PRIVATE src/app)
-        target_link_libraries(blokkily_plugin_window_display_check PRIVATE
-            blokkily_core Qt6::Core Qt6::Gui)
-        set_target_properties(blokkily_plugin_window_display_check PROPERTIES AUTOMOC ON)
-        target_compile_definitions(blokkily_plugin_window_display_check PRIVATE
-            BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
-            BLOKKILY_TEST_ARTIFACTS="${CMAKE_BINARY_DIR}/artifacts")
-        add_dependencies(blokkily_plugin_window_display_check blokkily_test_vst3_VST3)
-        add_test(NAME plugin_window_display_check COMMAND blokkily_plugin_window_display_check)
-        set_tests_properties(plugin_window_display_check PROPERTIES
-            LABELS "integration;screenshot;display;plugins;windows;vst3"
-            ENVIRONMENT "QT_QPA_PLATFORM=xcb;ALSA_CONFIG_PATH=/dev/null;WAYLAND_DISPLAY=;GDK_BACKEND=x11"
-            SKIP_RETURN_CODE 77
-            TIMEOUT 60)
+        # Both checks need an X server, which only Linux has.
+        if(UNIX AND NOT APPLE)
+            # The only real-pixel proof: the VST3 fixture's editor embedded in a
+            # real Qt xcb window on a real X server, grabbed back from the server.
+            # It keeps the session's DISPLAY (the point is a real display) and
+            # skips with 77 where there is no X server to connect to.
+            add_executable(blokkily_plugin_window_display_check
+                tests/plugin_window_display_check.cpp
+                src/app/plugin_run_loop_qt.cpp
+                src/app/plugin_run_loop_qt.hpp
+                src/app/plugin_windows.cpp
+                src/app/plugin_windows.hpp
+                src/app/x11_host_window.cpp
+                src/app/x11_host_window.hpp)
+            target_include_directories(blokkily_plugin_window_display_check PRIVATE src/app)
+            target_link_libraries(blokkily_plugin_window_display_check PRIVATE
+                blokkily_core Qt6::Core Qt6::Gui)
+            set_target_properties(blokkily_plugin_window_display_check PROPERTIES AUTOMOC ON)
+            target_compile_definitions(blokkily_plugin_window_display_check PRIVATE
+                BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
+                BLOKKILY_TEST_ARTIFACTS="${CMAKE_BINARY_DIR}/artifacts")
+            add_dependencies(blokkily_plugin_window_display_check blokkily_test_vst3_VST3)
+            add_test(NAME plugin_window_display_check COMMAND blokkily_plugin_window_display_check)
+            set_tests_properties(plugin_window_display_check PROPERTIES
+                LABELS "integration;screenshot;display;plugins;windows;vst3"
+                ENVIRONMENT "QT_QPA_PLATFORM=xcb;ALSA_CONFIG_PATH=/dev/null;WAYLAND_DISPLAY=;GDK_BACKEND=x11"
+                SKIP_RETURN_CODE 77
+                TIMEOUT 60)
 
-        # The same proof with Qt on Wayland, as the application runs on a
-        # Wayland desktop: the editor is embedded in the host's own X11 window
-        # on XWayland. It keeps the session's WAYLAND_DISPLAY and DISPLAY and
-        # skips with 77 where either is missing.
-        add_test(NAME plugin_window_xwayland_check
-            COMMAND blokkily_plugin_window_display_check xwayland)
-        set_tests_properties(plugin_window_xwayland_check PROPERTIES
-            LABELS "integration;screenshot;display;plugins;windows;vst3"
-            ENVIRONMENT "QT_QPA_PLATFORM=wayland;ALSA_CONFIG_PATH=/dev/null"
-            SKIP_RETURN_CODE 77
-            TIMEOUT 60)
+            # The same proof with Qt on Wayland, as the application runs on a
+            # Wayland desktop: the editor is embedded in the host's own X11 window
+            # on XWayland. It keeps the session's WAYLAND_DISPLAY and DISPLAY and
+            # skips with 77 where either is missing.
+            add_test(NAME plugin_window_xwayland_check
+                COMMAND blokkily_plugin_window_display_check xwayland)
+            set_tests_properties(plugin_window_xwayland_check PROPERTIES
+                LABELS "integration;screenshot;display;plugins;windows;vst3"
+                ENVIRONMENT "QT_QPA_PLATFORM=wayland;ALSA_CONFIG_PATH=/dev/null"
+                SKIP_RETURN_CODE 77
+                TIMEOUT 60)
+        endif()
     endif()
 endif()

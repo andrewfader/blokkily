@@ -5,7 +5,14 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+// JUCE's editors are X11 windows only on Linux and the BSDs; elsewhere they
+// live on the platform's own windowing, which this adapter does not host yet.
+#if defined(__linux__) || defined(__FreeBSD__)
+#define BLOKKILY_VST3_X11 1
 #include <dlfcn.h>
+#else
+#define BLOKKILY_VST3_X11 0
+#endif
 
 #include <algorithm>
 #include <array>
@@ -19,6 +26,7 @@
 #include <system_error>
 #include <type_traits>
 
+#if BLOKKILY_VST3_X11
 // JUCE's own Linux message dispatch: runs whatever is ready on the message
 // queue and on the descriptors JUCE watches (its X connection among them),
 // without blocking when returnIfNoPendingMessages is true. Declared here
@@ -27,12 +35,14 @@
 namespace juce::detail {
 bool dispatchNextMessageOnSystemQueue(bool returnIfNoPendingMessages);
 }
+#endif
 
 namespace blokkily {
 
 namespace {
 constexpr const char* no_display_message = "Plugin window needs an X11 display";
 
+#if BLOKKILY_VST3_X11
 // Xlib, reached through the same libX11.so.6 that JUCE opens with dlopen, so
 // the error handler installed here is the one JUCE's connection uses. The
 // types are spelled opaquely rather than taken from <X11/Xlib.h>, whose
@@ -113,6 +123,10 @@ bool x11_reachable(const NativeParent* parent) {
     (void)x.close_display(display);
     return reachable;
 }
+#else
+// No X server to embed a JUCE editor in.
+bool x11_reachable(const NativeParent*) { return false; }
+#endif
 
 // Pumps the host's JUCE message queue from the installed run loop while any
 // VST3 instance lives: hosted plugins post messages to it, and a queue nobody
@@ -135,9 +149,13 @@ public:
     }
     // Everything that is ready, within a bound, so a flood of messages cannot
     // hold the host's own event loop.
+    // Elsewhere JUCE's messages arrive through the platform's own event loop,
+    // which Qt already runs, so there is nothing to pump.
     static void dispatch() {
+#if BLOKKILY_VST3_X11
         for (int message = 0; message < 256; ++message)
             if (!juce::detail::dispatchNextMessageOnSystemQueue(true)) break;
+#endif
     }
 
 private:

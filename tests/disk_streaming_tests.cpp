@@ -228,7 +228,8 @@ void resampled() {
     require(reader.frames() == left.size(), "the reader has resample()'s frame count");
     std::vector<float> l(4000), r(4000);
     for (const std::uint64_t at : {std::uint64_t{0}, std::uint64_t{777}, std::uint64_t{50001},
-                                   std::uint64_t{123457}, left.size() - 1000}) {
+                                   std::uint64_t{123457},
+                                   std::uint64_t{left.size() - 1000}}) {
         reader.seek(at);
         reader.read(l.data(), r.data(), l.size());
         for (std::size_t i = 0; i < l.size(); ++i) {
