@@ -95,24 +95,35 @@ jobs:
       - name: Report errors
         if: failure()
         run: |
-          # Only the diagnostic lines, not the compile commands around them,
-          # split so no annotation is long enough for GitHub to truncate.
-          for f in configure.log build.log test.log; do
-            [ -f "$f" ] || continue
-            tr -d '\r' < "$f" | grep -E "CMake Error|^FAILED|error|Undefined symbols|referenced from|^ld:|\*\*\*Failed|Not Run|tests passed|Could not find|not found" \
-              | grep -vE "^(/usr/bin/|\[[0-9]+/[0-9]+\])" | awk '!seen[$0]++' | cut -c1-400 > errors.txt || true
-            # CMake's errors need their context; the end of a failed
-            # configure is where it is.
-            [ "$f" != configure.log ] || tail -n 80 "$f" | cut -c1-400 > errors.txt
-            [ -s errors.txt ] || tail -n 60 "$f" | cut -c1-400 > errors.txt
-            split -l 40 errors.txt chunk.
+          # Diagnostics as annotations, readable from the run page and the
+          # checks API without the full log. Each is split so GitHub never
+          # truncates it.
+          annotate() {
+            split -l 40 "$2" chunk.
             n=0
             for c in chunk.*; do
               n=$((n + 1)); [ $n -le 9 ] || break
-              echo "::error title=$f ($n)::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"
+              echo "::error title=$1 ($n)::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"
             done
             rm -f chunk.*
-          done
+          }
+          if [ -f configure.log ] && grep -q "CMake Error" configure.log; then
+            tail -n 80 configure.log | tr -d '\r' | cut -c1-400 > errors.txt
+            annotate configure errors.txt
+          fi
+          if [ -f build.log ] && grep -q "^FAILED" build.log; then
+            tr -d '\r' < build.log | grep -E "^FAILED|error|Undefined symbols|referenced from|^ld:" \
+              | awk '!seen[$0]++' | cut -c1-400 > errors.txt
+            annotate build errors.txt
+          fi
+          if [ -f test.log ] && grep -q "tests failed" test.log; then
+            # The failed tests again, alone, so their own output is what is
+            # reported.
+            ctest --test-dir build --rerun-failed --output-on-failure > failed.log 2>&1 || true
+            tr -d '\r' < failed.log | grep -vE "^\s*Start |Test command:|Working Directory:|Environment variables:|^\s+[A-Z_]+=" \
+              | cut -c1-300 | tail -n 360 > errors.txt
+            annotate tests errors.txt
+          fi
 
       - name: Upload Test Artifacts
         if: always()
@@ -164,24 +175,35 @@ jobs:
       - name: Report errors
         if: failure()
         run: |
-          # Only the diagnostic lines, not the compile commands around them,
-          # split so no annotation is long enough for GitHub to truncate.
-          for f in configure.log build.log test.log; do
-            [ -f "$f" ] || continue
-            tr -d '\r' < "$f" | grep -E "CMake Error|^FAILED|error|Undefined symbols|referenced from|^ld:|\*\*\*Failed|Not Run|tests passed|Could not find|not found" \
-              | grep -vE "^(/usr/bin/|\[[0-9]+/[0-9]+\])" | awk '!seen[$0]++' | cut -c1-400 > errors.txt || true
-            # CMake's errors need their context; the end of a failed
-            # configure is where it is.
-            [ "$f" != configure.log ] || tail -n 80 "$f" | cut -c1-400 > errors.txt
-            [ -s errors.txt ] || tail -n 60 "$f" | cut -c1-400 > errors.txt
-            split -l 40 errors.txt chunk.
+          # Diagnostics as annotations, readable from the run page and the
+          # checks API without the full log. Each is split so GitHub never
+          # truncates it.
+          annotate() {
+            split -l 40 "$2" chunk.
             n=0
             for c in chunk.*; do
               n=$((n + 1)); [ $n -le 9 ] || break
-              echo "::error title=$f ($n)::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"
+              echo "::error title=$1 ($n)::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"
             done
             rm -f chunk.*
-          done
+          }
+          if [ -f configure.log ] && grep -q "CMake Error" configure.log; then
+            tail -n 80 configure.log | tr -d '\r' | cut -c1-400 > errors.txt
+            annotate configure errors.txt
+          fi
+          if [ -f build.log ] && grep -q "^FAILED" build.log; then
+            tr -d '\r' < build.log | grep -E "^FAILED|error|Undefined symbols|referenced from|^ld:" \
+              | awk '!seen[$0]++' | cut -c1-400 > errors.txt
+            annotate build errors.txt
+          fi
+          if [ -f test.log ] && grep -q "tests failed" test.log; then
+            # The failed tests again, alone, so their own output is what is
+            # reported.
+            ctest --test-dir build --rerun-failed --output-on-failure > failed.log 2>&1 || true
+            tr -d '\r' < failed.log | grep -vE "^\s*Start |Test command:|Working Directory:|Environment variables:|^\s+[A-Z_]+=" \
+              | cut -c1-300 | tail -n 360 > errors.txt
+            annotate tests errors.txt
+          fi
 
       - name: Upload Test Artifacts
         if: always()
