@@ -153,9 +153,14 @@ if(BLOKKILY_BUILD_GUI)
         set_source_files_properties("${qml_file}" PROPERTIES QT_RESOURCE_ALIAS "${qml_name}")
     endforeach()
     set_source_files_properties(ui/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+    # The module's build-tree copy goes under qml/: by default it would be a
+    # directory named Blokkily beside the executable blokkily, which on a
+    # case-insensitive filesystem (macOS, Windows) are the same path. The
+    # application loads the module from its resources, not from this copy.
     qt_add_qml_module(blokkily
         URI Blokkily
         VERSION 1.0
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml/Blokkily"
         QML_FILES ${BLOKKILY_QML_FILES}
     )
     # The UI's own typefaces (both SIL OFL 1.1, licences beside them). The
