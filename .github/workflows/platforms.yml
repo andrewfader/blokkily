@@ -75,7 +75,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
-            -DCMAKE_PREFIX_PATH="$VCPKG_ROOT_DIR" \
+            -DCMAKE_PREFIX_PATH="$(cygpath -m "$QT_ROOT_DIR");$VCPKG_ROOT_DIR" \
             -DPKG_CONFIG_EXECUTABLE="$VCPKG_ROOT_DIR/tools/pkgconf/pkgconf.exe" \
             -DBLOKKILY_TEST_SF2="$PWD/basic.sf2" 2>&1 | tee configure.log
 
@@ -98,6 +98,9 @@ jobs:
             [ -f "$f" ] || continue
             tr -d '\r' < "$f" | grep -E "CMake Error|^FAILED|error|Undefined symbols|referenced from|^ld:|\*\*\*Failed|Not Run|tests passed|Could not find|not found" \
               | grep -vE "^(/usr/bin/|\[[0-9]+/[0-9]+\])" | awk '!seen[$0]++' | cut -c1-400 > errors.txt || true
+            # CMake's errors need their context; the end of a failed
+            # configure is where it is.
+            [ "$f" != configure.log ] || tail -n 80 "$f" | cut -c1-400 > errors.txt
             [ -s errors.txt ] || tail -n 60 "$f" | cut -c1-400 > errors.txt
             split -l 40 errors.txt chunk.
             n=0
@@ -164,6 +167,9 @@ jobs:
             [ -f "$f" ] || continue
             tr -d '\r' < "$f" | grep -E "CMake Error|^FAILED|error|Undefined symbols|referenced from|^ld:|\*\*\*Failed|Not Run|tests passed|Could not find|not found" \
               | grep -vE "^(/usr/bin/|\[[0-9]+/[0-9]+\])" | awk '!seen[$0]++' | cut -c1-400 > errors.txt || true
+            # CMake's errors need their context; the end of a failed
+            # configure is where it is.
+            [ "$f" != configure.log ] || tail -n 80 "$f" | cut -c1-400 > errors.txt
             [ -s errors.txt ] || tail -n 60 "$f" | cut -c1-400 > errors.txt
             split -l 40 errors.txt chunk.
             n=0
