@@ -68,7 +68,7 @@ jobs:
 
       - name: Fetch test SoundFont
         run: |
-          curl -fsSL -o basic.sf2 "$TEST_SF2_URL"
+          curl -fsSL --retry 5 --retry-all-errors -o basic.sf2 "$TEST_SF2_URL"
           echo "$TEST_SF2_SHA256  basic.sf2" | sha256sum -c -
 
       - name: Configure CMake
@@ -138,7 +138,7 @@ jobs:
 
       - name: Fetch test SoundFont
         run: |
-          curl -fsSL -o basic.sf2 "$TEST_SF2_URL"
+          curl -fsSL --retry 5 --retry-all-errors -o basic.sf2 "$TEST_SF2_URL"
           echo "$TEST_SF2_SHA256  basic.sf2" | shasum -a 256 -c -
 
       - name: Configure CMake
