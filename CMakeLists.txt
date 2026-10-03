@@ -20,6 +20,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
 pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
 pkg_check_modules(RTMIDI REQUIRED IMPORTED_TARGET rtmidi)
+# RtMidi's Windows backend is WinMM, which its .pc file leaves to the
+# static-only Libs.private.
+if(WIN32)
+    set_property(TARGET PkgConfig::RTMIDI APPEND PROPERTY INTERFACE_LINK_LIBRARIES winmm)
+endif()
 
 # windows.h otherwise defines min and max as macros, which break std::min
 # and std::max everywhere it is included.
