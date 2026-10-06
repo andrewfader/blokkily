@@ -203,6 +203,22 @@ ApplicationWindow {
                                                   root.exportClick)
     }
 
+    FileDialog {
+        id: importMidiDialog
+        title: "Import MIDI after the arrangement (keep song tempo)"
+        nameFilters: ["MIDI files (*.mid *.midi)"]
+        fileMode: FileDialog.OpenFile
+        onAccepted: appController.importMidiFile(selectedFile.toString())
+    }
+    FileDialog {
+        id: exportMidiDialog
+        title: "Export arrangement notes and controllers"
+        nameFilters: ["MIDI files (*.mid)"]
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "mid"
+        onAccepted: appController.exportMidiFile(selectedFile.toString())
+    }
+
     // Ctrl+K goes to the assistant's prompt bar, the way a command palette
     // answers Ctrl+K elsewhere; Escape there hands the keyboard back.
     Shortcut { sequence: "Ctrl+K"; onActivated: promptBar.focusPrompt() }
@@ -360,6 +376,18 @@ ApplicationWindow {
         Keys.onPressed: function(event) {
             if (event.isAutoRepeat || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier)))
                 return
+            // Handle Tab before Qt's focus traversal, including platforms
+            // that deliver Shift+Tab as a Backtab key with Shift still set.
+            if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                var backwards = event.key === Qt.Key_Backtab
+                                || (event.modifiers & Qt.ShiftModifier)
+                var count = Math.max(1, songModel.trackCount)
+                patternModel.selectChannelStep(
+                    (songModel.selectedTrack + (backwards ? count - 1 : 1)) % count,
+                    Math.max(0, patternModel.selectedStep))
+                event.accepted = true
+                return
+            }
             var semitone = semitoneFor(event.text)
             if (semitone < 0) return
             // Recording against the running transport, a key is played into
@@ -412,6 +440,8 @@ ApplicationWindow {
                     onSaveRequested: root.save()
                     onSaveAsRequested: saveProjectDialog.open()
                     onExportRequested: exportDialog.open()
+                    onImportMidiRequested: importMidiDialog.open()
+                    onExportMidiRequested: exportMidiDialog.open()
                 }
             }
         }

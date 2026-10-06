@@ -148,6 +148,9 @@ blokkily::Pattern& PatternModel::pattern() { return song_->editPattern(); }
 const blokkily::Pattern& PatternModel::pattern() const { return song_->editPattern(); }
 
 void PatternModel::refresh() {
+    // Another pattern opened: the roll fits its notes again.
+    if (roll_low_ && (song_ == nullptr || song_->currentPattern() != roll_pattern_))
+        roll_low_.reset();
     // A shorter pattern, or another one opened, keeps the cursor on a step
     // that exists.
     if (selected_step_ >= stepCount()) selected_step_ = stepCount() - 1;
@@ -337,6 +340,54 @@ QVariantList PatternModel::stemRows() const {
     return rows;
 }
 
+QVariantList PatternModel::trackerChannels() const {
+    QVariantList channels;
+    if (song_ == nullptr) return channels;
+    const auto& song = song_->song();
+    const int steps = stepCount();
+    for (int track = 0; track < song_->trackCount(); ++track) {
+        // Empty rows first, then the part's notes written over them.
+        std::vector<const blokkily::Trigger*> at(static_cast<std::size_t>(steps), nullptr);
+        const int part = song_->partOf(song_->currentSection(), track);
+        if (part >= 0)
+            for (const auto& trigger :
+                 song.patterns[static_cast<std::size_t>(part)].pattern.events()) {
+                const auto step = static_cast<int>(trigger.start / ticks_per_step);
+                if (step >= 0 && step < steps && at[static_cast<std::size_t>(step)] == nullptr)
+                    at[static_cast<std::size_t>(step)] = &trigger;
+            }
+        QVariantList rows;
+        rows.reserve(steps);
+        for (const auto* trigger : at) {
+            QVariantMap row;
+            row["active"] = trigger != nullptr;
+            row["noteName"] = trigger != nullptr ? pitch_label(song_, *trigger)
+                                                 : QStringLiteral("---");
+            row["velocityHex"] = trigger != nullptr
+                                     ? hex2(velocity_units(step_velocity(*trigger)))
+                                     : QStringLiteral("--");
+            row["lockText"] = trigger != nullptr ? lock_text(*trigger) : QStringLiteral("---");
+            row["hasLock"] = trigger != nullptr && !trigger->locks.empty();
+            rows.push_back(row);
+        }
+        QVariantMap channel;
+        channel["track"] = track;
+        channel["name"] =
+            QString::fromStdString(song.tracks[static_cast<std::size_t>(track)].name);
+        channel["selected"] = track == song_->selectedTrack();
+        channel["hasPart"] = part >= 0;
+        channel["rows"] = rows;
+        channels.push_back(channel);
+    }
+    return channels;
+}
+
+void PatternModel::selectChannelStep(int track, int step) {
+    if (song_ == nullptr || track < 0 || track >= song_->trackCount()) return;
+    if (track != song_->selectedTrack()) song_->selectTrack(track);
+    selectStep(step);
+}
+
 void PatternModel::toggleStemStep(int track, int step, int key) {
     if (song_ == nullptr || track < 0 || track >= song_->trackCount()) return;
     song_->selectTrack(track);
@@ -464,6 +515,7 @@ std::pair<int, int> key_range(const blokkily::Pattern& pattern) {
 } // namespace
 
 int PatternModel::lowKey() const {
+    if (roll_low_) return *roll_low_;
     const auto [lowest, highest] = key_range(pattern());
     int low = lowest - 4;
     const int span = (highest + 4) - low;
@@ -472,8 +524,20 @@ int PatternModel::lowKey() const {
 }
 
 int PatternModel::highKey() const {
+    if (roll_low_) return *roll_low_ + roll_span_;
     const auto highest = key_range(pattern()).second;
     return qBound(lowKey() + minimum_roll_span, highest + 4, 127);
+}
+
+void PatternModel::scrollRoll(int semitones) {
+    const int low = lowKey();
+    const int span = highKey() - low;
+    const int moved = qBound(0, low + semitones, 127 - span);
+    roll_span_ = span;
+    roll_pattern_ = song_ != nullptr ? song_->currentPattern() : -1;
+    if (roll_low_ && *roll_low_ == moved) return;
+    roll_low_ = moved;
+    emit patternChanged();
 }
 
 int PatternModel::stepCount() const {
@@ -543,6 +607,176 @@ void PatternModel::setStepKey(int step, int key) {
     placeNote(step, blokkily::Note{static_cast<std::int16_t>(bounded), velocity, 0.0F, cents});
 }
 
+namespace {
+int roll_voice(const blokkily::Trigger& trigger, int key) {
+    const auto keys = voice_keys(trigger);
+    for (int i = 0; i < keys.size(); ++i)
+        if (keys[i].toInt() == key) return i;
+    return -1;
+}
+
+// Materialize optional per-voice values before editing one voice so changing
+// the trigger's length cannot change any of its neighbours' lengths.
+blokkily::Chord& roll_chord(blokkily::Trigger& trigger) {
+    if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
+        blokkily::Chord chord;
+        chord.root = note->key;
+        chord.intervals = {0};
+        chord.velocity = note->velocity;
+        chord.cents = {note->cents};
+        trigger.musical_data = std::move(chord);
+    }
+    auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+    chord.velocities.resize(chord.intervals.size(), chord.velocity);
+    chord.durations.resize(chord.intervals.size(), trigger.duration);
+    chord.cents.resize(chord.intervals.size(), 0.0);
+    return chord;
+}
+
+void append_roll_voice(blokkily::Trigger& target, const blokkily::Trigger& source) {
+    const auto note = std::get<blokkily::Note>(source.musical_data);
+    auto& chord = roll_chord(target);
+    const auto voice = chord.intervals.size();
+    chord.intervals.push_back(static_cast<std::int16_t>(note.key - chord.root));
+    chord.cents.push_back(note.cents);
+    chord.velocities.push_back(note.velocity);
+    chord.durations.push_back(source.duration);
+    target.duration = *std::max_element(chord.durations.begin(), chord.durations.end());
+    for (auto expression : source.expression) {
+        expression.voice = voice;
+        target.expression.push_back(expression);
+    }
+}
+
+void rebase_roll_chord(blokkily::Chord& chord) {
+    const auto shift = chord.intervals.front();
+    chord.root = static_cast<std::int16_t>(chord.root + shift);
+    for (auto& interval : chord.intervals) interval -= shift;
+}
+
+// False means the last voice was removed and the trigger must be removed too.
+bool remove_roll_voice(blokkily::Trigger& trigger, int voice) {
+    if (pitch_voices(trigger) == 1) return false;
+    auto& chord = roll_chord(trigger);
+    chord.intervals.erase(chord.intervals.begin() + voice);
+    chord.cents.erase(chord.cents.begin() + voice);
+    chord.velocities.erase(chord.velocities.begin() + voice);
+    chord.durations.erase(chord.durations.begin() + voice);
+    rebase_roll_chord(chord);
+    std::erase_if(trigger.expression, [voice](const auto& e) {
+        return e.voice == static_cast<std::size_t>(voice);
+    });
+    for (auto& e : trigger.expression)
+        if (e.voice > static_cast<std::size_t>(voice)) --e.voice;
+    trigger.duration = *std::max_element(chord.durations.begin(), chord.durations.end());
+    if (chord.intervals.size() == 1)
+        trigger.musical_data = blokkily::Note{chord.root, chord.velocities.front(),
+                                             0.0F, chord.cents.front()};
+    return true;
+}
+}
+
+int PatternModel::rollNoteDuration(int step, int key) const {
+    const auto* trigger = triggerAt(step);
+    if (!trigger) return 0;
+    const int voice = roll_voice(*trigger, key);
+    return voice < 0 ? 0 : voice_lengths(*trigger)[voice].toInt();
+}
+
+void PatternModel::addRollNote(int step, int key) {
+    if (step < 0 || step >= stepCount() || key < 0 || key > 127) return;
+    if (rollNoteDuration(step, key) > 0) { selectStep(step); return; }
+    if (!hasStep(step)) { setStepKey(step, key); return; }
+    blokkily::Trigger added;
+    added.duration = 96;
+    added.musical_data = blokkily::Note{static_cast<std::int16_t>(key), 0.9F};
+    mutate(step, [&added](auto& trigger) { append_roll_voice(trigger, added); });
+    selectStep(step);
+}
+
+void PatternModel::eraseRollNote(int step, int key) {
+    const auto* existing = triggerAt(step);
+    if (!existing) return;
+    const int voice = roll_voice(*existing, key);
+    if (voice < 0) return;
+    if (pitch_voices(*existing) == 1) { clearStep(step); return; }
+    mutate(step, [voice](auto& trigger) { (void)remove_roll_voice(trigger, voice); });
+    selectStep(step);
+}
+
+void PatternModel::resizeRollNote(int step, int key, int ticks) {
+    const int duration = rollNoteDuration(step, key);
+    const int bounded = qBound(24, ticks, 1920);
+    if (duration == 0 || duration == bounded) return;
+    mutate(step, [key, bounded](auto& trigger) {
+        const int voice = roll_voice(trigger, key);
+        if (std::holds_alternative<blokkily::Note>(trigger.musical_data)) {
+            trigger.duration = bounded;
+        } else {
+            auto& chord = roll_chord(trigger);
+            chord.durations[voice] = bounded;
+            trigger.duration = *std::max_element(chord.durations.begin(), chord.durations.end());
+        }
+    });
+}
+
+bool PatternModel::moveRollNote(int from, int key, int to, int newKey) {
+    if (to < 0 || to >= stepCount() || newKey < 0 || newKey > 127) return false;
+    const auto* existing = triggerAt(from);
+    if (!existing) return false;
+    const int voice = roll_voice(*existing, key);
+    if (voice < 0) return false;
+    if (from == to && key == newKey) return true;
+    // A collision must not silently destroy either of two identical pitches.
+    if (rollNoteDuration(to, newKey) > 0) return false;
+    auto source = *existing;
+    auto moved = source;
+    blokkily::Note note;
+    if (const auto* single = std::get_if<blokkily::Note>(&source.musical_data)) note = *single;
+    else {
+        const auto& chord = std::get<blokkily::Chord>(source.musical_data);
+        note.velocity = blokkily::voice_velocity(chord, voice);
+        note.cents = voice < static_cast<int>(chord.cents.size()) ? chord.cents[voice] : 0.0;
+    }
+    note.key = static_cast<std::int16_t>(newKey);
+    moved.musical_data = note;
+    moved.duration = rollNoteDuration(from, key);
+    moved.start = to * ticks_per_step;
+    std::erase_if(moved.expression, [voice](const auto& e) {
+        return e.voice != static_cast<std::size_t>(voice);
+    });
+    for (auto& e : moved.expression) e.voice = 0;
+    if (from == to) {
+        mutate(from, [voice, newKey](auto& trigger) {
+            if (auto* single = std::get_if<blokkily::Note>(&trigger.musical_data))
+                single->key = static_cast<std::int16_t>(newKey);
+            else {
+                auto& chord = std::get<blokkily::Chord>(trigger.musical_data);
+                chord.intervals[voice] = static_cast<std::int16_t>(newKey - chord.root);
+                rebase_roll_chord(chord);
+            }
+        });
+    } else {
+        std::optional<blokkily::Trigger> target;
+        if (const auto* occupant = triggerAt(to)) {
+            target = *occupant;
+            append_roll_voice(*target, moved);
+        }
+        const bool keep_source = remove_roll_voice(source, voice);
+        song_->checkpoint();
+        beginResetModel();
+        if (keep_source) (void)pattern().update(source.id, source);
+        else (void)pattern().remove(source.id);
+        if (target) (void)pattern().update(target->id, *target);
+        else (void)pattern().add(moved);
+        endResetModel();
+        emit patternChanged();
+        emit contentChanged();
+    }
+    selectStep(to);
+    return true;
+}
+
 void PatternModel::clearStep(int step) {
     const auto* existing = triggerAt(step);
     if (existing == nullptr) return;
@@ -580,34 +814,6 @@ void PatternModel::setSelectedDuration(int ticks) { setStepDuration(selected_ste
 void PatternModel::setStepVelocity(int step, double velocity) {
     selectStep(step);
     setSelectedVelocity(velocity);
-}
-
-void PatternModel::relocateStep(int from, int to, int semitones) {
-    if (from < 0 || from >= stepCount() || to < 0 || to >= stepCount()) return;
-    const auto* existing = triggerAt(from);
-    if (existing == nullptr) return;
-    if (from == to && semitones == 0) return;
-    auto moved = *existing;
-    moved.start = to * ticks_per_step;
-    transpose_trigger(moved, semitones);
-    const auto from_id = existing->id;
-    blokkily::EventId occupant_id = 0;
-    if (from != to)
-        if (const auto* occupant = triggerAt(to)) occupant_id = occupant->id;
-    song_->checkpoint();
-    beginResetModel();
-    if (from != to) {
-        (void)pattern().remove(from_id);
-        if (occupant_id != 0) (void)pattern().remove(occupant_id);
-        (void)pattern().add(moved);
-    } else {
-        (void)pattern().update(from_id, moved);
-    }
-    endResetModel();
-    selected_step_ = to;
-    emit patternChanged();
-    emit contentChanged();
-    emit selectionChanged();
 }
 
 void PatternModel::copySelected() {

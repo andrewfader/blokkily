@@ -15,6 +15,7 @@
 
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -22,7 +23,6 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTemporaryDir>
-#include <QTemporaryFile>
 #include <QTimer>
 
 #include <algorithm>
@@ -216,8 +216,12 @@ void roundtrip_triggers_case() {
 
 // Scenario: the gate's backend answers from a script, not a server.
 void scripted_backend_answers_case(int argc, char** argv) {
-    QTemporaryFile script;
-    require(script.open(), "script file must open");
+    // A named file in a directory of its own: an unnamed temporary file (Qt
+    // may open one with O_TMPFILE) has no path for the backend to read.
+    QTemporaryDir folder;
+    require(folder.isValid(), "script folder must exist");
+    QFile script(folder.filePath(QStringLiteral("script.jsonl")));
+    require(script.open(QIODevice::WriteOnly), "script file must open");
     script.write("{\"match\": \"pentatonic\", \"reply\": \"{\\\"mode\\\": \\\"replace\\\", "
                  "\\\"triggers\\\": []}\"}\n");
     script.flush();

@@ -46,6 +46,7 @@ add_library(blokkily_core
     src/model/tuning.cpp
     src/model/scale.cpp
     src/model/keyboard.cpp
+    src/project/midi_file.cpp
     src/project/project.cpp
     src/project/paths.cpp
     src/project/record_io.cpp
@@ -449,7 +450,8 @@ foreach(blokkily_feature
         wave2_fixes
         llm_assistant
         cross_feature
-        per_stem_editing)
+        per_stem_editing
+        sequencer_workflow)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

@@ -2,7 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// The song timeline: one lane per mixer track, one cell per bar.
+// The song timeline: one lane per mixer track, one cell per bar. A long song
+// keeps every bar wide enough to read and to hit: the lanes scroll sideways
+// (Shift+wheel, or the bar under them) and Ctrl+wheel or the zoom chips
+// widen the bars, while the lane names stay where they are.
 // Clicking a cell places the pattern that is currently open, so
 // arranging and editing are the same two clicks. Each bar is drawn as
 // wide as it lasts (a 7/8 bar is 7/8 of a 4/4 one), from the song's bar
@@ -12,8 +15,48 @@ ColumnLayout {
     // The gap between two bar cells, and the width a bar of the song gets:
     // its share of the room the lanes have once the gaps are taken out.
     readonly property real barGap: 2
-    readonly property real laneRoom: Math.max(1, arrangementRows.width - 64 - barGap
-                                              - Math.max(0, songModel.bars - 1) * barGap)
+    // The narrowest a bar is drawn at 1x: room for its number and a clip's
+    // name, and a target a pointer can hit.
+    readonly property real minimumBarWidth: 44
+    // 1 shows the whole song when it fits; larger values widen every bar.
+    property real zoom: 1
+    readonly property real fitRoom: Math.max(1, arrangeScroll.width - 64 - barGap
+                                                - Math.max(0, songModel.bars - 1) * barGap)
+    readonly property real laneRoom:
+        Math.max(fitRoom, songModel.bars * minimumBarWidth) * zoom
+    function setZoom(next, anchorX) {
+        var clamped = Math.max(1, Math.min(16, next))
+        if (clamped === zoom) return
+        // Keep the bar under the pointer (or the middle of the view) where it is.
+        var at = anchorX === undefined ? arrangeScroll.width / 2 : anchorX
+        var content = arrangeScroll.contentX + at
+        var ratio = clamped / zoom
+        zoom = clamped
+        arrangeScroll.contentX = Math.max(0, Math.min(
+            arrangementRows.width - arrangeScroll.width, content * ratio - at))
+    }
+    // Where bar `bar` starts in the scrolled content.
+    function barX(bar) {
+        var entry = songModel.barLayout[bar]
+        if (entry === undefined) return 0
+        return 64 + barGap + entry.x0 * laneRoom + bar * barGap
+    }
+    // Scrolls just enough to show bar `bar`.
+    function reveal(bar) {
+        var left = barX(bar)
+        var right = left + barWidth(bar)
+        var visibleLeft = arrangeScroll.contentX + 64 + barGap
+        if (left < visibleLeft)
+            arrangeScroll.contentX = Math.max(0, left - 64 - barGap)
+        else if (right > arrangeScroll.contentX + arrangeScroll.width)
+            arrangeScroll.contentX = Math.min(arrangementRows.width - arrangeScroll.width,
+                                              right - arrangeScroll.width)
+    }
+    // A playing song is followed: the playhead's bar is kept in view.
+    Connections {
+        target: transport
+        function onChanged() { if (transport.playing) root.reveal(transport.bar) }
+    }
     function barWidth(bar) {
         var entry = songModel.barLayout[bar]
         if (entry === undefined) return 1
@@ -31,6 +74,14 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true; spacing: 6
         SectionLabel { text: "ARRANGEMENT" }
+        Chip { objectName: "arrangeZoomOut"; text: "-"; implicitWidth: 24; implicitHeight: 22
+            accessibleLabel: "Zoom the arrangement out"
+            enabled: root.zoom > 1
+            onClicked: root.setZoom(root.zoom / 1.5) }
+        Chip { objectName: "arrangeZoomIn"; text: "+"; implicitWidth: 24; implicitHeight: 22
+            accessibleLabel: "Zoom the arrangement in"
+            enabled: root.zoom < 16
+            onClicked: root.setZoom(root.zoom * 1.5) }
         // The hint gives way first: it elides before anything is pushed off.
         Label {
             text: "click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes"
@@ -99,12 +150,56 @@ ColumnLayout {
         // takes only the room it needs and the editors keep
         // the rest of the window.
         Layout.preferredHeight: 28 + 42 + Math.max(1, songModel.trackCount) * 24 + 52
+                                + (arrangeScroll.contentWidth > arrangeScroll.width + 1 ? 8 : 0)
         radius: 6; color: Theme.panel; border.color: Theme.line; clip: true
+
+        Flickable {
+            id: arrangeScroll
+            objectName: "arrangeScroll"
+            anchors.fill: parent; anchors.margins: 5
+            clip: true
+            // Scrolled by the bar and the wheel only: a drag belongs to the
+            // clips, the tempo points and the automation under it.
+            interactive: false
+            contentWidth: arrangementRows.width
+            contentHeight: height
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.horizontal: ScrollBar {
+                objectName: "arrangeScrollBar"
+                policy: arrangeScroll.contentWidth > arrangeScroll.width + 1
+                        ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                height: 6
+            }
+            WheelHandler {
+                objectName: "arrangeZoomWheel"
+                acceptedModifiers: Qt.ControlModifier
+                onWheel: function(event) {
+                    var delta = event.angleDelta.y !== 0 ? event.angleDelta.y
+                                                         : event.angleDelta.x
+                    if (delta === 0) return
+                    root.setZoom(root.zoom * Math.pow(1.25, delta / 120),
+                                 event.x - arrangeScroll.contentX)
+                }
+            }
+            WheelHandler {
+                objectName: "arrangeScrollWheel"
+                acceptedModifiers: Qt.ShiftModifier
+                onWheel: function(event) {
+                    var delta = event.angleDelta.x !== 0 ? event.angleDelta.x
+                                                         : event.angleDelta.y
+                    arrangeScroll.contentX = Math.max(0, Math.min(
+                        arrangementRows.width - arrangeScroll.width,
+                        arrangeScroll.contentX - delta))
+                }
+            }
 
         ColumnLayout {
             id: arrangementRows
             objectName: "arrangementRows"
-            anchors.fill: parent; anchors.margins: 5; spacing: 2
+            width: 64 + root.barGap + root.laneRoom
+                   + Math.max(0, songModel.bars - 1) * root.barGap
+            height: arrangeScroll.height
+            spacing: 2
 
             // A ruler over the bars, so the playhead is something
             // the producer can put rather than only watch.
@@ -113,7 +208,9 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 14
                 spacing: 2
-                Item { Layout.preferredWidth: 64; Layout.preferredHeight: 14 }
+                Rectangle { Layout.preferredWidth: 64; Layout.preferredHeight: 14
+                    color: Theme.panel; z: 2
+                    transform: Translate { x: arrangeScroll.contentX } }
                 Repeater {
                     model: songModel.bars
                     Rectangle {
@@ -177,7 +274,9 @@ ColumnLayout {
                 spacing: 2
                 Rectangle {
                     Layout.preferredWidth: 64; Layout.preferredHeight: 40
-                    radius: 3; color: "transparent"; border.color: Theme.line
+                    // The lane names stay put while the bars scroll under them.
+                    z: 2; transform: Translate { x: arrangeScroll.contentX }
+                    radius: 3; color: Theme.panel; border.color: Theme.line
                     Column {
                         anchors.centerIn: parent
                         Label { anchors.horizontalCenter: parent.horizontalCenter
@@ -217,8 +316,9 @@ ColumnLayout {
 
                     Rectangle {
                         Layout.preferredWidth: 64; Layout.preferredHeight: 22
+                        z: 2; transform: Translate { x: arrangeScroll.contentX }
                         radius: 3
-                        color: track.selected ? Theme.raised : "transparent"
+                        color: track.selected ? Theme.raised : Theme.panel
                         border.color: track.selected ? Theme.acid : Theme.line
                         objectName: "trackHeader" + trackIndex
                         Label {
@@ -371,7 +471,8 @@ ColumnLayout {
                 Rectangle {
                     objectName: "automationHeader"
                     Layout.preferredWidth: 64; Layout.preferredHeight: 48
-                    radius: 3; color: "transparent"; border.color: Theme.line
+                    z: 2; transform: Translate { x: arrangeScroll.contentX }
+                    radius: 3; color: Theme.panel; border.color: Theme.line
                     readonly property var lanes: songModel.automationLanes
                     Column {
                         anchors.centerIn: parent
@@ -413,6 +514,7 @@ ColumnLayout {
             }
         }
         AudioClipLane { id: audioClipLane; anchors.fill: arrangementRows; rows: arrangementRows }
+        }
     }
 
     MeterMenu {

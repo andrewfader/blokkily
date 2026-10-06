@@ -27,3 +27,24 @@ void AppController::seekToPatternStep(int step) {
     }
     seekToTick(static_cast<double>(pass + static_cast<blokkily::Tick>(step) * 120));
 }
+
+// Project the engine-following transport into the open pattern's clip, including
+// repeats and trimmed offsets. No second playback clock or pattern is kept.
+double AppController::patternPlayStep() const {
+    if (!song_ || !transport_) return -1.0;
+    const auto& song = song_->song();
+    const auto open = static_cast<std::size_t>(std::max(0, song_->currentPattern()));
+    if (open >= song.patterns.size()) return -1.0;
+    const auto length = song.patterns[open].pattern.length();
+    if (length <= 0) return -1.0;
+    const double tick = transport_->tick();
+    const auto at = static_cast<blokkily::Tick>(std::floor(tick));
+    for (const auto& clip : song.clips) {
+        if (clip.track != static_cast<std::size_t>(song_->selectedTrack()) ||
+            clip.pattern != open || at < clip.start || at >= clip.start + clip.span(length)) continue;
+        return (static_cast<double>(clip.pattern_tick(at, length)) + tick - at) / 120.0;
+    }
+    // A resting cursor still supports locating within an unplaced pattern.
+    if (transport_->playing()) return -1.0;
+    return std::fmod(transport_->barStepFraction(), static_cast<double>(length) / 120.0);
+}

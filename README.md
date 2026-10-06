@@ -72,6 +72,23 @@ numeral and stack a row per inversion. Playing one auditions it through the sele
 even on a stopped transport, and writes it onto the selected step of the
 canonical pattern, where every editor names it in the song's own tuning.
 
+The tracker shows the section's instrument tracks side by side; Tab and
+Shift+Tab select the next or previous channel. Long patterns scroll vertically.
+The piano roll's arrow buttons move its pitch window by octaves, reaching MIDI
+keys 0–127. The arrangement has horizontal scrolling and +/− zoom controls;
+long songs keep usable bar widths.
+
+The project panel's **MIDI IN / MIDI OUT** buttons import and export Standard
+MIDI Files. Export writes the arranged notes and controllers from the same song
+scheduler used for playback, with track names, tempo and meter. Import accepts
+format 0 and 1, splits channels into instrument parts, and appends four-bar
+sections as one undoable edit. It keeps the current song's tempo and instruments;
+additional tracks need instruments assigned. Import uses the recording grid:
+notes on one sixteenth become a chord with shared timing, and note durations
+are capped at the section length. MIDI exchange omits plugin state, parameter
+automation, per-note expression, audio clips and microtonal retuning. Tempo ramps
+export as sixteenth-note tempo steps. It is note exchange, not a project backup.
+
 A MIDI keyboard plays the song too. Its keys arrive on the port's own thread
 and reach the render callback through a lock-free queue, so a note is not held
 up behind a busy interface; they sound through the selected track's instrument

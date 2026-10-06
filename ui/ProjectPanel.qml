@@ -15,6 +15,8 @@ ColumnLayout {
     signal openRequested()
     signal saveRequested()
     signal saveAsRequested()
+    signal importMidiRequested()
+    signal exportMidiRequested()
     signal exportRequested()
     signal exportDepthPicked(string depth)
     signal exportClickToggled()
@@ -101,6 +103,15 @@ ColumnLayout {
                 onClicked: root.exportDepthPicked(modelData)
             }
         }
+    }
+    RowLayout {
+        Layout.fillWidth: true; spacing: 4
+        Chip { objectName: "importMidiButton"; text: "MIDI IN"
+            Layout.fillWidth: true
+            onClicked: root.importMidiRequested() }
+        Chip { objectName: "exportMidiButton"; text: "MIDI OUT"
+            Layout.fillWidth: true
+            onClicked: root.exportMidiRequested() }
     }
     Label {
         objectName: "exportStatus"

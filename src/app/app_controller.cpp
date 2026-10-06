@@ -1,5 +1,6 @@
 #include "app_controller.hpp"
 #include "app_controller_internal.hpp"
+#include "blokkily/project/midi_file.hpp"
 #include "blokkily/instruments/soundfont_catalog.hpp"
 #include "blokkily/instruments/soundfont_synth.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
@@ -145,6 +146,10 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
     audition_timer_.setInterval(450);
     QObject::connect(&audition_timer_, &QTimer::timeout, this,
                      &AppController::releaseSoundingNotes);
+    if (transport_)
+        QObject::connect(transport_, &Transport::changed, this, &AppController::patternPlayheadChanged);
+    if (song_)
+        QObject::connect(song_, &SongModel::songChanged, this, &AppController::patternPlayheadChanged);
     meter_timer_.setInterval(33);
     QObject::connect(&meter_timer_, &QTimer::timeout, this, &AppController::pollMeters);
     // Plugins are served on the main thread while an engine exists: what they
@@ -812,6 +817,40 @@ void AppController::setTempo(double bpm) {
     // the instruments playing them: the song model reports it as a structure
     // change, which reaches the running engine as a coalesced recompile.
     (void)song_->setTempoAt(bpm, transport_ != nullptr ? transport_->tick() : 0.0);
+}
+
+bool AppController::exportMidiFile(const QString& path) {
+    if (!song_) return false;
+    std::string error;
+    const bool written = blokkily::write_midi_file(local_path(path).toStdString(), song_->song(), &error);
+    export_status_ = written ? QString("MIDI saved · %1").arg(QFileInfo(local_path(path)).fileName())
+                             : QString("MIDI export failed · %1").arg(QString::fromStdString(error));
+    emit exportStatusChanged();
+    return written;
+}
+
+bool AppController::importMidiFile(const QString& path) {
+    if (!song_) return false;
+    std::string error;
+    const auto file = blokkily::read_midi_file(local_path(path).toStdString(), &error);
+    // Prepare the entire import before adding a single undo checkpoint.
+    auto imported = song_->song();
+    const auto result = file ? blokkily::import_midi_file(
+        imported, *file, QFileInfo(local_path(path)).completeBaseName().toStdString())
+                             : std::nullopt;
+    if (!result) {
+        status_ = QString("MIDI import failed · %1").arg(file ? "No notes in file"
+                                                           : QString::fromStdString(error));
+        emit statusChanged();
+        return false;
+    }
+    song_->checkpoint();
+    song_->song() = std::move(imported);
+    song_->refreshStructure();
+    song_->selectSection(static_cast<int>(result->first_section));
+    status_ = QString("Imported %1 notes · song tempo retained").arg(result->notes);
+    emit statusChanged();
+    return true;
 }
 
 bool AppController::exportAudioFile(const QString& path, const QString& depth, bool withClick) {

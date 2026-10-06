@@ -32,7 +32,9 @@ class PatternModel final : public QAbstractListModel {
     // cursor is not an edit, and nothing downstream may treat it as one.
     Q_PROPERTY(int selectedStep READ selectedStep NOTIFY selectionChanged)
     Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectionChanged)
-    // Pitch window the piano roll draws, widened to whatever the pattern uses.
+    // Pitch window the piano roll draws, widened to whatever the pattern uses
+    // until the producer scrolls it (scrollRoll), which moves it anywhere in
+    // the MIDI range, so no pitch is out of the roll's reach.
     Q_PROPERTY(int lowKey READ lowKey NOTIFY patternChanged)
     Q_PROPERTY(int highKey READ highKey NOTIFY patternChanged)
     // How many sixteenth steps the open pattern has: sixteen for a 4/4 bar,
@@ -43,6 +45,11 @@ class PatternModel final : public QAbstractListModel {
     // as {track, name, selected, steps: [bool per step]}, so the whole
     // pattern is seen at once and any stem's steps are a click away.
     Q_PROPERTY(QVariantList stemRows READ stemRows NOTIFY patternChanged)
+    // The tracker's channels: every track's part of the open section, side by
+    // side, as {track, name, selected, rows: [{active, noteName, velocityHex,
+    // lockText, hasLock} per step]}. A tracker that shows one channel at a
+    // time is a step list, so the whole section is read across at once.
+    Q_PROPERTY(QVariantList trackerChannels READ trackerChannels NOTIFY patternChanged)
 
 public:
     // A step is a sixteenth note, whatever the meter or the pattern's length.
@@ -57,11 +64,17 @@ public:
 
     QVariantList steps() const;
     QVariantList stemRows() const;
+    QVariantList trackerChannels() const;
     QVariantList controls() const;
     QVariantMap selected() const;
     int selectedStep() const noexcept { return selected_step_; }
     int lowKey() const;
     int highKey() const;
+    // Moves the piano roll's pitch window up (positive) or down by
+    // `semitones`, keeping how many keys it shows and stopping at 0 and 127.
+    // Looking is not editing: no history, and the engine is not told. The
+    // window follows the pattern again when another pattern is opened.
+    Q_INVOKABLE void scrollRoll(int semitones);
     // The open pattern's length in steps; a length that is not a whole number
     // of steps counts its last, partial step.
     int stepCount() const;
@@ -92,31 +105,32 @@ public:
     // Toggles a step on track `track`'s part of the open section, from the
     // stem rack: the track is selected, so the editors follow it there.
     Q_INVOKABLE void toggleStemStep(int track, int step, int key = 60);
+    // Puts the tracker's cursor on row `step` of channel `track`: the track
+    // is selected, so every editor and the keys that write follow it there.
+    Q_INVOKABLE void selectChannelStep(int track, int step);
     Q_INVOKABLE bool hasStep(int step) const;
     Q_INVOKABLE int stepDuration(int step) const;
     Q_INVOKABLE int stepKey(int step) const;
     Q_INVOKABLE void selectStep(int step);
-    // What the tracker and the piano roll write. Both are editors rather than
-    // read-outs, so both put notes on the same canonical pattern the step grid
-    // and the keyboards do, and every projection redraws from that one change.
-    // Writing over a step keeps everything else the producer set on it.
+    // Tracker pitch entry replaces the step's pitch while preserving its
+    // other settings. Every editor projects the same canonical pattern.
     Q_INVOKABLE void setStepKey(int step, int key);
-    // Takes the note off a step without putting one back, which is what a
-    // tracker's clear key and the roll's erase gesture mean. Toggling would put
-    // a note back on a step the producer has just emptied.
+    // Piano-roll gestures address a pitch within a step; tracker edits above
+    // still replace the whole step. All edits use the same canonical pattern.
+    Q_INVOKABLE void addRollNote(int step, int key);
+    Q_INVOKABLE void eraseRollNote(int step, int key);
+    Q_INVOKABLE int rollNoteDuration(int step, int key) const;
+    Q_INVOKABLE void resizeRollNote(int step, int key, int ticks);
+    Q_INVOKABLE bool moveRollNote(int from, int key, int to, int newKey);
+
+    // Clears the whole step, as requested by the tracker's clear key.
     Q_INVOKABLE void clearStep(int step);
-    // How long the step sounds, in ticks. The piano roll draws that width and
-    // dragging a note's right edge writes it here, so a long note is a long
-    // note in every editor and in what the engine plays.
+    // How long the whole step sounds, in ticks.
     Q_INVOKABLE void setStepDuration(int step, int ticks);
     Q_INVOKABLE void setSelectedDuration(int ticks);
     // Velocity from the tracker's VEL column, which is an input rather than a
     // readout of the inspector.
     Q_INVOKABLE void setStepVelocity(int step, double velocity);
-    // Moves a step in time and pitch together, which is what dragging a note
-    // on the piano roll means. `semitones` transposes every voice, so a chord
-    // stays a chord.
-    Q_INVOKABLE void relocateStep(int from, int to, int semitones);
     // The selected step, as a tracker copies a row: pitch, length, velocity,
     // locks and the rest. An empty row copies as empty, so pasting it clears.
     Q_INVOKABLE void copySelected();
@@ -184,4 +198,9 @@ private:
     int selected_step_ = -1;
     bool has_clipboard_ = false;
     std::optional<blokkily::Trigger> clipboard_;
+    // The roll's window once scrolled: its lowest key and how many keys it
+    // spans, and the pattern it was scrolled on.
+    std::optional<int> roll_low_;
+    int roll_span_ = 0;
+    int roll_pattern_ = -1;
 };

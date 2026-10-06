@@ -125,7 +125,14 @@ void run_sampler(VerifyContext& ctx) {
     QDir(moved_dir).removeRecursively();
     const QString pads_file = project_dir + "/samples/tones8_48k_pcm16.wav";
     QDir{}.mkpath(project_dir + "/samples");
-    check(QFile::copy(fixture_dir + "/tones8_48k_pcm16.wav", pads_file));
+    // Copied by the standard library: QFile::copy goes through an unnamed
+    // temporary file, which some Qt builds cannot give a name in the target.
+    {
+        std::error_code copied;
+        std::filesystem::copy_file((fixture_dir + "/tones8_48k_pcm16.wav").toStdString(),
+                                   pads_file.toStdString(), copied);
+        check(!copied);
+    }
 
     // A song made for the check: key 69 on every beat of bar 1 on KEYS, and
     // on PADS in bar 2 key 36 on the downbeat and key 40 a beat later.

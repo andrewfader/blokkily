@@ -117,6 +117,8 @@ class AppController final : public QObject {
     // A count-in is playing (item 3.7): Play was pressed with recording armed
     // and a count-in set, and the song has not started yet.
     Q_PROPERTY(bool countingIn READ countingIn NOTIFY countInChanged)
+    // Position in the open pattern, or -1 while its clip is not playing.
+    Q_PROPERTY(double patternPlayStep READ patternPlayStep NOTIFY patternPlayheadChanged)
     // The scene launcher (phase 2, wave 6.1; app_controller_launcher.cpp):
     // one entry per track, {playing, queued, stopping, scene, queuedScene},
     // as of the last block the engine rendered; and whether what is launched
@@ -255,6 +257,7 @@ public:
     // This is what a Ctrl-click on the step grid means in any meter and for a
     // pattern of any length.
     Q_INVOKABLE void seekToPatternStep(int step);
+    double patternPlayStep() const;
     // Locates both playheads on a tick of the song. The engine is sent to the
     // sample the song's tempo map places that tick at.
     void seekToTick(double tick);
@@ -284,6 +287,8 @@ public:
     Q_INVOKABLE bool importAudio(const QString& path, int track, double tick);
     // The import the file dialog makes: onto the selected track, at the start
     // of the bar the playhead is in.
+    Q_INVOKABLE bool importMidiFile(const QString& path);
+    Q_INVOKABLE bool exportMidiFile(const QString& path);
     Q_INVOKABLE bool importAudioFile(const QString& path);
     // The overview of a clip for its waveform: `buckets` min, max pairs over
     // the stretch of file it plays, relative to the file's loudest sample and
@@ -476,6 +481,7 @@ public:
     void pollCountIn();
 
 signals:
+    void patternPlayheadChanged();
     void statusChanged();
     void pluginsChanged();
     void browserChanged();
