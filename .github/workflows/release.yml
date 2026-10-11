@@ -164,7 +164,11 @@ jobs:
           cmake --install build --prefix "stage/$name"
           bin="stage/$name/bin"
           cp "$VCPKG_ROOT_DIR"/bin/*.dll "$bin/"
-          windeployqt --release --compiler-runtime --qmldir ui "$bin/blokkily.exe"
+          windeployqt --release --no-compiler-runtime --qmldir ui "$bin/blokkily.exe"
+          # The MSVC runtime as DLLs beside the executables, not as an
+          # installer the user would have to run first.
+          cp "$(cygpath -u "$VCToolsRedistDir")"/x64/Microsoft.VC*.CRT/*.dll "$bin/"
+          ls "$bin"/vcruntime140.dll "$bin"/msvcp140.dll
           echo "PACKAGE=$name" >> "$GITHUB_ENV"
 
       # The packaged application, not the build tree, runs the end-to-end
