@@ -217,6 +217,10 @@ public:
     Q_INVOKABLE bool saveProjectInPlace();
     // A blank session: one empty pattern on one track with the default bank.
     Q_INVOKABLE void newProject();
+    // Clears everything out of the session being edited, so the producer can
+    // add tracks, instruments and patterns from nothing (SongModel::clearSong).
+    // Unlike a new session it keeps the file and is one step of history.
+    Q_INVOKABLE void clearEverything();
     // Lets go of the notes a surface is holding, for the release of a key that
     // was held down.
     Q_INVOKABLE void releaseAudition();

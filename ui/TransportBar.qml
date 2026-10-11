@@ -167,10 +167,26 @@ ToolBar {
         }
 
         Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: Theme.line }
-        Chip { objectName: "undoButton"; text: "UNDO"; enabled: songModel.canUndo
-               onClicked: songModel.undo() }
-        Chip { objectName: "redoButton"; text: "REDO"; enabled: songModel.canRedo
-               onClicked: songModel.redo() }
+        // The history chips sit as tight as the view chips do, so CLEAR
+        // takes no room the bar's other controls need.
+        RowLayout {
+            objectName: "historyChips"
+            spacing: 2
+            TextMetrics { id: historyName; text: "CLEAR"
+                font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
+            Chip { objectName: "undoButton"; text: "UNDO"; enabled: songModel.canUndo
+                   implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+                   onClicked: songModel.undo() }
+            Chip { objectName: "redoButton"; text: "REDO"; enabled: songModel.canRedo
+                   implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+                   onClicked: songModel.redo() }
+            // Empties the song so the producer can start from nothing; it is one
+            // step of history, so the UNDO beside it brings everything back.
+            Chip { objectName: "clearButton"; text: "CLEAR"; accent: Theme.record
+                   implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+                   accessibleLabel: "Clear everything"
+                   onClicked: appController.clearEverything() }
+        }
 
         Item { Layout.fillWidth: true }
 

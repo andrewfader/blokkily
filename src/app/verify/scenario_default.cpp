@@ -1486,6 +1486,78 @@ struct DefaultScenario {
             }
             reached("workflow: unsaved changes are tracked");
 
+            // CLEAR leaves nothing to hear and nothing to edit, and is one
+            // step of history: UNDO puts every track, pattern, clip and
+            // instrument back, and the song is heard again.
+            {
+                // The loudest sample of the song's first bar, as the engine
+                // that is running renders it.
+                const auto first_bar = [this] {
+                    auto* running = controller.engine();
+                    if (running == nullptr) return 0.0F;
+                    std::vector<float> left(512, 0.0F), right(512, 0.0F);
+                    running->seek(0);
+                    running->set_playing(true);
+                    float loudest = 0.0F;
+                    const auto bar = static_cast<std::size_t>(running->sample_rate() * 2.0);
+                    for (std::size_t done = 0; done < bar; done += left.size()) {
+                        running->process({left, right});
+                        for (std::size_t i = 0; i < left.size(); ++i)
+                            loudest = std::max({loudest, std::abs(left[i]), std::abs(right[i])});
+                    }
+                    running->set_playing(false);
+                    running->seek(0);
+                    return loudest;
+                };
+                const int tracks_full = song.trackCount();
+                const int patterns_full = song.patterns().size();
+                const int clips_full = song.clips().size();
+                const auto audio_full = song.song().audio_clips.size();
+                const QString path_full = controller.projectPath();
+                valid = valid && tracks_full > 1 && clips_full > 1
+                              && song.tracks().first().toMap().value("hasInstrument").toBool()
+                              && first_bar() > 0.001F;
+                auto* clear = item("clearButton");
+                valid = valid && clear != nullptr && clear->isVisible()
+                              && clear->width() > 20 && clear->height() > 10;
+                if (clear != nullptr)
+                    click_at(clear, {clear->width() / 2, clear->height() / 2}, Qt::LeftButton);
+                const auto& cleared = song.song();
+                valid = valid && song.trackCount() == 1 && song.patterns().size() == 1
+                              && song.sections().size() == 1 && pattern.rowCount() == 0
+                              && !song.tracks().first().toMap().value("hasInstrument").toBool()
+                              && cleared.audio_clips.empty() && cleared.returns.empty()
+                              && cleared.master_inserts.empty() && cleared.modulators.empty()
+                              && cleared.tracks.front().inserts.empty()
+                              && cleared.tracks.front().automation.empty()
+                              && song.canUndo() && song.dirty()
+                              && controller.projectPath() == path_full;
+                valid = valid && first_bar() == 0.0F
+                              && controller.soundfontStatus() == "No instrument";
+                lay_out();
+                // What the producer is left with, as evidence to look at.
+                if (parser.isSet("screenshot")) {
+                    const auto file = QFileInfo(parser.value("screenshot"));
+                    QDir{}.mkpath(file.absolutePath());
+                    valid = window->grabWindow().save(file.absolutePath() + "/" +
+                        file.completeBaseName() + "-cleared.png") && valid;
+                }
+                auto* undo = item("undoButton");
+                valid = valid && undo != nullptr;
+                if (undo != nullptr)
+                    click_at(undo, {undo->width() / 2, undo->height() / 2}, Qt::LeftButton);
+                valid = valid && song.trackCount() == tracks_full
+                              && song.patterns().size() == patterns_full
+                              && song.clips().size() == clips_full
+                              && song.song().audio_clips.size() == audio_full
+                              && song.tracks().first().toMap().value("hasInstrument").toBool()
+                              && controller.engine() != nullptr
+                              && controller.engine()->track_count()
+                                     == static_cast<std::size_t>(tracks_full);
+                valid = valid && first_bar() > 0.001F;
+            }
+            reached("workflow: CLEAR empties the session and UNDO brings it back");
+
             // Leave the song as the later scenarios expect it: without the
             // pattern this section added.
             while (song.sections().size() > patterns_before)

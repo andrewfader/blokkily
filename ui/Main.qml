@@ -345,10 +345,21 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+6"; enabled: !root.typing
         onActivated: { patternModel.toggleStep(15, root.entryBase); if (patternModel.hasStep(15)) appController.auditionStep(15) } }
 
+    // F1 asks for help, as it does everywhere else.
+    Shortcut { sequence: StandardKey.HelpContents; onActivated: tutorial.toggle() }
+
     header: TransportBar {
         view: root.view
         focusHome: noteEntry
         onViewPicked: name => root.view = name
+    }
+
+    // The guided tour. It lives in the overlay, above the header, so it can
+    // point at the transport as well as the panels.
+    Tutorial {
+        id: tutorial
+        parent: root.Overlay.overlay
+        focusHome: noteEntry
     }
 
     // Note entry from the computer keyboard, laid out the way a tracker has
@@ -432,6 +443,7 @@ ApplicationWindow {
 
                 InstrumentPanel {
                     id: instrumentPanel
+                    objectName: "instrumentPanel"
                     Layout.fillWidth: true; Layout.fillHeight: true
                     focusHome: noteEntry
                 }
@@ -501,6 +513,14 @@ ApplicationWindow {
                             color: Theme.muted; font.pixelSize: 10
                             Layout.fillWidth: true; Layout.minimumWidth: 0
                             horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft }
+                        // The guided tour, at the end of the keys it explains.
+                        // Lit while the tour runs; a press starts it or sends
+                        // it away. The hints beside it elide to make room.
+                        Chip { objectName: "helpButton"; text: "HELP"
+                               implicitHeight: 20
+                               accessibleLabel: "Help: a guided tour"
+                               on: tutorial.running
+                               onClicked: tutorial.toggle() }
                     }
 
                     PromptBar {
@@ -510,6 +530,7 @@ ApplicationWindow {
                     }
 
                     ArrangementView {
+                        objectName: "arrangementView"
                         focusHome: noteEntry
                         onRenameRequested: (kind, index, name) => renamePopup.ask(kind, index, name)
                         onPatternMenuRequested: (index, name) => {

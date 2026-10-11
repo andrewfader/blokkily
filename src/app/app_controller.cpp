@@ -489,6 +489,26 @@ void AppController::newProject() {
     emit projectStatusChanged();
 }
 
+void AppController::clearEverything() {
+    if (song_ == nullptr) return;
+    if (transport_ != nullptr) transport_->stop();
+    forgetSoundingNotes();
+    // A take in progress belonged to the song being cleared.
+    takes_.clear();
+    discardAudioTake();
+    // The step of history the clear makes holds what every processor sounds
+    // like now, so UNDO brings back a synth as it was dialled in.
+    if (engine_)
+        (void)blokkily::capture_processor_states(*engine_, song_->song(), engine_signature_);
+    song_->clearSong();
+    if (transport_ != nullptr) transport_->rewind();
+    // The devices card reads this while the track has no instrument.
+    soundfont_status_ = QStringLiteral("No instrument");
+    emit soundfontStatusChanged();
+    status_ = QStringLiteral("Cleared · UNDO brings it back");
+    emit statusChanged();
+}
+
 bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     if (song_ == nullptr || transport_ == nullptr) return false;
     const bool resume = transport_->playing();

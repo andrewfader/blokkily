@@ -293,6 +293,21 @@ void SongModel::addPattern(int bar) {
 }
 
 void SongModel::replace(blokkily::Song song) {
+    install(std::move(song));
+    clearHistory();
+}
+
+void SongModel::clearSong() {
+    checkpoint();
+    blokkily::Song blank;
+    blank.patterns.front().name = "PATTERN 1";
+    blank.tracks.front().name = "TRACK 1";
+    blank.metronome = song_.metronome;
+    blank.record_offset_samples = song_.record_offset_samples;
+    install(std::move(blank));
+}
+
+void SongModel::install(blokkily::Song song) {
     song_ = std::move(song);
     // A new song is no take's: nothing it is given is recorded into one.
     capturing_ = false;
@@ -304,7 +319,6 @@ void SongModel::replace(blokkily::Song song) {
     current_section_ = 0;
     selected_track_ = 0;
     peaks_.assign(song_.tracks.size(), 0.0F);
-    clearHistory();
     emit tuningChanged();
     emit timebaseChanged();
     emit metronomeChanged();

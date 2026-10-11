@@ -173,6 +173,8 @@ if(BLOKKILY_BUILD_GUI)
         ui/Inspector.qml
         ui/MixerPanel.qml
         ui/MixerStrip.qml
+        ui/Blokkily.qml
+        ui/Tutorial.qml
     )
     foreach(qml_file IN LISTS BLOKKILY_QML_FILES)
         get_filename_component(qml_name "${qml_file}" NAME)
@@ -462,7 +464,8 @@ foreach(blokkily_feature
         cross_feature
         per_stem_editing
         sequencer_workflow
-        sequencer_fidelity)
+        sequencer_fidelity
+        tutorial)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

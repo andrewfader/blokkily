@@ -128,3 +128,13 @@ Feature: A session can be worked on without fear of losing it
     When the producer starts a new session
     Then it has one empty pattern on one track, with the old first track's instrument
     And it has no history, no file, and nothing unsaved
+
+  Scenario: CLEAR empties the session and UNDO brings it back
+    Given a session with tracks, instruments, patterns and clips that is heard
+    When the producer clicks CLEAR
+    Then the song is one empty pattern on one track that has no instrument
+    And it has no clips, audio clips, effects, returns, automation or modulators
+    And a bar rendered from the start of the song is silent
+    When they click UNDO
+    Then every track, pattern and clip is back with its instrument
+    And the first bar is heard again

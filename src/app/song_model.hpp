@@ -202,6 +202,12 @@ public:
     Q_INVOKABLE void clearPattern();
     Q_INVOKABLE bool deletePattern(int section);
     Q_INVOKABLE bool deleteTrack(int track);
+    // Empties the song for a producer to build up from nothing: one track
+    // with no instrument, one empty pattern, and no clips, audio, effects,
+    // returns, automation or modulators. The tempo, meter and tuning go back
+    // to their defaults; the click stays, as a session setting.
+    // One step of history, so UNDO brings everything back.
+    Q_INVOKABLE void clearSong();
     // While structureChanged is being emitted for a deleted track: where each
     // track before the deletion went (entry i is old track i's new index, or
     // empty for the one removed). Null at any other time, so it can never be
@@ -420,6 +426,9 @@ public:
     void markSaved();
     // A new or freshly opened session has no history to go back through.
     void clearHistory();
+    // Makes `song` the one being edited, from its first section and track,
+    // without touching history.
+    void install(blokkily::Song song);
     // A plugin's own window moved its parameters (item 2.6, decision 12):
     // `state` is what the instrument on `track` now holds. One gesture in the
     // plugin's window is one step of history. The engine already plays the
