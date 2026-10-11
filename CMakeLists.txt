@@ -37,6 +37,9 @@ endif()
 # macOS give 8 MB, so two engines in one frame overflowed it; match the others.
 if(MSVC)
     add_link_options($<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:/STACK:8388608>)
+    # Sources are UTF-8, and so are the strings the interface shows ("vii°");
+    # MSVC otherwise reads and encodes them in the system code page.
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)

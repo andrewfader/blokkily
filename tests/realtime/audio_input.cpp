@@ -18,6 +18,7 @@
 #include "blokkily/audio/song_engine.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <thread>
@@ -61,14 +62,30 @@ BLOKKILY_REALTIME_CASE(audio_input) {
     engine.connect_capture(&ring);
     std::atomic<bool> reading{true};
     std::atomic<std::uint64_t> popped{0};
+    // Passes in which the reader found the ring empty. A pass that begins
+    // after a block was pushed has taken that block.
+    std::atomic<std::uint64_t> emptied{0};
     std::thread reader([&] {
         CaptureHeader header;
         std::vector<float> samples;
         while (reading.load(std::memory_order_acquire)) {
             while (ring.pop(header, samples)) popped.fetch_add(header.frames);
+            emptied.fetch_add(1, std::memory_order_release);
             std::this_thread::yield();
         }
     });
+    // While the writer runs, each block waits until it has been taken, so
+    // what reaches the writer does not depend on how the runner schedules
+    // threads. Bounded, so a writer that stalls fails rather than hangs.
+    const auto drained = [&] {
+        const auto seen = emptied.load(std::memory_order_acquire);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (emptied.load(std::memory_order_acquire) < seen + 2) {
+            if (std::chrono::steady_clock::now() > deadline) return false;
+            std::this_thread::yield();
+        }
+        return true;
+    };
 
     // Every input channel carries its own steady level.
     std::vector<float> input(channels * block);
@@ -94,6 +111,11 @@ BLOKKILY_REALTIME_CASE(audio_input) {
             test::AllocationGuard guard;
             engine.process({out_left, out_right}, device);
             total += guard.count();
+        }
+        if (call < stop_reader_at_call && !drained()) {
+            reading.store(false, std::memory_order_release);
+            reader.join();
+            require(false, "the writer thread takes each block within two seconds");
         }
     }
     if (reader.joinable()) {
