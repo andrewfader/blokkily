@@ -20,6 +20,7 @@
 #include "blokkily/plugins/clap_instance.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <thread>
@@ -122,6 +123,16 @@ BLOKKILY_REALTIME_CASE(wave2_fixes) {
         }
         CapturedEvent event;
         while (engine.take_captured(event)) captured.push_back(event);
+        // Every fifty blocks the callback waits, bounded, for the control
+        // thread to publish again, so the race happens however the runner
+        // schedules the two threads.
+        if (call % 50 == 49) {
+            const int seen = published.load(std::memory_order_relaxed);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (published.load(std::memory_order_relaxed) == seen &&
+                   std::chrono::steady_clock::now() < deadline)
+                std::this_thread::yield();
+        }
     }
     stop.store(true, std::memory_order_release);
     control.join();
