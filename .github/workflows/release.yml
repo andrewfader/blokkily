@@ -92,9 +92,126 @@ jobs:
             build/blokkily-*.tar.*
             build/SHA256SUMS
 
+  windows:
+    # The same toolchain as the Windows leg in platforms.yml: MSVC, vcpkg
+    # dependencies and the official Qt binaries.
+    name: Build & Package (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      VCPKG_TRIPLET: x64-windows
+      TEST_SF2_URL: https://raw.githubusercontent.com/free-wheeling/freewheeling/2ec066ee67614300a8b3dc61de7d059971883747/data/basic.sf2
+      TEST_SF2_SHA256: 2e6cf4a8a1d78e6be3b00a0c22358d3ceec8c5a27a000714e65215e3f9b1d15a
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/platforms.yml') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Install dependencies with vcpkg
+        run: |
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" fluidsynth rtaudio rtmidi libsndfile libsamplerate rubberband pkgconf
+          root="$(cygpath -m "$VCPKG_INSTALLATION_ROOT/installed/$VCPKG_TRIPLET")"
+          echo "VCPKG_ROOT_DIR=$root" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$root/lib/pkgconfig;$root/share/pkgconfig" >> "$GITHUB_ENV"
+          echo "$(cygpath -w "$root/bin")" >> "$GITHUB_PATH"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.*'
+          arch: win64_msvc2022_64
+          modules: qtshadertools
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Fetch test SoundFont
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors -o basic.sf2 "$TEST_SF2_URL"
+          echo "$TEST_SF2_SHA256  basic.sf2" | sha256sum -c -
+
+      - name: Configure CMake (Release)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_PREFIX_PATH="$(cygpath -m "$QT_ROOT_DIR");$VCPKG_ROOT_DIR" \
+            -DPKG_CONFIG_EXECUTABLE="$VCPKG_ROOT_DIR/tools/pkgconf/pkgconf.exe" \
+            -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run Test Suite
+        run: ctest --test-dir build --output-on-failure
+
+      # The install tree, made self-contained: Qt and its QML imports through
+      # windeployqt, the vcpkg libraries and the MSVC runtime beside them.
+      - name: Package
+        run: |
+          version="$(sed -n 's/^project(blokkily VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          name="blokkily-$version-Windows-x64"
+          cmake --install build --prefix "stage/$name"
+          bin="stage/$name/bin"
+          cp "$VCPKG_ROOT_DIR"/bin/*.dll "$bin/"
+          windeployqt --release --compiler-runtime --qmldir ui "$bin/blokkily.exe"
+          echo "PACKAGE=$name" >> "$GITHUB_ENV"
+
+      # The packaged application, not the build tree, runs the end-to-end
+      # gate with nothing but Windows itself on PATH, so a library left out
+      # of the archive fails here rather than on a user's machine.
+      # The packaged application, not the build tree, runs the end-to-end
+      # gate's own command with nothing but Windows itself on PATH, so a
+      # library left out of the archive fails here rather than on a user's
+      # machine.
+      - name: Smoke-test the package
+        run: |
+          ctest --test-dir build --show-only=json-v1 > tests.json
+          python - "$(cygpath -m "$PWD/stage/$PACKAGE/bin/blokkily.exe")" > smoke.sh <<'PY'
+          import json, shlex, sys
+          test = next(t for t in json.load(open("tests.json"))["tests"]
+                      if t["name"] == "bdd_edit_once_see_everywhere")
+          command = [sys.argv[1]] + test["command"][1:]
+          command = [a.replace("edit-once-see-everywhere.png", "package-smoke.png") for a in command]
+          print("PATH=/c/Windows/system32:/c/Windows QT_QPA_PLATFORM=windows "
+                "QSG_RHI_BACKEND=software " + " ".join(shlex.quote(a) for a in command))
+          PY
+          cat smoke.sh
+          bash smoke.sh
+          test -s build/artifacts/package-smoke.png
+
+      - name: Archive
+        run: |
+          cd stage
+          7z a "../$PACKAGE.zip" "$PACKAGE" > /dev/null
+          cd ..
+          sha256sum "$PACKAGE.zip" > SHA256SUMS-windows
+          cat SHA256SUMS-windows
+
+      - name: Upload Windows Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            ${{ env.PACKAGE }}.zip
+            SHA256SUMS-windows
+            build/artifacts/package-smoke.png
+
   publish:
     name: Publish GitHub Release
-    needs: [build]
+    needs: [build, windows]
+    # A dispatch on a branch without a tag name builds and packages only.
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag_name != ''
     runs-on: ubuntu-latest
     steps:
       - name: Download Release Packages
@@ -102,6 +219,18 @@ jobs:
         with:
           name: release-packages
           path: dist
+
+      - name: Download Windows Package
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: windows
+
+      - name: Merge Checksums
+        run: |
+          mv windows/*.zip dist/
+          cat windows/SHA256SUMS-windows >> dist/SHA256SUMS
+          cat dist/SHA256SUMS
 
       - name: Determine Tag Name
         id: tag
