@@ -168,23 +168,27 @@ jobs:
           echo "PACKAGE=$name" >> "$GITHUB_ENV"
 
       # The packaged application, not the build tree, runs the end-to-end
-      # gate with nothing but Windows itself on PATH, so a library left out
-      # of the archive fails here rather than on a user's machine.
-      # The packaged application, not the build tree, runs the end-to-end
-      # gate's own command with nothing but Windows itself on PATH, so a
-      # library left out of the archive fails here rather than on a user's
-      # machine.
+      # gate's own command and environment with nothing but Windows itself
+      # on PATH and no Qt search paths, so a library or QML import left out
+      # of the archive fails here rather than on a user's machine. It runs
+      # from a copy that adds only the offscreen platform the gate draws on.
       - name: Smoke-test the package
         run: |
+          cp -r "stage/$PACKAGE" smoke-app
+          mkdir -p smoke-app/bin/platforms
+          cp "$QT_ROOT_DIR/plugins/platforms/qoffscreen.dll" smoke-app/bin/platforms/
           ctest --test-dir build --show-only=json-v1 > tests.json
-          python - "$(cygpath -m "$PWD/stage/$PACKAGE/bin/blokkily.exe")" > smoke.sh <<'PY'
+          python - "$(cygpath -m "$PWD/smoke-app/bin/blokkily.exe")" > smoke.sh <<'PY'
           import json, shlex, sys
           test = next(t for t in json.load(open("tests.json"))["tests"]
                       if t["name"] == "bdd_edit_once_see_everywhere")
+          props = {p["name"]: p["value"] for p in test.get("properties", [])}
           command = [sys.argv[1]] + test["command"][1:]
           command = [a.replace("edit-once-see-everywhere.png", "package-smoke.png") for a in command]
-          print("PATH=/c/Windows/system32:/c/Windows QT_QPA_PLATFORM=windows "
-                "QSG_RHI_BACKEND=software " + " ".join(shlex.quote(a) for a in command))
+          print("cd " + shlex.quote(props.get("WORKING_DIRECTORY", ".")))
+          env = ["-u", "QT_PLUGIN_PATH", "-u", "QML2_IMPORT_PATH", "-u", "QT_ROOT_DIR",
+                 "PATH=/c/Windows/system32:/c/Windows"] + props.get("ENVIRONMENT", [])
+          print("env " + " ".join(shlex.quote(a) for a in env + command))
           PY
           cat smoke.sh
           bash smoke.sh
