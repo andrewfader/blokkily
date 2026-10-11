@@ -47,7 +47,11 @@ QString AppController::scanHelperPath() const {
     if (const auto override_path = qEnvironmentVariable("BLOKKILY_SCAN_HELPER");
         !override_path.isEmpty())
         return override_path;
+#if defined(Q_OS_WIN)
+    return QCoreApplication::applicationDirPath() + "/blokkily_scan.exe";
+#else
     return QCoreApplication::applicationDirPath() + "/blokkily_scan";
+#endif
 }
 
 QString AppController::scanCachePath() const {

@@ -65,6 +65,11 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<RtMidiOut> keyboard;
     try {
         keyboard = std::make_unique<RtMidiOut>(RtMidi::UNSPECIFIED, "Test Controller");
+        // Windows MM has no virtual ports: it only warns, and none appears.
+        if (keyboard->getCurrentApi() == RtMidi::WINDOWS_MM) {
+            std::printf("SKIP: Windows MM cannot make a virtual keyboard\n");
+            return exit_skip;
+        }
         keyboard->openVirtualPort(port_label);
     } catch (const RtMidiError& error) {
         std::printf("SKIP: no MIDI server (%s)\n", error.getMessage().c_str());

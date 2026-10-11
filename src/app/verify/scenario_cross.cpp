@@ -115,7 +115,7 @@ void run_cross(VerifyContext& ctx) {
     const auto collected=model.song().audio_files[0].path;
     check(collected!=original && std::filesystem::exists(original) && std::filesystem::exists(collected));
     auto saved_program=parse_sampler(model.song().tracks[1].instrument.state);
-    check(saved_program && saved_program->zones[0].sample==collected.string());
+    check(saved_program && std::filesystem::path(saved_program->zones[0].sample)==collected);
     check(model.undo() && model.song().audio_files[0].path==original);
     check(model.redo() && model.song().audio_files[0].path==collected);
     check(controller.saveProject(QString::fromStdString(project.string())));

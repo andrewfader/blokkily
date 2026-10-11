@@ -468,9 +468,13 @@ void project_paths() {
     project.song = song;
     std::string error;
     require(ProjectFile::save(project, before / "song.blok", &error), "save: " + error);
-    std::ifstream saved(before / "song.blok");
     std::stringstream text;
-    text << saved.rdbuf();
+    {
+        // Closed before the folder moves: Windows will not rename a directory
+        // holding an open file.
+        std::ifstream saved(before / "song.blok");
+        text << saved.rdbuf();
+    }
     require(text.str().find("audiofile audio/ramp.wav ") != std::string::npos,
             "a file inside the project folder is stored relative to it");
 

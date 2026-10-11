@@ -147,7 +147,13 @@ BLOKKILY_REALTIME_CASE(plugin_windows) {
     SilentHost host;
     const NativeParent parent{WindowApi::x11, 0x42, 1.0};
     require(plugin->open_editor(&parent, host, nullptr, &error), "the editor opens: " + error);
-    require(loop.timer_count() == 1 && loop.fd_count() == 1, "the editor is served by the run loop");
+#if defined(_WIN32)
+    constexpr std::size_t descriptors = 0; // clap.posix-fd-support is POSIX only
+#else
+    constexpr std::size_t descriptors = 1;
+#endif
+    require(loop.timer_count() == 1 && loop.fd_count() == descriptors,
+            "the editor is served by the run loop");
     require(plugin->activate(48000.0, 1, 256), "the plugin activates");
 
     void* module = blokkily::dynamic_library::open_loaded(BLOKKILY_TEST_CLAP_PATH);

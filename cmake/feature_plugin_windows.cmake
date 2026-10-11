@@ -60,18 +60,23 @@ if(BLOKKILY_BUILD_TESTS)
     target_compile_options(blokkily_plugin_windows_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_plugin_windows_tests blokkily_test_clap blokkily_test_vst3_VST3)
-    foreach(window_case
+    set(window_cases
             run_loop
             clap_embed
             clap_wayland_embed
             clap_floating
             clap_requests
             clap_timer
-            clap_posix_fd
             clap_destroy_open
             gesture_step
             survives_adoption
             vst3_refused)
+    # clap.posix-fd-support is a POSIX extension: Windows hosts watch no
+    # descriptors, and the fixture opens none there.
+    if(NOT WIN32)
+        list(APPEND window_cases clap_posix_fd)
+    endif()
+    foreach(window_case IN LISTS window_cases)
         add_test(NAME plugin_windows_${window_case}
             COMMAND blokkily_plugin_windows_tests ${window_case})
         set_tests_properties(plugin_windows_${window_case} PROPERTIES

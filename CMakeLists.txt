@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(blokkily VERSION 0.1.0 LANGUAGES C CXX)
+project(blokkily VERSION 0.1.2 LANGUAGES C CXX)
 
 # Rebuilds across many worktrees are dominated by JUCE and Qt, so use ccache
 # whenever it is installed; it is never required. An explicit launcher given
@@ -30,6 +30,13 @@ endif()
 # and std::max everywhere it is included.
 if(WIN32)
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# A SongEngine holds its event queues inline (about 800 KB), and the tests
+# keep engines on the stack. MSVC gives the main thread 1 MB, where Linux and
+# macOS give 8 MB, so two engines in one frame overflowed it; match the others.
+if(MSVC)
+    add_link_options($<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:/STACK:8388608>)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)

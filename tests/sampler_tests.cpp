@@ -42,7 +42,7 @@ void require(bool value, const std::string& message) {
 
 std::string number(double value) { return std::to_string(value); }
 
-std::string fixture(const char* name) { return (fixtures / name).string(); }
+std::string fixture(const char* name) { return (fixtures / name).generic_string(); }
 
 struct Timed {
     std::size_t at;
