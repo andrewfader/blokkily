@@ -140,6 +140,24 @@ void run_automation(VerifyContext& ctx) {
     for (int block = 0; block < 4; ++block) (void)ctx.pump();
     controller.releasePerformed();
     for (int block = 0; block < 4; ++block) (void)ctx.pump();
+    // The meter timer's drain writes the key into the pattern, and that edit
+    // recompiles the song, which lets go of the key sounding then until its
+    // next strike. Left to the timer it could land inside a step of the drag
+    // below and be heard as silence there, so it is waited for here, and
+    // played through to the next strike, before the fader is touched.
+    const auto take_written = [&song] {
+        for (const auto& trigger : song.song().pattern(0).events()) {
+            if (const auto* note = std::get_if<Note>(&trigger.musical_data); note && note->key == 72)
+                return true;
+            if (const auto* chord = std::get_if<Chord>(&trigger.musical_data))
+                for (const auto interval : chord->intervals)
+                    if (chord->root + interval == 72) return true;
+        }
+        return false;
+    };
+    for (int turn = 0; turn < 100 && !take_written(); ++turn) settle(10);
+    check(take_written());
+    for (int block = 0; block < 16; ++block) (void)ctx.pump();
 
     const double y = fader == nullptr ? 0.0 : fader->height() / 2.0;
     const auto handle_x = [fader] {
