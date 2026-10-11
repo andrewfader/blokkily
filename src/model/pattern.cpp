@@ -1,6 +1,7 @@
 #include "blokkily/model/pattern.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 #include <stdexcept>
 
@@ -17,9 +18,16 @@ void Pattern::validate(const Trigger& event) const {
     if (event.start < 0 || event.start >= length_ || event.duration <= 0) {
         throw std::invalid_argument("event is outside the pattern");
     }
-    if (event.probability < 0.0F || event.probability > 1.0F) {
+    if (!(event.probability >= 0.0F && event.probability <= 1.0F)) {
         throw std::invalid_argument("probability must be in [0, 1]");
     }
+    if (const auto* note = std::get_if<Note>(&event.musical_data)) {
+        if (!(note->velocity >= 0.0F && note->velocity <= 1.0F))
+            throw std::invalid_argument("note velocity must be in [0, 1]");
+        if (!std::isfinite(note->cents)) throw std::invalid_argument("note retune must be finite");
+    }
+    for (const auto& lock : event.locks)
+        if (!std::isfinite(lock.value)) throw std::invalid_argument("lock value must be finite");
     if (event.ratchets == 0 || event.ratchets > 16) {
         throw std::invalid_argument("ratchets must be in [1, 16]");
     }
@@ -38,6 +46,9 @@ void Pattern::validate(const Trigger& event) const {
     if (const auto* chord = std::get_if<Chord>(&event.musical_data)) {
         const auto voices = chord->intervals.size();
         const auto in_range = [](float velocity) { return velocity >= 0.0F && velocity <= 1.0F; };
+        if (!std::all_of(chord->cents.begin(), chord->cents.end(),
+                         [](double cents) { return std::isfinite(cents); }))
+            throw std::invalid_argument("chord retune must be finite");
         if (!in_range(chord->velocity))
             throw std::invalid_argument("chord velocity must be in [0, 1]");
         if (!chord->velocities.empty() && chord->velocities.size() != voices)

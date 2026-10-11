@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -102,16 +104,19 @@ std::optional<std::vector<std::byte>> decode_base64(std::string_view text) {
     return out;
 }
 
+// Written and read with the C++ charconv routines, which know no locale:
+// a session saved where the decimal mark is a comma still opens everywhere,
+// and the shortest representation that reads back exactly is what is written.
 std::string number(double value) {
     std::array<char, 32> buffer{};
-    std::snprintf(buffer.data(), buffer.size(), "%.17g", value);
-    return buffer.data();
+    const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    return std::string(buffer.data(), result.ptr);
 }
 
 std::string number(float value) {
     std::array<char, 32> buffer{};
-    std::snprintf(buffer.data(), buffer.size(), "%.9g", static_cast<double>(value));
-    return buffer.data();
+    const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    return std::string(buffer.data(), result.ptr);
 }
 
 std::optional<long long> Fields::integer(std::size_t index) const {
@@ -124,9 +129,13 @@ std::optional<long long> Fields::integer(std::size_t index) const {
 
 std::optional<double> Fields::real(std::size_t index) const {
     if (index >= tokens.size()) return std::nullopt;
-    char* end = nullptr;
-    const double value = std::strtod(tokens[index].c_str(), &end);
-    if (end == tokens[index].c_str() || *end != '\0') return std::nullopt;
+    const auto& token = tokens[index];
+    double value = 0.0;
+    const auto result = std::from_chars(token.data(), token.data() + token.size(), value);
+    if (result.ec != std::errc() || result.ptr != token.data() + token.size()) return std::nullopt;
+    // A file never legitimately carries a NaN or an infinity, and one that
+    // did would hand the plugins NaN audio with no diagnostic.
+    if (!std::isfinite(value)) return std::nullopt;
     return value;
 }
 

@@ -80,6 +80,12 @@ struct InstrumentFeed {
 };
 
 // Compiled with the arrangement; read-only to the callback.
+// Modulators are evaluated once per chunk, so a chunk never crosses one of
+// these grid points while any modulator exists: the staircase a modulated
+// parameter steps along is then the same whatever block size the device
+// negotiated, and a bounce modulates exactly as playback did.
+inline constexpr std::uint64_t modulation_grid = 128;
+
 struct ArrangementRouting {
     std::vector<CompiledModulator> modulators;
     std::vector<ModulationSink> sinks;

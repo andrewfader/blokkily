@@ -3,6 +3,7 @@
 #include <rubberband/RubberBandStretcher.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <numeric>
@@ -35,8 +36,8 @@ std::uint64_t to_engine_frames(std::uint64_t frames, double ratio) {
 
 std::string number(double value) {
     char buffer[40];
-    std::snprintf(buffer, sizeof buffer, "%.17g", value);
-    return buffer;
+    const auto result = std::to_chars(buffer, buffer + sizeof buffer, value);
+    return std::string(buffer, result.ptr);
 }
 
 bool fail(std::string* error, std::string message) {

@@ -45,6 +45,40 @@ float mix_into(StereoBlock bus, std::span<const float> track_left,
     return peak;
 }
 
+float mix_into_ramp(StereoBlock bus, std::span<const float> track_left,
+                    std::span<const float> track_right, StripGain from, StripGain to) noexcept {
+    const auto frames = std::min({bus.left.size(), bus.right.size(),
+                                  track_left.size(), track_right.size()});
+    if (frames == 0) return 0.0F;
+    const float step = 1.0F / static_cast<float>(frames);
+    const float left_step = (to.left - from.left) * step;
+    const float right_step = (to.right - from.right) * step;
+    float peak = 0.0F;
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const float at = static_cast<float>(frame);
+        const float left = track_left[frame] * (from.left + left_step * at);
+        const float right = track_right[frame] * (from.right + right_step * at);
+        bus.left[frame] += left;
+        bus.right[frame] += right;
+        peak = std::max({peak, std::abs(left), std::abs(right)});
+    }
+    return peak;
+}
+
+float apply_master_ramp(StereoBlock bus, float from, float to) noexcept {
+    const auto frames = std::min(bus.left.size(), bus.right.size());
+    if (frames == 0) return 0.0F;
+    const float step = (to - from) / static_cast<float>(frames);
+    float peak = 0.0F;
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const float gain = from + step * static_cast<float>(frame);
+        bus.left[frame] *= gain;
+        bus.right[frame] *= gain;
+        peak = std::max({peak, std::abs(bus.left[frame]), std::abs(bus.right[frame])});
+    }
+    return peak;
+}
+
 float apply_master(StereoBlock bus, float master_gain) noexcept {
     const auto frames = std::min(bus.left.size(), bus.right.size());
     float peak = 0.0F;

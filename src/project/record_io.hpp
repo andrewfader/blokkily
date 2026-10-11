@@ -21,8 +21,10 @@ namespace blokkily::project_io {
 [[nodiscard]] std::string encode_base64(std::span<const std::byte> data);
 [[nodiscard]] std::optional<std::vector<std::byte>> decode_base64(std::string_view text);
 
-// %.17g and strtod round-trip an IEEE double exactly, so tempo and parameter
-// lock values survive a save/load without drifting.
+// std::to_chars and std::from_chars round-trip an IEEE double or float
+// exactly, in the shortest spelling that does, and know no locale: tempo and
+// parameter lock values survive a save/load without drifting, wherever the
+// file is written or read.
 [[nodiscard]] std::string number(double value);
 [[nodiscard]] std::string number(float value);
 

@@ -13,9 +13,12 @@ void TakeRecorder::note_on(Tick at, std::int16_t key, float velocity, double cen
 }
 
 std::optional<PlayedNote> TakeRecorder::note_off(Tick at, std::int16_t key) {
-    const auto found = std::find_if(held_.begin(), held_.end(),
-                                    [key](const PlayedNote& note) { return note.key == key; });
-    if (found == held_.end()) return std::nullopt;
+    // A key pressed again before it was let go: the release belongs to the
+    // most recent press, so the earlier one keeps its own.
+    const auto newest = std::find_if(held_.rbegin(), held_.rend(),
+                                     [key](const PlayedNote& note) { return note.key == key; });
+    if (newest == held_.rend()) return std::nullopt;
+    const auto found = std::next(newest).base();
     auto note = *found;
     held_.erase(found);
     // Read round the loop: a release that reads earlier than its press came
@@ -97,8 +100,12 @@ std::vector<Voice> voices_of(const Trigger& trigger) {
     std::vector<Voice> voices;
     const auto size = static_cast<int>(chord.intervals.size());
     for (int voice = 0; voice < size; ++voice) {
-        const int source = (voice + chord.inversion % size + size) % size;
-        const int octave = (voice + chord.inversion) >= size ? 12 : 0;
+        // An inversion moves the lowest voices up an octave each, or the
+        // highest down for a negative one: the octave is how many whole
+        // turns through the voices the inversion makes, below as above.
+        const int turned = voice + chord.inversion;
+        const int source = ((turned % size) + size) % size;
+        const int octave = 12 * ((turned - source) / size);
         const auto interval = static_cast<std::size_t>(source);
         const double retune = interval < chord.cents.size() ? chord.cents[interval] : 0.0;
         voices.push_back({static_cast<std::int16_t>(chord.root + chord.intervals[source] + octave),
@@ -116,7 +123,7 @@ bool same_pitch(const Voice& left, const Voice& right) {
 }
 } // namespace
 
-int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step) {
+int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step, bool roll_as_ratchet) {
     const Tick length = pattern.length();
     const Tick steps = std::max<Tick>(1, length / ticks_per_step);
     const Tick at = ((note.start % length) + length) % length;
@@ -153,8 +160,18 @@ int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step) {
 
     auto voices = voices_of(*existing);
     if (std::any_of(voices.begin(), voices.end(),
-                    [&played](const Voice& voice) { return same_pitch(voice, played); }))
+                    [&played](const Voice& voice) { return same_pitch(voice, played); })) {
+        // The step already sounds this pitch: struck again within the same
+        // step (a roll, a flam, a thirty-second note) it is one more hit of
+        // the step, which a ratchet plays, rather than a note thrown away,
+        // where the writer asked for that; a live take leaves the step be.
+        if (roll_as_ratchet && existing->ratchets < 16) {
+            Trigger rolled = *existing;
+            ++rolled.ratchets;
+            (void)pattern.update(rolled.id, rolled);
+        }
         return static_cast<int>(step);
+    }
     voices.push_back(played);
     std::sort(voices.begin(), voices.end(), [](const Voice& left, const Voice& right) {
         return left.key < right.key || (left.key == right.key && left.cents < right.cents);

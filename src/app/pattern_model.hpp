@@ -54,6 +54,8 @@ class PatternModel final : public QAbstractListModel {
 public:
     // A step is a sixteenth note, whatever the meter or the pattern's length.
     static constexpr blokkily::Tick ticks_per_step = 120;
+    [[nodiscard]] std::vector<std::vector<blokkily::Trigger>> rows() const;
+    void shiftRows(const std::vector<std::vector<blokkily::Trigger>>& held, int from, int by);
     enum Role { IdRole = Qt::UserRole + 1, StepRole, KeyRole, NameRole, DurationRole,
                 VelocityRole, LockRole, VoiceKeysRole, VoiceVelocitiesRole, VoiceLengthsRole };
 

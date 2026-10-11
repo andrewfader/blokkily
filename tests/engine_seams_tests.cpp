@@ -197,16 +197,21 @@ void instrumentless_track() {
             "the bare track's meter reads what it contributed");
 
     // Mute and solo act on the bare track's strip, proved from the bus.
+    // A strip move is reached across a short ramp in the block it lands in;
+    // the block after it is at the new gain throughout.
     song.tracks[1].mix.mute = true;
     engine.apply_mix(song);
+    (void)pump(output, 512);
     require(all_near(pump(output, 512).right, 0.0F), "muting the bare track silences it");
     song.tracks[1].mix.mute = false;
     song.tracks[0].mix.solo = true;
     engine.apply_mix(song);
+    (void)pump(output, 512);
     require(all_near(pump(output, 512).right, 0.0F), "soloing another track silences it");
     song.tracks[0].mix.solo = false;
     song.tracks[1].mix.gain_db = 0.0;
     engine.apply_mix(song);
+    (void)pump(output, 512);
     require(all_near(pump(output, 512).right, strip_gain(song.tracks[1].mix, false).right * level),
             "its fader moves the bus");
 }

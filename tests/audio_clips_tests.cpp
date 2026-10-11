@@ -243,6 +243,9 @@ void mixer_live() {
     // Mute track 0 as well: the bus is silent.
     song.tracks[0].mix.mute = true;
     player.engine.apply_mix(song);
+    // A strip move is reached across a short ramp in the block it lands in;
+    // the block after it is at the new gain throughout.
+    (void)player.pump(block);
     heard = player.pump(block);
     require(probe::peak(heard.left) == 0.0F && probe::peak(heard.right) == 0.0F,
             "muting the clip's track silences it");
@@ -252,8 +255,9 @@ void mixer_live() {
     song.tracks[1].mix.mute = false;
     song.tracks[1].mix.solo = true;
     player.engine.apply_mix(song);
+    (void)player.pump(block);
     heard = player.pump(block);
-    const std::uint64_t base = 2 * block;
+    const std::uint64_t base = 4 * block;
     require(near(heard.left[10], ramp_left(base + 10) * centre),
             "soloing one track leaves exactly one clip on the bus");
 
@@ -262,10 +266,11 @@ void mixer_live() {
     song.tracks[1].mix.pan = -1.0;
     song.tracks[1].mix.gain_db = 6.0;
     player.engine.apply_mix(song);
+    (void)player.pump(block);
     heard = player.pump(block);
     const float fader = static_cast<float>(db_to_linear(6.0));
     require(probe::peak(heard.right) < 1e-7F, "hard left empties the right channel");
-    require(near(heard.left[10], ramp_left(3 * block + 10) * fader, 1e-5F),
+    require(near(heard.left[10], ramp_left(6 * block + 10) * fader, 1e-5F),
             "the fader's gain reaches the bus");
     require(&player.engine == engine_before, "no rebuild");
 }

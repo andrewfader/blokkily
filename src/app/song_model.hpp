@@ -265,6 +265,12 @@ public:
     // a clip is not the same as placing another of the same pattern — each
     // repetition is the next loop for probability and loop conditions.
     Q_INVOKABLE bool setClipRepeats(int track, int bar, int repeats);
+    // Lengthens the clip starting at `startBar` so that it ends with `bar`:
+    // the repeats are worked out from its pattern's own length, which need
+    // not be one bar.
+    Q_INVOKABLE bool extendClipToBar(int track, int startBar, int bar);
+    // True while songChanged is being emitted for a strip move alone.
+    [[nodiscard]] bool mixOnlyChange() const noexcept { return mix_only_; }
     // Moves the clip covering `bar` so it starts at `newBar` on the same track.
     Q_INVOKABLE bool moveClip(int track, int bar, int newBar);
     Q_INVOKABLE bool hasClip(int track, int bar) const;
@@ -638,6 +644,11 @@ private:
     // A strip edit that belongs to the take being recorded, or a step of its
     // own.
     void checkpointStrip(int track, const QString& merge);
+    // songChanged for a strip move: the song's rows carry new readouts, but
+    // no pattern, clip or track was touched, so the editors keep what they
+    // show rather than rebuilding every projection per pointer move.
+    void emitMixMove();
+    bool mix_only_ = false;
     int selected_lane_ = 0;
     bool take_recorded_ = false;
     bool capturing_ = false;

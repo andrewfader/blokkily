@@ -451,7 +451,8 @@ foreach(blokkily_feature
         llm_assistant
         cross_feature
         per_stem_editing
-        sequencer_workflow)
+        sequencer_workflow
+        sequencer_fidelity)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

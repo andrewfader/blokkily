@@ -420,17 +420,14 @@ ColumnLayout {
                                     // an empty cell it extends the earlier clip.
                                     if (mouse.modifiers & Qt.ShiftModifier) {
                                         if (filled && cell && cell.startBar >= 0) {
-                                            model.setClipRepeats(
-                                                track, cell.startBar,
-                                                Math.max(1, bar - cell.startBar + 1))
+                                            model.extendClipToBar(track, cell.startBar, bar)
                                         } else {
                                             for (var b = bar - 1; b >= 0; --b) {
                                                 var earlier = lane[b]
                                                 if (earlier !== undefined
                                                     && earlier.filled) {
-                                                    model.setClipRepeats(
-                                                        track, earlier.startBar,
-                                                        bar - earlier.startBar + 1)
+                                                    model.extendClipToBar(
+                                                        track, earlier.startBar, bar)
                                                     break
                                                 }
                                             }
@@ -438,9 +435,12 @@ ColumnLayout {
                                         return
                                     }
                                     // Alt+click on an empty bar moves the clip
-                                    // the playhead is sitting in on this track.
+                                    // the playhead is sitting in on this track;
+                                    // with no clip there it moves nothing, and
+                                    // places nothing either.
                                     if ((mouse.modifiers & Qt.AltModifier) && !filled) {
-                                        if (model.moveClip(track, playhead, bar)) return
+                                        model.moveClip(track, playhead, bar)
+                                        return
                                     }
                                     if (filled) {
                                         // Opening a clip puts its pattern in

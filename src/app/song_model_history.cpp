@@ -52,8 +52,10 @@ void SongModel::restore(Snapshot snapshot) {
                              static_cast<int>(song_.tracks.size()) - 1);
     state_id_ = snapshot.id;
     peaks_.assign(song_.tracks.size(), 0.0F);
-    // A step taken back cannot be merged with the next move of a control.
+    // A step taken back cannot be merged with the next move of a control,
+    // and a gesture still open records itself again from here.
     last_merge_.clear();
+    gesture_recorded_ = false;
     emit tuningChanged();
     emit mixChanged();
     emit timebaseChanged();
@@ -67,6 +69,9 @@ void SongModel::restore(Snapshot snapshot) {
 void SongModel::beginGesture() {
     gesture_open_ = true;
     gesture_recorded_ = false;
+    // A new gesture is a new step of history, however soon it follows the
+    // last move of the same control.
+    last_merge_.clear();
 }
 
 void SongModel::endGesture() {

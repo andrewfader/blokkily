@@ -280,12 +280,17 @@ std::vector<std::uint8_t> encode_midi_file(const Song& song) {
         put_name(events, song.tracks[track].name);
         const auto played = song.arrange(track, 0);
         for (const auto& note : played.notes) {
-            if (note.key < 0 || note.key > 127 || note.start < 0) continue;
+            if (note.key < 0 || note.key > 127) continue;
+            // A note played ahead of the first downbeat sounds from the
+            // downbeat, as the engine plays it, rather than being left out.
+            const Tick start = std::max<Tick>(0, note.start);
+            const Tick end = note.start + note.duration;
+            if (end <= start) continue;
             const auto key = static_cast<std::uint8_t>(note.key);
-            events.push_back({note.start, 3,
+            events.push_back({start, 3,
                               {static_cast<std::uint8_t>(0x90U | channel), key,
                                velocity_byte(note.velocity)}});
-            events.push_back({note.start + std::max<Tick>(1, note.duration), 1,
+            events.push_back({std::max<Tick>(start + 1, end), 1,
                               {static_cast<std::uint8_t>(0x80U | channel), key, 64}});
         }
         for (const auto& movement : played.continuous) {
@@ -472,7 +477,9 @@ std::optional<MidiImport> import_midi_file(Song& song, const MidiFile& file,
             played_note.duration = std::max<Tick>(1, scale(note.duration));
             played_note.key = note.key;
             played_note.velocity = static_cast<float>(note.velocity) / 127.0F;
-            (void)write_played(pattern, played_note, ticks_per_step);
+            // A file's repeated pitch inside one step is a roll, kept as a
+            // ratchet rather than dropped.
+            (void)write_played(pattern, played_note, ticks_per_step, true);
             ++report.notes;
         }
         for (const auto& control : sources[index]->controls) {

@@ -168,6 +168,9 @@ void run_automation(VerifyContext& ctx) {
         lay_out();
         const Tick at = tick_at_sample(clock, engine->sample_position());
         const double gain = song.song().tracks.at(0).mix.gain_db;
+        // The move is reached across a short ramp, not stepped to: the block
+        // that ramps is let go by before listening.
+        (void)ctx.pump();
         const float sounded = heard();
         for (int block = 0; block < 32; ++block) (void)ctx.pump();
         steps.push_back({at, gain, sounded});

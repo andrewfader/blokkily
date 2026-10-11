@@ -87,6 +87,10 @@ struct ReturnPlayback {
     std::atomic<float> gain_left{1.0F};
     std::atomic<float> gain_right{1.0F};
     std::atomic<float> peak{0.0F};
+    // The gain the last chunk ended on (see TrackPlayback::applied).
+    float applied_left = 1.0F;
+    float applied_right = 1.0F;
+    bool applied_valid = false;
 };
 
 // The return buses and the master chain, shared by every track.

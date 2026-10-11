@@ -258,7 +258,7 @@ int main() {
              "audioclip 4 0 0 20 0 10 0 0 0\n",
              "two audio clips share an id"},
             {"audiofile a.wav 100 48000 1\naudioclip 1 0 0 0 0 10 nan 0 0\n",
-             "gain is not finite"},
+             "malformed audioclip record"},
             {"return R 0 0 2 0\n", "malformed return record"},
             {"return R 0 0\n", "malformed return record"},
             {"insert track 9 CLAP x ~ ~ 0 0\n", "insert refers to a bus that does not exist"},

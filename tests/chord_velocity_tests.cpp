@@ -388,11 +388,11 @@ void project_case() {
     const auto has_line = [&text](const std::string& line) {
         return text.find('\n' + line + '\n') != std::string::npos;
     };
-    require(has_line("voicevel 0 " + std::to_string(merged_id) + " 0.800000012 2 0.600000024 0.899999976"),
+    require(has_line("voicevel 0 " + std::to_string(merged_id) + " 0.8 2 0.6 0.9"),
             "the merged chord's velocities are written:\n" + text);
     require(has_line("voicelen 0 " + std::to_string(merged_id) + " 2 56 300"),
             "the merged chord's lengths are written:\n" + text);
-    require(has_line("voicevel 0 " + std::to_string(pad_id) + " 0.899999976 0"),
+    require(has_line("voicevel 0 " + std::to_string(pad_id) + " 0.9 0"),
             "the pad's chord velocity is written:\n" + text);
     require(text.find("voicevel 0 " + std::to_string(plain_id) + ' ') == std::string::npos &&
                 text.find("voicelen 0 " + std::to_string(pad_id) + ' ') == std::string::npos &&

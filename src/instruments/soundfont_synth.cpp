@@ -108,7 +108,11 @@ int SoundFontSynth::claim_channel(int key) noexcept {
             return channel;
         }
     // Every channel is busy, so the oldest retuned voice gives way rather than
-    // the new note being dropped.
+    // the new note being dropped: it is released here, since its own note-off
+    // will find no channel holding its key and would leave it ringing.
+    const int displaced = channel_key_[first_retuned_channel];
+    if (displaced >= 0 && synth_)
+        fluid_synth_noteoff(synth_.get(), first_retuned_channel, displaced);
     channel_key_[first_retuned_channel] = key;
     return first_retuned_channel;
 }

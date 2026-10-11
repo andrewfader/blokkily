@@ -15,8 +15,37 @@
 #include <cmath>
 #include <numbers>
 
+#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <xmmintrin.h>
+#define BLOKKILY_HAS_SSE_CSR 1
+#endif
+
 namespace blokkily {
 namespace {
+// Denormals are flushed to zero for the length of the render callback: a
+// filter, a delay line or a follower decaying towards nothing on a silent
+// track would otherwise cost the whole block a microcode assist per sample.
+struct DenormalGuard {
+#ifdef BLOKKILY_HAS_SSE_CSR
+    unsigned int saved;
+    DenormalGuard() noexcept : saved(_mm_getcsr()) { _mm_setcsr(saved | 0x8040U); }
+    ~DenormalGuard() { _mm_setcsr(saved); }
+#else
+    DenormalGuard() noexcept = default;
+#endif
+    DenormalGuard(const DenormalGuard&) = delete;
+    DenormalGuard& operator=(const DenormalGuard&) = delete;
+};
+
+// A processor that produced a NaN or an infinity would otherwise put it on
+// the bus, where it survives every gain and becomes full-scale noise or
+// silence on the speakers while the meters (comparisons with NaN being
+// false) show nothing. It is zeroed here instead.
+void scrub(std::span<float> samples) noexcept {
+    for (auto& sample : samples)
+        if (!std::isfinite(sample)) sample = 0.0F;
+}
+
 // An engine that has never been prepared still has to render silence rather
 // than reach through a null arrangement.
 const std::vector<TimedPluginEvent>& empty_timeline() noexcept {
@@ -171,6 +200,9 @@ void SongEngine::reset_processing() {
     // The click sounding and any count-in are forgotten with the rest.
     engine::reset_metronome(*metronome_);
     master_peak_.store(0.0F, std::memory_order_relaxed);
+    // The next chunk starts on its strip gains outright rather than ramping
+    // from whatever playback was applying.
+    forget_applied_gains();
     // A bounce plays the lanes, not what was latched while playing before it.
     for (auto& track : tracks_) engine::release_automation(track->automation);
     if (live_ != nullptr) engine::release_parameter_holds(live_->automation);
@@ -269,6 +301,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
         track.events.assign(engine::maximum_events_per_chunk, PluginEvent{});
         engine::release_automation(track.automation);
         track.peak.store(0.0F, std::memory_order_relaxed);
+        track.applied_valid = false;
         if (track.instrument && !track.instrument->activate(sample_rate, 1, maximum_block_size))
             return fail("an instrument refused to activate");
     }
@@ -281,6 +314,8 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     engine::prepare_metronome(*metronome_, sample_rate, tracks_.size());
     apply_mix(song);
     sample_position_ = 0;
+    applied_master_valid_ = false;
+    rest_at_end_ = false;
     published_position_.store(0, std::memory_order_release);
     heard_tick_.store(0, std::memory_order_release);
     requested_position_.store(no_seek, std::memory_order_release);
@@ -413,6 +448,14 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
         std::memory_order_acq_rel, std::memory_order_acquire));
     auto* incoming = arrangements_[field(state, queued_shift)].get();
     if (handoff_probe_ != nullptr) handoff_probe_(handoff_probe_context_);
+    // The position counts samples since play began, laps included, and the
+    // playhead is that modulo the song's length. An edit that changes the
+    // length would otherwise move the playhead by however many laps the
+    // count holds; the laps are folded away first, so the playhead stays
+    // where it is (or wraps once, if the song is now shorter than that). A
+    // seek taken in this same block was placed against the song as edited,
+    // not against the length still installed here, and is left as placed.
+    if (!seeked && song_samples_ > 0) sample_position_ %= song_samples_;
     // A new tempo is a new place for every tick, not a new place in the music:
     // the playhead stays on the tick it had reached and moves to the sample
     // where that tick now falls. A seek taken in this same block was placed
@@ -442,6 +485,32 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
     // re-struck by the new timeline either. Both are let go here, so an edit
     // cannot leave a voice held on an instrument for ever.
     release_arrangement_notes_ = true;
+}
+
+void SongEngine::forget_applied_gains() noexcept {
+    for (auto& track : tracks_)
+        if (track) track->applied_valid = false;
+    for (auto& bus : buses_->returns) bus->applied_valid = false;
+    applied_master_valid_ = false;
+}
+
+bool SongEngine::strip_move_pending() const noexcept {
+    for (const auto& track : tracks_) {
+        if (!track || !track->applied_valid) continue;
+        if (track->applied.left != track->gain_left.load(std::memory_order_relaxed) ||
+            track->applied.right != track->gain_right.load(std::memory_order_relaxed) ||
+            track->applied_fader != track->chain.fader.load(std::memory_order_relaxed) ||
+            track->applied_audible !=
+                (track->chain.audible.load(std::memory_order_relaxed) ? 1.0F : 0.0F))
+            return true;
+    }
+    for (const auto& bus : buses_->returns)
+        if (bus->applied_valid &&
+            (bus->applied_left != bus->gain_left.load(std::memory_order_relaxed) ||
+             bus->applied_right != bus->gain_right.load(std::memory_order_relaxed)))
+            return true;
+    return applied_master_valid_ &&
+           applied_master_ != master_gain_.load(std::memory_order_relaxed);
 }
 
 std::uint64_t SongEngine::heard_position(std::uint64_t song_position) const noexcept {
@@ -794,8 +863,14 @@ TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_
     const auto beat_ticks = static_cast<double>(std::max<Tick>(1, arranged.ticks_per_beat));
     const auto bar = arranged.meter.bar_at(static_cast<Tick>(tick));
     const auto& meter = arranged.meter.meter_in(bar);
-    return {arranged.clock.bpm_at_sample(sample), tick / beat_ticks, bar, meter.numerator,
-            meter.denominator, playing};
+    return {arranged.clock.bpm_at_sample(sample),
+            tick / beat_ticks,
+            bar,
+            meter.numerator,
+            meter.denominator,
+            playing,
+            static_cast<double>(arranged.meter.bar_start(bar)) / beat_ticks,
+            sample_rate_ > 0.0 ? sample / sample_rate_ : 0.0};
 }
 
 void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
@@ -902,6 +977,8 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         engine::run_insert_chain(track.chain, buffer, BusKind::track,
                                  static_cast<std::uint32_t>(index), transport, drain);
         engine::apply_track_compensation(track.chain, buffer);
+        scrub(left);
+        scrub(right);
         // The buffer now holds what keys a sidechain and what a follower
         // follows: after the inserts, before the fader. It stays so for the
         // rest of the chunk.
@@ -909,20 +986,41 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
                              buffer, sample_rate_);
         // 9. The strip gain for this chunk: the static gain, or the
         // automation envelope's ramp times the solo gate.
-        const auto ramp = engine::chunk_strip_gain(
+        auto ramp = engine::chunk_strip_gain(
             track.automation, arranged.automation, index,
             {track.gain_left.load(std::memory_order_relaxed),
              track.gain_right.load(std::memory_order_relaxed)},
             song_position, frames, from_timeline);
-        // 10. Sends: post-fader ones follow the automated fader.
-        if (ramp.automated)
-            engine::mix_sends_ramp(track.chain, *buses_, buffer, ramp.fader_from, ramp.fader_to,
-                                   ramp.audible_from, ramp.audible_to);
-        else
-            engine::mix_sends(track.chain, *buses_, buffer);
+        if (!ramp.automated) {
+            // A strip moved from the interface is reached across this chunk
+            // from the gain the last one ended on: no step, so no zipper on
+            // a fader throw and no click on a mute.
+            const StripGain target = ramp.from;
+            const float fader = track.chain.fader.load(std::memory_order_relaxed);
+            const float audible =
+                track.chain.audible.load(std::memory_order_relaxed) ? 1.0F : 0.0F;
+            if (!track.applied_valid) {
+                track.applied = target;
+                track.applied_fader = fader;
+                track.applied_audible = audible;
+                track.applied_valid = true;
+            }
+            ramp.from = track.applied;
+            ramp.to = target;
+            ramp.fader_from = track.applied_fader;
+            ramp.fader_to = fader;
+            ramp.audible_from = track.applied_audible;
+            ramp.audible_to = audible;
+        }
+        track.applied = ramp.to;
+        track.applied_fader = ramp.fader_to;
+        track.applied_audible = ramp.audible_to;
+        track.applied_valid = true;
+        // 10. Sends: post-fader ones follow the fader.
+        engine::mix_sends_ramp(track.chain, *buses_, buffer, ramp.fader_from, ramp.fader_to,
+                               ramp.audible_from, ramp.audible_to);
         // 11. Onto the direct bus.
-        const float peak = ramp.automated ? engine::mix_into_ramp(output, left, right, ramp)
-                                          : mix_into(output, left, right, ramp.from);
+        const float peak = engine::mix_into_ramp(output, left, right, ramp);
         // A block split by the loop point arrives as two chunks; the meter must
         // report the loudest of them, not whichever happened to be last.
         track.peak.store(std::max(track.peak.load(std::memory_order_relaxed), peak),
@@ -956,7 +1054,15 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     }
     engine::apply_master_compensation(*buses_, output);
     engine::run_master_inserts(*buses_, output, transport, drain);
-    const float bus_peak = apply_master(output, master_gain_.load(std::memory_order_relaxed));
+    scrub(output.left);
+    scrub(output.right);
+    const float master_target = master_gain_.load(std::memory_order_relaxed);
+    if (!applied_master_valid_) {
+        applied_master_ = master_target;
+        applied_master_valid_ = true;
+    }
+    const float bus_peak = apply_master_ramp(output, applied_master_, master_target);
+    applied_master_ = master_target;
     master_peak_.store(std::max(master_peak_.load(std::memory_order_relaxed), bus_peak),
                        std::memory_order_relaxed);
     // The guide click is added later, outside the song mix. Resampling the
@@ -990,9 +1096,14 @@ void SongEngine::process(StereoBlock output) noexcept { process(output, InputBlo
 void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     if (output.left.size() != output.right.size()) return;
     if (input.frames != output.left.size()) input = {};
+    const DenormalGuard denormals;
     const auto requested = requested_position_.exchange(no_seek, std::memory_order_acq_rel);
     const bool seeked = requested != no_seek;
     if (seeked) {
+        rest_at_end_ = false;
+        // The jump is a discontinuity already: the strips start on their
+        // targets rather than ramping from where the old place left them.
+        forget_applied_gains();
         sample_position_ = requested;
         published_position_.store(requested, std::memory_order_release);
         cursors_valid_ = false;
@@ -1020,6 +1131,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         if (live_ != nullptr) engine::release_parameter_holds(live_->automation);
     }
     if (rolling && !rolled_) cursors_valid_ = false;
+    const bool was_rolling = rolled_;
     rolled_ = rolling;
     // Strip moves from the interface: each sets its control's touch bit and,
     // while the song plays, goes back stamped with where it was heard.
@@ -1048,13 +1160,19 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         // Stopping the transport stops every launched track (wave 6.1).
         engine::stop_launcher(*launcher_);
         // Edits a plugin reports on a stopped song are stamped where the
-        // playhead rests.
-        const auto resting = song_samples_ == 0 ? 0 : sample_position_ % song_samples_;
+        // playhead rests. A song that played through to its end and stopped
+        // there rests on its last sample, not on the first of a lap it never
+        // began: a bounce's tail holds the end of every envelope.
+        const auto wrapped = song_samples_ == 0 ? 0 : sample_position_ % song_samples_;
+        if (was_rolling && wrapped == 0 && sample_position_ > 0) rest_at_end_ = true;
+        const auto resting = rest_at_end_ && song_samples_ > 0 ? song_samples_ - 1 : wrapped;
         metronome_->was_rolling = false;
         std::size_t idle = 0;
         while (idle < output.left.size()) {
-            const auto frames = std::min<std::size_t>(output.left.size() - idle,
-                                                      maximum_block_);
+            auto frames = std::min<std::size_t>(output.left.size() - idle, maximum_block_);
+            // A moved control is reached across a short ramp, not a block.
+            if (strip_move_pending())
+                frames = std::min<std::size_t>(frames, static_cast<std::size_t>(smoothing_frames));
             const StereoBlock chunk{output.left.subspan(idle, frames),
                                     output.right.subspan(idle, frames)};
             process_chunk(chunk, input.slice(idle, frames), resting, false);
@@ -1077,9 +1195,11 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         // The playhead rests; instruments still play what is played into
         // them, but nothing is captured.
         const auto resting = sample_position_ % song_samples_;
-        const auto frames = static_cast<std::size_t>(std::min<std::uint64_t>(
+        auto frames = static_cast<std::size_t>(std::min<std::uint64_t>(
             {output.left.size() - rendered, engine::count_in_remaining(*metronome_),
              maximum_block_}));
+        if (frames > 0 && strip_move_pending())
+            frames = std::min<std::size_t>(frames, static_cast<std::size_t>(smoothing_frames));
         if (frames == 0) {
             finish_count_in();
             break;
@@ -1099,6 +1219,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         if (seeked || !metronome_->was_rolling) metronome_->rolled = 0;
         metronome_->was_rolling = true;
     }
+    rest_at_end_ = false;
     while (rendered < output.left.size()) {
         const auto song_position = sample_position_ % song_samples_;
         if (!cursors_valid_ || song_position != continuous_from_) {
@@ -1117,6 +1238,14 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         if (live_ != nullptr && live_->automation.any_strip)
             frames = std::min<std::uint64_t>(
                 frames, engine::automation_grid - song_position % engine::automation_grid);
+        // A modulated song steps its modulators on a fixed grid, whatever
+        // block the device asked for, so a bounce sounds as playback did.
+        if (live_ != nullptr && !live_->routing.modulators.empty())
+            frames = std::min<std::uint64_t>(
+                frames, engine::modulation_grid - song_position % engine::modulation_grid);
+        // A strip moved from the interface is reached across a short ramp
+        // rather than stepped to: the chunk it ramps across is that short.
+        if (strip_move_pending()) frames = std::min<std::uint64_t>(frames, smoothing_frames);
         // A launch, a stop or a loop's end falls on a chunk's first sample.
         const auto& launching = live_ != nullptr ? live_->launcher : nothing_arranged.launcher;
         const auto& launch_clock = live_ != nullptr ? live_->clock : nothing_arranged.clock;

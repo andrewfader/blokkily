@@ -682,6 +682,12 @@ void Vst3PluginInstance::process(StereoBlock audio,
                             channel = candidate;
                             break;
                         }
+                    // Every voice channel busy: the one taken over lets go
+                    // of its note first, or that note would ring for ever.
+                    const int displaced = impl_->channel_key[static_cast<std::size_t>(channel) - 1];
+                    if (displaced >= 0)
+                        impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, displaced, 0.0F),
+                                             position);
                     impl_->channel_key[static_cast<std::size_t>(channel) - 1] =
                         event.key_or_parameter;
                     const int retune = static_cast<int>(std::lround(event.cents / 200.0 * 8192.0));

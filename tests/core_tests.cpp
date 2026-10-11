@@ -673,6 +673,9 @@ int main() {
     // Muting a track removes it from the bus without stopping the transport.
     mix_song.tracks[1].mix.mute = true;
     engine.apply_mix(mix_song);
+    // A mixer move is reached across a short ramp inside the first block;
+    // the block after it is at the new gain throughout.
+    render_block();
     render_block();
     assert(std::abs(bus_left[100] - voice_level * centre_gain) < 1e-5F);
     assert(engine.track_peak(1) == 0.0F);
@@ -681,6 +684,9 @@ int main() {
     mix_song.tracks[1].mix.mute = false;
     mix_song.tracks[1].mix.solo = true;
     engine.apply_mix(mix_song);
+    // A mixer move is reached across a short ramp inside the first block;
+    // the block after it is at the new gain throughout.
+    render_block();
     render_block();
     assert(std::abs(bus_left[100] - voice_level * centre_gain) < 1e-5F);
     assert(engine.track_peak(0) == 0.0F);
@@ -693,6 +699,9 @@ int main() {
     mix_song.tracks[1].mix = {-6.0, 1.0, false, false};
     mix_song.master_gain_db = -6.0;
     engine.apply_mix(mix_song);
+    // A mixer move is reached across a short ramp inside the first block;
+    // the block after it is at the new gain throughout.
+    render_block();
     render_block();
     const float master = static_cast<float>(db_to_linear(-6.0));
     assert(std::abs(bus_left[100] - voice_level * master) < 1e-5F);

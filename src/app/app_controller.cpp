@@ -126,6 +126,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         // selected one - in the song's own tuning and scale, from the next key
         // pressed.
         const auto follow = [this] {
+            if (song_->mixOnlyChange()) return;
             updateInputRoutes();
             updateKeyMap();
         };

@@ -19,11 +19,16 @@
 #include <QQuickWindow>
 #include <QTimer>
 
+#include <clocale>
 #include <memory>
 
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
+    // Qt sets the C locale from the environment on Unix, which would make
+    // every printf-family number a plugin or a library parses depend on the
+    // machine's decimal mark; the numeric locale stays "C".
+    std::setlocale(LC_NUMERIC, "C");
 
     QGuiApplication::setApplicationName("Blokkily");
     QGuiApplication::setOrganizationName("Blokkily");

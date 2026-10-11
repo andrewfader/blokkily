@@ -70,7 +70,11 @@ struct TakeTarget {
 // played note's per-note expression goes with it: onto its voice of the step,
 // the other voices' expression following their voices when a chord is made
 // or reordered.
-int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step);
+// With `roll_as_ratchet`, a pitch the step already sounds is one more hit of
+// the step (its ratchet count grows) rather than being left out: what a file
+// of thirty-second notes or flams means. A live take leaves the step alone.
+int write_played(Pattern& pattern, PlayedNote note, Tick ticks_per_step,
+                 bool roll_as_ratchet = false);
 
 // Writes a played controller movement into a pattern at `event.tick`, read in
 // the pattern's own ticks round its loop. A value of the same controller on

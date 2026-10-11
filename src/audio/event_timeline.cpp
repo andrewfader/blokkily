@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
+#include <vector>
 
 namespace blokkily {
 
@@ -51,11 +53,39 @@ std::vector<TimedPluginEvent> compile_timeline(
         timeline.push_back({at(control.start), 0,
                             {PluginEvent::Type::midi_raw, 0,
                              static_cast<std::int32_t>(midi_raw_of(control.event)), 0.0}});
-    for (const auto& note : scheduled.notes) {
+    // Notes are addressed by key on every format, so a key struck again
+    // while it still sounds would otherwise be released by the earlier
+    // note's note-off part-way through the later one. The earlier note ends
+    // where the later one starts instead: its release lands on that sample,
+    // before the new strike. Voices struck together on one key (a doubled
+    // chord voice) are left as they are.
+    std::vector<std::size_t> order(scheduled.notes.size());
+    for (std::size_t index = 0; index < order.size(); ++index) order[index] = index;
+    std::stable_sort(order.begin(), order.end(), [&scheduled](std::size_t a, std::size_t b) {
+        return scheduled.notes[a].start < scheduled.notes[b].start;
+    });
+    std::vector<Tick> ends(scheduled.notes.size());
+    for (const auto index : order)
+        ends[index] = scheduled.notes[index].start + scheduled.notes[index].duration;
+    // The notes still sounding on each key, in start order.
+    std::unordered_map<std::int16_t, std::vector<std::size_t>> open;
+    for (const auto index : order) {
+        const auto& note = scheduled.notes[index];
+        auto& sounding = open[note.key];
+        std::erase_if(sounding, [&](std::size_t before) {
+            if (ends[before] <= note.start) return true;
+            if (scheduled.notes[before].start >= note.start) return false;
+            ends[before] = note.start;
+            return true;
+        });
+        sounding.push_back(index);
+    }
+    for (const auto index : order) {
+        const auto& note = scheduled.notes[index];
         timeline.push_back({at(note.start), 1,
                             {PluginEvent::Type::note_on, 0, note.key, note.velocity,
                              note.cents, static_cast<std::uint8_t>(note.expressive ? 1 : 0)}});
-        timeline.push_back({at(note.start + note.duration), 1,
+        timeline.push_back({at(ends[index]), 1,
                             {PluginEvent::Type::note_off, 0, note.key, 0.0, note.cents}});
     }
     // Per-note expression after the note-on on its sample: it moves a note

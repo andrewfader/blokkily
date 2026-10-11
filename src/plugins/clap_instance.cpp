@@ -394,6 +394,9 @@ struct ClapPluginInstance::Impl {
     std::uint32_t output_channels = 2;
     std::uint32_t sidechain_channels = 0;
     bool note_input = true;
+    // The note port takes MIDI but not CLAP note events: notes go as MIDI
+    // then, or the plugin would load, scan and play nothing.
+    bool note_midi_only = false;
     std::uint32_t max_frames = 0;
     // What the next process() hears on the sidechain input and where it
     // writes each aux output; both apply to that call only.
@@ -450,6 +453,13 @@ struct ClapPluginInstance::Impl {
         sidechain_channels = sidechain_input == no_port ? 0 : std::min<std::uint32_t>(input_ports[sidechain_input].channels, 2);
         const auto* notes = extension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS);
         note_input = notes == nullptr || notes->count(plugin, true) > 0;
+        note_midi_only = false;
+        if (notes != nullptr && note_input) {
+            clap_note_port_info_t info{};
+            if (notes->get(plugin, 0, true, &info))
+                note_midi_only = (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) == 0 &&
+                                 (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0;
+        }
     }
 
     // Buffers for every port, `frames` long. Main thread, inactive.
@@ -521,7 +531,12 @@ struct ClapPluginInstance::Impl {
                 destroy_editor();
                 if (host_window != nullptr) host_window->closed();
             }
-            if (processing) plugin->stop_processing(plugin);
+            if (processing) {
+                // CLAP has stop_processing called from the audio thread, which
+                // the host defines; a plugin that checks is told so.
+                const AudioThreadScope audio_thread;
+                plugin->stop_processing(plugin);
+            }
             if (active) plugin->deactivate(plugin);
             plugin->destroy(plugin);
         }
@@ -570,7 +585,11 @@ std::unique_ptr<ClapPluginInstance> ClapPluginInstance::create(
 bool ClapPluginInstance::activate(double sample_rate, std::uint32_t min_frames,
                                   std::uint32_t max_frames) {
     if (!impl_ || !impl_->plugin || min_frames == 0 || max_frames < min_frames) return false;
-    if (impl_->processing) { impl_->plugin->stop_processing(impl_->plugin); impl_->processing = false; }
+    if (impl_->processing) {
+        const AudioThreadScope audio_thread;
+        impl_->plugin->stop_processing(impl_->plugin);
+        impl_->processing = false;
+    }
     if (impl_->active) { impl_->plugin->deactivate(impl_->plugin); impl_->active = false; }
     // Ports may change only while the plugin is inactive, so they are read
     // again here and the input copy is sized for the largest block.
@@ -581,7 +600,12 @@ bool ClapPluginInstance::activate(double sample_rate, std::uint32_t min_frames,
     impl_->state.latency_announced.store(false, std::memory_order_relaxed);
     impl_->read_latency();
     impl_->read_tail();
-    impl_->processing = impl_->plugin->start_processing(impl_->plugin);
+    {
+        // start_processing is an audio-thread call in CLAP's thread model; a
+        // plugin built on the helpers' thread checks terminates otherwise.
+        const AudioThreadScope audio_thread;
+        impl_->processing = impl_->plugin->start_processing(impl_->plugin);
+    }
     return impl_->processing;
 }
 
@@ -595,7 +619,19 @@ void ClapPluginInstance::process(StereoBlock audio,
     for (const auto& source : events) {
         if (count == maximum_events) break;
         clap_event_header_t header{0, source.sample_offset, CLAP_CORE_EVENT_SPACE_ID, 0, 0};
-        if (source.type == PluginEvent::Type::note_on || source.type == PluginEvent::Type::note_off) {
+        if ((source.type == PluginEvent::Type::note_on ||
+             source.type == PluginEvent::Type::note_off) && impl_->note_midi_only) {
+            // The port's dialect: a MIDI note on the first channel, its
+            // velocity in seven bits. Retune has no MIDI to travel in here.
+            header.size = sizeof(clap_event_midi_t);
+            header.type = CLAP_EVENT_MIDI;
+            const auto velocity = static_cast<std::uint8_t>(std::clamp(
+                static_cast<int>(std::lround(source.value * 127.0)), 1, 127));
+            converted[count++].midi = {header, 0,
+                {static_cast<std::uint8_t>(source.type == PluginEvent::Type::note_on ? 0x90U : 0x80U),
+                 static_cast<std::uint8_t>(std::clamp(source.key_or_parameter, 0, 127)),
+                 source.type == PluginEvent::Type::note_on ? velocity : std::uint8_t{64}}};
+        } else if (source.type == PluginEvent::Type::note_on || source.type == PluginEvent::Type::note_off) {
             header.size = sizeof(clap_event_note_t);
             header.type = source.type == PluginEvent::Type::note_on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF;
             converted[count++].note = {header, -1, 0, 0,
@@ -848,10 +884,16 @@ void ClapPluginInstance::set_transport(const TransportInfo& info) noexcept {
     transport.header = {sizeof(clap_event_transport_t), 0, CLAP_CORE_EVENT_SPACE_ID,
                         CLAP_EVENT_TRANSPORT, 0};
     transport.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE |
-                      CLAP_TRANSPORT_HAS_TIME_SIGNATURE |
+                      CLAP_TRANSPORT_HAS_SECONDS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE |
                       (info.playing ? static_cast<std::uint32_t>(CLAP_TRANSPORT_IS_PLAYING) : 0U);
     transport.song_pos_beats = static_cast<clap_beattime>(
         std::llround(info.beat * static_cast<double>(CLAP_BEATTIME_FACTOR)));
+    transport.song_pos_seconds = static_cast<clap_sectime>(
+        std::llround(info.seconds * static_cast<double>(CLAP_SECTIME_FACTOR)));
+    // The beats timeline names where the current bar begins, which is what
+    // an arpeggiator or a synced LFO counts its phase from.
+    transport.bar_start = static_cast<clap_beattime>(
+        std::llround(info.bar_start_beat * static_cast<double>(CLAP_BEATTIME_FACTOR)));
     transport.tempo = info.bpm;
     transport.bar_number = info.bar;
     transport.tsig_num = static_cast<std::uint16_t>(info.numerator);

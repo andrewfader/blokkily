@@ -81,7 +81,7 @@ Rectangle {
             value: root.mix.gainDb
             readout: root.mix.gainText + " dB"
             accent: Theme.amber
-            onMoved: function(v) { songModel.setReturnGain(root.busIndex, v) }
+            onMoved: function(v) { songModel.setReturnGain(root.busIndex, v <= -59.95 ? -96 : v) }
         }
     }
 }

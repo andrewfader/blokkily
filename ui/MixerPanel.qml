@@ -116,10 +116,11 @@ Rectangle {
                     Layout.fillWidth: true
                     label: "LEVEL"; from: -60; to: 6
                     value: songModel.masterGainDb
-                    readout: (songModel.masterGainDb <= -59.95 ? "-inf"
+                    readout: (songModel.masterGainDb <= -95.95 ? "-inf"
                               : (songModel.masterGainDb > 0 ? "+" : "")
                                 + songModel.masterGainDb.toFixed(1)) + " dB"
-                    onMoved: function(v) { songModel.setMasterGain(v) }
+                    // The bottom of the dial is silence, as on every strip.
+                    onMoved: function(v) { songModel.setMasterGain(v <= -59.95 ? -96 : v) }
                 }
             }
         }

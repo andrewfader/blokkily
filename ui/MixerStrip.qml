@@ -164,7 +164,8 @@ Rectangle {
             value: modelData.gainDb
             readout: modelData.gainText + " dB"
             accent: modelData.audible ? Theme.acid : Theme.muted
-            onMoved: function(v) { songModel.setTrackGain(trackIndex, v) }
+            // The bottom of the dial is silence, as on every other strip.
+            onMoved: function(v) { songModel.setTrackGain(trackIndex, v <= -59.95 ? -96 : v) }
             onTouched: function(held) { appController.touchStrip(trackIndex, "gain", held) }
         }
         ValueDial {

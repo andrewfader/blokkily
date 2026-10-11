@@ -42,5 +42,12 @@ inline constexpr double minimum_audible_db = -96.0;
 
 // Scales the finished bus by the master gain and reports its peak.
 [[nodiscard]] float apply_master(StereoBlock bus, float master_gain) noexcept;
+// The same, with the gain moving linearly from `from` to `to` across the
+// block: how a control moved from the interface reaches its new value
+// without a step.
+[[nodiscard]] float mix_into_ramp(StereoBlock bus, std::span<const float> track_left,
+                                  std::span<const float> track_right, StripGain from,
+                                  StripGain to) noexcept;
+[[nodiscard]] float apply_master_ramp(StereoBlock bus, float from, float to) noexcept;
 
 } // namespace blokkily

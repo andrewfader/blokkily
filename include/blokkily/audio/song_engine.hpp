@@ -335,6 +335,9 @@ public:
     bool take_strip_move(StripMoveEvent& event) noexcept { return strip_moves_.pop(event); }
     void apply_mix(const Song& song);
     void set_master_gain_db(double decibels);
+    // How many samples a strip, return or master control moved from the
+    // interface takes to reach its new value: the ramp that replaces a step.
+    static constexpr std::uint64_t smoothing_frames = 64;
 
     // --- Scene launcher (wave 6.1) ------------------------------------------
     // The grid is Song::launcher, compiled with the arrangement (prepare(),
@@ -551,6 +554,20 @@ private:
     // is let go before the new one is played.
     bool release_arrangement_notes_ = false;
     std::atomic<float> master_gain_{1.0F};
+    // The master gain the last chunk ended on (see TrackPlayback::applied).
+    float applied_master_ = 1.0F;
+    bool applied_master_valid_ = false;
+    // Whether any strip, return or master gain differs from what the last
+    // chunk applied: the next chunk is then cut to `smoothing_frames`, the
+    // length of the ramp a moved control is reached across. Callback only.
+    [[nodiscard]] bool strip_move_pending() const noexcept;
+    // The gains ramp from nothing: the next chunk starts on its targets.
+    void forget_applied_gains() noexcept;
+    // Set when the transport stopped exactly at the song's end: the song then
+    // rests on its last sample rather than on the first of the next lap, so
+    // what a bounce's tail holds (a strip envelope, the transport a synced
+    // insert reads) is the end of the song, not its start.
+    bool rest_at_end_ = false;
     std::atomic<float> master_peak_{0.0F};
     std::atomic<bool> playing_{false};
     std::atomic<InputQueue*> input_{nullptr};

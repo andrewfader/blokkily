@@ -222,7 +222,8 @@ ApplicationWindow {
     // Ctrl+K goes to the assistant's prompt bar, the way a command palette
     // answers Ctrl+K elsewhere; Escape there hands the keyboard back.
     Shortcut { sequence: "Ctrl+K"; onActivated: promptBar.focusPrompt() }
-    // Space plays, arrows move the step cursor, and Ctrl with the number row
+    // Space plays, the arrows move the step cursor (Shift+Up/Down transposes),
+    // and Ctrl with the number row
     // toggles a step, so the grid can be driven without leaving the keyboard.
     // Bare digits are reserved for the tracker's upper-octave note keys.
     Shortcut { sequence: "Space"; enabled: !root.typing
@@ -254,9 +255,15 @@ ApplicationWindow {
         onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
     Shortcut { sequence: "Right"; enabled: !root.typing
         onActivated: patternModel.selectStep(Math.min(patternModel.stepCount - 1, patternModel.selectedStep + 1)) }
+    // The tracker runs down the screen, so Up and Down walk its rows; the
+    // pitch of a row is moved with Shift held (Ctrl for an octave).
     Shortcut { sequence: "Up"; enabled: !root.typing
-               onActivated: patternModel.transposeSelected(1) }
+        onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
     Shortcut { sequence: "Down"; enabled: !root.typing
+        onActivated: patternModel.selectStep(Math.min(patternModel.stepCount - 1, patternModel.selectedStep + 1)) }
+    Shortcut { sequence: "Shift+Up"; enabled: !root.typing
+               onActivated: patternModel.transposeSelected(1) }
+    Shortcut { sequence: "Shift+Down"; enabled: !root.typing
                onActivated: patternModel.transposeSelected(-1) }
     Shortcut { sequence: "Ctrl+Up"; enabled: !root.typing
                onActivated: patternModel.transposeSelected(12) }
@@ -490,7 +497,7 @@ ApplicationWindow {
                         }
                         // The hint gives way first: it elides before the
                         // title, the stem or the length is pushed off.
-                        Label { text: "SPACE play  |  HOME rewind  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
+                        Label { text: "SPACE play  |  HOME rewind  |  ARROWS move  |  SHIFT+UP/DOWN transpose  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
                             color: Theme.muted; font.pixelSize: 10
                             Layout.fillWidth: true; Layout.minimumWidth: 0
                             horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft }

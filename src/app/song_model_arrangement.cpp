@@ -122,6 +122,17 @@ bool SongModel::setClipRepeats(int track, int bar, int repeats) {
     return true;
 }
 
+bool SongModel::extendClipToBar(int track, int startBar, int bar) {
+    const auto* covering = static_cast<const SongModel*>(this)->clipAt(track, startBar);
+    if (covering == nullptr || bar < startBar) return false;
+    const auto length = song_.patterns[covering->pattern].pattern.length();
+    if (length <= 0) return false;
+    // The clip ends with the bar: as many whole patterns as reach its end.
+    const auto end = song_.meter.bar_start(bar + 1);
+    const auto wanted = std::max<blokkily::Tick>(1, (end - covering->start + length - 1) / length);
+    return setClipRepeats(track, startBar, static_cast<int>(std::min<blokkily::Tick>(wanted, 64)));
+}
+
 bool SongModel::moveClip(int track, int bar, int newBar) {
     auto* covering = clipAt(track, bar);
     if (covering == nullptr || newBar < 0) return false;

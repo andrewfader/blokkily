@@ -73,6 +73,15 @@ struct TrackPlayback {
     std::atomic<float> gain_left{1.0F};
     std::atomic<float> gain_right{1.0F};
     std::atomic<float> peak{0.0F};
+    // The strip gain the last chunk ended on. A fader, pan, mute or solo
+    // moved from the interface is reached by a ramp across the next chunk
+    // from here rather than stepped to, so a throw has no zipper and a mute
+    // no click. Callback only; `applied_valid` false means the next chunk
+    // starts on its target outright (a fresh prepare, a bounce).
+    StripGain applied{1.0F, 1.0F};
+    float applied_fader = 1.0F;
+    float applied_audible = 1.0F;
+    bool applied_valid = false;
     LiveEvents live;
 
     ClipPlayback clips;

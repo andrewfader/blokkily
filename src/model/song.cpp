@@ -133,10 +133,27 @@ MixerStrip Song::heard_strip(std::size_t index) const {
 ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
     ScheduledEvents arranged;
     const Scheduler scheduler;
-    for (const auto& clip : clips) {
-        if (clip.track != track || clip.pattern >= patterns.size()) continue;
+    // The track's clips in the order they play, so that a pattern placed
+    // again right where its last placement ended is heard as that
+    // pattern's next loop, not as its first again: a step that plays every
+    // other loop keeps alternating whether the bars were one clip with
+    // repeats or several placements in a row.
+    std::vector<const Clip*> ordered;
+    for (const auto& clip : clips)
+        if (clip.track == track && clip.pattern < patterns.size()) ordered.push_back(&clip);
+    std::stable_sort(ordered.begin(), ordered.end(),
+                     [](const Clip* a, const Clip* b) { return a->start < b->start; });
+    std::size_t previous_pattern = patterns.size();
+    Tick previous_end = -1;
+    std::uint64_t previous_loops = 0;
+    for (const auto* placed : ordered) {
+        const auto& clip = *placed;
         const auto& source = patterns[clip.pattern].pattern;
         const auto repeats = std::max<std::uint32_t>(1, clip.repeats);
+        const std::uint64_t loop_base =
+            clip.pattern == previous_pattern && clip.offset == 0 && clip.start == previous_end
+                ? previous_loops
+                : 0;
         // A cut clip (Clip::length) plays nothing from the cut on and lets go
         // of what is still sounding there.
         const bool cut = clip.length > 0 && clip.span(source.length()) == clip.length;
@@ -151,7 +168,7 @@ ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
             if (trimmed && offset + source.length() <= clip.start) continue;
             // Each repetition is the next loop of the pattern, so a step set to
             // play every other loop still alternates across the arrangement.
-            const auto compiled = scheduler.render(source, repeat + 1, seed);
+            const auto compiled = scheduler.render(source, loop_base + repeat + 1, seed);
             for (auto note : compiled.notes) {
                 note.start += offset;
                 if (trimmed && note.start < clip.start) continue;
@@ -180,6 +197,10 @@ ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
                 arranged.expressions.push_back(expression);
             }
         }
+        // A cut clip ends mid-pattern, so the next placement starts afresh.
+        previous_pattern = cut ? patterns.size() : clip.pattern;
+        previous_end = end;
+        previous_loops = loop_base + repeats;
     }
     const auto by_start = [](const auto& a, const auto& b) { return a.start < b.start; };
     std::stable_sort(arranged.notes.begin(), arranged.notes.end(), by_start);

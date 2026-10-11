@@ -24,16 +24,13 @@ std::string_view trim(std::string_view text) {
 }
 
 std::optional<double> to_double(std::string_view text) {
-    // from_chars for doubles is not available everywhere the project builds, so
-    // the parse is done by hand against a strict grammar.
-    try {
-        std::size_t used = 0;
-        const double value = std::stod(std::string(text), &used);
-        if (used != text.size()) return std::nullopt;
-        return value;
-    } catch (...) {
-        return std::nullopt;
-    }
+    // charconv knows no locale, so a Scala file reads the same whatever the
+    // machine's decimal mark is.
+    double value = 0.0;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (result.ec != std::errc() || result.ptr != text.data() + text.size()) return std::nullopt;
+    if (!std::isfinite(value)) return std::nullopt;
+    return value;
 }
 
 constexpr const char* sharp_names[] = {"C", "C#", "D", "D#", "E", "F",

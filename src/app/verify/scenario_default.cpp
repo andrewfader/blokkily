@@ -1362,11 +1362,19 @@ struct DefaultScenario {
                 const int key_before = pattern.selected().value("key").toInt();
                 filter->forceActiveFocus();
                 type_key(Qt::Key_Down, QString());
-                valid = valid && pattern.selected().value("key").toInt() == key_before;
+                valid = valid && pattern.selected().value("key").toInt() == key_before
+                              && pattern.selectedStep() == 0;
+                // Back in the editors, Down and Up walk the tracker's rows,
+                // and with Shift held they transpose the row.
                 if (auto* entry = named("noteEntry")) entry->forceActiveFocus();
                 type_key(Qt::Key_Down, QString());
-                valid = valid && pattern.selected().value("key").toInt() == key_before - 1;
+                valid = valid && pattern.selectedStep() == 1;
                 type_key(Qt::Key_Up, QString());
+                valid = valid && pattern.selectedStep() == 0
+                              && pattern.selected().value("key").toInt() == key_before;
+                chord_key(Qt::Key_Down, Qt::ShiftModifier);
+                valid = valid && pattern.selected().value("key").toInt() == key_before - 1;
+                chord_key(Qt::Key_Up, Qt::ShiftModifier);
                 valid = valid && pattern.selected().value("key").toInt() == key_before;
                 song.undo();
                 song.undo();
@@ -1944,8 +1952,23 @@ struct DefaultScenario {
                             // the mixer instead, where the keyboard is the
                             // only thing that can paint, and we tolerate a
                             // one-pixel anti-alias seam on that boundary.
-                            const auto editor_right = left;
+                            // The strip scanned is the editor pane's own
+                            // right gutter: between it and the mixer sits
+                            // the SplitView's handle, which the SplitView
+                            // paints (lighter when hovered), not the
+                            // keyboard.
+                            auto* editors = item("editorScroll") != nullptr
+                                                ? item("editorScroll")->parentItem()
+                                                : nullptr;
+                            const auto editor_right =
+                                editors != nullptr
+                                    ? editors->mapToScene({editors->width(), 0}).x()
+                                    : left;
                             const auto divider_left = std::max(0.0, editor_right - 3.0);
+                            // BLOKKILY_LEAK_FRAME names a file the judged
+                            // frame is written to, so a failure can be seen.
+                            if (const auto dump = qgetenv("BLOKKILY_LEAK_FRAME"); !dump.isEmpty())
+                                (void)frame.save(QString::fromLocal8Bit(dump), "PNG");
                             for (int y = static_cast<int>(keys_top); y < keys_bottom; ++y) {
                                 bool row_clean = true;
                                 for (int x = static_cast<int>(divider_left);
@@ -2011,10 +2034,12 @@ struct DefaultScenario {
                                           << " orient=" << runs.toStdString()
                                           << " bg=" << background.name().toStdString()
                                           << "\n";
-                                // Find a failing pixel
-                                for (int y = static_cast<int>(keys_top); y < keys_bottom && !clipped; ++y)
+                                // Name a failing pixel. The check stays
+                                // failed: reporting a leak must not pass it.
+                                bool reported = false;
+                                for (int y = static_cast<int>(keys_top); y < keys_bottom && !reported; ++y)
                                     for (int x = static_cast<int>(divider_left);
-                                         x < static_cast<int>(editor_right) && !clipped; ++x) {
+                                         x < static_cast<int>(editor_right) && !reported; ++x) {
                                         auto px = frame.pixelColor(x, y);
                                         if (std::abs(px.red() - background.red()) > 8 &&
                                             std::abs(px.green() - background.green()) > 8 &&
@@ -2022,11 +2047,11 @@ struct DefaultScenario {
                                             std::cerr << "  fail-pixel1 x=" << x << " y=" << y
                                                       << " rgb=(" << px.red() << "," << px.green()
                                                       << "," << px.blue() << ")\n";
-                                            clipped = true; // just to break
+                                            reported = true;
                                         }
                                     }
-                                for (int y = static_cast<int>(top); y < bottom && !clipped; ++y)
-                                    for (int x = static_cast<int>(left); x < window->width() - 2 && !clipped; ++x) {
+                                for (int y = static_cast<int>(top); y < bottom && !reported; ++y)
+                                    for (int x = static_cast<int>(left); x < window->width() - 2 && !reported; ++x) {
                                         auto px = frame.pixelColor(x, y);
                                         if (std::abs(px.red() - background.red()) > 8 &&
                                             std::abs(px.green() - background.green()) > 8 &&
@@ -2034,7 +2059,7 @@ struct DefaultScenario {
                                             std::cerr << "  fail-pixel2 x=" << x << " y=" << y
                                                       << " rgb=(" << px.red() << "," << px.green()
                                                       << "," << px.blue() << ")\n";
-                                            clipped = true;
+                                            reported = true;
                                         }
                                     }
                             }

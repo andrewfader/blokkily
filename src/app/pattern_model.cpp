@@ -153,11 +153,18 @@ void PatternModel::refresh() {
         roll_low_.reset();
     // A shorter pattern, or another one opened, keeps the cursor on a step
     // that exists.
-    if (selected_step_ >= stepCount()) selected_step_ = stepCount() - 1;
+    const bool clamped = selected_step_ >= stepCount();
+    if (clamped) selected_step_ = stepCount() - 1;
+    // A fader pulled, a pan turned: the rows read the same, so the editors
+    // are left alone rather than rebuilt once per pointer move.
+    if (song_ != nullptr && song_->mixOnlyChange()) return;
     beginResetModel();
     endResetModel();
     emit patternChanged();
-    emit selectionChanged();
+    // The cursor is announced only when it moved: the tracker scrolls to
+    // it on every announcement, which must not undo a scroll made to read
+    // rows further down.
+    if (clamped) emit selectionChanged();
 }
 
 int PatternModel::rowCount(const QModelIndex& parent) const {
@@ -851,34 +858,44 @@ bool PatternModel::duplicateSelected() {
     return pasteSelected();
 }
 
-bool PatternModel::insertStep(int step) {
-    if (step < 0 || step >= stepCount()) return false;
-    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(stepCount()));
-    for (int index = 0; index < stepCount(); ++index)
-        if (const auto* existing = triggerAt(index))
-            held[static_cast<std::size_t>(index)] = *existing;
+// The rows' triggers, every one a step holds (a file may put two on one
+// step, or one off the grid), keyed by row and keeping where in the row
+// each sits, so shifting rows moves everything and straightens nothing.
+std::vector<std::vector<blokkily::Trigger>> PatternModel::rows() const {
+    std::vector<std::vector<blokkily::Trigger>> held(static_cast<std::size_t>(stepCount()));
+    for (const auto& event : pattern().events()) {
+        const auto row = static_cast<std::size_t>(event.start / ticks_per_step);
+        if (row < held.size()) held[row].push_back(event);
+    }
+    return held;
+}
 
-    song_->checkpoint();
-    beginResetModel();
+void PatternModel::shiftRows(const std::vector<std::vector<blokkily::Trigger>>& held, int from,
+                             int by) {
     const auto living = pattern().events();
     std::vector<blokkily::EventId> ids;
     ids.reserve(living.size());
     for (const auto& event : living) ids.push_back(event.id);
     for (const auto id : ids) (void)pattern().remove(id);
+    for (int index = 0; index < stepCount(); ++index) {
+        const int target = index < from ? index : index + by;
+        if (target < 0 || target >= stepCount()) continue;
+        for (auto moved : held[static_cast<std::size_t>(index)]) {
+            moved.start += static_cast<blokkily::Tick>(target - index) * ticks_per_step;
+            // A partial last row cannot hold what sat late in a whole one.
+            if (moved.start < 0 || moved.start >= pattern().length()) continue;
+            (void)pattern().add(moved);
+        }
+    }
+}
 
-    for (int index = 0; index < step; ++index) {
-        if (!held[static_cast<std::size_t>(index)]) continue;
-        auto kept = *held[static_cast<std::size_t>(index)];
-        kept.start = index * ticks_per_step;
-        (void)pattern().add(kept);
-    }
+bool PatternModel::insertStep(int step) {
+    if (step < 0 || step >= stepCount()) return false;
+    const auto held = rows();
+    song_->checkpoint();
+    beginResetModel();
     // Rows at and after the cursor move down one; the last row falls off.
-    for (int index = step; index < stepCount() - 1; ++index) {
-        if (!held[static_cast<std::size_t>(index)]) continue;
-        auto moved = *held[static_cast<std::size_t>(index)];
-        moved.start = (index + 1) * ticks_per_step;
-        (void)pattern().add(moved);
-    }
+    shiftRows(held, step, 1);
     endResetModel();
     selected_step_ = step;
     emit patternChanged();
@@ -889,32 +906,13 @@ bool PatternModel::insertStep(int step) {
 
 bool PatternModel::deleteAndShift(int step) {
     if (step < 0 || step >= stepCount()) return false;
-    std::vector<std::optional<blokkily::Trigger>> held(static_cast<std::size_t>(stepCount()));
-    for (int index = 0; index < stepCount(); ++index)
-        if (const auto* existing = triggerAt(index))
-            held[static_cast<std::size_t>(index)] = *existing;
-
+    auto held = rows();
+    // The row under the cursor goes; later rows pull up into the hole and
+    // the last row becomes empty.
+    held[static_cast<std::size_t>(step)].clear();
     song_->checkpoint();
     beginResetModel();
-    const auto living = pattern().events();
-    std::vector<blokkily::EventId> ids;
-    ids.reserve(living.size());
-    for (const auto& event : living) ids.push_back(event.id);
-    for (const auto id : ids) (void)pattern().remove(id);
-
-    for (int index = 0; index < step; ++index) {
-        if (!held[static_cast<std::size_t>(index)]) continue;
-        auto kept = *held[static_cast<std::size_t>(index)];
-        kept.start = index * ticks_per_step;
-        (void)pattern().add(kept);
-    }
-    // Later rows pull up into the hole; the last row becomes empty.
-    for (int index = step + 1; index < stepCount(); ++index) {
-        if (!held[static_cast<std::size_t>(index)]) continue;
-        auto moved = *held[static_cast<std::size_t>(index)];
-        moved.start = (index - 1) * ticks_per_step;
-        (void)pattern().add(moved);
-    }
+    shiftRows(held, step + 1, -1);
     endResetModel();
     selected_step_ = step;
     emit patternChanged();

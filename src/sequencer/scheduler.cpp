@@ -71,8 +71,12 @@ ScheduledEvents Scheduler::render(
         if (chord.intervals.empty()) continue;
         const auto size = static_cast<std::int32_t>(chord.intervals.size());
         for (std::int32_t voice = 0; voice < size; ++voice) {
-            const auto source = (voice + chord.inversion % size + size) % size;
-            const auto octave = (voice + chord.inversion) >= size ? 12 : 0;
+            // An inversion moves the lowest voices up an octave each, or the
+            // highest down for a negative one: the octave is how many whole
+            // turns through the voices the inversion makes, below as above.
+            const auto turned = voice + chord.inversion;
+            const auto source = ((turned % size) + size) % size;
+            const auto octave = 12 * ((turned - source) / size);
             const double retune = static_cast<std::size_t>(source) < chord.cents.size()
                                       ? chord.cents[static_cast<std::size_t>(source)]
                                       : 0.0;

@@ -112,6 +112,11 @@ struct TransportInfo {
     std::int32_t bar;
     std::int16_t numerator, denominator;
     bool playing;
+    // Where the bar the playhead is in begins, in beats, so a plugin that
+    // counts its phase from the bar line is told where that line is.
+    double bar_start_beat = 0.0;
+    // The playhead in seconds, for a plugin that keeps a seconds timeline.
+    double seconds = 0.0;
 };
 
 class PluginInstance {

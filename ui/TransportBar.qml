@@ -11,6 +11,11 @@ ToolBar {
     // Where the keyboard goes back to once the tempo has been typed.
     property Item focusHome: null
     signal viewPicked(string name)
+    // Short of room, the bar gives up what is least needed first: the event
+    // count, then the long labels. The controls themselves never run off
+    // the window's edge, however narrow it is allowed to get.
+    readonly property bool tight: width < 1260
+    readonly property bool cramped: width < 1120
     height: 52
     background: Rectangle {
         color: "#141519"
@@ -180,11 +185,15 @@ ToolBar {
                 Chip {
                     required property var modelData
                     objectName: "view" + modelData
-                    text: modelData
-                    implicitWidth: Math.ceil(viewName.advanceWidth) + 12
+                    readonly property var shortNames: ({
+                        "ALL": "ALL", "STEP": "STEP", "TRACKER": "TRK", "PIANO": "ROLL",
+                        "KEYS": "KEYS", "LAUNCH": "LNCH"
+                    })
+                    text: root.cramped ? shortNames[modelData] : modelData
+                    implicitWidth: Math.ceil(viewName.advanceWidth) + (root.tight ? 8 : 12)
                     TextMetrics {
                         id: viewName
-                        text: modelData
+                        text: root.cramped ? shortNames[modelData] : modelData
                         font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
                     }
                     on: root.view === modelData
@@ -209,8 +218,10 @@ ToolBar {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.maximumWidth: eventCountFull.advanceWidth
+            visible: !root.tight
         }
-        Chip { objectName: "rescanButton"; text: appController.scanning ? "SCANNING…" : "RESCAN PLUGINS"
+        Chip { objectName: "rescanButton"
+               text: appController.scanning ? "SCANNING…" : (root.tight ? "RESCAN" : "RESCAN PLUGINS")
                onClicked: appController.rescanPlugins() }
     }
 }

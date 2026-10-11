@@ -173,7 +173,8 @@ pitch that ran to the right runs upward, and it moves keys without touching a
 note or a pitch. A surface that cannot be drawn at a playable key size scrolls
 rather than shrinking its keys past the point of being hit.
 Space plays, Return or Home goes back to the top of the song, the arrow keys
-move and transpose the step cursor, Insert pushes later rows down and
+move the step cursor (Shift+Up and Shift+Down transpose the step by a semitone,
+Ctrl+Up and Ctrl+Down by an octave), Insert pushes later rows down and
 Shift+Backspace pulls them up, Alt+arrows nudge micro-timing and note length,
 Ctrl+D duplicates the selected step onto
 the next row, Ctrl+1..0 (and Ctrl+Shift+1..6 for the second half of the bar)

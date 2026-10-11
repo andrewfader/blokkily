@@ -463,8 +463,17 @@ ColumnLayout {
                                                         return
                                                     }
                                                     anchorY = mouse.y
-                                                    anchorKey = trackRow.row && trackRow.row.active
-                                                                ? trackRow.row.key : root.entryBase
+                                                    if (trackRow.row && trackRow.row.active) {
+                                                        // A filled row is selected and
+                                                        // heard; its pitch (a chord's
+                                                        // voices included) is only
+                                                        // touched by a drag.
+                                                        anchorKey = trackRow.row.key
+                                                        patternModel.selectStep(trackRow.index)
+                                                        appController.auditionStep(trackRow.index)
+                                                        return
+                                                    }
+                                                    anchorKey = root.entryBase
                                                     root.noteWritten(trackRow.index, anchorKey)
                                                 }
                                                 onPositionChanged: function(mouse) {
@@ -472,6 +481,7 @@ ColumnLayout {
                                                         || mouse.buttons !== Qt.LeftButton)
                                                         return
                                                     var moved = Math.round((anchorY - mouse.y) / 6)
+                                                    if (moved === 0) return
                                                     patternModel.setStepKey(trackRow.index,
                                                                             anchorKey + moved)
                                                 }

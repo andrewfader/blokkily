@@ -16,7 +16,7 @@ void SongModel::setTrackGain(int track, double decibels) {
     mix.gain_db = qBound(blokkily::minimum_audible_db, decibels, 6.0);
     emit mixChanged();
     emit stripMoved(track, 0, mix.gain_db, previous);
-    emit songChanged();
+    emitMixMove();
 }
 
 void SongModel::setTrackPan(int track, double pan) {
@@ -27,7 +27,7 @@ void SongModel::setTrackPan(int track, double pan) {
     mix.pan = qBound(-1.0, pan, 1.0);
     emit mixChanged();
     emit stripMoved(track, 1, mix.pan, previous);
-    emit songChanged();
+    emitMixMove();
 }
 
 void SongModel::toggleMute(int track) {
@@ -37,7 +37,7 @@ void SongModel::toggleMute(int track) {
     mix.mute = !mix.mute;
     emit mixChanged();
     emit stripMoved(track, 2, mix.mute ? 1.0 : 0.0, mix.mute ? 0.0 : 1.0);
-    emit songChanged();
+    emitMixMove();
 }
 
 void SongModel::toggleSolo(int track) {
@@ -46,14 +46,20 @@ void SongModel::toggleSolo(int track) {
     auto& mix = song_.tracks[static_cast<std::size_t>(track)].mix;
     mix.solo = !mix.solo;
     emit mixChanged();
-    emit songChanged();
+    emitMixMove();
 }
 
 void SongModel::setMasterGain(double decibels) {
     checkpoint(QStringLiteral("master"));
     song_.master_gain_db = qBound(blokkily::minimum_audible_db, decibels, 6.0);
     emit mixChanged();
+    emitMixMove();
+}
+
+void SongModel::emitMixMove() {
+    mix_only_ = true;
     emit songChanged();
+    mix_only_ = false;
 }
 
 QVariantList SongModel::meters() const {

@@ -287,9 +287,19 @@ void process_returns(BusPlayback& buses, std::size_t frames, const TransportInfo
         run_insert_chain(bus.chain, block, BusKind::ret, static_cast<std::uint32_t>(index),
                          transport, drain);
         bus.chain.compensation.process(block);
-        const float peak = mix_into(sum, block.left, block.right,
-                                    {bus.gain_left.load(std::memory_order_relaxed),
-                                     bus.gain_right.load(std::memory_order_relaxed)});
+        const float target_left = bus.gain_left.load(std::memory_order_relaxed);
+        const float target_right = bus.gain_right.load(std::memory_order_relaxed);
+        if (!bus.applied_valid) {
+            bus.applied_left = target_left;
+            bus.applied_right = target_right;
+            bus.applied_valid = true;
+        }
+        // A moved return fader is reached across the chunk, not stepped to.
+        const float peak = blokkily::mix_into_ramp(sum, block.left, block.right,
+                                         {bus.applied_left, bus.applied_right},
+                                         {target_left, target_right});
+        bus.applied_left = target_left;
+        bus.applied_right = target_right;
         bus.peak.store(std::max(bus.peak.load(std::memory_order_relaxed), peak),
                        std::memory_order_relaxed);
     }
