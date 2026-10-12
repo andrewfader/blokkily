@@ -192,8 +192,9 @@ public:
     // of the song (the first bar when none is given), so a pattern made in a
     // 7/8 bar has fourteen steps. It is opened.
     Q_INVOKABLE void addPattern(int bar = -1);
-    // Makes the open section `steps` sixteenths long (1 to 64), every part of
-    // it. Steps past the new end are dropped; one step of history.
+    // Makes the open section `steps` sixteenths long (at least one, and as
+    // many as the timeline holds), every part of it. Steps past the new end
+    // are dropped; one step of history.
     Q_INVOKABLE bool setPatternSteps(int steps);
     // Section and track housekeeping. A copy of the open section, every
     // track's part of it, is how a variation is started; clearing empties

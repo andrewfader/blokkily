@@ -14,10 +14,11 @@ ColumnLayout {
     property string view: "ALL"
     readonly property real playStep: appController.patternPlayStep
     readonly property int playRow: playStep < 0 ? -1 : Math.floor(playStep)
-    // The open pattern's steps, read once for every editor here: each read of
-    // patternModel.steps builds all of them again, and a step cell or tracker
-    // row that read it for itself rebuilt the pattern once per step per edit.
-    readonly property var steps: patternModel.steps
+    // Each step cell and tracker row reads only its own step (stepRow), and
+    // reads it again when the pattern's revision moves: a pattern of any
+    // length then costs the rows on screen, where reading patternModel.steps
+    // converted every step of it for every cell.
+    function stepRow(step) { return patternModel.stepRow(step) }
 
     // The octave new notes land in, owned by the window.
     property int entryOctave: 3
@@ -74,7 +75,7 @@ ColumnLayout {
             Layout.fillHeight: false
             spacing: 3
             Repeater {
-                model: patternModel.stemRows
+                model: patternModel.trackerHeads
                 RowLayout {
                     id: rackRow
                     required property var modelData
@@ -110,26 +111,49 @@ ColumnLayout {
                             }
                         }
                     }
-                    Repeater {
-                        model: rackRow.modelData.steps
-                        Rectangle {
-                            required property var modelData
-                            required property int index
-                            objectName: "stemStep" + rackRow.index + "-" + index
-                            Layout.fillWidth: true; Layout.fillHeight: true
-                            radius: 2
-                            color: modelData ? (rackRow.modelData.selected ? Theme.acid : Theme.blue)
-                                             : (index % 4 === 0 ? "#262a33" : Theme.panel)
-                            border.color: root.playRow === index ? Theme.ink : Theme.line
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    const track = rackRow.modelData.track
-                                    const step = parent.index
-                                    const home = root.focusHome
-                                    patternModel.toggleStemStep(track, step, root.entryBase)
-                                    if (home) home.forceActiveFocus()
+                    // The row's steps scroll with the grid above, so the
+                    // same stretch of the pattern shows in both.
+                    Item {
+                        id: rackSteps
+                        Layout.fillWidth: true; Layout.fillHeight: true
+                        clip: true
+                        readonly property int count: patternModel.stepCount
+                        readonly property real gap: 3
+                        readonly property real stride:
+                            Math.max(12 + gap, (width + gap) / Math.max(1, count))
+                        readonly property real maxScroll:
+                            Math.max(0, count * stride - gap - width)
+                        readonly property real scrollX: stepGrid.maxScroll > 0
+                            ? stepGrid.scrollX / stepGrid.maxScroll * maxScroll : 0
+                        readonly property int built:
+                            Math.min(count, Math.ceil(width / stride) + 1 + 2 * 64)
+                        readonly property int first: Math.max(0, Math.min(count - built,
+                            Math.floor(scrollX / stride) - 64))
+                        Repeater {
+                            model: rackSteps.built
+                            Rectangle {
+                                required property int index
+                                readonly property int step: rackSteps.first + index
+                                readonly property bool on: patternModel.revision,
+                                    patternModel.stemStep(rackRow.modelData.track, step)
+                                objectName: "stemStep" + rackRow.index + "-" + step
+                                x: step * rackSteps.stride - rackSteps.scrollX
+                                width: rackSteps.stride - rackSteps.gap
+                                height: rackSteps.height
+                                radius: 2
+                                color: on ? (rackRow.modelData.selected ? Theme.acid : Theme.blue)
+                                          : (step % 4 === 0 ? "#262a33" : Theme.panel)
+                                border.color: root.playRow === step ? Theme.ink : Theme.line
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        const track = rackRow.modelData.track
+                                        const step = parent.step
+                                        const home = root.focusHome
+                                        patternModel.toggleStemStep(track, step, root.entryBase)
+                                        if (home) home.forceActiveFocus()
+                                    }
                                 }
                             }
                         }
@@ -137,24 +161,70 @@ ColumnLayout {
                 }
             }
         }
-        RowLayout {
+        Item {
+            id: stepGrid
             objectName: "stepGrid"
             Layout.fillWidth: true; Layout.fillHeight: true
-            spacing: 5
+            clip: true
             // One column per step of the open pattern: sixteen in 4/4,
-            // fourteen for a 7/8 bar, or whatever its LEN says.
+            // fourteen for a 7/8 bar, or whatever its LEN says. The columns
+            // share the width while they stay readable; a longer pattern
+            // keeps them readable and the grid scrolls sideways instead.
+            readonly property int count: patternModel.stepCount
+            readonly property real gap: 5
+            readonly property real stride:
+                Math.max(30 + gap, (width + gap) / Math.max(1, count))
+            readonly property real maxScroll: Math.max(0, count * stride - gap - width)
+            property real scrollX: 0
+            onMaxScrollChanged: scrollX = Math.max(0, Math.min(scrollX, maxScroll))
+            // Only the columns in view, and a margin either side, are built,
+            // so a pattern of any length costs what fits on screen. The
+            // window keeps its size as it scrolls, so its cells are reused
+            // rather than built again.
+            readonly property int built:
+                Math.min(count, Math.ceil(width / stride) + 1 + 2 * 64)
+            readonly property int first: Math.max(0, Math.min(count - built,
+                Math.floor(scrollX / stride) - 64))
+            // Scrolls a column into view.
+            function reveal(step) {
+                if (step < 0 || maxScroll <= 0) return
+                var left = step * stride
+                if (left < scrollX) scrollX = left
+                else if (left + stride - gap > scrollX + width)
+                    scrollX = Math.min(maxScroll, left + stride - gap - width)
+            }
+            function scrollBy(pixels) {
+                scrollX = Math.max(0, Math.min(maxScroll, scrollX + pixels))
+            }
+            Connections {
+                target: patternModel
+                function onSelectionChanged() { stepGrid.reveal(patternModel.selectedStep) }
+            }
+            Connections {
+                target: root
+                function onPlayRowChanged() { if (transport.playing) stepGrid.reveal(root.playRow) }
+            }
+            WheelHandler {
+                enabled: stepGrid.maxScroll > 0
+                onWheel: function(event) {
+                    var delta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y
+                    stepGrid.scrollBy(-delta / 120 * stepGrid.stride * 4)
+                }
+            }
             Repeater {
-                model: patternModel.stepCount
+                model: stepGrid.built
                 Rectangle {
                     id: cell
                     required property int index
-                    readonly property var row: root.steps[index]
-                    readonly property bool active: row !== undefined && row.active === true
-                    readonly property bool selected: row !== undefined && row.selected === true
-                    readonly property bool onBeat: index % 4 === 0
-                    readonly property bool playhead: root.playRow === index
-                    objectName: "step" + index
-                    Layout.fillWidth: true; Layout.fillHeight: true
+                    readonly property int step: stepGrid.first + index
+                    readonly property var row: patternModel.revision, root.stepRow(step)
+                    readonly property bool active: row.active === true
+                    readonly property bool selected: patternModel.selectedStep === step
+                    readonly property bool onBeat: step % 4 === 0
+                    readonly property bool playhead: root.playRow === step
+                    objectName: "step" + step
+                    x: step * stepGrid.stride - stepGrid.scrollX
+                    width: stepGrid.stride - stepGrid.gap; height: stepGrid.height
                     radius: 5
                     color: active ? Theme.acid : (onBeat ? "#262a33" : Theme.panel)
                     border.width: selected ? 2 : 1
@@ -187,7 +257,7 @@ ColumnLayout {
                     Label {
                         anchors.top: parent.top; anchors.topMargin: 6
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Format.fmt2(cell.index + 1)
+                        text: Format.fmt2(cell.step + 1)
                         color: cell.active ? (cell.tall && cell.velocity < 0.92
                                               ? Theme.ink : "#0e0f12")
                                            : (cell.onBeat ? Theme.ink : Theme.muted)
@@ -233,22 +303,39 @@ ColumnLayout {
                                 // Jump the song to this column of the
                                 // pass of the pattern it is already in,
                                 // engine and all, in whatever meter.
-                                appController.seekToPatternStep(cell.index)
-                                patternModel.selectStep(cell.index)
+                                appController.seekToPatternStep(cell.step)
+                                patternModel.selectStep(cell.step)
                                 return
                             }
                             if (mouse.modifiers & Qt.ShiftModifier) {
-                                patternModel.selectStep(cell.index)
+                                patternModel.selectStep(cell.step)
                                 return
                             }
                             // A new step is written in the octave the
                             // tracker types in, and heard as it lands.
-                            patternModel.toggleStep(cell.index, root.entryBase)
-                            if (patternModel.hasStep(cell.index))
-                                appController.auditionStep(cell.index)
+                            patternModel.toggleStep(cell.step, root.entryBase)
+                            if (patternModel.hasStep(cell.step))
+                                appController.auditionStep(cell.step)
                         }
                     }
                 }
+            }
+            ScrollBar {
+                id: stepGridBar
+                objectName: "stepGridScroll"
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                z: 2
+                orientation: Qt.Horizontal
+                policy: ScrollBar.AlwaysOn
+                visible: stepGrid.maxScroll > 0
+                readonly property real span: stepGrid.maxScroll + stepGrid.width
+                size: span > 0 ? stepGrid.width / span : 1
+                Binding on position {
+                    when: !stepGridBar.pressed
+                    value: stepGridBar.span > 0 ? stepGrid.scrollX / stepGridBar.span : 0
+                }
+                onPositionChanged: if (pressed) stepGrid.scrollX = position * span
             }
         }
     }
@@ -274,9 +361,10 @@ ColumnLayout {
             // way a tracker has always been read: across for what plays
             // together, down for time. The selected channel is the one the
             // keys write into; Tab and Shift+Tab move between channels.
-            // Read once for the tracker, for the same reason as root.steps:
-            // every cell of every channel reads its own row from it.
-            readonly property var channels: patternModel.trackerChannels
+            // The channels' names and selection, read once for the tracker;
+            // each cell reads its own row (trackerCell), for the same reason
+            // as root.stepRow.
+            readonly property var channels: patternModel.trackerHeads
             readonly property int channelCount: channels.length
             readonly property real rowNumberWidth: 30
             readonly property real channelWidth:
@@ -365,26 +453,41 @@ ColumnLayout {
 
                     // Every row is shown, empty ones included — a tracker
                     // that hides its empty rows is not a tracker.
-                    Column {
+                    Item {
                         id: trackerRows
                         objectName: "trackerRows"
                         y: trackerPanel.headerHeight
                         width: trackerScroll.contentWidth
+                        height: patternModel.stepCount * trackerPanel.rowHeight
                         readonly property int rowFont: trackerPanel.rowFont
+                        // Only the rows in view, and a margin above and
+                        // below, are built, so a pattern of any length costs
+                        // what fits on screen; the window keeps its size as
+                        // it scrolls, so its rows are reused.
+                        readonly property int built: Math.min(patternModel.stepCount,
+                            Math.ceil(trackerScroll.height / trackerPanel.rowHeight) + 1 + 2 * 64)
+                        readonly property int first: Math.max(0,
+                            Math.min(patternModel.stepCount - built,
+                                     Math.floor(trackerScroll.contentY / trackerPanel.rowHeight)
+                                     - 64))
                         Repeater {
-                            model: patternModel.stepCount
+                            model: trackerRows.built
                             Rectangle {
                                 id: trackRow
                                 required property int index
-                                readonly property var row: root.steps[index]
-                                readonly property bool playhead: root.playRow === index
+                                readonly property int step: trackerRows.first + index
+                                readonly property var row:
+                                    patternModel.revision, root.stepRow(step)
+                                readonly property bool selected: patternModel.selectedStep === step
+                                readonly property bool playhead: root.playRow === step
                                 readonly property int rowFont: trackerPanel.rowFont
-                                objectName: "trackerRow" + index
+                                objectName: "trackerRow" + step
+                                y: step * trackerPanel.rowHeight
                                 width: trackerRows.width
                                 height: trackerPanel.rowHeight
                                 color: playhead ? "#3c4930"
-                                       : (row && row.selected ? "#2b2f38"
-                                          : (index % 4 === 0 ? "#1e2128" : "transparent"))
+                                       : (selected ? "#2b2f38"
+                                          : (step % 4 === 0 ? "#1e2128" : "transparent"))
                                 // A press anywhere on the row that no
                                 // column takes moves the cursor there.
                                 MouseArea {
@@ -392,7 +495,7 @@ ColumnLayout {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         root.focusHome.forceActiveFocus()
-                                        patternModel.selectStep(trackRow.index)
+                                        patternModel.selectStep(trackRow.step)
                                     }
                                 }
                                 Repeater {
@@ -408,7 +511,10 @@ ColumnLayout {
                                         // row, so its edits read back at once.
                                         readonly property var cell: editing ? trackRow.row
                                             : (channel !== undefined
-                                               ? channel.rows[trackRow.index] : undefined)
+                                               ? (patternModel.revision,
+                                                  patternModel.trackerCell(channel.track,
+                                                                           trackRow.step))
+                                               : undefined)
                                         readonly property bool active:
                                             cell !== undefined && cell.active
                                         // Moves the cursor onto this channel.
@@ -417,13 +523,13 @@ ColumnLayout {
                                         function claim() {
                                             root.focusHome.forceActiveFocus()
                                             if (editing) {
-                                                patternModel.selectStep(trackRow.index)
+                                                patternModel.selectStep(trackRow.step)
                                                 return false
                                             }
-                                            patternModel.selectChannelStep(index, trackRow.index)
+                                            patternModel.selectChannelStep(index, trackRow.step)
                                             return true
                                         }
-                                        objectName: "trackerChannel" + index + "-" + trackRow.index
+                                        objectName: "trackerChannel" + index + "-" + trackRow.step
                                         x: trackerPanel.rowNumberWidth
                                            + index * trackerPanel.channelWidth
                                         width: trackerPanel.channelWidth; height: parent.height
@@ -433,8 +539,7 @@ ColumnLayout {
                                             width: 1; color: Theme.line
                                         }
                                         Rectangle {
-                                            visible: channelCell.editing && trackRow.row
-                                                     && trackRow.row.selected
+                                            visible: channelCell.editing && trackRow.selected
                                             anchors.left: parent.left; anchors.top: parent.top
                                             anchors.bottom: parent.bottom
                                             width: 2; color: Theme.amber
@@ -447,9 +552,9 @@ ColumnLayout {
                                         // empties the row.
                                         Item {
                                             objectName: channelCell.editing
-                                                        ? "trackerNote" + trackRow.index
+                                                        ? "trackerNote" + trackRow.step
                                                         : "trackerNote" + channelCell.index
-                                                          + "-" + trackRow.index
+                                                          + "-" + trackRow.step
                                             x: 8; width: 54; height: parent.height
                                             Label {
                                                 anchors.verticalCenter: parent.verticalCenter
@@ -475,7 +580,7 @@ ColumnLayout {
                                                     if (!live) return
                                                     songModel.beginGesture()
                                                     if (mouse.button === Qt.RightButton) {
-                                                        patternModel.clearStep(trackRow.index)
+                                                        patternModel.clearStep(trackRow.step)
                                                         return
                                                     }
                                                     anchorY = mouse.y
@@ -485,12 +590,12 @@ ColumnLayout {
                                                         // voices included) is only
                                                         // touched by a drag.
                                                         anchorKey = trackRow.row.key
-                                                        patternModel.selectStep(trackRow.index)
-                                                        appController.auditionStep(trackRow.index)
+                                                        patternModel.selectStep(trackRow.step)
+                                                        appController.auditionStep(trackRow.step)
                                                         return
                                                     }
                                                     anchorKey = root.entryBase
-                                                    root.noteWritten(trackRow.index, anchorKey)
+                                                    root.noteWritten(trackRow.step, anchorKey)
                                                 }
                                                 onPositionChanged: function(mouse) {
                                                     if (!live || !pressed
@@ -498,7 +603,7 @@ ColumnLayout {
                                                         return
                                                     var moved = Math.round((anchorY - mouse.y) / 6)
                                                     if (moved === 0) return
-                                                    patternModel.setStepKey(trackRow.index,
+                                                    patternModel.setStepKey(trackRow.step,
                                                                             anchorKey + moved)
                                                 }
                                                 onReleased: if (live) songModel.endGesture()
@@ -507,9 +612,9 @@ ColumnLayout {
                                         }
                                         Item {
                                             objectName: channelCell.editing
-                                                        ? "trackerVel" + trackRow.index
+                                                        ? "trackerVel" + trackRow.step
                                                         : "trackerVel" + channelCell.index
-                                                          + "-" + trackRow.index
+                                                          + "-" + trackRow.step
                                             x: 64; width: 28; height: parent.height
                                             Label {
                                                 anchors.verticalCenter: parent.verticalCenter
@@ -546,9 +651,9 @@ ColumnLayout {
                                         }
                                         Item {
                                             objectName: channelCell.editing
-                                                        ? "trackerFx" + trackRow.index
+                                                        ? "trackerFx" + trackRow.step
                                                         : "trackerFx" + channelCell.index
-                                                          + "-" + trackRow.index
+                                                          + "-" + trackRow.step
                                             x: 96; width: parent.width - 100
                                             height: parent.height
                                             Label {
@@ -613,10 +718,10 @@ ColumnLayout {
                                     Label {
                                         anchors.verticalCenter: parent.verticalCenter
                                         x: 2
-                                        text: trackRow.index.toString(16).toUpperCase()
+                                        text: trackRow.step.toString(16).toUpperCase()
                                                   .padStart(2, "0")
                                         color: trackRow.playhead ? Theme.bg
-                                               : (trackRow.index % 4 === 0 ? Theme.ink : Theme.muted)
+                                               : (trackRow.step % 4 === 0 ? Theme.ink : Theme.muted)
                                         font.family: Theme.mono
                                         font.pixelSize: trackRow.rowFont
                                     }
@@ -730,7 +835,38 @@ ColumnLayout {
                     readonly property real laneHeight: height / keyCount
                     readonly property real gutter: 42
                     readonly property int columns: Math.max(1, patternModel.stepCount)
-                    readonly property real laneWidth: (width - gutter) / columns
+                    // Columns share the width while they stay drawable; a
+                    // longer pattern keeps them so and the roll scrolls
+                    // sideways, its controller lane with it.
+                    readonly property real viewWidth: Math.max(0, width - gutter)
+                    readonly property real laneWidth: Math.max(10, viewWidth / columns)
+                    readonly property real maxScroll: Math.max(0, columns * laneWidth - viewWidth)
+                    property real scrollX: 0
+                    onMaxScrollChanged: scrollX = Math.max(0, Math.min(scrollX, maxScroll))
+                    // The columns whose bar lines are built: those in view.
+                    readonly property int first: Math.floor(scrollX / laneWidth)
+                    readonly property int last:
+                        Math.min(columns, Math.ceil((scrollX + viewWidth) / laneWidth))
+                    // Where step (or fraction of a step) `step` is drawn.
+                    function stepX(step) { return gutter + step * laneWidth - scrollX }
+                    // Scrolls a step into view.
+                    function reveal(step) {
+                        if (step < 0 || maxScroll <= 0) return
+                        var left = step * laneWidth
+                        if (left < scrollX) scrollX = left
+                        else if (left + laneWidth > scrollX + viewWidth)
+                            scrollX = Math.min(maxScroll, left + laneWidth - viewWidth)
+                    }
+                    Connections {
+                        target: patternModel
+                        function onSelectionChanged() { rollArea.reveal(patternModel.selectedStep) }
+                    }
+                    Connections {
+                        target: root
+                        function onPlayRowChanged() {
+                            if (transport.playing) rollArea.reveal(root.playRow)
+                        }
+                    }
                     function isBlack(key) {
                         var pc = key % 12
                         return pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10
@@ -746,6 +882,13 @@ ColumnLayout {
                         property real pending: 0
                         onWheel: function(event) {
                             pending += event.angleDelta.y
+                            // A sideways wheel moves along the pattern.
+                            if (event.angleDelta.x !== 0) {
+                                rollArea.scrollX = Math.max(0, Math.min(rollArea.maxScroll,
+                                    rollArea.scrollX - event.angleDelta.x / 120
+                                                       * rollArea.laneWidth * 4))
+                                return
+                            }
                             var notches = pending > 0 ? Math.floor(pending / 120)
                                                       : Math.ceil(pending / 120)
                             if (notches === 0) return
@@ -761,6 +904,8 @@ ColumnLayout {
                             required property int index
                             readonly property int key: patternModel.highKey - index
                             objectName: "rollKey" + key
+                            // Above the notes, which scroll under it.
+                            z: 2
                             x: 0; y: index * rollArea.laneHeight
                             width: rollArea.gutter; height: rollArea.laneHeight
                             color: rollArea.isBlack(key) ? "#111318" : "#39404b"
@@ -804,17 +949,18 @@ ColumnLayout {
                         }
                     }
                     Rectangle {
-                        x: rollArea.gutter - 1; y: 0
+                        x: rollArea.gutter - 1; y: 0; z: 2
                         width: 1; height: rollArea.height; color: "#0c0e11"
                     }
                     // Bar lines every four steps.
                     Repeater {
-                        model: rollArea.columns + 1
+                        model: Math.max(0, rollArea.last - rollArea.first + 1)
                         Rectangle {
                             required property int index
-                            x: rollArea.gutter + index * rollArea.laneWidth
+                            readonly property int column: rollArea.first + index
+                            x: rollArea.stepX(column)
                             y: 0; width: 1; height: rollArea.height
-                            color: index % 4 === 0 ? "#3b414c" : "#252932"
+                            color: column % 4 === 0 ? "#3b414c" : "#252932"
                         }
                     }
                     // Notes, drawn on the lane the gutter labels.
@@ -832,7 +978,7 @@ ColumnLayout {
                             required property var voiceLengths
                             required property var voiceVelocities
                             objectName: "rollNote" + step
-                            x: rollArea.gutter + step * rollArea.laneWidth + 1
+                            x: rollArea.stepX(step) + 1
                             width: Math.max(6, duration / 120 * rollArea.laneWidth - 2)
                             height: rollArea.height
                             Repeater {
@@ -861,9 +1007,9 @@ ColumnLayout {
                     // Playhead across the roll.
                     Rectangle {
                         objectName: "rollPlayhead"
-                        visible: root.playStep >= 0
-                        x: rollArea.gutter + Math.min(rollArea.columns,
-                               root.playStep) * rollArea.laneWidth
+                        visible: root.playStep >= 0 && x >= rollArea.gutter - 1
+                                 && x <= rollArea.width
+                        x: rollArea.stepX(Math.min(rollArea.columns, root.playStep))
                         y: 0; width: 2; height: rollArea.height
                         color: transport.playing ? Theme.acid : Theme.ink; opacity: 0.95
                     }
@@ -899,7 +1045,7 @@ ColumnLayout {
 
                         function stepAt(px) {
                             return Math.max(0, Math.min(rollArea.columns - 1,
-                                Math.floor(px / rollArea.laneWidth)))
+                                Math.floor((px + rollArea.scrollX) / rollArea.laneWidth)))
                         }
                         function keyAt(py) {
                             return Math.max(0, Math.min(127, patternModel.highKey -
@@ -913,7 +1059,7 @@ ColumnLayout {
                             for (var i = rollArea.columns - 1; i >= 0; --i) {
                                 var duration = patternModel.rollNoteDuration(i, key)
                                 if (duration <= 0) continue
-                                var start = i * rollArea.laneWidth
+                                var start = i * rollArea.laneWidth - rollArea.scrollX
                                 var width = Math.max(8, duration / 120 * rollArea.laneWidth)
                                 if (px >= start - 1 && px <= start + width + 1) return i
                             }
@@ -954,7 +1100,7 @@ ColumnLayout {
                             if (hit >= 0) {
                                 var dur = patternModel.rollNoteDuration(hit, key)
                                 var end = hit + dur / 120
-                                var xStep = mouse.x / rollArea.laneWidth
+                                var xStep = (mouse.x + rollArea.scrollX) / rollArea.laneWidth
                                 patternModel.selectStep(hit)
                                 grabKey = key
                                 dragKey = key
@@ -975,7 +1121,7 @@ ColumnLayout {
                             }
                             if (dragMode === 2 && dragStep >= 0) {
                                 var ticks = Math.round(
-                                    (mouse.x / rollArea.laneWidth - dragStep) * 120)
+                                    ((mouse.x + rollArea.scrollX) / rollArea.laneWidth - dragStep) * 120)
                                 patternModel.resizeRollNote(dragStep, dragKey, ticks)
                                 return
                             }
@@ -1014,6 +1160,23 @@ ColumnLayout {
                         width: rollArea.width - rollArea.gutter
                         height: rollArea.laneHeight
                         color: Theme.amber; opacity: 0.10
+                    }
+                    ScrollBar {
+                        id: rollBar
+                        objectName: "rollScroll"
+                        x: rollArea.gutter; width: rollArea.viewWidth
+                        anchors.bottom: parent.bottom
+                        z: 3
+                        orientation: Qt.Horizontal
+                        policy: ScrollBar.AlwaysOn
+                        visible: rollArea.maxScroll > 0
+                        readonly property real span: rollArea.maxScroll + rollArea.viewWidth
+                        size: span > 0 ? rollArea.viewWidth / span : 1
+                        Binding on position {
+                            when: !rollBar.pressed
+                            value: rollBar.span > 0 ? rollArea.scrollX / rollBar.span : 0
+                        }
+                        onPositionChanged: if (pressed) rollArea.scrollX = position * span
                     }
                 }
 
@@ -1112,7 +1275,9 @@ ColumnLayout {
                         readonly property real plotX: rollArea.gutter
                         readonly property real plotWidth: width - rollArea.gutter
                         readonly property real ticks: Math.max(1, patternModel.patternTicks)
-                        function xOf(tick) { return plotX + tick / 120 * rollArea.laneWidth }
+                        function xOf(tick) {
+                            return plotX + tick / 120 * rollArea.laneWidth - rollArea.scrollX
+                        }
                         // Where a level sits: the wheel from the middle, the
                         // rest from the floor.
                         function yOf(level) {
@@ -1136,6 +1301,7 @@ ColumnLayout {
                                 required property var modelData
                                 required property int index
                                 objectName: "controllerPoint" + index
+                                visible: x >= laneArea.plotX - 1 && x <= laneArea.width
                                 readonly property real levelY: laneArea.yOf(modelData.level)
                                 readonly property real base: rollControls.bend ? laneArea.height / 2
                                                                                : laneArea.height - 2
@@ -1159,7 +1325,7 @@ ColumnLayout {
                             property bool erasing: false
                             function tickAt(px) {
                                 return Math.max(0, Math.min(laneArea.ticks - 1,
-                                    Math.round(px / rollArea.laneWidth * 120)))
+                                    Math.round((px + rollArea.scrollX) / rollArea.laneWidth * 120)))
                             }
                             function levelAt(py) {
                                 var h = laneArea.height - 4
@@ -1171,7 +1337,8 @@ ColumnLayout {
                                 var best = -1, distance = 6
                                 var points = rollControls.lanePoints
                                 for (var i = 0; i < points.length; ++i) {
-                                    var d = Math.abs(points[i].tick / 120 * rollArea.laneWidth - px)
+                                    var d = Math.abs(points[i].tick / 120 * rollArea.laneWidth
+                                                     - rollArea.scrollX - px)
                                     if (d <= distance) { distance = d; best = points[i].tick }
                                 }
                                 return best
@@ -1205,7 +1372,8 @@ ColumnLayout {
                                 var tick = tickAt(mouse.x)
                                 var level = levelAt(mouse.y)
                                 if (erasing) {
-                                    erase(lastTick / 120 * rollArea.laneWidth, mouse.x)
+                                    erase(lastTick / 120 * rollArea.laneWidth - rollArea.scrollX,
+                                          mouse.x)
                                 } else if (grabbed >= 0) {
                                     if (patternModel.moveControl(rollControls.laneKind,
                                             rollControls.laneController, grabbed, tick, level))

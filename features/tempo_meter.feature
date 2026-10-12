@@ -65,6 +65,19 @@ Feature: Tempo and meter are edited where the song is arranged
     When the edits are undone
     Then the pattern has fourteen steps again, with its last note
 
+  # bdd_tempo_meter "tempo-meter: a pattern longer than 64 steps keeps usable columns and scrolls to its steps"
+  Scenario: A pattern can be longer than 64 steps
+    Given a fourteen-step pattern
+    When LEN is made 64 steps longer with Shift held on its plus button
+    Then the pattern has 78 steps and LEN reads "78 ST"
+    And every step grid column is still wide enough to click
+    When step 77 is selected and clicked in the grid
+    Then the grid, the tracker and the piano roll scroll to it and show its note
+    When the pattern is made 4096 steps long
+    Then only the columns and rows on screen are built, and step 4000 can be reached in the grid and the tracker
+    When the edits are undone
+    Then the pattern has fourteen steps again, with its last note
+
   # bdd_tempo_meter "tempo-meter: a double-click on the tempo lane adds a point on the beat"
   Scenario: A double-click on the tempo lane adds a tempo point
     Given a song with one tempo, 120 BPM

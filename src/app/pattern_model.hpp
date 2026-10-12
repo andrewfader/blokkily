@@ -53,6 +53,15 @@ class PatternModel final : public QAbstractListModel {
     // lockText, hasLock} per step]}. A tracker that shows one channel at a
     // time is a step list, so the whole section is read across at once.
     Q_PROPERTY(QVariantList trackerChannels READ trackerChannels NOTIFY patternChanged)
+    // The tracker's channels without their rows, as {track, name, selected,
+    // hasPart}: what the header and the cursor need, without converting
+    // every row of a long pattern each time one channel is looked at.
+    Q_PROPERTY(QVariantList trackerHeads READ trackerHeads NOTIFY patternChanged)
+    // Counts the pattern's changes. An editor that reads one step at a time
+    // (stepRow, trackerCell, stemStep) reads it too, so the step is read
+    // again whenever the pattern changes; a long pattern then costs what the
+    // editor shows rather than every step it holds.
+    Q_PROPERTY(int revision READ revision NOTIFY patternChanged)
 
 public:
     // A step is a sixteenth note, whatever the meter or the pattern's length.
@@ -70,6 +79,15 @@ public:
     QVariantList steps() const;
     QVariantList stemRows() const;
     QVariantList trackerChannels() const;
+    QVariantList trackerHeads() const;
+    int revision() const noexcept { return revision_; }
+    // One step of the open pattern, as steps() holds it.
+    Q_INVOKABLE QVariantMap stepRow(int step) const;
+    // One row of track `track`'s channel, as trackerChannels() holds it.
+    Q_INVOKABLE QVariantMap trackerCell(int track, int step) const;
+    // Whether track `track`'s part of the open section has a note on `step`,
+    // as stemRows() holds it.
+    Q_INVOKABLE bool stemStep(int track, int step) const;
     QVariantList controls() const;
     QVariantMap selected() const;
     int selectedStep() const noexcept { return selected_step_; }
@@ -203,6 +221,7 @@ private:
 
     blokkily::Pattern& pattern();
     SongModel* song_ = nullptr;
+    int revision_ = 0;
     int selected_step_ = -1;
     bool has_clipboard_ = false;
     std::optional<blokkily::Trigger> clipboard_;

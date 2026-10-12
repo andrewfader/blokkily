@@ -9,41 +9,89 @@
 
 namespace blokkily {
 
-SoundFontSynth::SoundFontSynth()
-    : settings_(new_fluid_settings(), delete_fluid_settings),
-      synth_(nullptr, delete_fluid_synth) {
-    channel_key_.fill(-1);
+namespace {
+// A renderer whose output stays under this (-120 dB) for a quarter of a
+// second, with no voice left, has finished its reverb and chorus tail.
+constexpr float silence = 1e-6F;
+constexpr double quiet_seconds = 0.25;
+} // namespace
+
+SoundFontSynth::SoundFontSynth() {
+    renderers_.resize(renderer_count);
+    scratch_left_.resize(512);
+    scratch_right_.resize(512);
+    forget_notes();
     (void)rebuild(sample_rate_);
 }
 
 SoundFontSynth::~SoundFontSynth() = default;
 
 bool SoundFontSynth::rebuild(double sample_rate) {
-    if (!settings_) return false;
-    fluid_settings_setnum(settings_.get(), "synth.sample-rate", sample_rate);
-    fluid_settings_setint(settings_.get(), "synth.threadsafe-api", 0);
-    // FluidSynth's default gain (0.2) leaves a General MIDI bank some fourteen
-    // decibels under the other instruments. 0.5 brings it within a few decibels
-    // of them while a full-velocity chord on a typical bank stays clear of
-    // full scale.
-    fluid_settings_setnum(settings_.get(), "synth.gain", 0.5);
-    synth_.reset(new_fluid_synth(settings_.get()));
     sample_rate_ = sample_rate;
     activated_ = false;
-    return synth_ != nullptr;
+    fresh_ = false;
+    // The synths are destroyed before the settings they were made from.
+    for (auto& renderer : renderers_) renderer.synth.reset();
+    if (!settings_) {
+        settings_ = SettingsPtr(new_fluid_settings(), delete_fluid_settings);
+        if (!settings_) return false;
+        fluid_settings_setint(settings_.get(), "synth.threadsafe-api", 0);
+        // FluidSynth's default gain (0.2) leaves a General MIDI bank some
+        // fourteen decibels under the other instruments. 0.5 brings it within
+        // a few decibels of them while a full-velocity chord on a typical bank
+        // stays clear of full scale.
+        fluid_settings_setnum(settings_.get(), "synth.gain", 0.5);
+    }
+    fluid_settings_setnum(settings_.get(), "synth.sample-rate", sample_rate);
+    for (auto& renderer : renderers_) {
+        renderer.synth = SynthPtr(new_fluid_synth(settings_.get()), delete_fluid_synth);
+        if (!renderer.synth) return false;
+        renderer.rendered = 0;
+        renderer.quiet = 0;
+        renderer.running = false;
+    }
+    fresh_ = true;
+    return true;
+}
+
+void SoundFontSynth::forget_notes() noexcept {
+    for (auto& renderer : renderers_) {
+        renderer.channel_key.fill(-1);
+        renderer.channel_expressive.fill(false);
+        renderer.channel_expression.fill(0.0);
+    }
+    shared_holders_.fill(0);
+    wheel_ = 8192;
+}
+
+bool SoundFontSynth::load_into(Renderer& renderer, const std::filesystem::path& path) {
+    if (!renderer.synth) return false;
+    if (fluid_synth_get_sfont(renderer.synth.get(), 0) != nullptr && path_ == path) return true;
+    const auto utf8 = path.string();
+    return fluid_synth_sfload(renderer.synth.get(), utf8.c_str(), 1) != FLUID_FAILED;
 }
 
 bool SoundFontSynth::load(const std::filesystem::path& path) {
-    if (!synth_ || !std::filesystem::is_regular_file(path)) return false;
+    if (renderers_.empty() || !renderers_.front().synth ||
+        !std::filesystem::is_regular_file(path))
+        return false;
     // Asking for the bank that is already open only changes the preset. A
     // General MIDI bank is hundreds of megabytes, and reloading it every time
     // the session is saved, restored, or recompiled would stall the interface
     // for a change that touches nothing the bank holds.
-    if (path_ == path && fluid_synth_get_sfont(synth_.get(), 0) != nullptr)
+    if (path_ == path && fluid_synth_get_sfont(renderers_.front().synth.get(), 0) != nullptr)
         return select_preset(bank_, program_);
-    const auto utf8 = path.string();
-    const int id = fluid_synth_sfload(synth_.get(), utf8.c_str(), 1);
-    if (id == FLUID_FAILED) return false;
+    // A renderer may hold the previous bank; each is given the new one.
+    for (auto& renderer : renderers_) {
+        if (!renderer.synth) return false;
+        while (auto* old = fluid_synth_get_sfont(renderer.synth.get(), 0))
+            if (fluid_synth_sfunload(renderer.synth.get(), fluid_sfont_get_id(old), 1) ==
+                FLUID_FAILED)
+                return false;
+    }
+    path_.clear();
+    for (auto& renderer : renderers_)
+        if (!load_into(renderer, path)) return false;
     path_ = path;
     // The bank a project asked for may not be in the file it was pointed at —
     // a percussion bank is missing from most single-instrument SoundFonts. The
@@ -53,45 +101,63 @@ bool SoundFontSynth::load(const std::filesystem::path& path) {
     return select_preset(0, 0);
 }
 
-bool SoundFontSynth::select_preset(int bank, int program) {
-    if (!synth_ || path_.empty()) return false;
-    auto* soundfont = fluid_synth_get_sfont(synth_.get(), 0);
+bool SoundFontSynth::select_in(Renderer& renderer, int bank, int program) {
+    auto* synth = renderer.synth.get();
+    auto* soundfont = synth != nullptr ? fluid_synth_get_sfont(synth, 0) : nullptr;
     if (soundfont == nullptr) return false;
     // The file must hold exactly that bank and program. Asked for one it does
     // not, FluidSynth quietly plays another, so the producer would hear a
     // sound other than the one chosen; the request is refused instead, and
     // the channels keep what they had.
     if (fluid_sfont_get_preset(soundfont, bank, program) == nullptr) return false;
-    const int soundfont_id = fluid_synth_sfont_select(synth_.get(), 0,
-        fluid_sfont_get_id(soundfont));
-    if (soundfont_id == FLUID_FAILED) return false;
+    if (fluid_synth_sfont_select(synth, 0, fluid_sfont_get_id(soundfont)) == FLUID_FAILED)
+        return false;
     // Every channel carries the same preset: a microtonal chord is one
     // instrument spread over several channels, not several instruments.
     for (int channel = 0; channel < channels; ++channel) {
-        if (fluid_synth_bank_select(synth_.get(), channel, bank) == FLUID_FAILED) return false;
-        if (fluid_synth_program_change(synth_.get(), channel, program) == FLUID_FAILED)
-            return false;
-
+        if (fluid_synth_bank_select(synth, channel, bank) == FLUID_FAILED) return false;
+        if (fluid_synth_program_change(synth, channel, program) == FLUID_FAILED) return false;
     }
     // A bank and program the file does not actually hold leaves the channel
     // with nothing to sound, and FluidSynth reports that as success. Asking the
     // synth what it ended up with is the only way to know the preset is real,
     // and a silent instrument is exactly what a producer cannot debug.
-    if (fluid_synth_get_channel_preset(synth_.get(), shared_channel) == nullptr) return false;
+    return fluid_synth_get_channel_preset(synth, shared_channel) != nullptr;
+}
+
+bool SoundFontSynth::select_preset(int bank, int program) {
+    if (renderers_.empty() || path_.empty()) return false;
+    // The first renderer decides whether the file holds the preset; then
+    // every renderer plays it, so a note sounds the same whichever plays it.
+    if (!select_in(renderers_.front(), bank, program)) return false;
+    for (std::size_t index = 1; index < renderers_.size(); ++index)
+        if (!select_in(renderers_[index], bank, program)) return false;
     bank_ = bank;
     program_ = program;
     return true;
 }
 
-bool SoundFontSynth::activate(double sample_rate, std::uint32_t, std::uint32_t) {
+bool SoundFontSynth::activate(double sample_rate, std::uint32_t, std::uint32_t max_frames) {
+    // The renderers mix through scratch buffers made here, never while
+    // processing. A block longer than them is rendered in pieces, so they
+    // are capped: a host may announce a very large maximum block.
+    const auto scratch = std::clamp<std::size_t>(
+        std::max<std::size_t>(scratch_left_.size(), max_frames), 512, 4096);
+    scratch_left_.resize(scratch);
+    scratch_right_.resize(scratch);
     // Re-activating at the rate the synth already runs at leaves it exactly as
     // it was, so recompiling an arrangement does not rebuild the synth and
     // re-read its bank underneath a note that is still sounding.
-    if (activated_ && synth_ && sample_rate == sample_rate_) return true;
-    const auto previous_path = path_;
-    if (!rebuild(sample_rate)) return false;
-    path_.clear();
-    if (!previous_path.empty() && !load(previous_path)) return false;
+    if (activated_ && sample_rate == sample_rate_) return true;
+    // Renderers built at this rate and never played (a synth that was just
+    // made and loaded) are already as a rebuild would leave them.
+    if (!fresh_ || sample_rate != sample_rate_) {
+        const auto previous_path = path_;
+        if (!rebuild(sample_rate)) return false;
+        forget_notes();
+        path_.clear();
+        if (!previous_path.empty() && !load(previous_path)) return false;
+    }
     // Retuning a SoundFont is a tuning table's job rather than the bend wheel's:
     // a wheel is scaled by whatever sensitivity the instrument was written with,
     // while a tuning says the pitch of a key in cents and means it. Each voice
@@ -100,161 +166,246 @@ bool SoundFontSynth::activate(double sample_rate, std::uint32_t, std::uint32_t) 
     std::array<double, 128> twelve_tone{};
     for (std::size_t key = 0; key < twelve_tone.size(); ++key)
         twelve_tone[key] = static_cast<double>(key) * 100.0;
-    for (int channel = first_retuned_channel; channel < channels; ++channel) {
-        if (fluid_synth_activate_key_tuning(synth_.get(), 0, channel, "blokkily",
-                                            twelve_tone.data(), 1) == FLUID_FAILED)
-            return false;
-        if (fluid_synth_activate_tuning(synth_.get(), channel, 0, channel, 1) == FLUID_FAILED)
-            return false;
-    }
+    for (auto& renderer : renderers_)
+        for (int channel = first_retuned_channel; channel < channels; ++channel) {
+            if (fluid_synth_activate_key_tuning(renderer.synth.get(), 0, channel, "blokkily",
+                                                twelve_tone.data(), 1) == FLUID_FAILED)
+                return false;
+            if (fluid_synth_activate_tuning(renderer.synth.get(), channel, 0, channel, 1) ==
+                FLUID_FAILED)
+                return false;
+        }
     activated_ = true;
     return true;
 }
 
-int SoundFontSynth::claim_channel(int key) noexcept {
+int SoundFontSynth::claim_channel(Renderer& renderer, int key) noexcept {
+    auto& held = renderer.channel_key;
     for (int channel = first_retuned_channel; channel < channels; ++channel)
-        if (channel_key_[static_cast<std::size_t>(channel)] < 0) {
-            channel_key_[static_cast<std::size_t>(channel)] = key;
+        if (held[static_cast<std::size_t>(channel)] < 0) {
+            held[static_cast<std::size_t>(channel)] = key;
             return channel;
         }
     // Every channel is busy, so the oldest retuned voice gives way rather than
     // the new note being dropped: it is released here, since its own note-off
     // will find no channel holding its key and would leave it ringing.
-    const int displaced = channel_key_[first_retuned_channel];
-    if (displaced >= 0 && synth_)
-        fluid_synth_noteoff(synth_.get(), first_retuned_channel, displaced);
-    channel_key_[first_retuned_channel] = key;
+    const int displaced = held[first_retuned_channel];
+    if (displaced >= 0) fluid_synth_noteoff(renderer.synth.get(), first_retuned_channel, displaced);
+    held[first_retuned_channel] = key;
     return first_retuned_channel;
 }
 
-int SoundFontSynth::release_channel(int key) noexcept {
-    for (int channel = first_retuned_channel; channel < channels; ++channel)
-        if (channel_key_[static_cast<std::size_t>(channel)] == key) {
-            channel_key_[static_cast<std::size_t>(channel)] = -1;
-            return channel;
-        }
-    return -1;
-}
-
-int SoundFontSynth::expressive_bend(int channel) const noexcept {
+int SoundFontSynth::expressive_bend(const Renderer& renderer, int channel) const noexcept {
     const double semitones = (wheel_ - 8192) / 8192.0 * 2.0 +
-                             channel_expression_[static_cast<std::size_t>(channel)];
+                             renderer.channel_expression[static_cast<std::size_t>(channel)];
     return std::clamp(static_cast<int>(std::lround(8192.0 + semitones * 8192.0 /
                                                               expressive_bend_range)),
                       0, 16383);
 }
 
+std::size_t SoundFontSynth::choose_renderer() noexcept {
+    // One already running whose block begins here plays the note on time.
+    for (std::size_t index = 0; index < renderers_.size(); ++index) {
+        const auto& renderer = renderers_[index];
+        if (renderer.running && renderer.rendered % block_frames == 0) return index;
+    }
+    // Otherwise an idle one starts its blocks here.
+    for (std::size_t index = 0; index < renderers_.size(); ++index) {
+        auto& renderer = renderers_[index];
+        if (renderer.running) continue;
+        renderer.running = true;
+        renderer.rendered = 0;
+        renderer.quiet = 0;
+        return index;
+    }
+    // Every renderer is sounding, each in another phase: the one whose next
+    // block comes soonest plays the note, as little late as can be.
+    std::size_t best = 0;
+    std::uint64_t soonest = block_frames;
+    for (std::size_t index = 0; index < renderers_.size(); ++index) {
+        const auto wait = block_frames - renderers_[index].rendered % block_frames;
+        if (wait < soonest) {
+            soonest = wait;
+            best = index;
+        }
+    }
+    return best;
+}
+
+void SoundFontSynth::render(StereoBlock audio, std::size_t offset, std::size_t frames) noexcept {
+    const auto quiet_frames = static_cast<std::uint64_t>(sample_rate_ * quiet_seconds);
+    for (auto& renderer : renderers_) {
+        std::size_t done = 0;
+        while (done < frames && renderer.running) {
+            auto piece = std::min(frames - done, scratch_left_.size());
+            // Silent, with no voice left: it stops where its block ends, so
+            // the next note it plays can start a block of its own.
+            if (renderer.quiet >= quiet_frames &&
+                fluid_synth_get_active_voice_count(renderer.synth.get()) == 0) {
+                const auto to_block_end =
+                    (block_frames - renderer.rendered % block_frames) % block_frames;
+                if (to_block_end == 0) {
+                    renderer.running = false;
+                    break;
+                }
+                piece = std::min<std::size_t>(piece, to_block_end);
+            }
+            fluid_synth_write_float(renderer.synth.get(), static_cast<int>(piece),
+                                    scratch_left_.data(), 0, 1, scratch_right_.data(), 0, 1);
+            float peak = 0.0F;
+            for (std::size_t frame = 0; frame < piece; ++frame) {
+                audio.left[offset + done + frame] += scratch_left_[frame];
+                audio.right[offset + done + frame] += scratch_right_[frame];
+                peak = std::max({peak, std::abs(scratch_left_[frame]),
+                                 std::abs(scratch_right_[frame])});
+            }
+            renderer.quiet = peak < silence ? renderer.quiet + piece : 0;
+            renderer.rendered += piece;
+            done += piece;
+        }
+    }
+}
+
 void SoundFontSynth::process(StereoBlock audio,
                              std::span<const PluginEvent> events) noexcept {
-    if (!synth_ || audio.left.size() != audio.right.size()) return;
+    if (renderers_.empty() || !renderers_.front().synth || scratch_left_.empty() ||
+        audio.left.size() != audio.right.size())
+        return;
+    fresh_ = false;
+    std::fill(audio.left.begin(), audio.left.end(), 0.0F);
+    std::fill(audio.right.begin(), audio.right.end(), 0.0F);
     std::size_t cursor = 0;
-    const auto render = [&](std::size_t end) {
-        const auto frames = static_cast<int>(end - cursor);
-        if (frames > 0)
-            fluid_synth_write_float(synth_.get(), frames, audio.left.data() + cursor, 0, 1,
-                                    audio.right.data() + cursor, 0, 1);
-        cursor = end;
+    const auto render_to = [&](std::size_t end) {
+        if (end > cursor) render(audio, cursor, end - cursor);
+        cursor = std::max(cursor, end);
     };
     for (const auto& event : events) {
         const auto offset = std::min<std::size_t>(event.sample_offset, audio.left.size());
-        render(offset);
+        render_to(offset);
+        const int key = event.key_or_parameter;
         if (event.type == PluginEvent::Type::note_on) {
+            if (key < 0 || key > 127) continue;
             const int velocity = std::clamp(static_cast<int>(event.value * 127.0), 0, 127);
+            const auto index = choose_renderer();
+            auto& renderer = renderers_[index];
+            auto* synth = renderer.synth.get();
             if (event.cents == 0.0 && event.expression == 0) {
-                fluid_synth_noteon(synth_.get(), shared_channel, event.key_or_parameter,
-                                   velocity);
+                // A key struck again lets go of where it was still held, as
+                // one synth's channel would.
+                auto& holders = shared_holders_[static_cast<std::size_t>(key)];
+                for (std::size_t other = 0; other < renderers_.size(); ++other)
+                    if (other != index && (holders & (1U << other)) != 0)
+                        fluid_synth_noteoff(renderers_[other].synth.get(), shared_channel, key);
+                holders = 1U << index;
+                fluid_synth_noteon(synth, shared_channel, key, velocity);
             } else {
                 // A retuned note, and a note with per-note expression (an
                 // MPE note), each get a channel of their own.
-                const int channel = claim_channel(event.key_or_parameter);
+                const int channel = claim_channel(renderer, key);
                 const auto slot = static_cast<std::size_t>(channel);
                 const bool expressive = event.expression != 0;
-                if (expressive || channel_expressive_[slot]) {
-                    fluid_synth_pitch_wheel_sens(synth_.get(), channel,
+                if (expressive || renderer.channel_expressive[slot]) {
+                    fluid_synth_pitch_wheel_sens(synth, channel,
                                                  expressive ? expressive_bend_range : 2);
-                    channel_expressive_[slot] = expressive;
-                    channel_expression_[slot] = 0.0;
-                    fluid_synth_pitch_bend(synth_.get(), channel,
-                                           expressive ? expressive_bend(channel) : wheel_);
-                    fluid_synth_channel_pressure(synth_.get(), channel, 0);
+                    renderer.channel_expressive[slot] = expressive;
+                    renderer.channel_expression[slot] = 0.0;
+                    fluid_synth_pitch_bend(synth, channel,
+                                           expressive ? expressive_bend(renderer, channel)
+                                                      : wheel_);
+                    fluid_synth_channel_pressure(synth, channel, 0);
                 }
                 // The channel's tuning table is told what this key is worth in
                 // cents, and the note is then played as any other note.
-                const int key = event.key_or_parameter;
-                const double tuned = key * 100.0 + event.cents;
-                fluid_synth_tune_notes(synth_.get(), 0, channel, 1, const_cast<int*>(&key),
-                                       const_cast<double*>(&tuned), 1);
-                fluid_synth_noteon(synth_.get(), channel, key, velocity);
+                int tuned_key = key;
+                double tuned = key * 100.0 + event.cents;
+                fluid_synth_tune_notes(synth, 0, channel, 1, &tuned_key, &tuned, 1);
+                fluid_synth_noteon(synth, channel, key, velocity);
             }
         } else if (event.type == PluginEvent::Type::note_off) {
-            const int channel = release_channel(event.key_or_parameter);
-            fluid_synth_noteoff(synth_.get(), channel < 0 ? shared_channel : channel,
-                                event.key_or_parameter);
+            if (key < 0 || key > 127) continue;
+            bool retuned = false;
+            for (auto& renderer : renderers_)
+                for (int channel = first_retuned_channel; channel < channels && !retuned; ++channel)
+                    if (renderer.channel_key[static_cast<std::size_t>(channel)] == key) {
+                        renderer.channel_key[static_cast<std::size_t>(channel)] = -1;
+                        fluid_synth_noteoff(renderer.synth.get(), channel, key);
+                        retuned = true;
+                    }
+            if (retuned) continue;
+            auto& holders = shared_holders_[static_cast<std::size_t>(key)];
+            for (std::size_t index = 0; index < renderers_.size(); ++index)
+                if ((holders & (1U << index)) != 0)
+                    fluid_synth_noteoff(renderers_[index].synth.get(), shared_channel, key);
+            holders = 0;
         } else if (event.type == PluginEvent::Type::note_expression) {
             // Per-note expression on the note's own channel: pitch as its
             // bend, timbre as CC 74, pressure as channel pressure. A note on
             // the shared channel has none to take it.
-            int channel = -1;
-            for (int candidate = first_retuned_channel; candidate < channels; ++candidate)
-                if (channel_key_[static_cast<std::size_t>(candidate)] == event.key_or_parameter &&
-                    channel_expressive_[static_cast<std::size_t>(candidate)])
-                    channel = candidate;
-            if (channel < 0) continue;
-            const int level = std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127);
-            if (event.expression == note_dimension::pitch) {
-                channel_expression_[static_cast<std::size_t>(channel)] = event.value;
-                fluid_synth_pitch_bend(synth_.get(), channel, expressive_bend(channel));
-            } else if (event.expression == note_dimension::timbre) {
-                fluid_synth_cc(synth_.get(), channel, 74, level);
-            } else if (event.expression == note_dimension::pressure) {
-                fluid_synth_channel_pressure(synth_.get(), channel, level);
-            }
+            const int level =
+                std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127);
+            for (auto& renderer : renderers_)
+                for (int channel = first_retuned_channel; channel < channels; ++channel) {
+                    const auto slot = static_cast<std::size_t>(channel);
+                    if (renderer.channel_key[slot] != key || !renderer.channel_expressive[slot])
+                        continue;
+                    auto* synth = renderer.synth.get();
+                    if (event.expression == note_dimension::pitch) {
+                        renderer.channel_expression[slot] = event.value;
+                        fluid_synth_pitch_bend(synth, channel, expressive_bend(renderer, channel));
+                    } else if (event.expression == note_dimension::timbre) {
+                        fluid_synth_cc(synth, channel, 74, level);
+                    } else if (event.expression == note_dimension::pressure) {
+                        fluid_synth_channel_pressure(synth, channel, level);
+                    }
+                }
         } else if (event.type == PluginEvent::Type::midi_raw) {
             // The track is one instrument, so the channel a controller was
             // played on names nothing here. A channel-wide message reaches
-            // every channel the synth sounds notes on: the shared one and
-            // each retuned voice's, so a keyboard on channel 2 bends the
-            // notes it plays and a microtonal chord bends with the wheel.
+            // every channel of every renderer: the shared one and each
+            // retuned voice's, so a keyboard on channel 2 bends the notes it
+            // plays and a microtonal chord bends with the wheel.
             const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
             const auto kind = static_cast<std::uint8_t>(raw & 0xF0U);
             const auto first = static_cast<int>((raw >> 8) & 0x7FU);
             const auto second = static_cast<int>((raw >> 16) & 0x7FU);
-            if (kind == 0xA0) {
-                // Poly pressure belongs to the channel holding that key.
-                int channel = shared_channel;
-                for (int candidate = first_retuned_channel; candidate < channels; ++candidate)
-                    if (channel_key_[static_cast<std::size_t>(candidate)] == first) channel = candidate;
-                fluid_synth_key_pressure(synth_.get(), channel, first, second);
-            } else {
-                if (kind == 0xE0) wheel_ = first | (second << 7);
+            if (kind == 0xE0) wheel_ = first | (second << 7);
+            for (auto& renderer : renderers_) {
+                auto* synth = renderer.synth.get();
+                if (kind == 0xA0) {
+                    // Poly pressure belongs to the channel holding that key.
+                    int channel = shared_channel;
+                    for (int candidate = first_retuned_channel; candidate < channels; ++candidate)
+                        if (renderer.channel_key[static_cast<std::size_t>(candidate)] == first)
+                            channel = candidate;
+                    fluid_synth_key_pressure(synth, channel, first, second);
+                    continue;
+                }
                 for (int channel = 0; channel < channels; ++channel) {
                     if (kind == 0xE0)
-                        fluid_synth_pitch_bend(synth_.get(), channel,
-                                               channel_expressive_[static_cast<std::size_t>(channel)]
-                                                   ? expressive_bend(channel)
-                                                   : wheel_);
-                    else if (kind == 0xB0) fluid_synth_cc(synth_.get(), channel, first, second);
-                    else if (kind == 0xD0) fluid_synth_channel_pressure(synth_.get(), channel, first);
+                        fluid_synth_pitch_bend(
+                            synth, channel,
+                            renderer.channel_expressive[static_cast<std::size_t>(channel)]
+                                ? expressive_bend(renderer, channel)
+                                : wheel_);
+                    else if (kind == 0xB0) fluid_synth_cc(synth, channel, first, second);
+                    else if (kind == 0xD0) fluid_synth_channel_pressure(synth, channel, first);
                 }
             }
         }
     }
-    render(audio.left.size());
+    render_to(audio.left.size());
 }
 
 void SoundFontSynth::reset() {
     // This hook is called only with processing stopped (offline export).
     // all_sounds_off/system_reset leave FluidSynth's buffered output and
-    // oscillator/effect phase behind. Recreate the renderer at its current
-    // rate and reload the same preset, including its per-voice tuning tables,
+    // oscillator/effect phase behind. Recreate the renderers at their current
+    // rate and reload the same preset, including the per-voice tuning tables,
     // so a fresh pass cannot contain earlier audio or depend on block phase.
     // File loading and allocation stay here, never in process().
     activated_ = false;
+    fresh_ = false;
     (void)activate(sample_rate_, 1, 1);
-    channel_key_.fill(-1);
-    channel_expressive_.fill(false);
-    channel_expression_.fill(0.0);
-    wheel_ = 8192;
 }
 
 std::vector<std::byte> SoundFontSynth::save_state() {

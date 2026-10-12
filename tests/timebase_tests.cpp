@@ -713,13 +713,129 @@ void soundfont_across_tempo() {
     const auto audio = render_after_step(std::move(synth));
     // Tick 1440: 960 * 50 + 480 * 100 = 96000. At the old constant 120 BPM
     // it would have been 72000.
-    const auto first = probe::first_nonzero(audio, 1e-4F);
+    // FluidSynth renders in 64-frame blocks, but the note is started on its
+    // own frame; a voice's first frame is zero, so it is heard one frame in.
+    const auto first = probe::first_nonzero(audio);
     require(first.has_value(), "the SoundFont note is not silent");
-    require(*first >= 96000 && *first < 96000 + 2048,
+    require(*first == 96000 + 1,
             "the SoundFont note starts at the tempo map's sample: " + std::to_string(*first));
     const std::span<const float> held{audio.data() + 96000, 12000};
     require(probe::rms(held) > 1e-3 && probe::peak(held) > 1e-2F,
             "the SoundFont note is heard: rms " + std::to_string(probe::rms(held)));
+}
+
+// Scenario: A pattern longer than 64 steps plays every step.
+// Two passes of a 300-step pattern (eighteen and three-quarter bars) at 120
+// BPM: each note, the ones past step 64 included, starts on its own sample.
+void long_pattern() {
+    constexpr Tick steps = 300;
+    const std::vector<Tick> at{0, 63, 64, 200, 299};
+    Pattern pattern(steps * 120, 480);
+    for (const auto step : at) {
+        Trigger trigger;
+        trigger.start = step * 120;
+        trigger.duration = 60;
+        trigger.musical_data = Note{60, 1.0F, 0.0F};
+        (void)pattern.add(trigger);
+    }
+    Song song = song_of(std::move(pattern));
+    song.clips.front().repeats = 2;
+    std::uint64_t samples = 0;
+    const auto audio = render_clap(song, &samples);
+    // 120 BPM is 50 samples a tick: 6000 a step.
+    require(samples == 2 * steps * 6000, "two passes of 300 steps");
+    std::vector<long long> expected;
+    for (const Tick pass : {0, 1})
+        for (const auto step : at) expected.push_back((pass * steps + step) * 6000);
+    const auto found = onsets(audio);
+    require(found == expected, "every step sounds where it falls: " + list(found) +
+                                   ", wanted " + list(expected));
+}
+
+// Scenario: A SoundFont pattern sounds the same on every pass.
+// FluidSynth starts a voice only where one of its 64-frame blocks begins, and
+// a pass of fourteen sixteenths at 120 BPM is 84000 frames, half a block off
+// the grid: each pass used to put its notes up to 63 frames later than the
+// one before. Rendered in odd-sized callbacks, so no block of the device
+// lines up with FluidSynth's either.
+void soundfont_passes_in_phase() {
+    constexpr std::size_t pass = 84000;
+    constexpr int passes = 4;
+    Pattern pattern(1680, 480);
+    const std::vector<std::pair<Tick, std::int16_t>> notes{{0, 60}, {600, 64}, {1080, 67}};
+    for (const auto& [start, key] : notes) {
+        Trigger trigger;
+        trigger.start = start;
+        trigger.duration = 60;
+        trigger.musical_data = Note{key, 1.0F, 0.0F};
+        (void)pattern.add(trigger);
+    }
+    Song song = song_of(std::move(pattern));
+    song.clips.front().repeats = passes;
+    auto synth = std::make_unique<SoundFontSynth>();
+    require(synth->load(BLOKKILY_TEST_SF2_PATH), "the SoundFont must load");
+    SongEngine engine;
+    engine.set_instrument(0, std::move(synth));
+    std::string error;
+    require(engine.prepare(song, 48000.0, 1024, 0, &error), "prepare: " + error);
+    require(engine.song_samples() == pass * passes, "each pass lasts 84000 frames");
+    engine.set_playing(true);
+    Pump pump(engine);
+    const auto audio = pump.left(pass * passes, 997);
+    require(probe::rms(audio) > 1e-3, "the SoundFont is heard");
+
+    // Each note starts on the frame the timeline puts it at, in every pass.
+    std::vector<long long> expected;
+    for (int index = 0; index < passes; ++index)
+        for (const auto& [start, key] : notes)
+            expected.push_back(static_cast<long long>(index * pass) + start * 50);
+    std::vector<long long> found;
+    for (const auto at : expected) {
+        // The previous notes have died away by then, so the first frame
+        // that is not exactly zero is the note's.
+        const std::span<const float> window{audio.data() + at, 64};
+        const auto first = probe::first_nonzero(window);
+        found.push_back(first ? at + static_cast<long long>(*first) : -1);
+    }
+    std::vector<long long> late;
+    for (std::size_t index = 0; index < found.size(); ++index)
+        late.push_back(found[index] < 0 ? -1 : found[index] - expected[index]);
+    // A voice's first frame is zero, so a note is heard one frame in.
+    require(std::all_of(late.begin(), late.end(), [](long long frames) { return frames == 1; }),
+            "every note starts on its own frame, the same in each pass; frames late: " +
+                list(late));
+
+}
+
+// Scenario: A SoundFont note starts on its own frame.
+// However far the stream has run, and wherever in a callback the note falls,
+// FluidSynth's note starts the same number of frames after it.
+void soundfont_sample_accurate() {
+    std::vector<long long> delays;
+    for (const std::size_t lead : {0, 10, 40, 1001}) {
+        for (const std::uint32_t offset : {0U, 1U, 17U, 32U, 63U, 64U, 100U}) {
+            SoundFontSynth synth;
+            require(synth.load(BLOKKILY_TEST_SF2_PATH), "the SoundFont must load");
+            require(synth.activate(48000.0, 1, 512), "the SoundFont must activate");
+            std::vector<float> left(512), right(512);
+            // The stream runs `lead` frames first, in callbacks of 333.
+            for (std::size_t done = 0; done < lead;) {
+                const auto now = std::min<std::size_t>(333, lead - done);
+                synth.process({std::span<float>(left.data(), now),
+                               std::span<float>(right.data(), now)},
+                              {});
+                done += now;
+            }
+            const PluginEvent note{PluginEvent::Type::note_on, offset, 60, 1.0};
+            synth.process({left, right}, std::span{&note, 1});
+            const auto first = probe::first_nonzero(left);
+            require(first.has_value(), "the SoundFont note is heard");
+            delays.push_back(static_cast<long long>(*first) - offset);
+        }
+    }
+    require(std::all_of(delays.begin(), delays.end(),
+                        [&](long long delay) { return delay == delays.front() && delay <= 1; }),
+            "every note starts the same frames after its event: " + list(delays));
 }
 
 // Scenario: A VST3 note after a tempo change is heard where it falls.
@@ -869,6 +985,9 @@ int main(int argc, char** argv) {
         {"bounce_across_tempo", bounce_across_tempo},
         {"recording_across_tempo", recording_across_tempo},
         {"soundfont_across_tempo", soundfont_across_tempo},
+        {"soundfont_passes_in_phase", soundfont_passes_in_phase},
+        {"long_pattern", long_pattern},
+        {"soundfont_sample_accurate", soundfont_sample_accurate},
         {"vst3_across_tempo", vst3_across_tempo},
         {"project_records", project_records},
         {"legacy_tempo_clamped", legacy_tempo_clamped},

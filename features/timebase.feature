@@ -106,6 +106,24 @@ Feature: One timebase for the whole song
     When FluidSynth plays it from a real SoundFont, or the VST3 fixture through the JUCE host adapter
     Then it is heard, not silent, from the sample the tempo map puts it at
 
+  # timebase_long_pattern
+  Scenario: A pattern longer than 64 steps plays every step
+    Given a 300-step pattern placed for two passes at 120 BPM
+    When the CLAP fixture plays it through the production render callback
+    Then every note, those past step 64 included, starts on its own sample in both passes
+
+  # timebase_soundfont_sample_accurate
+  Scenario: A SoundFont note starts on its own frame
+    Given FluidSynth, which renders in blocks of 64 frames, playing a real SoundFont
+    When a note falls anywhere in a callback, however far the stream has already run
+    Then the note is heard the same number of frames after its event every time
+
+  # timebase_soundfont_passes_in_phase
+  Scenario: Every pass of a SoundFont pattern is in phase
+    Given a fourteen-step pattern at 120 BPM, whose passes are not a whole number of FluidSynth blocks
+    When a real SoundFont plays four passes of it through the production render callback
+    Then each note starts on the frame the timeline puts it at, the same in every pass
+
   # timebase_project_records
   Scenario: Tempo points and meters are saved and loaded
     Given a song with tempo steps, a ramp and meter changes

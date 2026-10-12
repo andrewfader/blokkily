@@ -58,7 +58,9 @@ QVariantList SongModel::tempoPoints() const {
 }
 
 bool SongModel::setPatternSteps(int steps) {
-    if (steps < 1 || steps > 64) return false;
+    // As long as the timeline can hold: the length has no cap of its own.
+    constexpr int most_steps = std::numeric_limits<std::int32_t>::max() / 120;
+    if (steps < 1 || steps > most_steps) return false;
     const auto length = static_cast<blokkily::Tick>(steps) * 120;
     if (editPattern().length() == length) return true;
     // Clicks on the length spinner arrive one by one; each is its own step.

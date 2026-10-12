@@ -309,6 +309,65 @@ void run_tempo_meter(VerifyContext& ctx) {
     check(pattern.stepCount() == 14 && pattern.hasStep(13) && ctx.named("step13") != nullptr);
     reached("tempo-meter: the LEN spinner sets the pattern's length and undo brings its steps back");
 
+    // ------------------------------------- a pattern longer than 64 steps
+    // Wholly inside `view`, so it can be seen and clicked there.
+    const auto in_view = [](QQuickItem* item, QQuickItem* view) {
+        if (item == nullptr || view == nullptr || !item->isVisible()) return false;
+        const auto at = item->mapToItem(view, QPointF(0, 0));
+        return at.x() >= -0.5 && at.y() >= -0.5 &&
+               at.x() + item->width() <= view->width() + 0.5 &&
+               at.y() + item->height() <= view->height() + 0.5;
+    };
+    lay_out();
+    for (int click = 0; click < 4; ++click) {
+        check(press("patternLengthUp", Qt::LeftButton, Qt::ShiftModifier));
+        lay_out();
+    }
+    check(pattern.stepCount() == 78 && text_of("patternLengthReadout") == "78 ST");
+    check(song.song().patterns.at(1).pattern.length() == 78 * 120);
+    // The columns keep a usable width rather than sharing the grid's
+    // width 78 ways; the grid scrolls to the step being worked on.
+    check(VerifyContext::usable(ctx.named("step0"), 28, 30));
+    pattern.selectStep(77);
+    lay_out();
+    auto* grid = ctx.named("stepGrid");
+    check(VerifyContext::usable(ctx.named("step77"), 28, 30) && in_view(ctx.named("step77"), grid));
+    check(press("step77"));
+    lay_out();
+    check(pattern.hasStep(77) && ctx.rendered_step(77) && ctx.tracker_note(77) != "---");
+    check(in_view(ctx.named("trackerRow77"), ctx.named("trackerScroll")));
+    if (auto* note = ctx.named("rollNote77"); note != nullptr) {
+        auto* roll = ctx.named("rollInput");
+        const double x = roll == nullptr ? -1.0 : roll->mapFromScene(note->mapToScene({0, 0})).x();
+        check(roll != nullptr && x >= 0.0 && x + 6.0 <= roll->width() + 0.5);
+    } else {
+        check(false);
+    }
+    // However long the pattern, only what is on screen is built, and any
+    // step can still be reached in every editor.
+    check(song.setPatternSteps(4096));
+    lay_out();
+    check(pattern.stepCount() == 4096 && text_of("patternLengthReadout") == "4096 ST");
+    check(grid != nullptr && grid->childItems().size() < 200);
+    check(ctx.named("trackerRows") != nullptr &&
+          ctx.named("trackerRows")->childItems().size() < 400);
+    pattern.selectStep(4000);
+    lay_out();
+    check(VerifyContext::usable(ctx.named("step4000"), 28, 30) &&
+          in_view(ctx.named("step4000"), grid));
+    check(in_view(ctx.named("trackerRow4000"), ctx.named("trackerScroll")));
+    // Kept beside the gate's own screenshot, to be looked at.
+    {
+        const QString path = parser.value("screenshot");
+        const QString stem = path.endsWith(".png") ? path.chopped(4) : path;
+        check(path.isEmpty() || ctx.save_screenshot_to(stem + "-long-pattern.png"));
+    }
+    // Six edits (four lengthenings, the step, 4096) come back off one by one.
+    for (int edit = 0; edit < 6; ++edit) check(song.undo());
+    lay_out();
+    check(pattern.stepCount() == 14 && pattern.hasStep(13) && !pattern.hasStep(77));
+    reached("tempo-meter: a pattern longer than 64 steps keeps usable columns and scrolls to its steps");
+
     // ------------------------------------------------- the tempo lane
     lay_out();
     lane = ctx.named("tempoLane");

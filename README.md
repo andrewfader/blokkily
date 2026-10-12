@@ -29,6 +29,11 @@ events and applied by both plugin adapters; automation sets a parameter's value
 while modulation offsets it, and neither erases the other.
 The internal FluidSynth adapter loads SF2/SF3 files, accepts sample-offset note
 events, renders stereo audio, selects presets, and persists its project state.
+FluidSynth starts a voice only where one of its 64-frame blocks begins, so the
+adapter keeps a small pool of renderers sharing the bank's sample data and
+plays each note on one whose block begins on the note's own frame: every pass
+of a pattern sounds in phase, whatever its length in samples. A bank's own
+chorus runs on its own clock, as a free-running LFO does.
 Projects save and reload the whole session: every named pattern with its chords,
 locks, ratchets, microtiming, and loop conditions, the tracks with their channel
 strips and clips, and the opaque state of every CLAP, VST3, and SoundFont

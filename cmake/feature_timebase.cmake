@@ -64,7 +64,8 @@ if(BLOKKILY_BUILD_TESTS)
             seek_to_event_tick
             capture_keeps_its_clock
             bounce_across_tempo
-            recording_across_tempo)
+            recording_across_tempo
+            long_pattern)
         add_test(NAME timebase_${timebase_case}
             COMMAND blokkily_timebase_tests ${timebase_case})
         set_tests_properties(timebase_${timebase_case} PROPERTIES
@@ -76,6 +77,13 @@ if(BLOKKILY_BUILD_TESTS)
     set_tests_properties(timebase_soundfont_across_tempo PROPERTIES
         LABELS "integration;audio;soundfont;timebase"
         ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
+    foreach(timebase_case soundfont_passes_in_phase soundfont_sample_accurate)
+        add_test(NAME timebase_${timebase_case}
+            COMMAND blokkily_timebase_tests ${timebase_case})
+        set_tests_properties(timebase_${timebase_case} PROPERTIES
+            LABELS "integration;audio;soundfont;timebase;regression"
+            ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
+    endforeach()
     add_test(NAME timebase_vst3_across_tempo
         COMMAND blokkily_timebase_tests vst3_across_tempo)
     set_tests_properties(timebase_vst3_across_tempo PROPERTIES

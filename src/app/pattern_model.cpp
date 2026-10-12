@@ -141,6 +141,8 @@ PatternModel::PatternModel(SongModel* song, QObject* parent)
     if (song_ != nullptr)
         QObject::connect(song_, &SongModel::songChanged, this, &PatternModel::refresh);
     QObject::connect(this, &PatternModel::selectionChanged, this, &PatternModel::selectedChanged);
+    // Connected first, so the count has moved before any editor reads it.
+    QObject::connect(this, &PatternModel::patternChanged, this, [this] { ++revision_; });
 }
 
 // The editors project whichever pattern the song has open, so switching
@@ -351,6 +353,55 @@ QVariantList PatternModel::stemRows() const {
     return rows;
 }
 
+namespace {
+// One tracker row: a step of a channel, or an empty one.
+QVariantMap tracker_row(const SongModel* song, const blokkily::Trigger* trigger) {
+    QVariantMap row;
+    row["active"] = trigger != nullptr;
+    row["noteName"] = trigger != nullptr ? pitch_label(song, *trigger) : QStringLiteral("---");
+    row["velocityHex"] = trigger != nullptr ? hex2(velocity_units(step_velocity(*trigger)))
+                                            : QStringLiteral("--");
+    row["lockText"] = trigger != nullptr ? lock_text(*trigger) : QStringLiteral("---");
+    row["hasLock"] = trigger != nullptr && !trigger->locks.empty();
+    return row;
+}
+
+// The first note on `step` of track `track`'s part of the open section.
+const blokkily::Trigger* part_trigger(const SongModel* song, int track, int step) {
+    if (song == nullptr || track < 0 || track >= song->trackCount()) return nullptr;
+    const int part = song->partOf(song->currentSection(), track);
+    if (part < 0) return nullptr;
+    for (const auto& trigger :
+         song->song().patterns[static_cast<std::size_t>(part)].pattern.events())
+        if (trigger.start / PatternModel::ticks_per_step == step) return &trigger;
+    return nullptr;
+}
+} // namespace
+
+QVariantMap PatternModel::trackerCell(int track, int step) const {
+    if (step < 0 || step >= stepCount()) return tracker_row(song_, nullptr);
+    return tracker_row(song_, part_trigger(song_, track, step));
+}
+
+bool PatternModel::stemStep(int track, int step) const {
+    return step >= 0 && step < stepCount() && part_trigger(song_, track, step) != nullptr;
+}
+
+QVariantList PatternModel::trackerHeads() const {
+    QVariantList heads;
+    if (song_ == nullptr) return heads;
+    const auto& song = song_->song();
+    for (int track = 0; track < song_->trackCount(); ++track) {
+        QVariantMap head;
+        head["track"] = track;
+        head["name"] = QString::fromStdString(song.tracks[static_cast<std::size_t>(track)].name);
+        head["selected"] = track == song_->selectedTrack();
+        head["hasPart"] = song_->partOf(song_->currentSection(), track) >= 0;
+        heads.push_back(head);
+    }
+    return heads;
+}
+
 QVariantList PatternModel::trackerChannels() const {
     QVariantList channels;
     if (song_ == nullptr) return channels;
@@ -369,18 +420,7 @@ QVariantList PatternModel::trackerChannels() const {
             }
         QVariantList rows;
         rows.reserve(steps);
-        for (const auto* trigger : at) {
-            QVariantMap row;
-            row["active"] = trigger != nullptr;
-            row["noteName"] = trigger != nullptr ? pitch_label(song_, *trigger)
-                                                 : QStringLiteral("---");
-            row["velocityHex"] = trigger != nullptr
-                                     ? hex2(velocity_units(step_velocity(*trigger)))
-                                     : QStringLiteral("--");
-            row["lockText"] = trigger != nullptr ? lock_text(*trigger) : QStringLiteral("---");
-            row["hasLock"] = trigger != nullptr && !trigger->locks.empty();
-            rows.push_back(row);
-        }
+        for (const auto* trigger : at) rows.push_back(tracker_row(song_, trigger));
         QVariantMap channel;
         channel["track"] = track;
         channel["name"] =
@@ -407,47 +447,50 @@ void PatternModel::toggleStemStep(int track, int step, int key) {
 
 QVariantList PatternModel::steps() const {
     QVariantList rows;
-    rows.reserve(stepCount());
-    for (int step = 0; step < stepCount(); ++step) {
-        const auto* trigger = triggerAt(step);
-        QVariantMap row;
-        row["active"] = trigger != nullptr;
-        row["selected"] = step == selected_step_;
-        if (trigger == nullptr) {
-            row["noteName"] = "---";
-            row["velocityHex"] = "--";
-            row["lockText"] = "---";
-            row["velocity"] = 0.0;
-            row["velocityUnits"] = 0;
-            row["hasLock"] = false;
-            row["key"] = 0;
-            row["cents"] = 0.0;
-            row["voices"] = 0;
-            row["ratchets"] = 0;
-            row["duration"] = 0;
-            row["voiceKeys"] = QVariantList{};
-            row["voiceVelocities"] = QVariantList{};
-            row["voiceLengths"] = QVariantList{};
-        } else {
-            const float velocity = step_velocity(*trigger);
-            row["noteName"] = pitch_label(song_, *trigger);
-            row["velocityHex"] = hex2(velocity_units(velocity));
-            row["velocityUnits"] = velocity_units(velocity);
-            row["lockText"] = lock_text(*trigger);
-            row["velocity"] = static_cast<double>(velocity);
-            row["hasLock"] = !trigger->locks.empty();
-            row["key"] = pitch_key(*trigger);
-            row["cents"] = pitch_cents(*trigger);
-            row["voices"] = pitch_voices(*trigger);
-            row["ratchets"] = static_cast<int>(trigger->ratchets);
-            row["duration"] = static_cast<int>(trigger->duration);
-            row["voiceKeys"] = voice_keys(*trigger);
-            row["voiceVelocities"] = voice_velocities(*trigger);
-            row["voiceLengths"] = voice_lengths(*trigger);
-        }
-        rows.push_back(row);
-    }
+    const int count = stepCount();
+    rows.reserve(count);
+    for (int step = 0; step < count; ++step) rows.push_back(stepRow(step));
     return rows;
+}
+
+QVariantMap PatternModel::stepRow(int step) const {
+    QVariantMap row;
+    const auto* trigger = step < 0 || step >= stepCount() ? nullptr : triggerAt(step);
+    row["active"] = trigger != nullptr;
+    row["selected"] = step == selected_step_;
+    if (trigger == nullptr) {
+        row["noteName"] = "---";
+        row["velocityHex"] = "--";
+        row["lockText"] = "---";
+        row["velocity"] = 0.0;
+        row["velocityUnits"] = 0;
+        row["hasLock"] = false;
+        row["key"] = 0;
+        row["cents"] = 0.0;
+        row["voices"] = 0;
+        row["ratchets"] = 0;
+        row["duration"] = 0;
+        row["voiceKeys"] = QVariantList{};
+        row["voiceVelocities"] = QVariantList{};
+        row["voiceLengths"] = QVariantList{};
+    } else {
+        const float velocity = step_velocity(*trigger);
+        row["noteName"] = pitch_label(song_, *trigger);
+        row["velocityHex"] = hex2(velocity_units(velocity));
+        row["velocityUnits"] = velocity_units(velocity);
+        row["lockText"] = lock_text(*trigger);
+        row["velocity"] = static_cast<double>(velocity);
+        row["hasLock"] = !trigger->locks.empty();
+        row["key"] = pitch_key(*trigger);
+        row["cents"] = pitch_cents(*trigger);
+        row["voices"] = pitch_voices(*trigger);
+        row["ratchets"] = static_cast<int>(trigger->ratchets);
+        row["duration"] = static_cast<int>(trigger->duration);
+        row["voiceKeys"] = voice_keys(*trigger);
+        row["voiceVelocities"] = voice_velocities(*trigger);
+        row["voiceLengths"] = voice_lengths(*trigger);
+    }
+    return row;
 }
 
 QVariantMap PatternModel::selected() const {
