@@ -25,6 +25,7 @@
 
 #include <clap/events.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -33,6 +34,7 @@
 #include <map>
 #include <memory>
 #include <numbers>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -376,8 +378,18 @@ void chase() {
     rig.engine.seek(150 * per_tick);
     rig.engine.set_playing(true);
     const auto located = rig.render(12000);
-    require_frequency(frequency(located, 60 * per_tick, 9600, 400, 540), a4_bent_up,
-                      "a locate to after the bend chases it");
+    const double heard = frequency(located, 60 * per_tick, 9600, 400, 540);
+    if (std::abs(heard - a4_bent_up) > 2.0) {
+        // This failed once on Windows CI and never here. Say what was heard,
+        // so the next failure tells silence (no note), a steady level (the
+        // fixture's tone switch lost) and a wrong pitch (no chase) apart.
+        const std::span<const float> window{located.data() + 60 * per_tick, 9600};
+        const auto [lowest, highest] = std::minmax_element(window.begin(), window.end());
+        std::cerr << "chase window: rms " << probe::rms(window) << ", min " << *lowest
+                  << ", max " << *highest << ", rising edges "
+                  << probe::rising_edges(window) << '\n';
+    }
+    require_frequency(heard, a4_bent_up, "a locate to after the bend chases it");
 }
 
 // features/continuous_midi.feature:
