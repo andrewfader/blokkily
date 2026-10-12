@@ -46,11 +46,17 @@ QString socketPath() {
 
 namespace {
 
-// Beside the socket, or for a Windows pipe name (not a path) in the temporary
-// directory.
+// Beside a Unix socket; for a Windows pipe in the temporary directory, by the
+// pipe's own name. A pipe is named either bare ("blokkily-mcp") or in full
+// ("\\.\pipe\blokkily-mcp", what QLocalServer::fullServerName() gives), and
+// both spellings must find the same lock: no file can live in the pipe
+// namespace itself.
 QString lockPath(const QString& socket) {
-    if (QFileInfo(socket).isAbsolute()) return socket + QStringLiteral(".lock");
-    return QDir(QDir::tempPath()).filePath(socket + QStringLiteral(".lock"));
+    QString name = socket;
+    for (const auto prefix : {QStringLiteral("\\\\.\\pipe\\"), QStringLiteral("//./pipe/")})
+        if (name.startsWith(prefix, Qt::CaseInsensitive)) name = name.mid(prefix.size());
+    if (name == socket && QFileInfo(socket).isAbsolute()) return socket + QStringLiteral(".lock");
+    return QDir(QDir::tempPath()).filePath(name + QStringLiteral(".lock"));
 }
 
 }  // namespace
@@ -72,7 +78,9 @@ bool SocketLock::taken(const QString& socket) {
         probe.unlock();
         return false;
     }
-    return probe.error() == QLockFile::LockFailedError;
+    // Held by a live process. Windows reports another process's open lock as
+    // a permission error, not LockFailedError, so any refusal counts.
+    return true;
 }
 
 QJsonArray toolDefinitions() {

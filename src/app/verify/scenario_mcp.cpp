@@ -389,6 +389,16 @@ void run_mcp(VerifyContext& ctx) {
     // ---------------------------------------------------------------------
     ctx.reached("mcp: a second Blokkily never takes the socket from a busy one");
     {
+        // A Windows pipe is named bare or in full (\\.\pipe\name, what the
+        // server reports); a lock claimed under one spelling is found under
+        // the other.
+        const QString pipe = QStringLiteral("blokkily-probe-%1").arg(QCoreApplication::applicationPid());
+        const blokkily::mcp::SocketLock full(QStringLiteral("\\\\.\\pipe\\") + pipe);
+        check(full.held());
+        check(blokkily::mcp::SocketLock::taken(pipe));
+        check(!blokkily::mcp::SocketLock(pipe).held());
+    }
+    {
         // A window busy on its own thread accepts nothing until it is free,
         // so connections queue up; a full queue makes it look gone to anyone
         // who only knocks. A second window started then must still leave the
