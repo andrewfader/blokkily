@@ -394,10 +394,15 @@ void run_mcp(VerifyContext& ctx) {
         // who only knocks. A second window started then must still leave the
         // socket to the one that has it.
         std::vector<std::unique_ptr<QLocalSocket>> queued;
+#ifndef Q_OS_WIN
+        // A Unix socket's queue fills; a Windows pipe has instances instead,
+        // and a connect to a busy one blocks until one frees, so the queue is
+        // filled only where it is a queue. The lock decides on both.
         for (int i = 0; i < 400; ++i) {
             queued.push_back(std::make_unique<QLocalSocket>());
             queued.back()->connectToServer(socket);
         }
+#endif
         McpTools rival_tools(song, ctx.pattern, controller, ctx.transport, ctx.window);
         {
             const blokkily::mcp::SocketLock claim(socket);
