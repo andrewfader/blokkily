@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -279,6 +280,36 @@ void run_plugin_windows(VerifyContext& ctx) {
         check(label("editorStatus") == "Plugin window needs an X11 display");
         check(windows.isOpen(track0) && near(level_heard(1), 0.25F));
         reached("plugin windows: a VST3 editor is refused offscreen with a clear message");
+    }
+
+    // A plugin that starts throwing from its calls, as yabridge does once
+    // the Wine process behind a Windows plugin dies, is silenced and named in
+    // the status line; Blokkily, and the other track, keep playing.
+    {
+        void* vst3_binary = nullptr;
+        std::error_code walk;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                 std::filesystem::path(vst3.toStdString()) / "Contents", walk))
+            if (vst3_binary == nullptr && entry.is_regular_file())
+                vst3_binary = blokkily::dynamic_library::open_loaded(entry.path());
+        auto* break_all = vst3_binary == nullptr ? nullptr
+            : reinterpret_cast<void (*)(bool)>(
+                  blokkily::dynamic_library::symbol(vst3_binary, "blokkily_test_vst3_break"));
+        check(break_all != nullptr);
+        const float other_before = level_heard(0);
+        if (break_all != nullptr) {
+            break_all(true);
+            (void)level_heard(1);
+            VerifyContext::settle(50);
+            break_all(false);
+        }
+        const auto track1 = QString::fromStdString(song.song().tracks.at(1).name);
+        check(controller.status().contains("stopped responding") &&
+              controller.status().contains(track1));
+        check(level_heard(1) == 0.0F);
+        check(other_before > 0.0F && near(level_heard(0), other_before));
+        if (vst3_binary != nullptr) blokkily::dynamic_library::close(vst3_binary);
+        reached("plugin windows: a plugin that throws is silenced and named, not fatal");
     }
 
     song.selectTrack(0);

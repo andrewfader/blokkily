@@ -71,3 +71,15 @@ Feature: An agent drives Blokkily over MCP
   Scenario: Closing the agent's end ends the bridge
     When the agent closes the bridge's standard input
     Then the bridge exits cleanly
+
+  Scenario: A second Blokkily never takes the socket from one that is busy
+    Given a Blokkily serving MCP whose window is too busy to accept connections
+    When a second Blokkily starts and tries to serve the same socket
+    Then the second is refused, because the first holds the socket's lock
+    And a new agent still reaches the first window by the same path
+
+  Scenario: The bridge waits for a window that is still starting
+    Given a Blokkily that has claimed the socket but is still loading
+    When an agent calls a tool through the bridge
+    Then the bridge neither starts another window nor reports Blokkily missing
+    And the call is answered once the window starts listening

@@ -37,16 +37,20 @@ constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr};
 constexpr clap_plugin_descriptor_t descriptor{
     CLAP_VERSION, "dev.blokkily.test.effect", "Blokkily Test Effect", "Blokkily",
     "https://blokkily.invalid", "", "", "0.1.0",
-    "Test fixture: delays its input by 64 samples and scales it by Gain", features};
+    "Test fixture: delays its input by 64 samples and scales it by Gain and Trim", features};
 
 constexpr std::uint32_t latency = 64;
 constexpr clap_id gain_id = 0;
 constexpr double default_gain = 0.25;
+// Trim is numbered the way LSP and Dexed number their parameters: a hash with
+// the top bit set, so the id does not fit a signed 32-bit integer.
+constexpr clap_id trim_id = 0x9E2F1C0Au;
 
 struct Effect {
     clap_plugin_t plugin{};
     const clap_host_t* host = nullptr;
     double gain = default_gain;
+    double trim = 1.0;
     bool editor = false;
     std::atomic<bool> turn_pending{false};
     std::atomic<double> turn_value{0.25};
@@ -71,6 +75,7 @@ void apply(Effect& effect, const clap_event_header_t* header) {
     if (header->type == CLAP_EVENT_PARAM_VALUE) {
         const auto* event = reinterpret_cast<const clap_event_param_value_t*>(header);
         if (event->param_id == gain_id) effect.gain = std::clamp(event->value, 0.0, 1.0);
+        if (event->param_id == trim_id) effect.trim = std::clamp(event->value, 0.0, 1.0);
     } else if (header->type == CLAP_EVENT_PARAM_MOD) {
         const auto* event = reinterpret_cast<const clap_event_param_mod_t*>(header);
         if (event->param_id == gain_id) effect.modulation = event->amount;
@@ -143,7 +148,8 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
                 level = std::max(level, std::abs(key->data32[channel][frame]));
         const float ducked_by = effect.key_line[effect.cursor];
         effect.key_line[effect.cursor] = std::min(level, 1.0F);
-        const auto gain = static_cast<float>(std::clamp(effect.gain + effect.modulation, 0.0, 1.0)) *
+        const auto gain = static_cast<float>(std::clamp(effect.gain + effect.modulation, 0.0, 1.0) *
+                                             effect.trim) *
                           (1.0F - ducked_by);
         for (std::uint32_t channel = 0; channel < 2; ++channel) {
             const float delayed = effect.line[channel][effect.cursor];
@@ -175,10 +181,19 @@ bool ports_get(const clap_plugin_t*, std::uint32_t index, bool is_input,
 constexpr clap_plugin_audio_ports_t audio_ports{ports_count, ports_get};
 
 // --- clap.params ---------------------------------------------------------------
-std::uint32_t params_count(const clap_plugin_t*) { return 1; }
+std::uint32_t params_count(const clap_plugin_t*) { return 2; }
 bool params_info(const clap_plugin_t*, std::uint32_t index, clap_param_info_t* info) {
-    if (index != 0) return false;
+    if (index > 1) return false;
     *info = {};
+    if (index == 1) {
+        info->id = trim_id;
+        info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+        info->min_value = 0.0;
+        info->max_value = 1.0;
+        info->default_value = 1.0;
+        std::snprintf(info->name, sizeof info->name, "%s", "Trim");
+        return true;
+    }
     info->id = gain_id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
     info->min_value = 0.0;
@@ -188,18 +203,18 @@ bool params_info(const clap_plugin_t*, std::uint32_t index, clap_param_info_t* i
     return true;
 }
 bool params_value(const clap_plugin_t* plugin, clap_id id, double* out) {
-    if (id != gain_id) return false;
-    *out = self(plugin)->gain;
+    if (id != gain_id && id != trim_id) return false;
+    *out = id == trim_id ? self(plugin)->trim : self(plugin)->gain;
     return true;
 }
 bool params_to_text(const clap_plugin_t*, clap_id id, double value, char* text,
                     std::uint32_t size) {
-    if (id != gain_id) return false;
+    if (id != gain_id && id != trim_id) return false;
     std::snprintf(text, size, "%.3f", value);
     return true;
 }
 bool params_from_text(const clap_plugin_t*, clap_id id, const char* text, double* value) {
-    if (id != gain_id) return false;
+    if (id != gain_id && id != trim_id) return false;
     char* end = nullptr;
     *value = std::strtod(text, &end);
     return end != text;

@@ -11,7 +11,11 @@ McpServer::McpServer(McpTools& tools, QObject* parent)
     QObject::connect(&server_, &QLocalServer::newConnection, this, &McpServer::accept);
 }
 
-bool McpServer::listen(const QString& path) {
+bool McpServer::listen(const QString& path, const blokkily::mcp::SocketLock& lock) {
+    if (!lock.held()) {
+        error_ = QStringLiteral("another Blokkily is serving %1").arg(path);
+        return false;
+    }
     if (server_.listen(path)) return true;
     if (server_.serverError() == QAbstractSocket::AddressInUseError) {
         QLocalSocket probe;

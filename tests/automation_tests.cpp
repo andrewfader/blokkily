@@ -526,6 +526,53 @@ void effect_lane_on_return() {
             "then the master's insert halves both: " + text(left_c) + '/' + text(right_c));
 }
 
+// Scenario: A parameter whose plugin id has its top bit set can be automated.
+// LSP's and Dexed's CLAP parameter ids are hashes above 2^31; carried in the
+// song's signed field they read as negative numbers, and must still be a
+// parameter the song accepts, plays, saves and loads.
+void high_parameter_id() {
+    constexpr auto trim = static_cast<std::int32_t>(0x9E2F1C0Au);
+    static_assert(trim < 0);
+    auto song = held_song(1);
+    song.tracks[0].inserts = {clap_effect()};
+    song.tracks[0].automation.push_back(
+        {parameter({BusKind::track, 0, 0}, trim), {{0, 1.0}, {bar, 1.0}, {bar, 0.5}}});
+    std::string why;
+    require(song.consistent(&why), "a lane on a high parameter id is consistent: " + why);
+    SongEngine engine;
+    engine.set_instrument(0, clap_instrument());
+    engine.set_processor({BusKind::track, 0, 0}, clap_effect_instance());
+    prepare(engine, song);
+    engine.set_playing(true);
+    const auto heard = render(engine, 2 * bar_samples - block);
+    // The fixture effect plays at its default gain of 0.25, times Trim.
+    const double first = rms(heard.left, 10000, 86000);
+    const double second = rms(heard.left, 106000, 186000);
+    require(near(first, level * centre * 0.25, 1e-4) || near(first, level * 0.25, 1e-4),
+            "bar 1 plays at Trim 1: " + text(first));
+    require(near(second / first, 0.5, 1e-3), "bar 2 plays at Trim 0.5: " + text(second / first));
+
+    Project project;
+    project.song = song;
+    const auto saved = ProjectFile::serialize(project);
+    std::string error;
+    const auto loaded = ProjectFile::parse(saved, &error);
+    require(loaded.has_value(), "a project with the lane loads: " + error);
+    require(loaded->song.tracks[0].automation == song.tracks[0].automation,
+            "the lane comes back with its id");
+
+    // A modulator may aim at it too.
+    auto modulated = song;
+    Modulator lfo;
+    lfo.targets.push_back({{BusKind::track, 0, 0}, trim, 0.5});
+    modulated.modulators.push_back(lfo);
+    require(modulated.consistent(&why), "a modulator on a high parameter id is consistent: " + why);
+    project.song = modulated;
+    const auto reloaded = ProjectFile::parse(ProjectFile::serialize(project), &error);
+    require(reloaded.has_value() && reloaded->song.modulators == modulated.modulators,
+            "and it saves and loads: " + error);
+}
+
 // Scenario: Lanes and modes are saved and loaded.
 void round_trip() {
     auto song = held_song(2);
@@ -750,6 +797,7 @@ int main(int argc, char** argv) {
         {"chase_on_seek", chase_on_seek},
         {"effect_lane_on_return", effect_lane_on_return},
         {"round_trip", round_trip},
+        {"high_parameter_id", high_parameter_id},
         {"solo_with_lane", solo_with_lane},
         {"post_fader_send", post_fader_send},
         {"recorder_passes", recorder_passes},

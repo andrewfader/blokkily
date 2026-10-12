@@ -282,6 +282,31 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
 
     std::atomic<std::uint32_t> latency{0};
     std::atomic<std::uint64_t> tail{0};
+    // Set by the first exception the plugin throws back through the VST3
+    // interface; from then on the plugin is silent and is not called again.
+    std::atomic<bool> failed{false};
+
+    // Runs `body`, a call into the plugin. A plugin is foreign code, and one
+    // that throws (yabridge does when the Wine process behind a Windows
+    // plugin dies) would otherwise end Blokkily: the exception is caught
+    // here, the plugin is turned off for good, and `fallback` is returned.
+    template <typename Result, typename Body>
+    Result guard(Result fallback, Body&& body) noexcept {
+        if (failed.load(std::memory_order_acquire)) return fallback;
+        try {
+            return body();
+        } catch (...) {
+            failed.store(true, std::memory_order_release);
+            return fallback;
+        }
+    }
+    template <typename Body>
+    void guard(Body&& body) noexcept {
+        (void)guard(true, [&] {
+            body();
+            return true;
+        });
+    }
     std::uint32_t input_channels = 0;
     TransportPlayHead play_head;
 
@@ -570,290 +595,310 @@ Vst3PluginInstance& Vst3PluginInstance::operator=(Vst3PluginInstance&&) noexcept
 
 bool Vst3PluginInstance::activate(double sample_rate, std::uint32_t,
                                   std::uint32_t max_frames) {
-    if (!impl_ || !impl_->plugin || max_frames == 0) return false;
-    impl_->maximum_block_size = static_cast<int>(max_frames);
-    impl_->sample_rate = sample_rate;
-    impl_->plugin->setRateAndBufferSizeDetails(sample_rate, impl_->maximum_block_size);
-    impl_->plugin->prepareToPlay(sample_rate, impl_->maximum_block_size);
-    std::fill_n(impl_->modulation.get(), impl_->parameter_count, 0.0F);
-    impl_->seed_automation();
-    impl_->latency.store(static_cast<std::uint32_t>(std::max(0, impl_->plugin->getLatencySamples())),
-                         std::memory_order_release);
-    impl_->read_tail();
-    // Events are bounded independently of audio frames. Even a one-sample
-    // window can contain the entire host event budget plus bend-range setup.
-    impl_->midi.ensureSize(std::max<std::size_t>(
-        static_cast<std::size_t>(impl_->maximum_block_size) * 4, 16384));
-    impl_->midi.clear();
-    impl_->channel_key.fill(-1);
-    impl_->channel_retune.fill(0);
-    impl_->channel_expression.fill(0);
-    impl_->wheel = 8192;
-    impl_->announce_bend_range = true;
-    impl_->extra.assign(static_cast<std::size_t>(impl_->block_channels - 2) *
-                            static_cast<std::size_t>(impl_->maximum_block_size),
-                        0.0F);
-    impl_->aux_targets.assign(impl_->aux_outputs.size(), StereoBlock{});
-    impl_->sidechain = {};
-    return true;
+    if (!impl_) return false;
+    return impl_->guard(false, [&]() -> bool {
+        if (!impl_ || !impl_->plugin || max_frames == 0) return false;
+        impl_->maximum_block_size = static_cast<int>(max_frames);
+        impl_->sample_rate = sample_rate;
+        impl_->plugin->setRateAndBufferSizeDetails(sample_rate, impl_->maximum_block_size);
+        impl_->plugin->prepareToPlay(sample_rate, impl_->maximum_block_size);
+        std::fill_n(impl_->modulation.get(), impl_->parameter_count, 0.0F);
+        impl_->seed_automation();
+        impl_->latency.store(static_cast<std::uint32_t>(std::max(0, impl_->plugin->getLatencySamples())),
+                             std::memory_order_release);
+        impl_->read_tail();
+        // Events are bounded independently of audio frames. Even a one-sample
+        // window can contain the entire host event budget plus bend-range setup.
+        impl_->midi.ensureSize(std::max<std::size_t>(
+            static_cast<std::size_t>(impl_->maximum_block_size) * 4, 16384));
+        impl_->midi.clear();
+        impl_->channel_key.fill(-1);
+        impl_->channel_retune.fill(0);
+        impl_->channel_expression.fill(0);
+        impl_->wheel = 8192;
+        impl_->announce_bend_range = true;
+        impl_->extra.assign(static_cast<std::size_t>(impl_->block_channels - 2) *
+                                static_cast<std::size_t>(impl_->maximum_block_size),
+                            0.0F);
+        impl_->aux_targets.assign(impl_->aux_outputs.size(), StereoBlock{});
+        impl_->sidechain = {};
+        return true;
+    });
 }
 
 void Vst3PluginInstance::process(StereoBlock audio,
                                  std::span<const PluginEvent> events) noexcept {
-    if (!impl_ || !impl_->plugin) return;
-    auto& impl = *impl_;
-    // The key and the aux destinations apply to this call alone.
-    struct ForgetRouting {
-        Impl& impl;
-        ~ForgetRouting() {
-            impl.sidechain = {};
-            for (auto& target : impl.aux_targets) target = {};
-        }
-    } forget{impl};
-    if (audio.left.size() != audio.right.size() ||
-        audio.left.size() > static_cast<std::size_t>(impl.maximum_block_size)) return;
-    const auto frames = audio.left.size();
-    if (frames == 0) return;
-    const ProcessScope audio_thread;
-    const bool keyed = impl.sidechain_channels > 0 && impl.sidechain.left.size() == frames &&
-                       impl.sidechain.right.size() == frames;
-
-    const auto offset_of = [frames](const PluginEvent& event) {
-        return std::min<std::size_t>(event.sample_offset, frames - 1);
-    };
-    const auto is_parameter = [](const PluginEvent& event) {
-        return event.type == PluginEvent::Type::parameter_value ||
-               event.type == PluginEvent::Type::parameter_modulation;
-    };
-
-    // JUCE applies a parameter change to a whole block, so the block is split
-    // at every parameter offset. That makes VST3 automation sample-accurate to
-    // the same degree the CLAP path already is.
-    std::size_t rendered = 0;
-    while (rendered < frames) {
-        for (const auto& event : events) {
-            if (!is_parameter(event)) continue;
-            const auto offset = offset_of(event);
-            const bool due = rendered == 0 ? offset <= rendered : offset == rendered;
-            if (!due) continue;
-            const auto index = static_cast<std::size_t>(event.key_or_parameter);
-            if (event.key_or_parameter < 0 || index >= impl_->parameter_count) continue;
-            if (event.type == PluginEvent::Type::parameter_value)
-                impl_->automation[index].store(static_cast<float>(event.value),
-                                               std::memory_order_relaxed);
-            else
-                impl_->modulation[index] = static_cast<float>(event.value);
-            impl_->apply(event.key_or_parameter);
-        }
-
-        std::size_t boundary = frames;
-        for (const auto& event : events) {
-            if (!is_parameter(event)) continue;
-            const auto offset = offset_of(event);
-            if (offset > rendered && offset < boundary) boundary = offset;
-        }
-
-        impl_->midi.clear();
-        if (impl_->announce_bend_range) {
-            // Every voice channel is told that its bend wheel spans two
-            // semitones, so a retune offset means the same to the plugin as it
-            // does here. Sent once, with the first audio the plugin sees.
-            for (int channel = 2; channel <= 16; ++channel) {
-                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 101, 0), 0);
-                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 100, 0), 0);
-                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 6, 2), 0);
-                impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 38, 0), 0);
+    if (!impl_) return;
+    impl_->guard([&] {
+        if (!impl_ || !impl_->plugin) return;
+        auto& impl = *impl_;
+        // The key and the aux destinations apply to this call alone.
+        struct ForgetRouting {
+            Impl& impl;
+            ~ForgetRouting() {
+                impl.sidechain = {};
+                for (auto& target : impl.aux_targets) target = {};
             }
-            impl_->announce_bend_range = false;
-        }
-        for (const auto& event : events) {
-            if (is_parameter(event)) continue;
-            const auto offset = offset_of(event);
-            if (offset < rendered || offset >= boundary) continue;
-            const auto position = static_cast<int>(offset - rendered);
-            if (event.type == PluginEvent::Type::note_on) {
-                int channel = 1;
-                // A retuned note, and a note that carries per-note expression
-                // (an MPE note), each get a voice channel of their own.
-                if (event.cents != 0.0 || event.expression != 0) {
-                    channel = 2;
-                    for (int candidate = 2; candidate <= 16; ++candidate)
-                        if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] < 0) {
-                            channel = candidate;
-                            break;
-                        }
-                    // Every voice channel busy: the one taken over lets go
-                    // of its note first, or that note would ring for ever.
-                    const int displaced = impl_->channel_key[static_cast<std::size_t>(channel) - 1];
-                    if (displaced >= 0)
-                        impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, displaced, 0.0F),
-                                             position);
-                    impl_->channel_key[static_cast<std::size_t>(channel) - 1] =
-                        event.key_or_parameter;
-                    const int retune = static_cast<int>(std::lround(event.cents / 200.0 * 8192.0));
-                    impl_->channel_retune[static_cast<std::size_t>(channel) - 1] = retune;
-                    impl_->channel_expression[static_cast<std::size_t>(channel) - 1] = 0;
-                    const int bend = std::clamp(impl_->wheel + retune, 0, 16383);
-                    impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
-                    // An expressive note starts unpressed, whatever the last
-                    // note on its channel was left at.
-                    if (event.expression != 0)
-                        impl_->midi.addEvent(juce::MidiMessage::channelPressureChange(channel, 0),
-                                             position);
+        } forget{impl};
+        if (audio.left.size() != audio.right.size() ||
+            audio.left.size() > static_cast<std::size_t>(impl.maximum_block_size)) return;
+        const auto frames = audio.left.size();
+        if (frames == 0) return;
+        const ProcessScope audio_thread;
+        const bool keyed = impl.sidechain_channels > 0 && impl.sidechain.left.size() == frames &&
+                           impl.sidechain.right.size() == frames;
+
+        const auto offset_of = [frames](const PluginEvent& event) {
+            return std::min<std::size_t>(event.sample_offset, frames - 1);
+        };
+        const auto is_parameter = [](const PluginEvent& event) {
+            return event.type == PluginEvent::Type::parameter_value ||
+                   event.type == PluginEvent::Type::parameter_modulation;
+        };
+
+        // JUCE applies a parameter change to a whole block, so the block is split
+        // at every parameter offset. That makes VST3 automation sample-accurate to
+        // the same degree the CLAP path already is.
+        std::size_t rendered = 0;
+        while (rendered < frames) {
+            for (const auto& event : events) {
+                if (!is_parameter(event)) continue;
+                const auto offset = offset_of(event);
+                const bool due = rendered == 0 ? offset <= rendered : offset == rendered;
+                if (!due) continue;
+                const auto index = static_cast<std::size_t>(event.key_or_parameter);
+                if (event.key_or_parameter < 0 || index >= impl_->parameter_count) continue;
+                if (event.type == PluginEvent::Type::parameter_value)
+                    impl_->automation[index].store(static_cast<float>(event.value),
+                                                   std::memory_order_relaxed);
+                else
+                    impl_->modulation[index] = static_cast<float>(event.value);
+                impl_->apply(event.key_or_parameter);
+            }
+
+            std::size_t boundary = frames;
+            for (const auto& event : events) {
+                if (!is_parameter(event)) continue;
+                const auto offset = offset_of(event);
+                if (offset > rendered && offset < boundary) boundary = offset;
+            }
+
+            impl_->midi.clear();
+            if (impl_->announce_bend_range) {
+                // Every voice channel is told that its bend wheel spans two
+                // semitones, so a retune offset means the same to the plugin as it
+                // does here. Sent once, with the first audio the plugin sees.
+                for (int channel = 2; channel <= 16; ++channel) {
+                    impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 101, 0), 0);
+                    impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 100, 0), 0);
+                    impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 6, 2), 0);
+                    impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, 38, 0), 0);
                 }
-                impl_->midi.addEvent(juce::MidiMessage::noteOn(channel, event.key_or_parameter,
-                                     static_cast<float>(event.value)), position);
-            } else if (event.type == PluginEvent::Type::note_off) {
-                int channel = 1;
-                for (int candidate = 2; candidate <= 16; ++candidate)
-                    if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] ==
-                        event.key_or_parameter) {
-                        channel = candidate;
-                        impl_->channel_key[static_cast<std::size_t>(candidate) - 1] = -1;
-                        break;
+                impl_->announce_bend_range = false;
+            }
+            for (const auto& event : events) {
+                if (is_parameter(event)) continue;
+                const auto offset = offset_of(event);
+                if (offset < rendered || offset >= boundary) continue;
+                const auto position = static_cast<int>(offset - rendered);
+                if (event.type == PluginEvent::Type::note_on) {
+                    int channel = 1;
+                    // A retuned note, and a note that carries per-note expression
+                    // (an MPE note), each get a voice channel of their own.
+                    if (event.cents != 0.0 || event.expression != 0) {
+                        channel = 2;
+                        for (int candidate = 2; candidate <= 16; ++candidate)
+                            if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] < 0) {
+                                channel = candidate;
+                                break;
+                            }
+                        // Every voice channel busy: the one taken over lets go
+                        // of its note first, or that note would ring for ever.
+                        const int displaced = impl_->channel_key[static_cast<std::size_t>(channel) - 1];
+                        if (displaced >= 0)
+                            impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, displaced, 0.0F),
+                                                 position);
+                        impl_->channel_key[static_cast<std::size_t>(channel) - 1] =
+                            event.key_or_parameter;
+                        const int retune = static_cast<int>(std::lround(event.cents / 200.0 * 8192.0));
+                        impl_->channel_retune[static_cast<std::size_t>(channel) - 1] = retune;
+                        impl_->channel_expression[static_cast<std::size_t>(channel) - 1] = 0;
+                        const int bend = std::clamp(impl_->wheel + retune, 0, 16383);
+                        impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
+                        // An expressive note starts unpressed, whatever the last
+                        // note on its channel was left at.
+                        if (event.expression != 0)
+                            impl_->midi.addEvent(juce::MidiMessage::channelPressureChange(channel, 0),
+                                                 position);
                     }
-                impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, event.key_or_parameter,
-                                     static_cast<float>(event.value)), position);
-            } else if (event.type == PluginEvent::Type::note_expression) {
-                // Per-note expression rides on the note's own voice channel,
-                // MPE-style: pitch on its wheel (added to its retune and the
-                // track's wheel, within the channel's two-semitone range),
-                // timbre as CC 74, pressure as channel pressure. A note that
-                // was not struck on a channel of its own has nowhere to take
-                // it, and it is dropped.
-                int channel = -1;
-                for (int candidate = 2; candidate <= 16; ++candidate)
-                    if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] ==
-                        event.key_or_parameter)
-                        channel = candidate;
-                if (channel < 0) continue;
-                const auto slot = static_cast<std::size_t>(channel) - 1;
-                if (event.expression == note_dimension::pitch) {
-                    impl_->channel_expression[slot] =
-                        static_cast<int>(std::lround(event.value / 2.0 * 8192.0));
-                    const int bend = std::clamp(impl_->wheel + impl_->channel_retune[slot] +
-                                                    impl_->channel_expression[slot],
-                                                0, 16383);
-                    impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
-                } else if (event.expression == note_dimension::timbre) {
-                    impl_->midi.addEvent(
-                        juce::MidiMessage::controllerEvent(
-                            channel, 74, std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127)),
-                        position);
-                } else if (event.expression == note_dimension::pressure) {
-                    impl_->midi.addEvent(
-                        juce::MidiMessage::channelPressureChange(
-                            channel, std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127)),
-                        position);
-                }
-            } else if (event.type == PluginEvent::Type::midi_raw) {
-                // The track is one instrument: a controller is for every note
-                // it plays, whatever channel the keyboard sent it on. Notes
-                // in twelve-tone tuning are on channel one; a retuned note's
-                // channel hears the wheel on top of its own retune.
-                const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
-                const int kind = static_cast<int>(raw & 0xF0U);
-                const int first = static_cast<int>((raw >> 8) & 0x7FU);
-                const int second = static_cast<int>((raw >> 16) & 0x7FU);
-                if (kind == 0xA0) {
+                    impl_->midi.addEvent(juce::MidiMessage::noteOn(channel, event.key_or_parameter,
+                                         static_cast<float>(event.value)), position);
+                } else if (event.type == PluginEvent::Type::note_off) {
                     int channel = 1;
                     for (int candidate = 2; candidate <= 16; ++candidate)
-                        if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] == first)
+                        if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] ==
+                            event.key_or_parameter) {
                             channel = candidate;
-                    impl_->midi.addEvent(juce::MidiMessage::aftertouchChange(channel, first, second),
-                                         position);
-                    continue;
-                }
-                if (kind == 0xE0) impl_->wheel = first | (second << 7);
-                for (int channel = 1; channel <= 16; ++channel) {
+                            impl_->channel_key[static_cast<std::size_t>(candidate) - 1] = -1;
+                            break;
+                        }
+                    impl_->midi.addEvent(juce::MidiMessage::noteOff(channel, event.key_or_parameter,
+                                         static_cast<float>(event.value)), position);
+                } else if (event.type == PluginEvent::Type::note_expression) {
+                    // Per-note expression rides on the note's own voice channel,
+                    // MPE-style: pitch on its wheel (added to its retune and the
+                    // track's wheel, within the channel's two-semitone range),
+                    // timbre as CC 74, pressure as channel pressure. A note that
+                    // was not struck on a channel of its own has nowhere to take
+                    // it, and it is dropped.
+                    int channel = -1;
+                    for (int candidate = 2; candidate <= 16; ++candidate)
+                        if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] ==
+                            event.key_or_parameter)
+                            channel = candidate;
+                    if (channel < 0) continue;
                     const auto slot = static_cast<std::size_t>(channel) - 1;
-                    if (channel > 1 && impl_->channel_key[slot] < 0) continue;
-                    if (kind == 0xE0) {
-                        const int retune = channel > 1 ? impl_->channel_retune[slot] +
-                                                             impl_->channel_expression[slot]
-                                                       : 0;
+                    if (event.expression == note_dimension::pitch) {
+                        impl_->channel_expression[slot] =
+                            static_cast<int>(std::lround(event.value / 2.0 * 8192.0));
+                        const int bend = std::clamp(impl_->wheel + impl_->channel_retune[slot] +
+                                                        impl_->channel_expression[slot],
+                                                    0, 16383);
+                        impl_->midi.addEvent(juce::MidiMessage::pitchWheel(channel, bend), position);
+                    } else if (event.expression == note_dimension::timbre) {
                         impl_->midi.addEvent(
-                            juce::MidiMessage::pitchWheel(channel,
-                                                          std::clamp(impl_->wheel + retune, 0, 16383)),
+                            juce::MidiMessage::controllerEvent(
+                                channel, 74, std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127)),
                             position);
-                    } else if (kind == 0xB0) {
-                        impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, first, second),
+                    } else if (event.expression == note_dimension::pressure) {
+                        impl_->midi.addEvent(
+                            juce::MidiMessage::channelPressureChange(
+                                channel, std::clamp(static_cast<int>(std::lround(event.value * 127.0)), 0, 127)),
+                            position);
+                    }
+                } else if (event.type == PluginEvent::Type::midi_raw) {
+                    // The track is one instrument: a controller is for every note
+                    // it plays, whatever channel the keyboard sent it on. Notes
+                    // in twelve-tone tuning are on channel one; a retuned note's
+                    // channel hears the wheel on top of its own retune.
+                    const auto raw = static_cast<std::uint32_t>(event.key_or_parameter);
+                    const int kind = static_cast<int>(raw & 0xF0U);
+                    const int first = static_cast<int>((raw >> 8) & 0x7FU);
+                    const int second = static_cast<int>((raw >> 16) & 0x7FU);
+                    if (kind == 0xA0) {
+                        int channel = 1;
+                        for (int candidate = 2; candidate <= 16; ++candidate)
+                            if (impl_->channel_key[static_cast<std::size_t>(candidate) - 1] == first)
+                                channel = candidate;
+                        impl_->midi.addEvent(juce::MidiMessage::aftertouchChange(channel, first, second),
                                              position);
-                    } else if (kind == 0xD0) {
-                        impl_->midi.addEvent(juce::MidiMessage::channelPressureChange(channel, first),
-                                             position);
+                        continue;
+                    }
+                    if (kind == 0xE0) impl_->wheel = first | (second << 7);
+                    for (int channel = 1; channel <= 16; ++channel) {
+                        const auto slot = static_cast<std::size_t>(channel) - 1;
+                        if (channel > 1 && impl_->channel_key[slot] < 0) continue;
+                        if (kind == 0xE0) {
+                            const int retune = channel > 1 ? impl_->channel_retune[slot] +
+                                                                 impl_->channel_expression[slot]
+                                                           : 0;
+                            impl_->midi.addEvent(
+                                juce::MidiMessage::pitchWheel(channel,
+                                                              std::clamp(impl_->wheel + retune, 0, 16383)),
+                                position);
+                        } else if (kind == 0xB0) {
+                            impl_->midi.addEvent(juce::MidiMessage::controllerEvent(channel, first, second),
+                                                 position);
+                        } else if (kind == 0xD0) {
+                            impl_->midi.addEvent(juce::MidiMessage::channelPressureChange(channel, first),
+                                                 position);
+                        }
                     }
                 }
             }
-        }
 
-        // The track's two channels, then the sidechain and aux buses in
-        // `extra`: the key's part for these samples, silence elsewhere.
-        const auto length = boundary - rendered;
-        auto& pointers = impl.channel_pointers;
-        pointers[0] = audio.left.data() + rendered;
-        pointers[1] = audio.right.data() + rendered;
-        const auto stride = static_cast<std::size_t>(impl.maximum_block_size);
-        for (int channel = 2; channel < impl.block_channels; ++channel) {
-            pointers[static_cast<std::size_t>(channel)] =
-                impl.extra.data() + static_cast<std::size_t>(channel - 2) * stride;
-            std::fill_n(pointers[static_cast<std::size_t>(channel)], length, 0.0F);
-        }
-        if (keyed) {
-            const auto first = static_cast<std::size_t>(impl.sidechain_offset);
-            if (impl.sidechain_channels == 1) {
-                for (std::size_t frame = 0; frame < length; ++frame)
-                    pointers[first][frame] = 0.5F * (impl.sidechain.left[rendered + frame] +
-                                                     impl.sidechain.right[rendered + frame]);
-            } else {
-                std::copy_n(impl.sidechain.left.data() + rendered, length, pointers[first]);
-                std::copy_n(impl.sidechain.right.data() + rendered, length, pointers[first + 1]);
+            // The track's two channels, then the sidechain and aux buses in
+            // `extra`: the key's part for these samples, silence elsewhere.
+            const auto length = boundary - rendered;
+            auto& pointers = impl.channel_pointers;
+            pointers[0] = audio.left.data() + rendered;
+            pointers[1] = audio.right.data() + rendered;
+            const auto stride = static_cast<std::size_t>(impl.maximum_block_size);
+            for (int channel = 2; channel < impl.block_channels; ++channel) {
+                pointers[static_cast<std::size_t>(channel)] =
+                    impl.extra.data() + static_cast<std::size_t>(channel - 2) * stride;
+                std::fill_n(pointers[static_cast<std::size_t>(channel)], length, 0.0F);
             }
+            if (keyed) {
+                const auto first = static_cast<std::size_t>(impl.sidechain_offset);
+                if (impl.sidechain_channels == 1) {
+                    for (std::size_t frame = 0; frame < length; ++frame)
+                        pointers[first][frame] = 0.5F * (impl.sidechain.left[rendered + frame] +
+                                                         impl.sidechain.right[rendered + frame]);
+                } else {
+                    std::copy_n(impl.sidechain.left.data() + rendered, length, pointers[first]);
+                    std::copy_n(impl.sidechain.right.data() + rendered, length, pointers[first + 1]);
+                }
+            }
+            juce::AudioBuffer<float> buffer(pointers.data(), impl.block_channels,
+                                            static_cast<int>(length));
+            impl.plugin->processBlock(buffer, impl.midi);
+            // Each aux output to where it was sent; one sent nowhere is dropped.
+            for (std::size_t aux = 0; aux < impl.aux_outputs.size(); ++aux) {
+                const auto& target = impl.aux_targets[aux];
+                if (target.left.size() != frames || target.right.size() != frames) continue;
+                const auto& bus = impl.aux_outputs[aux];
+                const auto left = static_cast<std::size_t>(bus.offset);
+                const auto right = left + (bus.channels >= 2 ? 1U : 0U);
+                std::copy_n(pointers[left], length, target.left.data() + rendered);
+                std::copy_n(pointers[right], length, target.right.data() + rendered);
+            }
+            rendered = boundary;
         }
-        juce::AudioBuffer<float> buffer(pointers.data(), impl.block_channels,
-                                        static_cast<int>(length));
-        impl.plugin->processBlock(buffer, impl.midi);
-        // Each aux output to where it was sent; one sent nowhere is dropped.
-        for (std::size_t aux = 0; aux < impl.aux_outputs.size(); ++aux) {
-            const auto& target = impl.aux_targets[aux];
-            if (target.left.size() != frames || target.right.size() != frames) continue;
-            const auto& bus = impl.aux_outputs[aux];
-            const auto left = static_cast<std::size_t>(bus.offset);
-            const auto right = left + (bus.channels >= 2 ? 1U : 0U);
-            std::copy_n(pointers[left], length, target.left.data() + rendered);
-            std::copy_n(pointers[right], length, target.right.data() + rendered);
-        }
-        rendered = boundary;
+    });
+    // A plugin that has failed plays silence, not whatever it was handed.
+    if (impl_->failed.load(std::memory_order_acquire)) {
+        std::fill(audio.left.begin(), audio.left.end(), 0.0F);
+        std::fill(audio.right.begin(), audio.right.end(), 0.0F);
     }
 }
 
 void Vst3PluginInstance::reset() {
-    if (!impl_ || !impl_->plugin) return;
-    impl_->plugin->reset();
-    impl_->midi.clear();
-    impl_->channel_key.fill(-1);
-    impl_->channel_retune.fill(0);
-    impl_->wheel = 8192;
-    // A reactivated plugin may have forgotten the bend range it was told.
-    impl_->announce_bend_range = true;
+    if (!impl_) return;
+    impl_->guard([&] {
+        if (!impl_ || !impl_->plugin) return;
+        impl_->plugin->reset();
+        impl_->midi.clear();
+        impl_->channel_key.fill(-1);
+        impl_->channel_retune.fill(0);
+        impl_->wheel = 8192;
+        // A reactivated plugin may have forgotten the bend range it was told.
+        impl_->announce_bend_range = true;
+    });
 }
 
 std::vector<std::byte> Vst3PluginInstance::save_state() {
-    juce::MemoryBlock block;
-    if (!impl_ || !impl_->plugin) return {};
-    impl_->plugin->getStateInformation(block);
-    std::vector<std::byte> result(block.getSize());
-    std::memcpy(result.data(), block.getData(), block.getSize());
-    return result;
+    if (!impl_) return std::vector<std::byte>{};
+    return impl_->guard(std::vector<std::byte>{}, [&]() -> std::vector<std::byte> {
+        juce::MemoryBlock block;
+        if (!impl_ || !impl_->plugin) return {};
+        impl_->plugin->getStateInformation(block);
+        std::vector<std::byte> result(block.getSize());
+        std::memcpy(result.data(), block.getData(), block.getSize());
+        return result;
+    });
 }
 
 bool Vst3PluginInstance::load_state(std::span<const std::byte> state) {
-    if (!impl_ || !impl_->plugin) return false;
-    impl_->plugin->setStateInformation(state.data(), static_cast<int>(state.size()));
-    // The state moved the plugin's parameters; the automation base follows,
-    // or the next modulation would be added to the values from before.
-    impl_->seed_automation();
-    return true;
+    if (!impl_) return false;
+    return impl_->guard(false, [&]() -> bool {
+        if (!impl_ || !impl_->plugin) return false;
+        impl_->plugin->setStateInformation(state.data(), static_cast<int>(state.size()));
+        // The state moved the plugin's parameters; the automation base follows,
+        // or the next modulation would be added to the values from before.
+        impl_->seed_automation();
+        return true;
+    });
 }
 
 PluginPorts Vst3PluginInstance::ports() const {
@@ -880,25 +925,31 @@ std::uint64_t Vst3PluginInstance::tail_samples() const noexcept {
 }
 
 bool Vst3PluginInstance::latency_changed() noexcept {
-    if (!impl_ || !impl_->plugin) return false;
-    const auto now = static_cast<std::uint32_t>(std::max(0, impl_->plugin->getLatencySamples()));
-    return impl_->latency.exchange(now, std::memory_order_acq_rel) != now;
+    if (!impl_) return false;
+    return impl_->guard(false, [&]() -> bool {
+        if (!impl_ || !impl_->plugin) return false;
+        const auto now = static_cast<std::uint32_t>(std::max(0, impl_->plugin->getLatencySamples()));
+        return impl_->latency.exchange(now, std::memory_order_acq_rel) != now;
+    });
 }
 
 std::vector<ParameterInfo> Vst3PluginInstance::parameters() const {
-    std::vector<ParameterInfo> result;
-    if (!impl_ || !impl_->plugin) return result;
-    const auto& parameters = impl_->plugin->getParameters();
-    result.reserve(static_cast<std::size_t>(parameters.size()));
-    for (int index = 0; index < parameters.size(); ++index) {
-        const auto* parameter = parameters[index];
-        // As for edits: the hidden MIDI CC parameters are not listed.
-        if (!parameter->isAutomatable()) continue;
-        result.push_back({index, parameter->getName(128).toStdString(), 0.0, 1.0,
-                          static_cast<double>(parameter->getDefaultValue()),
-                          parameter->isAutomatable()});
-    }
-    return result;
+    if (!impl_) return std::vector<ParameterInfo>{};
+    return impl_->guard(std::vector<ParameterInfo>{}, [&]() -> std::vector<ParameterInfo> {
+        std::vector<ParameterInfo> result;
+        if (!impl_ || !impl_->plugin) return result;
+        const auto& parameters = impl_->plugin->getParameters();
+        result.reserve(static_cast<std::size_t>(parameters.size()));
+        for (int index = 0; index < parameters.size(); ++index) {
+            const auto* parameter = parameters[index];
+            // As for edits: the hidden MIDI CC parameters are not listed.
+            if (!parameter->isAutomatable()) continue;
+            result.push_back({index, parameter->getName(128).toStdString(), 0.0, 1.0,
+                              static_cast<double>(parameter->getDefaultValue()),
+                              parameter->isAutomatable()});
+        }
+        return result;
+    });
 }
 
 std::size_t Vst3PluginInstance::take_parameter_edits(std::span<ParameterEdit> out) noexcept {
@@ -913,14 +964,17 @@ void Vst3PluginInstance::set_transport(const TransportInfo& transport) noexcept 
 }
 
 void Vst3PluginInstance::idle() {
-    if (!impl_ || !impl_->plugin) return;
-    impl_->read_tail();
-    // A floating editor's close button was pressed.
-    if (impl_->close_requested && impl_->editor) {
-        auto* host = impl_->editor_host;
-        impl_->destroy_editor();
-        if (host != nullptr) host->closed();
-    }
+    if (!impl_) return;
+    impl_->guard([&] {
+        if (!impl_ || !impl_->plugin) return;
+        impl_->read_tail();
+        // A floating editor's close button was pressed.
+        if (impl_->close_requested && impl_->editor) {
+            auto* host = impl_->editor_host;
+            impl_->destroy_editor();
+            if (host != nullptr) host->closed();
+        }
+    });
 }
 
 bool Vst3PluginInstance::has_editor() const {
@@ -934,53 +988,66 @@ bool Vst3PluginInstance::supports_editor(WindowApi api, bool) const {
 
 bool Vst3PluginInstance::open_editor(const NativeParent* parent, EditorHost& host,
                                      EditorSize* size, std::string* error) {
-    auto fail = [error](const char* message) {
-        if (error != nullptr) *error = message;
-        return false;
-    };
-    if (!impl_ || !impl_->plugin) return fail("No plugin");
-    if (impl_->editor) return fail("The editor is already open");
-    if (!impl_->plugin->hasEditor()) return fail("This plugin has no editor");
-    // Decided before JUCE is asked for anything that would touch X.
-    if (!x11_reachable(parent)) return fail(no_display_message);
-    impl_->editor.reset(impl_->plugin->createEditorAndMakeActive());
-    if (!impl_->editor) return fail("The plugin could not create its editor");
-    auto& editor = *impl_->editor;
-    if (parent != nullptr) {
-        editor.addToDesktop(0, reinterpret_cast<void*>(parent->handle));
-        editor.setVisible(true);
-    } else {
-        auto* self = impl_.get();
-        impl_->floating = std::make_unique<FloatingEditorWindow>(
-            impl_->plugin->getName(), [self] { self->close_requested = true; });
-        impl_->floating->setContentNonOwned(&editor, true);
-        impl_->floating->setVisible(true);
-    }
-    impl_->editor_host = &host;
-    impl_->resize_watcher.host = &host;
-    editor.addComponentListener(&impl_->resize_watcher);
-    if (size != nullptr) {
-        // JUCE sizes a Linux editor in physical pixels: it is not scaled by
-        // the host window's device pixel ratio.
-        size->width = static_cast<std::uint32_t>(std::max(0, editor.getWidth()));
-        size->height = static_cast<std::uint32_t>(std::max(0, editor.getHeight()));
-        size->resizable = editor.isResizable();
-    }
-    return true;
+    if (!impl_) return false;
+    return impl_->guard(false, [&]() -> bool {
+        auto fail = [error](const char* message) {
+            if (error != nullptr) *error = message;
+            return false;
+        };
+        if (!impl_ || !impl_->plugin) return fail("No plugin");
+        if (impl_->editor) return fail("The editor is already open");
+        if (!impl_->plugin->hasEditor()) return fail("This plugin has no editor");
+        // Decided before JUCE is asked for anything that would touch X.
+        if (!x11_reachable(parent)) return fail(no_display_message);
+        impl_->editor.reset(impl_->plugin->createEditorAndMakeActive());
+        if (!impl_->editor) return fail("The plugin could not create its editor");
+        auto& editor = *impl_->editor;
+        if (parent != nullptr) {
+            editor.addToDesktop(0, reinterpret_cast<void*>(parent->handle));
+            editor.setVisible(true);
+        } else {
+            auto* self = impl_.get();
+            impl_->floating = std::make_unique<FloatingEditorWindow>(
+                impl_->plugin->getName(), [self] { self->close_requested = true; });
+            impl_->floating->setContentNonOwned(&editor, true);
+            impl_->floating->setVisible(true);
+        }
+        impl_->editor_host = &host;
+        impl_->resize_watcher.host = &host;
+        editor.addComponentListener(&impl_->resize_watcher);
+        if (size != nullptr) {
+            // JUCE sizes a Linux editor in physical pixels: it is not scaled by
+            // the host window's device pixel ratio.
+            size->width = static_cast<std::uint32_t>(std::max(0, editor.getWidth()));
+            size->height = static_cast<std::uint32_t>(std::max(0, editor.getHeight()));
+            size->resizable = editor.isResizable();
+        }
+        return true;
+    });
 }
 
 bool Vst3PluginInstance::resize_editor(std::uint32_t& width, std::uint32_t& height) {
-    if (!impl_ || !impl_->editor || !impl_->editor->isResizable()) return false;
-    impl_->editor->setSize(static_cast<int>(width), static_cast<int>(height));
-    width = static_cast<std::uint32_t>(std::max(0, impl_->editor->getWidth()));
-    height = static_cast<std::uint32_t>(std::max(0, impl_->editor->getHeight()));
-    return true;
+    if (!impl_) return false;
+    return impl_->guard(false, [&]() -> bool {
+        if (!impl_ || !impl_->editor || !impl_->editor->isResizable()) return false;
+        impl_->editor->setSize(static_cast<int>(width), static_cast<int>(height));
+        width = static_cast<std::uint32_t>(std::max(0, impl_->editor->getWidth()));
+        height = static_cast<std::uint32_t>(std::max(0, impl_->editor->getHeight()));
+        return true;
+    });
 }
 
 void Vst3PluginInstance::close_editor() {
-    if (impl_) impl_->destroy_editor();
+    if (!impl_) return;
+    impl_->guard([&] {
+        if (impl_) impl_->destroy_editor();
+    });
 }
 
 bool Vst3PluginInstance::editor_open() const { return impl_ && impl_->editor != nullptr; }
+
+bool Vst3PluginInstance::failed() const noexcept {
+    return impl_ && impl_->failed.load(std::memory_order_acquire);
+}
 
 } // namespace blokkily

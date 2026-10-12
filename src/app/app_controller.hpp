@@ -44,6 +44,7 @@
 #include <optional>
 #include <set>
 #include <span>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -437,6 +438,7 @@ public:
     // finished in a plugin's window becomes one step of history holding the
     // instrument's new state. Runs on a timer; callable directly.
     void drainPluginEdits();
+    void reportFailedPlugins();
     // Serves what plugins asked of the main thread (idle()) and drains their
     // edits: what the editor timer does every turn.
     void serviceEditors();
@@ -651,6 +653,9 @@ private:
                                                 const std::string& track_name);
 
     QString status_ = "Ready — CLAP native";
+    // Plugins already reported as having broken (serviceEditors), so each is
+    // reported once.
+    std::unordered_set<const blokkily::PluginInstance*> failed_reported_;
     QVariantList plugins_;
     QString browser_filter_;
     QString browser_kind_ = QStringLiteral("instrument");

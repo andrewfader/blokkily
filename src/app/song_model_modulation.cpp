@@ -183,7 +183,7 @@ bool SongModel::addModulationTarget(int modulator, const QString& kind, int bus,
                                     int parameter) {
     auto* found = modulatorAt(modulator);
     const auto parsed = bus_kind(kind);
-    if (found == nullptr || !parsed || bus < 0 || slot < -1 || parameter < 0 ||
+    if (found == nullptr || !parsed || bus < 0 || slot < -1 || parameter == -1 ||
         found->targets.size() >= blokkily::Modulator::maximum_targets)
         return false;
     const blokkily::ProcessorAddress where{*parsed, static_cast<std::uint32_t>(bus), slot};

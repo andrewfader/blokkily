@@ -41,6 +41,7 @@ if(BLOKKILY_BUILD_TESTS)
             chase_on_seek
             effect_lane_on_return
             round_trip
+            high_parameter_id
             solo_with_lane
             post_fader_send
             recorder_passes)

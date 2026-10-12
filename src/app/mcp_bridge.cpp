@@ -112,6 +112,15 @@ private:
             flush();
             return;
         }
+        // A window that holds the socket's lock is starting up, or too busy
+        // to answer yet: it is waited for, and no second window is started
+        // beside it.
+        if (!launched_ && blokkily::mcp::SocketLock::taken(path_)) {
+            if (clock_.elapsed() < launch_wait_ms) return;
+            failWaiting(QStringLiteral("Blokkily is running but has not answered at %1 for a "
+                                       "minute.").arg(path_));
+            return;
+        }
         // A window is started at most once per absence: one that was started
         // and never listened is not started again, call after call.
         if (!launched_ && may_launch_ && !launch_failed_) {

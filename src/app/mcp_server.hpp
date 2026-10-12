@@ -18,10 +18,11 @@ class McpServer final : public QObject {
 public:
     explicit McpServer(McpTools& tools, QObject* parent = nullptr);
 
-    // Listens at `path`. A socket left behind by a Blokkily that has gone is
-    // taken over; one another running Blokkily still answers on is left to
-    // it, and false is returned.
-    bool listen(const QString& path);
+    // Listens at `path`, which this window claimed with `lock`. Without the
+    // lock another Blokkily has the socket, and false is returned. With it, a
+    // socket left behind by a Blokkily that has gone is taken over; one an
+    // older Blokkily (from before the lock) still answers on is left to it.
+    bool listen(const QString& path, const blokkily::mcp::SocketLock& lock);
     QString path() const { return server_.fullServerName(); }
     QString error() const { return error_; }
 

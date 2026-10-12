@@ -462,9 +462,12 @@ void clap_effect_fixture() {
     require(effect->ports().audio_inputs == 2 && !effect->ports().note_input,
             "the CLAP effect takes stereo audio and no notes");
     const auto parameters = effect->parameters();
-    require(parameters.size() == 1 && parameters[0].id == 0 && parameters[0].name == "Gain" &&
+    require(parameters.size() == 2 && parameters[0].id == 0 && parameters[0].name == "Gain" &&
                 parameters[0].default_value == 0.25 && parameters[0].automatable,
             "the CLAP effect lists Gain (id 0, default 0.25)");
+    require(parameters[1].name == "Trim" &&
+                static_cast<std::uint32_t>(parameters[1].id) == 0x9E2F1C0Au,
+            "and Trim, whose CLAP id has its top bit set");
     require(effect->activate(rate, 1, 256), "the CLAP effect activates");
     require(effect->latency_samples() == 64 && effect->tail_samples() == 64,
             "the CLAP effect reports 64 samples of latency and tail");

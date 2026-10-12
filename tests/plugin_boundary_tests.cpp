@@ -11,6 +11,7 @@
 #include "blokkily/plugins/vst3_instance.hpp"
 
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -479,6 +480,33 @@ void clap_midi_raw() {
             "raw CC reaches CLAP plugin through CLAP_EVENT_MIDI");
 }
 
+// features/plugin_boundary.feature: A plugin that throws is silenced, not fatal.
+// yabridge throws std::system_error out of an ordinary VST3 call once the Wine
+// process behind a Windows plugin has died; uncaught, that ended Blokkily.
+void vst3_throwing_plugin() {
+    auto plugin = vst3();
+    const auto break_all = fixture_hook<void (*)(bool)>(BLOKKILY_TEST_VST3_BINARY,
+                                                        "blokkily_test_vst3_break");
+    const PluginEvent note{PluginEvent::Type::note_on, 0, 60, 1.0};
+    require(near(vst3_level(*plugin, std::span{&note, 1}), 0.25), "the fixture plays 0.25");
+    require(!plugin->failed(), "a working plugin has not failed");
+    break_all(true);
+    struct Mend {
+        void (*mend)(bool);
+        ~Mend() { mend(false); }
+    } mend{break_all};
+    plugin->idle();  // reads the tail, which now throws
+    require(plugin->failed(), "the plugin is turned off when it throws");
+    const auto after = render(*plugin, std::span{&note, 1}, 0.5F);
+    require(std::all_of(after.begin(), after.end(), [](float sample) { return sample == 0.0F; }),
+            "a failed plugin plays silence, not what it was handed");
+    require(plugin->save_state().empty() && !plugin->load_state({}),
+            "and is not called again: saving and loading give nothing");
+    break_all(false);
+    plugin->idle();
+    require(plugin->failed(), "it stays off once it has failed");
+}
+
 const std::map<std::string, std::function<void()>> cases{
     {"clap_parameters", clap_parameters},
     {"clap_gui_turn", clap_gui_turn},
@@ -493,6 +521,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"vst3_turn_base", vst3_turn_base},
     {"vst3_turn_edits", vst3_turn_edits},
     {"vst3_parameters", vst3_parameters},
+    {"vst3_throwing_plugin", vst3_throwing_plugin},
 };
 
 } // namespace

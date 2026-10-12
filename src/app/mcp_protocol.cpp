@@ -4,6 +4,8 @@
 #include <QJsonParseError>
 #include <QStandardPaths>
 #include <QDir>
+#include <QFileInfo>
+#include <QLockFile>
 
 #ifndef BLOKKILY_VERSION
 #define BLOKKILY_VERSION "0"
@@ -40,6 +42,37 @@ QString socketPath() {
     if (directory.isEmpty()) directory = QDir::tempPath();
     return QDir(directory).filePath(QStringLiteral("blokkily-mcp.sock"));
 #endif
+}
+
+namespace {
+
+// Beside the socket, or for a Windows pipe name (not a path) in the temporary
+// directory.
+QString lockPath(const QString& socket) {
+    if (QFileInfo(socket).isAbsolute()) return socket + QStringLiteral(".lock");
+    return QDir(QDir::tempPath()).filePath(socket + QStringLiteral(".lock"));
+}
+
+}  // namespace
+
+SocketLock::SocketLock(const QString& socket)
+    : lock_(std::make_unique<QLockFile>(lockPath(socket))) {
+    // Only a dead owner makes a lock stale, never its age: a window may run
+    // for days.
+    lock_->setStaleLockTime(0);
+    held_ = lock_->tryLock(0);
+}
+
+SocketLock::~SocketLock() = default;
+
+bool SocketLock::taken(const QString& socket) {
+    QLockFile probe(lockPath(socket));
+    probe.setStaleLockTime(0);
+    if (probe.tryLock(0)) {
+        probe.unlock();
+        return false;
+    }
+    return probe.error() == QLockFile::LockFailedError;
 }
 
 QJsonArray toolDefinitions() {

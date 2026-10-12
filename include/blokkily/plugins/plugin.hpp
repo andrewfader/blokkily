@@ -202,6 +202,10 @@ public:
     virtual void set_editor_scale(double scale) { (void)scale; }
     virtual void close_editor() {}
     virtual bool editor_open() const { return false; }
+
+    // Whether the plugin has broken and been turned off: it threw back into
+    // the host, and now plays silence and is not called again (any thread).
+    virtual bool failed() const noexcept { return false; }
 };
 
 } // namespace blokkily

@@ -161,3 +161,9 @@ Feature: Record everything, part 2 - automation
   Scenario: The lane and the mode survive a save and a load
     When the project is saved, the mode changed, and the project opened again
     Then the lane is as it was and the chip reads TOUCH
+
+  Scenario: A parameter whose plugin id has its top bit set can be automated
+    Given an effect whose CLAP parameter ids are hashes above 2^31, as LSP's and Dexed's are
+    When the producer draws a lane for one of those parameters
+    Then the song still prepares and the lane moves the parameter where it is drawn
+    And the lane, and a modulator aimed at the same parameter, save and load unchanged

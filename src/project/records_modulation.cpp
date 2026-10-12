@@ -155,7 +155,8 @@ bool parse_modtarget(const Fields& fields, ParseContext& context) {
     const auto depth = fields.real(6);
     if (!modulator || !kind || !bus || !slot || !parameter || !depth || *modulator < 0 ||
         *bus < 0 || *bus > std::numeric_limits<std::uint32_t>::max() || *slot < -1 ||
-        *slot > std::numeric_limits<std::int32_t>::max() || *parameter < 0 ||
+        *slot > std::numeric_limits<std::int32_t>::max() ||
+        *parameter < std::numeric_limits<std::int32_t>::min() ||
         *parameter > std::numeric_limits<std::int32_t>::max())
         return context.fail("malformed modtarget record");
     auto& modulators = context.project.song.modulators;

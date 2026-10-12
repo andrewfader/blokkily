@@ -77,6 +77,7 @@ public:
     bool resize_editor(std::uint32_t& width, std::uint32_t& height) override;
     void close_editor() override;
     bool editor_open() const override;
+    bool failed() const noexcept override;
 
 private:
     struct Impl;

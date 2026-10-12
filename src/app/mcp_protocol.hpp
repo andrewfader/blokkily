@@ -15,7 +15,10 @@
 #include <QString>
 
 #include <functional>
+#include <memory>
 #include <optional>
+
+class QLockFile;
 
 namespace blokkily::mcp {
 
@@ -27,6 +30,28 @@ inline constexpr const char* protocol_versions[] = {"2025-06-18", "2025-03-26", 
 // blokkily-mcp.sock in the user's runtime directory (a named pipe called
 // blokkily-mcp on Windows).
 QString socketPath();
+
+// Which window serves a socket: the one holding the lock file beside it.
+// Taking a lock is one atomic step, where knocking on the socket and then
+// replacing it is two, so two windows starting together cannot both decide
+// the socket is free, and a window too busy to answer still keeps it. A lock
+// left by a window that has gone is taken over (its process is checked).
+class SocketLock {
+public:
+    explicit SocketLock(const QString& socket);
+    ~SocketLock();
+    SocketLock(const SocketLock&) = delete;
+    SocketLock& operator=(const SocketLock&) = delete;
+
+    bool held() const { return held_; }
+    // Whether a running process holds the lock for `socket`: a window that is
+    // serving it, or starting up and about to.
+    static bool taken(const QString& socket);
+
+private:
+    std::unique_ptr<QLockFile> lock_;
+    bool held_ = false;
+};
 
 // Every tool the server offers, as tools/list returns them.
 QJsonArray toolDefinitions();

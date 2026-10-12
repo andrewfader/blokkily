@@ -6,6 +6,8 @@
 // window's event loop keeps turning, because it is the window that answers.
 
 #include "verify/harness.hpp"
+#include "mcp_server.hpp"
+#include "mcp_tools.hpp"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -14,11 +16,14 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocalSocket>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QTimer>
 
 #include <algorithm>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <source_location>
 #include <sstream>
@@ -379,6 +384,61 @@ void run_mcp(VerifyContext& ctx) {
         const auto refused = alone.tool("get_session");
         check(isError(refused) && textOf(refused).contains("not running"));
         check(alone.close());
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: a second Blokkily never takes the socket from a busy one");
+    {
+        // A window busy on its own thread accepts nothing until it is free,
+        // so connections queue up; a full queue makes it look gone to anyone
+        // who only knocks. A second window started then must still leave the
+        // socket to the one that has it.
+        std::vector<std::unique_ptr<QLocalSocket>> queued;
+        for (int i = 0; i < 400; ++i) {
+            queued.push_back(std::make_unique<QLocalSocket>());
+            queued.back()->connectToServer(socket);
+        }
+        McpTools rival_tools(song, ctx.pattern, controller, ctx.transport, ctx.window);
+        {
+            const blokkily::mcp::SocketLock claim(socket);
+            check(!claim.held());
+            check(blokkily::mcp::SocketLock::taken(socket));
+            McpServer rival(rival_tools);
+            check(!rival.listen(socket, claim));
+        }
+        queued.clear();
+        QCoreApplication::processEvents();
+        // A new agent still reaches this window, by the same path.
+        Agent later(socket, false);
+        check(later.started());
+        check(later.request("initialize", {{"protocolVersion", "2025-06-18"}}).has_value());
+        const auto reached = later.tool("get_session");
+        check(!isError(reached) &&
+              reached.value("structuredContent").toObject().value("tracks").toArray().size() ==
+                  static_cast<int>(song.song().tracks.size()));
+        check(later.close());
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: a bridge waits for a window that is still starting");
+    {
+        // The window has claimed the socket but not yet listens on it, as
+        // while it loads; the bridge must neither start another window nor
+        // say Blokkily is not running, but wait and be answered.
+        const QString starting = socket + "-starting";
+        const blokkily::mcp::SocketLock claim(starting);
+        check(claim.held());
+        McpTools late_tools(song, ctx.pattern, controller, ctx.transport, ctx.window);
+        McpServer late(late_tools);
+        Agent waiting(starting, false);
+        check(waiting.started());
+        check(waiting.request("initialize", {{"protocolVersion", "2025-06-18"}}).has_value());
+        bool listening = false;
+        QTimer::singleShot(1500, [&] { listening = late.listen(starting, claim); });
+        const auto answered = waiting.tool("get_session");
+        check(listening);
+        check(!isError(answered));
+        check(waiting.close());
     }
 
     // ---------------------------------------------------------------------

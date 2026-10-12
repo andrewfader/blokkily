@@ -83,3 +83,10 @@ Feature: Plugins talk back to the host through one boundary
     When each block is processed and its edits taken
     Then no call allocates or frees memory
     And every turn is heard and taken as one gesture
+
+  Scenario: A plugin that throws is silenced, not fatal
+    Given a VST3 plugin playing a note
+    When the plugin starts throwing from its calls, as yabridge does when a Windows plugin's Wine process dies
+    Then Blokkily keeps running and the plugin is turned off
+    And the plugin plays silence and is not called again
+    And the status line says which track's plugin stopped responding

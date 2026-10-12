@@ -2,7 +2,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
+#include <system_error>
 #include <vector>
 
 class TestVst3Processor;
@@ -11,6 +13,12 @@ namespace {
 // way the plugin's own editor would: from the plugin's message thread.
 std::mutex live_mutex;
 std::vector<TestVst3Processor*> live_processors;
+// Set by blokkily_test_vst3_break: every instance then throws from its
+// calls, as yabridge does once the Wine process behind a Windows plugin dies.
+std::atomic<bool> broken{false};
+void throw_if_broken() {
+    if (broken.load()) throw std::system_error(EPIPE, std::generic_category(), "write");
+}
 }
 
 class TestVst3Processor final : public juce::AudioProcessor {
@@ -58,6 +66,7 @@ public:
     // the same at minus half, so routing it apart can be told from mixing it
     // into the main output.
     void processBlock(juce::AudioBuffer<float>& block, juce::MidiBuffer& midi) override {
+        throw_if_broken();
         block.clear();
         auto audio = getBusBuffer(block, false, 0);
         const bool has_aux = getBusCount(false) > 1 && getBus(false, 1)->isEnabled();
@@ -123,7 +132,10 @@ public:
     // colour or the editor is not there.
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override;
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override {
+        throw_if_broken();
+        return 0.0;
+    }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     int getNumPrograms() override { return 1; }
@@ -132,6 +144,7 @@ public:
     const juce::String getProgramName(int) override { return "Default"; }
     void changeProgramName(int, const juce::String&) override {}
     void getStateInformation(juce::MemoryBlock& destination) override {
+        throw_if_broken();
         const float value = level_->get();
         destination.setSize(sizeof(value));
         std::memcpy(destination.getData(), &value, sizeof(value));
@@ -188,3 +201,6 @@ extern "C" BLOKKILY_FIXTURE_EXPORT void blokkily_test_vst3_turn(float value) {
     if (juce::MessageManager::getInstance()->isThisTheMessageThread()) turn();
     else juce::MessageManager::callAsync(turn);
 }
+
+// Breaks (or mends) every instance: from then on their calls throw.
+extern "C" BLOKKILY_FIXTURE_EXPORT void blokkily_test_vst3_break(bool value) { broken = value; }

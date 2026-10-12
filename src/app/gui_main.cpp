@@ -24,6 +24,7 @@
 
 #include <clocale>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 
@@ -99,6 +100,21 @@ int main(int argc, char* argv[]) {
     QtPluginRunLoop plugin_run_loop;
     const blokkily::ScopedPluginRunLoop plugin_run_loop_installed(plugin_run_loop);
 
+    // Agents drive the window through MCP (features/mcp.feature). A normal
+    // launch serves the user's own socket; verification serves only the one
+    // its gate names, so a test never answers for, or displaces, a Blokkily
+    // the user has open. A gate's socket is named for its process, so two
+    // test runs at once never meet on one. The socket is claimed before
+    // anything loads: a bridge that finds nobody answering yet sees a window
+    // on its way and waits for it rather than starting another.
+    const bool serve_mcp = parser.isSet("verify") ? parser.isSet("mcp-socket")
+                                                  : qgetenv("BLOKKILY_MCP") != "0";
+    const QString mcp_socket = parser.isSet("verify")
+        ? QStringLiteral("%1-%2").arg(parser.value("mcp-socket")).arg(QCoreApplication::applicationPid())
+        : blokkily::mcp::socketPath();
+    std::optional<blokkily::mcp::SocketLock> mcp_lock;
+    if (serve_mcp) mcp_lock.emplace(mcp_socket);
+
     // Held for the life of the application, so rebuilding the audio graph
     // never tears the plugin host runtime down between two instruments.
     SongModel song;
@@ -129,20 +145,11 @@ int main(int argc, char* argv[]) {
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 
-    // Agents drive the window through MCP (features/mcp.feature). A normal
-    // launch serves the user's own socket; verification serves only the one
-    // its gate names, so a test never answers for, or displaces, a Blokkily
-    // the user has open.
     McpTools mcp_tools(song, pattern, controller, transport,
                        qobject_cast<QQuickWindow*>(engine.rootObjects().front()));
     McpServer mcp_server(mcp_tools);
-    if (parser.isSet("verify") ? parser.isSet("mcp-socket") : qgetenv("BLOKKILY_MCP") != "0") {
-        // A gate's socket is named for its process, so two test runs at once
-        // never meet on one.
-        const QString socket = parser.isSet("verify")
-            ? QStringLiteral("%1-%2").arg(parser.value("mcp-socket")).arg(QCoreApplication::applicationPid())
-            : blokkily::mcp::socketPath();
-        if (mcp_server.listen(socket))
+    if (serve_mcp) {
+        if (mcp_server.listen(mcp_socket, *mcp_lock))
             app.setProperty("blokkilyMcpSocket", mcp_server.path());
         else
             std::fprintf(stderr, "Blokkily: MCP is off: %s\n", qPrintable(mcp_server.error()));

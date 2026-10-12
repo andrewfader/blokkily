@@ -384,7 +384,7 @@ int main() {
             Song song = base_song;
             song.tracks[0].automation.push_back(
                 {target(AutomationTarget::Kind::parameter, BusKind::track, 0, -1, -1), {}});
-            refused(song, "negative parameter index");
+            refused(song, "invalid parameter id");
         }
         {
             // Two tracks automating one return's gain would fight each other.

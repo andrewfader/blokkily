@@ -49,6 +49,9 @@ const std::vector<EffectSlot>* chain_of(const Song& song, const ProcessorAddress
     return nullptr;
 }
 
+// CLAP_INVALID_ID (all 32 bits set) as the song's signed parameter field holds it.
+constexpr std::int32_t invalid_parameter = -1;
+
 bool target_ok(const Song& song, const AutomationTarget& target, std::string* why) {
     const auto* chain = chain_of(song, target.processor);
     if (chain == nullptr)
@@ -62,8 +65,11 @@ bool target_ok(const Song& song, const AutomationTarget& target, std::string* wh
             return refuse(why, "a gain, pan or mute automation lane names a processor slot");
         return true;
     case AutomationTarget::Kind::parameter:
-        if (target.parameter_index < 0)
-            return refuse(why, "an automation lane has a negative parameter index");
+        // The field holds a CLAP id's 32 bits, so most of LSP's and Dexed's
+        // ids read negative; only the all-ones pattern, CLAP_INVALID_ID,
+        // names no parameter.
+        if (target.parameter_index == invalid_parameter)
+            return refuse(why, "an automation lane names the invalid parameter id");
         if (slot == -1 && target.processor.kind != BusKind::track)
             return refuse(why, "an automation lane targets the instrument of a bus that has none");
         if (slot < -1 || (slot >= 0 && static_cast<std::size_t>(slot) >= chain->size()))
@@ -115,8 +121,8 @@ bool modulator_ok(const Song& song, const Modulator& modulator, std::string* why
         const auto& target = modulator.targets[i];
         if (!processor_exists(song, target.processor))
             return refuse(why, "a modulation target names a processor that does not exist");
-        if (target.parameter_index < 0)
-            return refuse(why, "a modulation target has a negative parameter index");
+        if (target.parameter_index == invalid_parameter)
+            return refuse(why, "a modulation target names the invalid parameter id");
         if (!in_range(target.depth, -1.0, 1.0))
             return refuse(why, "a modulation depth is outside -1..+1");
         for (std::size_t j = i + 1; j < modulator.targets.size(); ++j)

@@ -76,7 +76,8 @@ bool parse_automation(const Fields& fields, ParseContext& context) {
     const auto count = fields.integer(8);
     if (!track || !kind || !bus_kind || !bus || !slot || !index || !id || !count ||
         *track < 0 || *bus < 0 || *bus > std::numeric_limits<std::uint32_t>::max() ||
-        *slot < -1 || *slot > std::numeric_limits<std::int32_t>::max() || *index < 0 ||
+        *slot < -1 || *slot > std::numeric_limits<std::int32_t>::max() ||
+        *index < std::numeric_limits<std::int32_t>::min() ||
         *index > std::numeric_limits<std::int32_t>::max() || *count < 0 ||
         !fields.count(9 + 2 * static_cast<std::size_t>(*count)))
         return context.fail("malformed automation record");
