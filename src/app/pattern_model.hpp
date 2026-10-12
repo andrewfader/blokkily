@@ -31,7 +31,10 @@ class PatternModel final : public QAbstractListModel {
     // Where the cursor is, kept apart from what the pattern holds: moving the
     // cursor is not an edit, and nothing downstream may treat it as one.
     Q_PROPERTY(int selectedStep READ selectedStep NOTIFY selectionChanged)
-    Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectionChanged)
+    // What the cursor's step holds. Read again whenever the cursor moves and
+    // whenever the pattern under it is, whoever changed it: an undo, the
+    // assistant or an agent edits the step without moving the cursor.
+    Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
     // Pitch window the piano roll draws, widened to whatever the pattern uses
     // until the producer scrolls it (scrollRoll), which moves it anywhere in
     // the MIDI range, so no pitch is out of the roll's reach.
@@ -186,7 +189,10 @@ signals:
     // What the song actually plays. Only a real edit raises this, so looking
     // at another pattern or moving a fader never reaches the audio engine.
     void contentChanged();
+    // The cursor moved; the tracker scrolls to it.
     void selectionChanged();
+    // What `selected` reads may differ.
+    void selectedChanged();
 
 private:
     const blokkily::Trigger* triggerAt(int step) const;

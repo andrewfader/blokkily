@@ -140,6 +140,7 @@ PatternModel::PatternModel(SongModel* song, QObject* parent)
     selected_step_ = 8;
     if (song_ != nullptr)
         QObject::connect(song_, &SongModel::songChanged, this, &PatternModel::refresh);
+    QObject::connect(this, &PatternModel::selectionChanged, this, &PatternModel::selectedChanged);
 }
 
 // The editors project whichever pattern the song has open, so switching
@@ -165,6 +166,9 @@ void PatternModel::refresh() {
     // it on every announcement, which must not undo a scroll made to read
     // rows further down.
     if (clamped) emit selectionChanged();
+    // The step under the cursor may hold something else now, though the
+    // cursor stayed where it was.
+    else emit selectedChanged();
 }
 
 int PatternModel::rowCount(const QModelIndex& parent) const {

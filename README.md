@@ -385,6 +385,38 @@ clips and sampler samples into the saved project's audio folder, deduplicates
 shared files, and changes their references as one undoable edit. Save afterwards
 to persist those references. Original files are kept so undo remains playable.
 
+## Driving Blokkily from an agent (MCP)
+
+Blokkily is an MCP server, so an AI agent can drive the running window: read
+the session, write notes, play and stop, call any method the controls use,
+and take a screenshot. Register the bridge with your agent, for example with
+Claude Code:
+
+```sh
+claude mcp add blokkily -- blokkily --mcp
+```
+
+or, for any client that takes a JSON config:
+
+```json
+{ "mcpServers": { "blokkily": { "command": "blokkily", "args": ["--mcp"] } } }
+```
+
+`blokkily --mcp` speaks MCP on stdin and stdout and forwards each tool call to
+the open window over a local socket (`$XDG_RUNTIME_DIR/blokkily-mcp.sock`, or a
+named pipe on Windows). Connecting and listing the tools never opens a window;
+the first tool call starts Blokkily if it is not running. Only the user who
+runs Blokkily can connect.
+
+The tools are `get_session`, `get_pattern`, `write_notes`, `transport`,
+`list_plugins`, `set_instrument` and `screenshot`, plus `describe`, `call` and
+`get_property`, which reach every method and property the window's controls
+use (the mixer, effects, automation, clips, tempo, tuning, saving, exporting,
+undo). An agent's edits go through the same undoable paths a click takes.
+`BLOKKILY_MCP=0` turns the server off; `BLOKKILY_MCP_SOCKET` moves the socket
+(set it the same for the window and the bridge); `BLOKKILY_MCP_NO_LAUNCH=1`
+stops the bridge from starting a window. See features/mcp.feature.
+
 ## What is not here yet
 
 - MPE covers the lower zone from the MPE chip (an upper zone only from the

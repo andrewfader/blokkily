@@ -2,6 +2,9 @@
 #include "app_controller.hpp"
 #include "llm_model.hpp"
 #include "plugin_run_loop_qt.hpp"
+#include "mcp_bridge.hpp"
+#include "mcp_server.hpp"
+#include "mcp_tools.hpp"
 #include "verify/harness.hpp"
 
 #include "../llm/scripted_backend.hpp"
@@ -21,9 +24,15 @@
 
 #include <clocale>
 #include <memory>
+#include <string_view>
 
 
 int main(int argc, char* argv[]) {
+    // `blokkily --mcp` is the agent's end of MCP: it needs no window, no
+    // display and no audio, so it runs before any of them exist.
+    for (int index = 1; index < argc; ++index)
+        if (std::string_view(argv[index]) == "--mcp") return runMcpBridge(argc, argv);
+
     QGuiApplication app(argc, argv);
     // Qt sets the C locale from the environment on Unix, which would make
     // every printf-family number a plugin or a library parses depend on the
@@ -79,6 +88,9 @@ int main(int argc, char* argv[]) {
     parser.addOption({"layout", "Leave the isomorphic grid on this layout.", "name"});
     parser.addOption({"orientation", "Leave the surface running ACROSS or DOWN.", "name"});
     parser.addOption({"scenario", "Run only this scenario group (midi, chords) and exit.", "name"});
+    parser.addOption({"mcp", "Speak MCP on stdin and stdout for an agent, driving the running "
+                              "Blokkily (starting it when none is running)."});
+    parser.addOption({"mcp-socket", "During verification, serve MCP on this socket.", "path"});
     parser.process(app);
 
     // Plugins' timers, watched descriptors and JUCE's message queue are served
@@ -116,6 +128,25 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty("llmModel", &llm);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
+
+    // Agents drive the window through MCP (features/mcp.feature). A normal
+    // launch serves the user's own socket; verification serves only the one
+    // its gate names, so a test never answers for, or displaces, a Blokkily
+    // the user has open.
+    McpTools mcp_tools(song, pattern, controller, transport,
+                       qobject_cast<QQuickWindow*>(engine.rootObjects().front()));
+    McpServer mcp_server(mcp_tools);
+    if (parser.isSet("verify") ? parser.isSet("mcp-socket") : qgetenv("BLOKKILY_MCP") != "0") {
+        // A gate's socket is named for its process, so two test runs at once
+        // never meet on one.
+        const QString socket = parser.isSet("verify")
+            ? QStringLiteral("%1-%2").arg(parser.value("mcp-socket")).arg(QCoreApplication::applicationPid())
+            : blokkily::mcp::socketPath();
+        if (mcp_server.listen(socket))
+            app.setProperty("blokkilyMcpSocket", mcp_server.path());
+        else
+            std::fprintf(stderr, "Blokkily: MCP is off: %s\n", qPrintable(mcp_server.error()));
+    }
 
     if (parser.isSet("verify")) {
         controller.scanPluginPaths(

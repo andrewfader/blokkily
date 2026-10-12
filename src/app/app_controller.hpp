@@ -404,6 +404,10 @@ public:
     Q_INVOKABLE bool insertEditorOpen(const QString& kind, int bus, int slot) const;
     Q_INVOKABLE QVariantMap parameterRange(const QString& kind, int bus, int slot, int parameter) const;
     Q_INVOKABLE QVariantList insertParameters(const QString& kind, int bus, int slot) const;
+    // A parameter lane for one processor's parameter, starting flat at its
+    // default: `slot` is an insert of track, return or master `bus`, or -1
+    // for a track's instrument (so an agent can set a synth's preset or a
+    // knob for the whole song). False when there is no such parameter.
     Q_INVOKABLE bool automateInsert(const QString& kind, int bus, int slot, int parameter);
     // Modulation (phase 2, wave 5.1): every parameter a modulator can aim at
     // on the selected track - its instrument's, then each insert's - as

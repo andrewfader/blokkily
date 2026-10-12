@@ -465,7 +465,8 @@ foreach(blokkily_feature
         per_stem_editing
         sequencer_workflow
         sequencer_fidelity
-        tutorial)
+        tutorial
+        mcp)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

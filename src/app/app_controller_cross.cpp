@@ -11,8 +11,9 @@
 #include <system_error>
 
 namespace {
+// Slot -1 is a track's instrument; every other slot is an insert.
 std::optional<blokkily::ProcessorAddress> address(const QString& kind, int bus, int slot) {
-    if (bus < 0 || slot < 0) return {};
+    if (bus < 0 || slot < -1 || (slot == -1 && kind != "track")) return {};
     using blokkily::BusKind;
     if (kind != "track" && kind != "return" && kind != "master") return {};
     return blokkily::ProcessorAddress{kind == "track" ? BusKind::track :
@@ -50,10 +51,13 @@ bool AppController::automateInsert(const QString& kind, int bus, int slot, int p
     if (song_ == nullptr || instance == nullptr) return false;
     for (const auto& info : instance->parameters()) {
         if (info.id != parameter || !info.automatable) continue;
-        const int lane = song_->addParameterLane(song_->selectedTrack(), *where, parameter,
+        // A track's lane lives on that track; a return's or the master's on
+        // the track the producer is working on.
+        const int owner = kind == "track" ? bus : song_->selectedTrack();
+        const int lane = song_->addParameterLane(owner, *where, parameter,
                                                   info.default_value);
         if (lane < 0) return false;
-        song_->selectLane(lane);
+        if (owner == song_->selectedTrack()) song_->selectLane(lane);
         return true;
     }
     return false;
