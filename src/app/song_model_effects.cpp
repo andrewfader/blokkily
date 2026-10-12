@@ -160,7 +160,7 @@ void SongModel::learnPluginNames(const QVariantList& plugins) {
             known = name;
         }
     }
-    if (learned) emit songChanged();
+    if (learned) announceSong();
 }
 
 QString SongModel::effectLabel(const blokkily::PluginSlot& slot) const {
@@ -178,7 +178,7 @@ void SongModel::setProcessorPorts(std::vector<blokkily::ProcessorAddress> keyabl
     if (keyable == keyable_inserts_ && instrument_outputs == instrument_outputs_) return;
     keyable_inserts_ = std::move(keyable);
     instrument_outputs_ = std::move(instrument_outputs);
-    emit songChanged();
+    announceSong();
 }
 
 int SongModel::instrumentOutputs(int track) const {
@@ -252,7 +252,7 @@ void SongModel::selectRack(const QString& kind, int bus) {
         rack_kind_ = blokkily::BusKind::master;
         break;
     }
-    emit songChanged();
+    announceSong();
 }
 
 bool SongModel::addInsert(blokkily::BusKind kind, int bus, const blokkily::PluginSlot& plugin) {
@@ -297,7 +297,7 @@ bool SongModel::setInsertBypass(const QString& kind, int bus, int slot, bool byp
     target.bypass = bypass;
     // A bypassed slot keeps its plugin and its latency: a mixer move.
     emit mixChanged();
-    emit songChanged();
+    announceSong();
     return true;
 }
 

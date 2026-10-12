@@ -242,7 +242,7 @@ void SongModel::selectTrack(int track) {
     // it, so moving between stems never changes what is being worked on.
     selected_track_ = track;
     rack_kind_ = blokkily::BusKind::track;
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::selectPattern(int pattern) {
@@ -251,14 +251,14 @@ void SongModel::selectPattern(int pattern) {
     const auto& slot = song_.patterns[static_cast<std::size_t>(pattern)];
     current_section_ = static_cast<int>(slot.section);
     selected_track_ = static_cast<int>(slot.track);
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::selectSection(int section) {
     if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return;
     if (section == current_section_) return;
     current_section_ = section;
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::addTrack() { addTrack(blokkily::InstrumentSlot{}); }
@@ -320,7 +320,7 @@ void SongModel::install(blokkily::Song song) {
     selected_track_ = 0;
     peaks_.assign(song_.tracks.size(), 0.0F);
     emit tuningChanged();
-    emit timebaseChanged();
+    announceTimebase();
     emit metronomeChanged();
     // The master fader, the sends and the inputs are the new song's too.
     emit mixChanged();
@@ -346,15 +346,32 @@ bool SongModel::setInstrumentState(int track, std::vector<std::byte> state,
     if (slot.state == state) return true;
     checkpoint(merge);
     slot.state = std::move(state);
-    emit songChanged();
+    announceSong();
     return true;
 }
 
 void SongModel::refreshStructure() { notifyStructureChanged(); }
 
+// The projections are dropped before the signal goes out, not by a slot on it:
+// QML re-reads a property inside the emission, ahead of any connected slot.
+void SongModel::announceSong() {
+    // A fader, pan, mute or solo changes nothing the arrangement draws.
+    if (!mix_only_) {
+        lanes_cache_.reset();
+        bar_layout_cache_.reset();
+    }
+    emit songChanged();
+}
+
+void SongModel::announceTimebase() {
+    lanes_cache_.reset();
+    bar_layout_cache_.reset();
+    emit timebaseChanged();
+}
+
 void SongModel::notifyStructureChanged() {
     emit structureChanged();
-    emit songChanged();
+    announceSong();
     emit audioClipsChanged();
     emit modulationChanged();
 }
@@ -449,7 +466,7 @@ void SongModel::renamePattern(int section, const QString& name) {
     // Each part carries its section's name, so a lane's clip reads the same.
     for (auto& slot : song_.patterns)
         if (slot.section == static_cast<std::size_t>(section)) slot.name = wanted;
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::renameTrack(int track, const QString& name) {
@@ -459,5 +476,5 @@ void SongModel::renameTrack(int track, const QString& name) {
     if (wanted.empty() || wanted == target.name) return;
     checkpoint();
     target.name = wanted;
-    emit songChanged();
+    announceSong();
 }

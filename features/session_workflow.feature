@@ -138,3 +138,23 @@ Feature: A session can be worked on without fear of losing it
     When they click UNDO
     Then every track, pattern and clip is back with its instrument
     And the first bar is heard again
+
+  # Exercised by the bdd_long_song gate (src/app/verify/scenario_long_song.cpp).
+  Scenario: A long song stays light while it is mixed
+    Given an arrangement of eight tracks across 112 bars in the window
+    When the producer moves a fader, solos a track and unsolos it, and mutes and unmutes another
+    Then the window's memory grows by less than 150 MB
+    And the arrangement draws the solo while it lasts, and stops when it ends
+    When a clip is removed
+    Then its bars are drawn empty at once
+
+  # Exercised by the bdd_long_song gate (src/app/verify/scenario_long_song.cpp).
+  Scenario: While the song plays, the editors follow it from pattern to pattern
+    Given a track playing pattern A for two bars and then pattern B, with A open
+    When the producer plays from the start
+    Then the step grid, the tracker and the piano roll draw the playhead in A
+    And when the song reaches B they show B, with the playhead moving through it
+    When FOLLOW is turned off and the song is played from the start again
+    Then the editors stay on B and draw no playhead while A plays
+    When FOLLOW is turned on again
+    Then they open A, where the song is

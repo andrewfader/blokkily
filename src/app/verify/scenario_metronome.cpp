@@ -144,12 +144,51 @@ void run_metronome(VerifyContext& ctx) {
         auto* rescan = ctx.named("rescanButton");
         const double right_edge =
             rescan != nullptr ? rescan->mapToScene({rescan->width(), 0}).x() : 1e9;
-        const bool fits = VerifyContext::usable(rescan, 80, 20) && right_edge <= window->width();
+        const bool fits = VerifyContext::usable(rescan, 56, 20) && right_edge <= window->width();
         check(fits && VerifyContext::usable(ctx.named("tempoBox"), 80, 28) &&
               VerifyContext::usable(ctx.named("viewKEYS"), 30, 20));
         if (!fits)
             std::cerr << "REGRESSION: the transport runs off the window, RESCAN ends at "
                       << right_edge << " of " << window->width() << '\n';
+    }
+    // Regression: a desktop gave the window 1152 px, between the bar's two
+    // narrowing steps, and RESCAN ended at 1185. At every width the window
+    // can be, from its minimum up, the bar must end inside it.
+    {
+        const QSize kept = window->size();
+        for (const int width : {960, 1000, 1060, 1100, 1144, 1145, 1152, 1180, 1204, 1205, 1240, 1280, 1299, 1300, 1440}) {
+            window->resize(width, kept.height());
+            lay_out();
+            auto* rescan = ctx.named("rescanButton");
+            const double right_edge =
+                rescan != nullptr ? rescan->mapToScene({rescan->width(), 0}).x() : 1e9;
+            // Every chip on the bar says what it is: none of their labels elided.
+            bool whole = true;
+            for (const char* name : {"viewALL", "viewSTEP", "viewTRACKER", "viewPIANO", "viewKEYS",
+                                     "viewLAUNCH", "undoButton", "redoButton", "clearButton", "rescanButton"})
+                if (auto* chip = ctx.named(QString::fromLatin1(name)))
+                    for (auto* child : chip->childItems())
+                        if (child->property("truncated").toBool()) {
+                            std::cerr << "REGRESSION: at " << width << " px " << name << " reads \""
+                                      << child->property("text").toString().toStdString() << "\" elided\n";
+                            whole = false;
+                        }
+            const bool fits = whole && VerifyContext::usable(rescan, 40, 20) && right_edge <= width &&
+                              VerifyContext::usable(ctx.named("clearButton"), 36, 20) &&
+                              VerifyContext::usable(ctx.named("viewKEYS"), 24, 20);
+            // The narrow and the in-between bar, as evidence to look at.
+            if ((width == 960 || width == 1152) && ctx.parser.isSet("screenshot")) {
+                QString path = ctx.parser.value("screenshot");
+                path = path.left(path.size() - 4) + QStringLiteral("-bar-%1.png").arg(width);
+                check(window->grabWindow().copy(0, 0, width, 60).save(path));
+            }
+            if (!fits)
+                std::cerr << "REGRESSION: at " << width << " px the transport runs to "
+                          << right_edge << '\n';
+            check(fits);
+        }
+        window->resize(kept);
+        lay_out();
     }
     reached("metronome: the transport offers CLICK, a count-in and a level, each usable");
 

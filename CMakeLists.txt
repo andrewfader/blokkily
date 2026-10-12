@@ -466,7 +466,8 @@ foreach(blokkily_feature
         sequencer_workflow
         sequencer_fidelity
         tutorial
-        mcp)
+        mcp
+        long_song)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

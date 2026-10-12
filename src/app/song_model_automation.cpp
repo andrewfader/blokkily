@@ -20,7 +20,7 @@ using blokkily::AutomationTarget;
 
 constexpr std::array<const char*, 5> mode_names{"OFF", "READ", "TOUCH", "LATCH", "WRITE"};
 
-QString lane_name(const AutomationTarget& target) {
+QString lane_name(const AutomationTarget& target, const SongModel::ParameterNamer& namer) {
     switch (target.kind) {
     case AutomationTarget::Kind::gain: return QStringLiteral("GAIN");
     case AutomationTarget::Kind::pan: return QStringLiteral("PAN");
@@ -36,6 +36,8 @@ QString lane_name(const AutomationTarget& target) {
     }
     const QString slot = where.instrument() ? QStringLiteral("INST")
                                             : QStringLiteral("FX%1").arg(where.slot + 1);
+    const QString named = namer ? namer(where, target.parameter_index) : QString();
+    if (!named.isEmpty()) return QStringLiteral("%1%2 · %3").arg(bus, slot, named.toUpper());
     return QStringLiteral("%1%2 P%3").arg(bus, slot).arg(target.parameter_index);
 }
 
@@ -132,7 +134,7 @@ int SongModel::selectedLane() const {
 void SongModel::selectLane(int lane) {
     if (lane == selected_lane_) return;
     selected_lane_ = std::max(0, lane);
-    emit songChanged();
+    announceSong();
 }
 
 QVariantList SongModel::automationLanes() const {
@@ -149,7 +151,7 @@ QVariantList SongModel::automationLanes() const {
                                          {"value", point.value}});
         lanes.push_back(QVariantMap{
             {"index", static_cast<int>(index)},
-            {"name", lane_name(lane.target)},
+            {"name", lane_name(lane.target, parameter_namer_)},
             {"kind", static_cast<int>(lane.target.kind)},
             {"processorKind", lane.target.processor.kind == blokkily::BusKind::track ? "track" :
                  lane.target.processor.kind == blokkily::BusKind::ret ? "return" : "master"},

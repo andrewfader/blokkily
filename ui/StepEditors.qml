@@ -14,6 +14,10 @@ ColumnLayout {
     property string view: "ALL"
     readonly property real playStep: appController.patternPlayStep
     readonly property int playRow: playStep < 0 ? -1 : Math.floor(playStep)
+    // The open pattern's steps, read once for every editor here: each read of
+    // patternModel.steps builds all of them again, and a step cell or tracker
+    // row that read it for itself rebuilt the pattern once per step per edit.
+    readonly property var steps: patternModel.steps
 
     // The octave new notes land in, owned by the window.
     property int entryOctave: 3
@@ -45,6 +49,15 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             SectionLabel { text: "STEP GRID" }
+            // On, the editors open whatever the selected track is playing,
+            // so all three move with the song; off, they stay put.
+            Chip {
+                objectName: "followButton"
+                text: "FOLLOW"; implicitHeight: 18
+                on: appController.followPlayback
+                accessibleLabel: "Follow the song while it plays"
+                onClicked: appController.setFollowPlayback(!appController.followPlayback)
+            }
             Item { Layout.fillWidth: true }
             Label { text: "click toggles  |  shift-click selects  |  CTRL-click seeks  |  CTRL+1..0 toggles"; color: Theme.muted
                 font.pixelSize: 9 }
@@ -135,7 +148,7 @@ ColumnLayout {
                 Rectangle {
                     id: cell
                     required property int index
-                    readonly property var row: patternModel.steps[index]
+                    readonly property var row: root.steps[index]
                     readonly property bool active: row !== undefined && row.active === true
                     readonly property bool selected: row !== undefined && row.selected === true
                     readonly property bool onBeat: index % 4 === 0
@@ -261,7 +274,10 @@ ColumnLayout {
             // way a tracker has always been read: across for what plays
             // together, down for time. The selected channel is the one the
             // keys write into; Tab and Shift+Tab move between channels.
-            readonly property int channelCount: patternModel.trackerChannels.length
+            // Read once for the tracker, for the same reason as root.steps:
+            // every cell of every channel reads its own row from it.
+            readonly property var channels: patternModel.trackerChannels
+            readonly property int channelCount: channels.length
             readonly property real rowNumberWidth: 30
             readonly property real channelWidth:
                 Math.max(128, (trackerScroll.width - rowNumberWidth)
@@ -275,7 +291,7 @@ ColumnLayout {
             readonly property int rowHeight: fitHeight >= 11 ? fitHeight : 14
             readonly property int rowFont: Math.max(9, Math.min(13, rowHeight - 3))
             function selectedChannel() {
-                var channels = patternModel.trackerChannels
+                var channels = trackerPanel.channels
                 for (var c = 0; c < channels.length; ++c)
                     if (channels[c].selected) return c
                 return 0
@@ -360,7 +376,7 @@ ColumnLayout {
                             Rectangle {
                                 id: trackRow
                                 required property int index
-                                readonly property var row: patternModel.steps[index]
+                                readonly property var row: root.steps[index]
                                 readonly property bool playhead: root.playRow === index
                                 readonly property int rowFont: trackerPanel.rowFont
                                 objectName: "trackerRow" + index
@@ -385,7 +401,7 @@ ColumnLayout {
                                         id: channelCell
                                         required property int index
                                         readonly property var channel:
-                                            patternModel.trackerChannels[index]
+                                            trackerPanel.channels[index]
                                         readonly property bool editing:
                                             channel !== undefined && channel.selected
                                         // The selected channel shows the live
@@ -622,7 +638,7 @@ ColumnLayout {
                                 id: channelHead
                                 required property int index
                                 readonly property var channel:
-                                    patternModel.trackerChannels[index]
+                                    trackerPanel.channels[index]
                                 objectName: "trackerChannelName" + index
                                 x: trackerPanel.rowNumberWidth + index * trackerPanel.channelWidth
                                 width: trackerPanel.channelWidth; height: parent.height

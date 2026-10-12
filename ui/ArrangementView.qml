@@ -35,9 +35,13 @@ ColumnLayout {
         arrangeScroll.contentX = Math.max(0, Math.min(
             arrangementRows.width - arrangeScroll.width, content * ratio - at))
     }
+    // The song's bars, read once for the whole view: every cell, ruler mark
+    // and clip asks where its bar lies, and each read of songModel.barLayout
+    // builds the layout of every bar of the song again.
+    readonly property var layout: songModel.barLayout
     // Where bar `bar` starts in the scrolled content.
     function barX(bar) {
-        var entry = songModel.barLayout[bar]
+        var entry = root.layout[bar]
         if (entry === undefined) return 0
         return 64 + barGap + entry.x0 * laneRoom + bar * barGap
     }
@@ -58,7 +62,7 @@ ColumnLayout {
         function onChanged() { if (transport.playing) root.reveal(transport.bar) }
     }
     function barWidth(bar) {
-        var entry = songModel.barLayout[bar]
+        var entry = root.layout[bar]
         if (entry === undefined) return 1
         return Math.max(1, (entry.x1 - entry.x0) * laneRoom)
     }
@@ -216,13 +220,13 @@ ColumnLayout {
                     Rectangle {
                         id: rulerCell
                         required property int index
-                        readonly property var entry: songModel.barLayout[index]
+                        readonly property var entry: root.layout[index]
                         // A bar whose meter differs from the one before it
                         // says so; the rest only carry their number.
                         readonly property bool meterChanges: entry !== undefined && (index === 0
-                            || songModel.barLayout[index - 1] === undefined
-                            || songModel.barLayout[index - 1].numerator !== entry.numerator
-                            || songModel.barLayout[index - 1].denominator !== entry.denominator)
+                            || root.layout[index - 1] === undefined
+                            || root.layout[index - 1].numerator !== entry.numerator
+                            || root.layout[index - 1].denominator !== entry.denominator)
                         objectName: "rulerBar" + index
                         Layout.preferredWidth: root.barWidth(index)
                         Layout.preferredHeight: 14
@@ -309,6 +313,12 @@ ColumnLayout {
                     readonly property var track: songModel.tracks[index] !== undefined
                                                  ? songModel.tracks[index] : ({})
                     readonly property int trackIndex: index
+                    // The row's cells, read once for the row. A cell that read
+                    // songModel.lanes itself would rebuild every lane of the
+                    // song for each bar of each track, which on a long song
+                    // left a gigabyte of garbage behind every mixer move.
+                    readonly property var lane: songModel.lanes[index] !== undefined
+                                                ? songModel.lanes[index] : []
                     objectName: "arrangeRow" + index
                     Layout.fillWidth: true
                     Layout.preferredHeight: 22
@@ -357,9 +367,7 @@ ColumnLayout {
                         Rectangle {
                             required property int index
                             objectName: "clip" + trackIndex + "-" + index
-                            readonly property var cell:
-                                songModel.lanes[trackIndex] !== undefined
-                                ? songModel.lanes[trackIndex][index] : undefined
+                            readonly property var cell: lane[index]
                             property bool filled: cell !== undefined && cell.filled
                             // The stem's part of this pattern has nothing in
                             // it yet: an outline, still ready to play.

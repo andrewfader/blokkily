@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <vector>
@@ -525,6 +526,11 @@ public:
     // rather than by its file name. Names learned are kept: a plugin the
     // song holds stays named after a later scan lists fewer. Not history.
     void learnPluginNames(const QVariantList& plugins);
+    // How a parameter lane names the parameter it moves: given by whoever
+    // holds the running processors (AppController); empty when none can say,
+    // and the lane falls back to the parameter's number.
+    using ParameterNamer = std::function<QString(const blokkily::ProcessorAddress&, int)>;
+    void setParameterNamer(ParameterNamer namer) { parameter_namer_ = std::move(namer); }
     // Breaks output `output` (1 is the first after the main one) of track
     // `track`'s instrument out to a mixer channel of its own (wave 5.2): a new
     // track, "<NAME> AUX n", fed by that output and selected, as one step of
@@ -604,6 +610,7 @@ private:
     std::vector<blokkily::ProcessorAddress> keyable_inserts_;
     std::vector<int> instrument_outputs_;
     std::map<std::string, QString> plugin_names_;
+    ParameterNamer parameter_namer_;
     [[nodiscard]] QString effectLabel(const blokkily::PluginSlot& slot) const;
     [[nodiscard]] bool validTrack(int track) const;
     [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
@@ -658,6 +665,13 @@ private:
     // show rather than rebuilding every projection per pointer move.
     void emitMixMove();
     bool mix_only_ = false;
+    // The arrangement's projections, built once per change to the song's
+    // structure (lanes(), barLayout()). Every songChanged and timebaseChanged
+    // goes out through these, which drop them first.
+    void announceSong();
+    void announceTimebase();
+    mutable std::optional<QVariantList> lanes_cache_;
+    mutable std::optional<QVariantList> bar_layout_cache_;
     int selected_lane_ = 0;
     bool take_recorded_ = false;
     bool capturing_ = false;

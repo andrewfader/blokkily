@@ -41,7 +41,9 @@ QVariantList AppController::insertParameters(const QString& kind, int bus, int s
     if (instance)
         for (const auto& parameter : instance->parameters())
             if (parameter.automatable) result.push_back(QVariantMap{{"id", static_cast<int>(parameter.id)},
-                {"name", QString::fromStdString(parameter.name)}});
+                {"name", QString::fromStdString(parameter.name)},
+                {"minimum", parameter.min}, {"maximum", parameter.max},
+                {"default", parameter.default_value}});
     return result;
 }
 

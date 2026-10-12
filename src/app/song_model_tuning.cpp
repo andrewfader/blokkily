@@ -60,7 +60,7 @@ void SongModel::setTuning(const QString& name) {
     song_.root_degree = blokkily::degree_for_pitch(
         song_.tuning, {static_cast<std::int16_t>(song_.tuning.anchor_key), from_root});
     emit tuningChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::setScale(const QString& name) {
@@ -69,7 +69,7 @@ void SongModel::setScale(const QString& name) {
     checkpoint();
     song_.scale = *scale;
     emit tuningChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::setRootDegree(int degree) {
@@ -81,12 +81,12 @@ void SongModel::setRootDegree(int degree) {
     checkpoint();
     song_.root_degree = anchored;
     emit tuningChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::toggleAutoScale() {
     checkpoint();
     song_.auto_scale = !song_.auto_scale;
     emit tuningChanged();
-    emit songChanged();
+    announceSong();
 }

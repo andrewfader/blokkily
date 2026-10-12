@@ -101,6 +101,28 @@ QJsonArray toolDefinitions() {
              schema({{"track", track},
                      {"plugin", integer("Index from list_plugins.")}},
                     {"plugin"})),
+        tool("list_parameters",
+             "The parameters of a track's instrument (slot -1) or of one of its effects (slot "
+             "0, 1, ...): id, name, minimum, maximum and default of each, for set_parameter.",
+             schema({{"track", track},
+                     {"slot", integer("-1 for the instrument (the default), 0.. for an effect.")}})),
+        tool("set_parameter",
+             "Sets one parameter of a track's instrument or effect for the whole song, as a "
+             "lane holding that value (heard from the next play). A synth's preset is usually "
+             "a parameter called Preset.",
+             schema({{"track", track},
+                     {"slot", integer("-1 for the instrument (the default), 0.. for an effect.")},
+                     {"parameter", QJsonObject{{"description", "Its id, or its name."}}},
+                     {"value", QJsonObject{{"type", "number"}}}},
+                    {"parameter", "value"})),
+        tool("set_soundfont_preset",
+             "Chooses which preset of its SoundFont a SoundFont track plays: a General MIDI "
+             "bank holds its instruments in bank 0 by program (0 piano, 33 fingered bass, ...) "
+             "and its drum kits in bank 128.",
+             schema({{"track", track},
+                     {"bank", integer("0 to 128.")},
+                     {"program", integer("0 to 127.")}},
+                    {"bank", "program"})),
         tool("screenshot", "A PNG of the Blokkily window as it is drawn now.", schema({})),
         tool("describe",
              "Every method and property the window's controls use, for `call` and "
@@ -127,7 +149,8 @@ QString instructions() {
         "a song: tracks (each owns an instrument and a mixer strip), patterns (sections; each "
         "track has its own part of each), and clips that place patterns on the arrangement's "
         "bars. Every index is from 0. Steps are sixteenth notes. Start with get_session. "
-        "write_notes writes notes; transport plays them. Anything else the interface can do "
+        "write_notes writes notes; transport plays them. set_instrument, set_soundfont_preset "
+        "and set_parameter choose sounds. Anything else the interface can do "
         "is a method: describe lists them, call runs one (e.g. songModel.setTrackGain(track, "
         "dB), songModel.addPattern(), songModel.placeClip(track, bar), appController.setTempo"
         "(bpm), songModel.undo(), appController.saveProjectFile(path), "

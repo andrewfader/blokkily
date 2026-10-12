@@ -22,6 +22,11 @@ bool SoundFontSynth::rebuild(double sample_rate) {
     if (!settings_) return false;
     fluid_settings_setnum(settings_.get(), "synth.sample-rate", sample_rate);
     fluid_settings_setint(settings_.get(), "synth.threadsafe-api", 0);
+    // FluidSynth's default gain (0.2) leaves a General MIDI bank some fourteen
+    // decibels under the other instruments. 0.5 brings it within a few decibels
+    // of them while a full-velocity chord on a typical bank stays clear of
+    // full scale.
+    fluid_settings_setnum(settings_.get(), "synth.gain", 0.5);
     synth_.reset(new_fluid_synth(settings_.get()));
     sample_rate_ = sample_rate;
     activated_ = false;
@@ -52,6 +57,11 @@ bool SoundFontSynth::select_preset(int bank, int program) {
     if (!synth_ || path_.empty()) return false;
     auto* soundfont = fluid_synth_get_sfont(synth_.get(), 0);
     if (soundfont == nullptr) return false;
+    // The file must hold exactly that bank and program. Asked for one it does
+    // not, FluidSynth quietly plays another, so the producer would hear a
+    // sound other than the one chosen; the request is refused instead, and
+    // the channels keep what they had.
+    if (fluid_sfont_get_preset(soundfont, bank, program) == nullptr) return false;
     const int soundfont_id = fluid_synth_sfont_select(synth_.get(), 0,
         fluid_sfont_get_id(soundfont));
     if (soundfont_id == FLUID_FAILED) return false;

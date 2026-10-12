@@ -13,7 +13,7 @@ bool SongModel::commitProcessorState(blokkily::ProcessorAddress where,
     if (slot == nullptr || slot->format.empty() || state.empty() || slot->state == state) return false;
     if (capturing_) checkpointTake(); else checkpoint();
     slot->state = std::move(state);
-    emit songChanged();
+    announceSong();
     return true;
 }
 

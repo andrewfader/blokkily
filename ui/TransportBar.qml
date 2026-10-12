@@ -12,22 +12,27 @@ ToolBar {
     property Item focusHome: null
     signal viewPicked(string name)
     // Short of room, the bar gives up what is least needed first: the event
-    // count, then the long labels. The controls themselves never run off
-    // the window's edge, however narrow it is allowed to get.
-    readonly property bool tight: width < 1260
-    readonly property bool cramped: width < 1120
+    // count, then the long labels, then the wordmark and the readouts'
+    // captions. The controls themselves never run off the window's edge,
+    // however narrow it is allowed to get (bdd_metronome sweeps the widths).
+    // Each step is taken a little before the wider layout stops fitting.
+    readonly property bool tight: width < 1300
+    readonly property bool cramped: width < 1205
+    readonly property bool narrow: width < 1145
     height: 52
     background: Rectangle {
         color: "#141519"
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
     }
     RowLayout {
-        anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 7
+        anchors.fill: parent; anchors.leftMargin: root.narrow ? 10 : 16
+        anchors.rightMargin: root.narrow ? 10 : 16; spacing: root.narrow ? 4 : 7
 
         Label { text: "BLOKKILY"; color: Theme.acid; font.bold: true; font.letterSpacing: 2.5
-            font.pixelSize: 15 }
+            font.pixelSize: 15; visible: !root.narrow }
 
-        Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: Theme.line }
+        Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: Theme.line
+            visible: !root.narrow }
 
         // Transport
         RowLayout {
@@ -71,7 +76,7 @@ ToolBar {
         MetronomeControls { objectName: "metronomeControls" }
 
         Rectangle {
-            Layout.preferredWidth: 96; Layout.preferredHeight: 30; radius: 4
+            Layout.preferredWidth: root.narrow ? 76 : 96; Layout.preferredHeight: 30; radius: 4
             color: Theme.raised; border.color: Theme.line
             RowLayout {
                 anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 0
@@ -79,7 +84,8 @@ ToolBar {
                     color: transport.playing ? Theme.acid : Theme.ink
                     font.family: Theme.mono; font.pixelSize: 13; font.bold: true }
                 Item { Layout.fillWidth: true }
-                Label { text: "BAR"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1 }
+                Label { text: "BAR"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1
+                    visible: !root.narrow }
             }
         }
 
@@ -88,7 +94,7 @@ ToolBar {
         // double-click takes a number from the keyboard.
         Rectangle {
             objectName: "tempoBox"
-            Layout.preferredWidth: 88; Layout.preferredHeight: 30; radius: 4
+            Layout.preferredWidth: root.narrow ? 70 : 88; Layout.preferredHeight: 30; radius: 4
             color: Theme.raised; border.color: tempoField.visible ? Theme.acid : Theme.line
             RowLayout {
                 anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 0
@@ -114,7 +120,8 @@ ToolBar {
                     Keys.onEscapePressed: finish()
                 }
                 Item { Layout.fillWidth: true; visible: !tempoField.visible }
-                Label { text: "BPM"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1 }
+                Label { text: "BPM"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1
+                    visible: !root.narrow }
             }
             MouseArea {
                 anchors.fill: parent; cursorShape: Qt.SizeVerCursor
@@ -175,15 +182,15 @@ ToolBar {
             TextMetrics { id: historyName; text: "CLEAR"
                 font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
             Chip { objectName: "undoButton"; text: "UNDO"; enabled: songModel.canUndo
-                   implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+                   labelPadding: 10; implicitWidth: Math.ceil(historyName.advanceWidth) + 12
                    onClicked: songModel.undo() }
             Chip { objectName: "redoButton"; text: "REDO"; enabled: songModel.canRedo
-                   implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+                   labelPadding: 10; implicitWidth: Math.ceil(historyName.advanceWidth) + 12
                    onClicked: songModel.redo() }
             // Empties the song so the producer can start from nothing; it is one
             // step of history, so the UNDO beside it brings everything back.
             Chip { objectName: "clearButton"; text: "CLEAR"; accent: Theme.record
-                   implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+                   labelPadding: 10; implicitWidth: Math.ceil(historyName.advanceWidth) + 12
                    accessibleLabel: "Clear everything"
                    onClicked: appController.clearEverything() }
         }
@@ -205,11 +212,19 @@ ToolBar {
                         "ALL": "ALL", "STEP": "STEP", "TRACKER": "TRK", "PIANO": "ROLL",
                         "KEYS": "KEYS", "LAUNCH": "LNCH"
                     })
-                    text: root.cramped ? shortNames[modelData] : modelData
-                    implicitWidth: Math.ceil(viewName.advanceWidth) + (root.tight ? 8 : 12)
+                    readonly property var shortestNames: ({
+                        "ALL": "ALL", "STEP": "STP", "TRACKER": "TRK", "PIANO": "ROL",
+                        "KEYS": "KEY", "LAUNCH": "LNC"
+                    })
+                    readonly property string shown: root.narrow ? shortestNames[modelData]
+                                                  : root.cramped ? shortNames[modelData] : modelData
+                    text: shown
+                    accessibleLabel: modelData
+                    labelPadding: root.narrow ? 6 : root.tight ? 8 : 12
+                    implicitWidth: Math.ceil(viewName.advanceWidth) + labelPadding + 1
                     TextMetrics {
                         id: viewName
-                        text: root.cramped ? shortNames[modelData] : modelData
+                        text: shown
                         font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
                     }
                     on: root.view === modelData
@@ -237,7 +252,9 @@ ToolBar {
             visible: !root.tight
         }
         Chip { objectName: "rescanButton"
-               text: appController.scanning ? "SCANNING…" : (root.tight ? "RESCAN" : "RESCAN PLUGINS")
+               text: appController.scanning ? (root.narrow ? "…" : "SCANNING…")
+                     : root.narrow ? "SCAN" : root.tight ? "RESCAN" : "RESCAN PLUGINS"
+               accessibleLabel: "Rescan plugins"
                onClicked: appController.rescanPlugins() }
     }
 }

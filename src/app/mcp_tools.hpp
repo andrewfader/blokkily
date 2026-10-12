@@ -32,6 +32,9 @@ private:
     QJsonObject runTransport(const QJsonObject& arguments);
     QJsonObject listPlugins() const;
     QJsonObject setInstrument(const QJsonObject& arguments);
+    QJsonObject listParameters(const QJsonObject& arguments) const;
+    QJsonObject setParameter(const QJsonObject& arguments);
+    QJsonObject setSoundFontPreset(const QJsonObject& arguments);
     QJsonObject screenshot() const;
     QJsonObject describe(const QJsonObject& arguments) const;
     QJsonObject invoke(const QJsonObject& arguments);

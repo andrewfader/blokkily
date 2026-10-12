@@ -58,7 +58,7 @@ void SongModel::restore(Snapshot snapshot) {
     gesture_recorded_ = false;
     emit tuningChanged();
     emit mixChanged();
-    emit timebaseChanged();
+    announceTimebase();
     if (!restored_states.isEmpty()) emit instrumentStatesRestored(restored_states);
     emit processorStatesRestored();
     if (inputs_differ) emit inputChanged();

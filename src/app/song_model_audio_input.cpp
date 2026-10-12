@@ -78,7 +78,7 @@ void SongModel::setAudioInput(int track, int first, int channels) {
     if (wanted == input) return;
     input = wanted;
     emit inputChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::cycleAudioInput(int track, int step) {
@@ -107,7 +107,7 @@ void SongModel::cycleMonitor(int track, int step) {
         if (order[index] == input.monitor) current = index;
     input.monitor = order[((current + step) % 3 + 3) % 3];
     emit inputChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::relocateAudioFiles(

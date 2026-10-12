@@ -119,6 +119,11 @@ class AppController final : public QObject {
     Q_PROPERTY(bool countingIn READ countingIn NOTIFY countInChanged)
     // Position in the open pattern, or -1 while its clip is not playing.
     Q_PROPERTY(double patternPlayStep READ patternPlayStep NOTIFY patternPlayheadChanged)
+    // While the song plays, the editors open whichever pattern the selected
+    // track is playing, so the step grid, tracker and roll move with the song
+    // all the way through it. Off, they stay on the pattern being edited.
+    Q_PROPERTY(bool followPlayback READ followPlayback WRITE setFollowPlayback
+               NOTIFY followPlaybackChanged)
     // The scene launcher (phase 2, wave 6.1; app_controller_launcher.cpp):
     // one entry per track, {playing, queued, stopping, scene, queuedScene},
     // as of the last block the engine rendered; and whether what is launched
@@ -261,6 +266,8 @@ public:
     // This is what a Ctrl-click on the step grid means in any meter and for a
     // pattern of any length.
     Q_INVOKABLE void seekToPatternStep(int step);
+    bool followPlayback() const noexcept { return follow_playback_; }
+    Q_INVOKABLE void setFollowPlayback(bool follow);
     double patternPlayStep() const;
     // Locates both playheads on a tick of the song. The engine is sent to the
     // sample the song's tempo map places that tick at.
@@ -490,6 +497,7 @@ public:
 
 signals:
     void patternPlayheadChanged();
+    void followPlaybackChanged();
     void statusChanged();
     void pluginsChanged();
     void browserChanged();
@@ -694,6 +702,9 @@ private:
     blokkily::GraphSignature engine_signature_;
     blokkily::RecompileCoalescer recompiler_;
     int rebuilds_ = 0;
+    bool follow_playback_ = true;
+    // Opens the pattern under the playhead on the selected track (followPlayback).
+    void followPlayhead();
     int adopted_processors_ = 0;
     std::unique_ptr<blokkily::RtAudioOutput> audio_output_;
     QTimer meter_timer_;

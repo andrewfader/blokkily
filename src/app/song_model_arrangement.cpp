@@ -29,6 +29,7 @@ blokkily::Clip* SongModel::clipAt(int track, int bar) {
 bool SongModel::hasClip(int track, int bar) const { return clipAt(track, bar) != nullptr; }
 
 QVariantList SongModel::lanes() const {
+    if (lanes_cache_) return *lanes_cache_;
     QVariantList all;
     const int bar_count = bars();
     for (int track = 0; track < trackCount(); ++track) {
@@ -53,6 +54,7 @@ QVariantList SongModel::lanes() const {
         }
         all.push_back(lane);
     }
+    lanes_cache_ = all;
     return all;
 }
 

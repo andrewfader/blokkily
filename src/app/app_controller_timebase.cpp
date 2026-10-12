@@ -28,6 +28,31 @@ void AppController::seekToPatternStep(int step) {
     seekToTick(static_cast<double>(pass + static_cast<blokkily::Tick>(step) * 120));
 }
 
+void AppController::setFollowPlayback(bool follow) {
+    if (follow == follow_playback_) return;
+    follow_playback_ = follow;
+    emit followPlaybackChanged();
+    followPlayhead();
+}
+
+void AppController::followPlayhead() {
+    if (!follow_playback_ || !song_ || !transport_ || !transport_->playing()) return;
+    const auto& song = song_->song();
+    const auto track = static_cast<std::size_t>(std::max(0, song_->selectedTrack()));
+    const auto at = static_cast<blokkily::Tick>(std::floor(transport_->tick()));
+    for (const auto& clip : song.clips) {
+        if (clip.track != track || clip.pattern >= song.patterns.size()) continue;
+        const auto& part = song.patterns[clip.pattern];
+        const auto length = part.pattern.length();
+        if (length <= 0 || at < clip.start || at >= clip.start + clip.span(length)) continue;
+        // Opening a pattern is not an edit: no step of history, nothing heard
+        // differently.
+        if (static_cast<int>(part.section) != song_->currentSection())
+            song_->selectSection(static_cast<int>(part.section));
+        return;
+    }
+}
+
 // Project the engine-following transport into the open pattern's clip, including
 // repeats and trimmed offsets. No second playback clock or pattern is kept.
 double AppController::patternPlayStep() const {

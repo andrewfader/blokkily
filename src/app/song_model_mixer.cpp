@@ -58,7 +58,7 @@ void SongModel::setMasterGain(double decibels) {
 
 void SongModel::emitMixMove() {
     mix_only_ = true;
-    emit songChanged();
+    announceSong();
     mix_only_ = false;
 }
 

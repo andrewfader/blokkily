@@ -9,6 +9,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -170,8 +171,9 @@ void run_mcp(VerifyContext& ctx) {
         for (const auto& entry : listed->value("result").toObject().value("tools").toArray())
             names << entry.toObject().value("name").toString();
     for (const char* expected : {"get_session", "get_pattern", "write_notes", "transport",
-                                 "list_plugins", "set_instrument", "screenshot", "describe",
-                                 "call", "get_property"})
+                                 "list_plugins", "set_instrument", "list_parameters",
+                                 "set_parameter", "set_soundfont_preset", "screenshot",
+                                 "describe", "call", "get_property"})
         check(names.contains(QLatin1String(expected)));
 
     // ---------------------------------------------------------------------
@@ -290,6 +292,12 @@ void run_mcp(VerifyContext& ctx) {
     const auto& lanes = song.song().tracks.at(0).automation;
     check(lanes.size() == 1 && lanes[0].target.kind == AutomationTarget::Kind::parameter &&
           lanes[0].target.processor.slot == -1);
+    // The lane names the parameter, as the processor does, not by its number.
+    lay_out();
+    const auto lane_rows = song.automationLanes();
+    check(!lane_rows.isEmpty() && lane_rows.at(0).toMap().value("name").toString() == "INST · LEVEL");
+    auto* lane_label = ctx.named("automationLaneName");
+    check(lane_label != nullptr && lane_label->property("text").toString() == "INST · LEVEL");
     const auto play_bar = [&] {
         check(!isError(agent.tool("transport", {{"action", "seek"}, {"bar", 0}})));
         check(!isError(agent.tool("transport", {{"action", "play"}})));
@@ -309,6 +317,54 @@ void run_mcp(VerifyContext& ctx) {
     check(held_up > 0.001F);
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent lists a sound's parameters and sets one by name");
+    const auto listed_parameters =
+        agent.tool("list_parameters", {{"track", 0}}).value("structuredContent").toObject();
+    bool has_level = false;
+    for (const auto& entry : listed_parameters.value("parameters").toArray()) {
+        const auto parameter = entry.toObject();
+        if (parameter.value("name").toString() == "Level" && parameter.contains("minimum") &&
+            parameter.contains("maximum"))
+            has_level = true;
+    }
+    check(has_level);
+    check(!isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "level"}, {"value", 0.0}})));
+    const float set_to_zero = play_bar();
+    check(set_to_zero == 0.0F);
+    check(!isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", 0}, {"value", 0.25}})));
+    const float set_up = play_bar();
+    check(set_up > 0.001F);
+    check(isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "level"}, {"value", 99}})));
+    check(isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "no such knob"}, {"value", 0}})));
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent chooses a SoundFont's preset, and its note is heard");
+    check(isError(agent.tool("set_soundfont_preset", {{"track", 0}, {"bank", 0}, {"program", 0}})));
+    check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "addTrack"}})));
+    // The gate's plugin list holds what it scanned: the CLAP fixture, and now
+    // the test SoundFont beside it.
+    controller.scanPluginPaths({ctx.parser.value("clap-fixture").toStdString()}, {},
+                               {ctx.parser.value("soundfont-fixture").toStdString()});
+    const QString bank_name = QFileInfo(ctx.parser.value("soundfont-fixture")).completeBaseName();
+    int bank_index = -1;
+    for (const auto& entry : agent.tool("list_plugins").value("structuredContent").toObject().value("plugins").toArray())
+        if (entry.toObject().value("name").toString() == bank_name) bank_index = entry.toObject().value("index").toInt();
+    check(bank_index >= 0);
+    check(!isError(agent.tool("set_instrument", {{"track", 1}, {"plugin", bank_index}})));
+    check(isError(agent.tool("set_soundfont_preset", {{"track", 1}, {"bank", 127}, {"program", 127}})));
+    check(!isError(agent.tool("set_soundfont_preset", {{"track", 1}, {"bank", 0}, {"program", 0}})));
+    {
+        const auto& state = song.song().tracks.at(1).instrument.state;
+        const std::string text(reinterpret_cast<const char*>(state.data()), state.size());
+        check(text.size() > 4 && text.substr(text.size() - 4) == "\n0\n0");
+    }
+    check(!isError(agent.tool("write_notes", {{"track", 1}, {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", 60}, {"length", 8}}}}})));
+    check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "toggleSolo"}, {"args", QJsonArray{1}}})));
+    const float soundfont_heard = play_bar();
+    check(soundfont_heard > 0.001F);
+    check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "toggleSolo"}, {"args", QJsonArray{1}}})));
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: without a window the bridge still answers, and says why calls fail");
     {
         Agent alone(socket + "-nobody", false);
@@ -319,7 +375,7 @@ void run_mcp(VerifyContext& ctx) {
                   "2024-11-05");
         const auto alone_list = alone.request("tools/list");
         check(alone_list &&
-              alone_list->value("result").toObject().value("tools").toArray().size() == 10);
+              alone_list->value("result").toObject().value("tools").toArray().size() == names.size());
         const auto refused = alone.tool("get_session");
         check(isError(refused) && textOf(refused).contains("not running"));
         check(alone.close());
@@ -331,7 +387,9 @@ void run_mcp(VerifyContext& ctx) {
 
     std::ostringstream details;
     details << " | tools=" << names.size() << " | heard after write " << after
-            << " | level lane 0 -> " << held_at_zero << ", 0.25 -> " << held_up;
+            << " | level lane 0 -> " << held_at_zero << ", 0.25 -> " << held_up
+            << " | set_parameter 0 -> " << set_to_zero << ", 0.25 -> " << set_up
+            << " | soundfont preset heard " << soundfont_heard;
     ctx.finish(details.str());
 }
 

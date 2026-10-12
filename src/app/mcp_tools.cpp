@@ -1,6 +1,7 @@
 #include "mcp_tools.hpp"
 
 #include "app_controller.hpp"
+#include "blokkily/model/song.hpp"
 #include "mcp_protocol.hpp"
 #include "pattern_model.hpp"
 #include "song_model.hpp"
@@ -84,6 +85,9 @@ QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
     if (name == "transport") return runTransport(arguments);
     if (name == "list_plugins") return listPlugins();
     if (name == "set_instrument") return setInstrument(arguments);
+    if (name == "list_parameters") return listParameters(arguments);
+    if (name == "set_parameter") return setParameter(arguments);
+    if (name == "set_soundfont_preset") return setSoundFontPreset(arguments);
     if (name == "screenshot") return screenshot();
     if (name == "describe") return describe(arguments);
     if (name == "call") return invoke(arguments);
@@ -286,6 +290,81 @@ QJsonObject McpTools::setInstrument(const QJsonObject& arguments) {
     if (!controller_.selectInstrument(plugin))
         return failure(QStringLiteral("The instrument could not be loaded: %1").arg(controller_.status()));
     return jsonResult(pick(song_.tracks().at(track).toMap(), {"index", "name", "instrument"}));
+}
+
+QJsonObject McpTools::listParameters(const QJsonObject& arguments) const {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    const int slot = arguments.value("slot").toInt(-1);
+    if (track < 0 || track >= song_.trackCount())
+        return failure(QStringLiteral("There is no track %1.").arg(track));
+    const auto rows = controller_.insertParameters(QStringLiteral("track"), track, slot);
+    if (rows.isEmpty())
+        return failure(slot < 0 ? QStringLiteral("Track %1's instrument has no parameters to set (or none is loaded).").arg(track)
+                                : QStringLiteral("Track %1 has no effect in slot %2 with parameters.").arg(track).arg(slot));
+    QJsonArray parameters;
+    for (const auto& row : rows) parameters.append(QJsonObject::fromVariantMap(row.toMap()));
+    return jsonResult(QJsonObject{{"track", track}, {"slot", slot}, {"parameters", parameters}});
+}
+
+QJsonObject McpTools::setParameter(const QJsonObject& arguments) {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    const int slot = arguments.value("slot").toInt(-1);
+    if (track < 0 || track >= song_.trackCount())
+        return failure(QStringLiteral("There is no track %1.").arg(track));
+    // The parameter by its id, or by its name as list_parameters shows it.
+    const auto wanted = arguments.value("parameter");
+    QVariantMap found;
+    for (const auto& row : controller_.insertParameters(QStringLiteral("track"), track, slot)) {
+        const auto entry = row.toMap();
+        if ((wanted.isDouble() && entry.value("id").toInt() == wanted.toInt()) ||
+            (wanted.isString() && entry.value("name").toString().compare(wanted.toString(), Qt::CaseInsensitive) == 0))
+            found = entry;
+    }
+    if (found.isEmpty())
+        return failure(QStringLiteral("No parameter %1 there; list_parameters lists them.")
+                           .arg(wanted.isString() ? wanted.toString() : QString::number(wanted.toInt())));
+    const double value = arguments.value("value").toDouble();
+    const double low = found.value("minimum").toDouble(), high = found.value("maximum").toDouble();
+    if (value < low || value > high)
+        return failure(QStringLiteral("%1 takes %2 to %3.").arg(found.value("name").toString()).arg(low).arg(high));
+    const int id = found.value("id").toInt();
+    if (!controller_.automateInsert(QStringLiteral("track"), track, slot, id))
+        return failure(QStringLiteral("%1 could not be given a lane.").arg(found.value("name").toString()));
+    // The lane the parameter has: one value for the whole song, unless it is
+    // already automated, which is the producer's to edit.
+    const auto& lanes = song_.song().tracks.at(static_cast<std::size_t>(track)).automation;
+    int lane = -1;
+    for (std::size_t index = 0; index < lanes.size(); ++index)
+        if (lanes[index].target.kind == blokkily::AutomationTarget::Kind::parameter &&
+            lanes[index].target.processor.slot == slot && lanes[index].target.parameter_index == id)
+            lane = static_cast<int>(index);
+    if (lane < 0) return failure(QStringLiteral("The lane could not be found."));
+    if (lanes[static_cast<std::size_t>(lane)].points.size() > 1)
+        return failure(QStringLiteral("%1 is automated across the song; edit its lane instead.").arg(found.value("name").toString()));
+    if (song_.moveAutomationPoint(track, lane, 0, 0.0, value) < 0)
+        return failure(QStringLiteral("%1 could not be set.").arg(found.value("name").toString()));
+    return jsonResult(QJsonObject{{"track", track}, {"slot", slot}, {"parameter", id},
+                                  {"name", found.value("name").toString()}, {"value", value}});
+}
+
+QJsonObject McpTools::setSoundFontPreset(const QJsonObject& arguments) {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    if (track < 0 || track >= song_.trackCount())
+        return failure(QStringLiteral("There is no track %1.").arg(track));
+    const auto& slot = song_.song().tracks.at(static_cast<std::size_t>(track)).instrument;
+    if (slot.format != "SoundFont")
+        return failure(QStringLiteral("Track %1 does not play a SoundFont; set_instrument gives it one.").arg(track));
+    const int bank = arguments.value("bank").toInt(-1);
+    const int program = arguments.value("program").toInt(-1);
+    if (bank < 0 || bank > 128 || program < 0 || program > 127)
+        return failure(QStringLiteral("bank is 0 to 128 and program 0 to 127."));
+    // A SoundFont track's state is its file, bank and program, one per line.
+    const QByteArray state = QByteArray::fromStdString(slot.path) + '\n' + QByteArray::number(bank) + '\n' +
+                             QByteArray::number(program);
+    if (!controller_.setInstrumentState(track, state))
+        return failure(QStringLiteral("That SoundFont has no preset at bank %1, program %2.").arg(bank).arg(program));
+    return jsonResult(QJsonObject{{"track", track}, {"bank", bank}, {"program", program},
+                                  {"instrument", song_.tracks().at(track).toMap().value("instrument").toString()}});
 }
 
 QJsonObject McpTools::screenshot() const {

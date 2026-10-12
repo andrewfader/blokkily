@@ -85,6 +85,15 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
             }
         });
     if (song_ != nullptr) {
+        // A parameter lane says which parameter it moves, by the name the
+        // running processor gives it.
+        song_->setParameterNamer([this](const blokkily::ProcessorAddress& where, int parameter) {
+            const auto* instance = engine_ ? engine_->processor(where) : nullptr;
+            if (instance != nullptr)
+                for (const auto& info : instance->parameters())
+                    if (static_cast<int>(info.id) == parameter) return QString::fromStdString(info.name);
+            return QString();
+        });
         QObject::connect(song_, &SongModel::structureChanged, this, [this] {
             // Takes printed while a rebuild retires its engine: that rebuild
             // compiles the song they were printed into.
@@ -147,8 +156,11 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
     audition_timer_.setInterval(450);
     QObject::connect(&audition_timer_, &QTimer::timeout, this,
                      &AppController::releaseSoundingNotes);
-    if (transport_)
+    if (transport_) {
+        // The pattern is opened first, so the editors read the playhead in it.
+        QObject::connect(transport_, &Transport::changed, this, &AppController::followPlayhead);
         QObject::connect(transport_, &Transport::changed, this, &AppController::patternPlayheadChanged);
+    }
     if (song_)
         QObject::connect(song_, &SongModel::songChanged, this, &AppController::patternPlayheadChanged);
     meter_timer_.setInterval(33);

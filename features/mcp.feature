@@ -14,7 +14,7 @@ Feature: An agent drives Blokkily over MCP
     Given Blokkily is running with one CLAP track
     When an agent starts `blokkily --mcp` and initializes
     Then it is answered with the protocol version it asked for and a tools capability
-    And tools/list names get_session, get_pattern, write_notes, transport, list_plugins, set_instrument, screenshot, describe, call and get_property
+    And tools/list names get_session, get_pattern, write_notes, transport, list_plugins, set_instrument, list_parameters, set_parameter, set_soundfont_preset, screenshot, describe, call and get_property
 
   Scenario: The agent reads the session
     When the agent calls get_session
@@ -43,10 +43,24 @@ Feature: An agent drives Blokkily over MCP
   Scenario: The agent sets an instrument's parameter for the whole song
     Given a pattern of notes on a CLAP track
     When the agent calls appController.automateInsert("track", 0, -1, the Level parameter)
+    Then the lane is named INST · LEVEL, after the parameter, not its number
     And holds that lane at 0 with songModel.moveAutomationPoint
     Then the song renders silent from the production callback
     When it moves the point to 0.25
     Then the song is heard again
+
+  Scenario: The agent lists a sound's parameters and sets one by name
+    When the agent calls list_parameters for the CLAP track
+    Then it reads Level with its range
+    When it sets "level" to 0 with set_parameter
+    Then the song renders silent, and set to 0.25 it is heard again
+    And a value out of range, or a parameter that does not exist, is refused
+
+  Scenario: The agent chooses a SoundFont's preset, and its note is heard
+    Given a second track playing the test SoundFont
+    When the agent calls set_soundfont_preset for bank 0, program 0
+    Then the track's state names that bank and program, and a note on it is heard soloed
+    And a preset the file does not hold, or a track that is not a SoundFont, is refused
 
   Scenario: Without a window the bridge still answers, and says why calls fail
     Given nothing is listening on the bridge's socket and it may not start Blokkily

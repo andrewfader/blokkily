@@ -125,7 +125,7 @@ bool SongModel::renameScene(int scene, const QString& name) {
     if (target == shown) return true;
     checkpoint();
     target = shown;
-    emit songChanged();
+    announceSong();
     return true;
 }
 

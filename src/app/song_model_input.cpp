@@ -55,7 +55,7 @@ void SongModel::setArmed(int track, bool armed) {
     if (input.armed == armed) return;
     input.armed = armed;
     emit inputChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::toggleArm(int track) {
@@ -70,7 +70,7 @@ void SongModel::setInputChannel(int track, int channel) {
     if (input.midi_channel == wanted) return;
     input.midi_channel = wanted;
     emit inputChanged();
-    emit songChanged();
+    announceSong();
 }
 
 void SongModel::cycleInputChannel(int track, int step) {

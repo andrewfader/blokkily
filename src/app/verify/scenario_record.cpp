@@ -288,9 +288,11 @@ void run_record(VerifyContext& ctx) {
                << tracker_at.micro << ")";
     }
     if (!ctx.valid) std::cerr << "record take:" << landed.str() << '\n';
-    // Track 1's CHORUS, opened by selecting track 1, shows them in every
-    // editor.
+    // Track 1's CHORUS shows them in every editor. The editors followed
+    // track 0 into its VERSE while the song played (FOLLOW), so CHORUS is
+    // opened again with track 1.
     song.selectTrack(1);
+    song.selectSection(1);
     lay_out();
     check(song.currentPattern() == static_cast<int>(chorus));
     check(ctx.rendered_step(piano_at.step) && ctx.rendered_step(tracker_at.step));

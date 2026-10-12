@@ -409,7 +409,9 @@ the first tool call starts Blokkily if it is not running. Only the user who
 runs Blokkily can connect.
 
 The tools are `get_session`, `get_pattern`, `write_notes`, `transport`,
-`list_plugins`, `set_instrument` and `screenshot`, plus `describe`, `call` and
+`list_plugins`, `set_instrument`, `list_parameters`, `set_parameter` (a synth's
+preset or any knob, by name), `set_soundfont_preset` (a General MIDI bank and
+program) and `screenshot`, plus `describe`, `call` and
 `get_property`, which reach every method and property the window's controls
 use (the mixer, effects, automation, clips, tempo, tuning, saving, exporting,
 undo). An agent's edits go through the same undoable paths a click takes.

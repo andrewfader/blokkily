@@ -134,3 +134,9 @@ Feature: Arrange patterns into a song across mixer tracks
     Then the patterns, tracks, clips, and mixer settings all come back
     And every instrument returns with the state it was saved with
     And a clip that names a track or pattern which does not exist is refused
+
+  Scenario: A SoundFont track plays about as loud as the other instruments
+    Given a track playing a General MIDI SoundFont at its default fader
+    When it plays a full-velocity note
+    Then the note peaks within 6 dB of full scale on the suite's bank
+    And a single note does not clip

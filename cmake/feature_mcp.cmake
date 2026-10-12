@@ -30,10 +30,11 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     add_test(NAME bdd_mcp
         COMMAND blokkily --verify --scenario mcp
             --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+            --soundfont-fixture ${BLOKKILY_TEST_SF2}
             --mcp-socket blokkily-mcp-gate
             --screenshot ${CMAKE_BINARY_DIR}/artifacts/mcp.png)
     set_tests_properties(bdd_mcp PROPERTIES
-        LABELS "bdd;e2e;integration;screenshot;clap;mcp"
+        LABELS "bdd;e2e;integration;screenshot;clap;soundfont;mcp"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
         TIMEOUT 120)
 endif()

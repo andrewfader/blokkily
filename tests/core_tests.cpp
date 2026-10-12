@@ -1689,6 +1689,27 @@ int main() {
     float energy = 0.0F;
     for (const auto sample : left) energy += sample < 0 ? -sample : sample;
     assert(energy > 0.0F);
+
+    // A SoundFont plays about as loud as the other instruments. FluidSynth's
+    // own gain left a General MIDI bank some fourteen decibels under a CLAP
+    // synth, so a song mixing the two needed every SoundFont fader pushed to
+    // its cap. The suite's bank (basic.sf2) is a hot one: a full-velocity note
+    // peaked at -9.4 dBFS at FluidSynth's gain, and now peaks within 6 dB of
+    // full scale without clipping on its own.
+    {
+        SoundFontSynth loud;
+        assert(loud.load(BLOKKILY_TEST_SF2_PATH));
+        assert(loud.activate(48000.0, 1, 512));
+        std::vector<float> l(512), r(512);
+        float peak = 0.0F;
+        for (int block = 0; block < 48; ++block) {
+            std::fill(l.begin(), l.end(), 0.0F);
+            std::fill(r.begin(), r.end(), 0.0F);
+            loud.process({l, r}, block == 0 ? std::span{&note, 1} : std::span<const PluginEvent>{});
+            for (const auto sample : l) peak = std::max(peak, std::abs(sample));
+        }
+        assert(peak > 0.5F && peak < 1.0F);
+    }
     const auto state = synth.save_state();
     SoundFontSynth restored;
     assert(restored.load_state(state));

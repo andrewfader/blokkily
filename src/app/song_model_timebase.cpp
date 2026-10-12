@@ -23,6 +23,7 @@ int SongModel::barAt(blokkily::Tick tick) const {
 }
 
 QVariantList SongModel::barLayout() const {
+    if (bar_layout_cache_) return *bar_layout_cache_;
     QVariantList layout;
     const int count = bars();
     const auto total = static_cast<double>(std::max<blokkily::Tick>(1, barStart(count)));
@@ -39,6 +40,7 @@ QVariantList SongModel::barLayout() const {
         entry["x1"] = static_cast<double>(start + ticks) / total;
         layout.push_back(entry);
     }
+    bar_layout_cache_ = layout;
     return layout;
 }
 
@@ -96,7 +98,7 @@ bool SongModel::setTempoAt(double bpm, double atTick) {
     // step of history.
     checkpoint(QStringLiteral("tempo"));
     found->bpm = clamped;
-    emit timebaseChanged();
+    announceTimebase();
     notifyStructureChanged();
     return true;
 }
@@ -110,7 +112,7 @@ bool SongModel::setTempoPoint(double atTick, double bpm, bool ramp) {
     if (tempo == song_.tempo) return true;
     checkpoint();
     song_.tempo = std::move(tempo);
-    emit timebaseChanged();
+    announceTimebase();
     notifyStructureChanged();
     return true;
 }
@@ -126,7 +128,7 @@ bool SongModel::removeTempoPoint(double atTick) {
     if (!tempo.remove(static_cast<blokkily::Tick>(atTick))) return false;
     checkpoint();
     song_.tempo = std::move(tempo);
-    emit timebaseChanged();
+    announceTimebase();
     notifyStructureChanged();
     return true;
 }
@@ -143,7 +145,7 @@ bool SongModel::setMeter(int bar, int numerator, int denominator) {
     song_.meter = std::move(meter);
     // Clips and tempo points keep their bar numbers (decision 9).
     blokkily::rebar(song_, before);
-    emit timebaseChanged();
+    announceTimebase();
     notifyStructureChanged();
     return true;
 }

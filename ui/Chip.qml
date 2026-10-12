@@ -7,6 +7,9 @@ Rectangle {
     property bool on: false
     property color accent: Theme.acid
     property string accessibleLabel: ""
+    // The room left either side of the label. A chip sized to its text with
+    // less padding than the usual says so, or its label is elided.
+    property real labelPadding: 12
     signal clicked()
     signal rightClicked()
     signal doubleClicked()
@@ -20,7 +23,7 @@ Rectangle {
         id: chipText; anchors.centerIn: parent
         // The chip sets its own size; the label has the same bounds so an
         // overflowing name (a producer has not renamed) trims to "WRPED...".
-        width: parent.width - 12
+        width: parent.width - labelPadding
         color: parent.on ? "#0e0f12" : Theme.ink
         font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
         elide: Text.ElideRight
