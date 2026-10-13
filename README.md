@@ -5,6 +5,10 @@ a tracker, piano roll or step grid, then arrange patterns across multiple
 tracks. It supports CLAP and VST3 plugins, SoundFont instruments and built-in
 samplers. CLAP support is required in every build.
 
+**[Watch a short video](https://www.youtube.com/watch?v=_mbjwN5OBEg)** (with
+sound) of an agent building a funky chiptune in Blokkily over
+[MCP](docs/mcp.md), using the YANES and FUZZBOI CLAP synths.
+
 ![Blokkily workstation showing an arrangement, synchronized editors, plugin browser, mixer, and keyboard](docs/images/blokkily-session.png)
 
 The screenshot comes from the `bdd_session_everything` verification session.
