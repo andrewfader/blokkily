@@ -5,8 +5,6 @@ in the [usage guide](usage.md).
 
 ## MIDI and MPE
 
-- The MPE chip enables the lower zone. An upper zone can be configured only by
-  a message from the keyboard.
 - Per-note expression is recorded and played back but has no editor.
 - VST3 instruments receive per-note pitch only within a two-semitone channel
   bend. SoundFonts have no CC 74 timbre response unless the SF2 maps it. The
@@ -45,8 +43,7 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   synced LFO therefore turns on in the block after its beat.
 - A follower targeting its own track, or a track that the render order cannot
   place after its source, receives the previous block's level.
-- Sync divisions are straight note values, without dotted or triplet options.
-  A modulation "bar" is four beats regardless of the song's meter.
+- A modulation "bar" is four beats regardless of the song's meter.
 
 ## Scene launcher
 
@@ -73,6 +70,7 @@ Plugin editors embed in a window of the host's: an NSView on macOS, an HWND
 on Windows, and an X11 window on Linux. On a Wayland desktop a CLAP plugin with
 Wayland support embeds natively, and other editors embed through XWayland when
 an X server is available; without one they are refused. Offscreen verification
-checks the embedding lifecycle; a separate display gate checks real VST3
-pixels when an X server is available. See
-[verification](verification.md) for display-gate requirements and skips.
+checks the embedding lifecycle. Display checks read real editor pixels back on
+an X server, under XWayland, and on macOS and Windows; they have been run with
+the suite's own test plugins at standard pixel density. See
+[verification](verification.md) for display-check requirements and skips.

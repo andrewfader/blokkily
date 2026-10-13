@@ -35,15 +35,39 @@ QString AppController::midiPort() const {
 
 bool AppController::mpe() const { return midi_input_->mpe().enabled; }
 
+namespace {
+// Every member channel of a zone: the lower zone is master 1 with members
+// 2-16, the upper master 16 with members 1-15 (0-based here).
+blokkily::MpeZone full_zone(bool upper, double pitch_range) {
+    return upper ? blokkily::MpeZone{true, 15, 0, 14, pitch_range}
+                 : blokkily::MpeZone{true, 0, 1, 15, pitch_range};
+}
+} // namespace
+
 void AppController::setMpe(bool enabled) {
     auto zone = midi_input_->mpe();
-    if (enabled) zone = blokkily::MpeZone{true, 0, 1, 15, zone.pitch_range};
+    const bool upper = zone.master == 15;
+    if (enabled) zone = full_zone(upper, zone.pitch_range);
     else zone.enabled = false;
     midi_input_->set_mpe(zone);
-    status_ = enabled ? QStringLiteral("MIDI · MPE on: channels 2-16 carry one note each")
-                      : QStringLiteral("MIDI · MPE off");
+    status_ = !enabled ? QStringLiteral("MIDI · MPE off")
+              : upper  ? QStringLiteral("MIDI · MPE on, upper zone: channels 1-15 carry one note each")
+                       : QStringLiteral("MIDI · MPE on: channels 2-16 carry one note each");
     emit statusChanged();
     emit midiChanged();
+}
+
+bool AppController::mpeUpper() const { return midi_input_->mpe().master == 15; }
+
+void AppController::setMpeUpper(bool upper) {
+    auto zone = midi_input_->mpe();
+    if ((zone.master == 15) == upper) return;
+    const bool enabled = zone.enabled;
+    zone = full_zone(upper, zone.pitch_range);
+    zone.enabled = enabled;
+    midi_input_->set_mpe(zone);
+    if (enabled) setMpe(true);   // says which channels now carry notes
+    else emit midiChanged();
 }
 
 void AppController::refreshMidiPorts() {

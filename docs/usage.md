@@ -9,6 +9,13 @@ The tracker, piano roll and step grid edit the same underlying parts. A change
 in one appears in the other two, the step inspector and playback. The code
 calls a whole pattern a section, and each track's part a pattern.
 
+Press F1 or click HELP (at the end of the keyboard hints above the editors) for
+a guided tour: Blokkily, the mascot, points out each part of the window in turn.
+The tour leaves on DONE, CANCEL, Escape or a second press of HELP, and the
+window stays playable while it runs. CLEAR in the transport bar empties the
+session to one blank pattern and track, keeping the metronome settings. It is
+one undo step, so UNDO brings everything back, including each plugin's sound.
+
 ## Editing patterns
 
 Use the view switcher to focus one editor or show them all. Notes entered in any
@@ -187,7 +194,8 @@ stroke, drag a point to move it, or right-click to erase it. Each gesture is one
 undo step and reaches playback on the next block.
 
 For MPE, enable MPE on the MIDI IN panel or let the keyboard send its
-configuration message. Each note's bend, CC 74 and pressure affect that note
+configuration message. MPE reads the lower zone (notes on channels 2-16);
+click UPPER beside it for a keyboard set to the upper zone (channels 1-15). Each note's bend, CC 74 and pressure affect that note
 alone and are recorded with it. Playback uses CLAP note expressions or a
 per-note channel for SoundFont and VST3. See
 [the continuous MIDI scenarios](../features/continuous_midi.feature) and
@@ -259,6 +267,7 @@ The MODULATION panel under the inspector adds:
 
 - LFOs with sine, triangle, saws, square or random shapes. Set a rate in Hz, or
   enable SYNC for a note value from 1/16 to 4 bars that follows the tempo map.
+  Each note value also comes as a triplet (1/8T) and dotted (1/8.).
 - Macros, each with one 0..1 knob.
 - Envelope followers, measured from a selected track after its inserts and
   before its fader.
@@ -382,6 +391,7 @@ or transport shortcuts.
 
 | Shortcut | Action |
 | --- | --- |
+| F1 | Start or leave the guided tour |
 | Space | Play or stop |
 | Return or Home | Go to the start of the song |
 | Arrow keys | Move the step cursor |

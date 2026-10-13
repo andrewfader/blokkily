@@ -280,11 +280,12 @@ REDO returns it, without a rebuild. Adding a track keeps the same window with
 nothing destroyed; swapping an instrument closes its editor only; saving and
 loading opens no window and keeps 0.60; EDITOR in the instrument panel opens
 the selected track's editor; and the VST3 editor is refused with "Plugin window
-needs an X11 display", because offscreen has none. The screenshot shows E lit
+needs an X11 display" ("Plugin window needs a display" on macOS and Windows),
+because offscreen has none. The screenshot shows E lit
 on the CLAP strip, the EDITOR bar lit with `LEVEL 0.60`, and the refusal.
 
 `build/artifacts/plugin-window-x11.png` — from `plugin_window_display_check`,
-the only real-pixel proof of plugin windows: the VST3 fixture's editor (solid
+the Linux real-pixel proof of plugin windows: the VST3 fixture's editor (solid
 `#C8FF3C`) embedded through the application's window code in a Qt window on the
 xcb platform, read back from the X server with `XGetImage`. The centre pixel
 must be the editor's colour. It keeps the session's `DISPLAY` and skips (exit
@@ -300,6 +301,19 @@ CLAP, can only be embedded), so it must be embedded in the X11 top-level the hos
 pixel read back from the X server must be `#C8FF3C`. A `WM_DELETE_WINDOW`
 request sent to that window, as a window manager sends it, must close the
 editor. It skips (exit 77) without both a Wayland compositor and an X server.
+
+`build/artifacts/plugin-window-cocoa-vst3.png`, `plugin-window-cocoa-clap.png`,
+`plugin-window-windows-vst3.png` and `plugin-window-windows-clap.png` — from
+`plugin_window_native_vst3` and `plugin_window_native_clap`, the same proof on
+macOS and Windows with Qt on the platform's own windowing. The VST3 fixture's
+JUCE editor and the CLAP fixture's editor, which puts a `#C8FF3C` child view
+in a Cocoa or Win32 parent, are each embedded through the application's window
+code. The platform must find the editor's 320 x 200 view inside the host
+window, the window must be 320 x 200 logical units, and its centre pixel must be
+`#C8FF3C`. On macOS the pixels come from AppKit's `cacheDisplayInRect` or a
+screen grab; on Windows from the screen or `PrintWindow`. The close request the
+window's close button makes must close the editor. These run in the macOS and
+Windows CI legs, which have a desktop session.
 
 `build/artifacts/effects.png` — from the `bdd_effects` gate
 (`blokkily --verify --scenario effects`), which runs the interface scenarios of

@@ -66,8 +66,17 @@ ColumnLayout {
         Layout.fillWidth: true; spacing: 6
         SectionLabel { text: "MIDI IN" }
         Item { Layout.fillWidth: true }
-        // MPE (the lower zone, member channels 2..16): each key's own bend,
-        // CC 74 and pressure move that note alone, and are recorded with it.
+        // MPE: each key's own bend, CC 74 and pressure move that note alone,
+        // and are recorded with it. UPPER reads the upper zone (master 16,
+        // members 1..15) instead of the lower (master 1, members 2..16).
+        Chip {
+            objectName: "mpeZoneChip"
+            visible: appController.mpe
+            text: "UPPER"; implicitHeight: 20
+            accessibleLabel: "MPE upper zone"
+            on: appController.mpeUpper
+            onClicked: appController.setMpeUpper(!appController.mpeUpper)
+        }
         Chip {
             objectName: "mpeChip"
             text: "MPE"; implicitHeight: 20

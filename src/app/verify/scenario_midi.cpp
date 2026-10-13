@@ -594,9 +594,42 @@ void run_midi(VerifyContext& ctx) {
         if (after < before + 6)
             std::cerr << "REGRESSION: an MPE note was recorded without its expression ("
                       << before << " -> " << after << ")\n";
+
+        // The UPPER chip moves MPE to the upper zone: channel 15 (0-based
+        // 14) is now a member, and its note is written with its own bend and
+        // pressure too.
+        auto* zone_chip = named("mpeZoneChip");
+        check(VerifyContext::usable(zone_chip, 24, 14) && !controller.mpeUpper());
+        if (zone_chip != nullptr)
+            click_at(zone_chip, {zone_chip->width() / 2, zone_chip->height() / 2}, Qt::LeftButton);
+        lay_out();
+        check(controller.mpe() && controller.mpeUpper() && zone_chip != nullptr &&
+              zone_chip->property("on").toBool());
+        controller.seekToBar(1);
+        controller.togglePlayback();
+        (void)pump();
+        check(send(0x9E, 69, 100));
+        (void)pump();
+        for (int move = 1; move <= 6; ++move) {
+            check(send(0xEE, 0, 64 + move * 4));
+            check(send(0xDE, move * 20, 0));
+            (void)pump();
+        }
+        check(send(0x8E, 69, 0));
+        (void)pump();
+        controller.togglePlayback();
+        (void)pump();
+        settle(40);
+        lay_out();
+        const auto upper = expressive();
+        check(upper >= after + 6);
+        if (upper < after + 6)
+            std::cerr << "an upper-zone MPE note was recorded without its expression (" << after
+                      << " -> " << upper << ")\n";
+        controller.setMpeUpper(false);
         controller.setMpe(false);
         lay_out();
-        check(!controller.mpe());
+        check(!controller.mpe() && !controller.mpeUpper());
     }
     reached("midi: an MPE note is recorded with its own bend and pressure");
 

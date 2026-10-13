@@ -99,6 +99,10 @@ Feature: Modulators move plugin parameters while the song plays
     When an LFO's SYNC chip is clicked and 1/8 picked from its division picker
     Then the rate dial gives way to the division, live, without a recompile
     And the level turns up every 23.4 blocks of 512 at 120 BPM and every 46.9 after the tempo is set to 60
+    When 1/8T is picked from its division picker
+    Then the level turns up every 15.6 blocks of 512 at 120 BPM, two thirds of an eighth
+    When 1/8. is picked from its division picker
+    Then the level turns up every 35.2 blocks of 512 at 120 BPM, an eighth and a half
     When a follower is added, aimed at the bass's Level, and KICK picked from its source picker
     Then the song is recompiled, not rebuilt
     And holding a key on the muted, faded kick raises the bass by half the kick's level, and letting go brings it back

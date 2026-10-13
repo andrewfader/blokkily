@@ -395,7 +395,7 @@ void run_modulation(VerifyContext& ctx) {
         check(ctx.named("modulatorRate0") != nullptr && !ctx.named("modulatorRate0")->isVisible());
         check(VerifyContext::usable(ctx.named("modulatorDivision0"), 40, 18) &&
               ctx.named("modulatorDivision0")->property("value").toString() == "1/4");
-        pick("modulatorDivision0", 1);
+        pick("modulatorDivision0", static_cast<int>(song.lfoDivisions().indexOf("1/8")));
         check(song.song().modulators[0].sync_beats == 0.5 &&
               ctx.named("modulatorDivision0")->property("value").toString() == "1/8");
         // A live move, like the rate: no recompile, no rebuild.
@@ -426,11 +426,25 @@ void run_modulation(VerifyContext& ctx) {
     check(std::abs(at_60 - 24000.0 / 512.0) < 1.5);
     controller.setTempo(120.0);
     controller.flushRecompile();
+    // A triplet eighth is two thirds of one (8000 samples, 15.6 blocks), a
+    // dotted eighth half as long again (18000 samples, 35.2 blocks).
+    pick("modulatorDivision0", static_cast<int>(song.lfoDivisions().indexOf("1/8T")));
+    check(std::abs(song.song().modulators[0].sync_beats - 1.0 / 3.0) < 1e-12 &&
+          ctx.named("modulatorDivision0")->property("value").toString() == "1/8T");
+    const double triplet = rising_spacing(120);
+    check(std::abs(triplet - 8000.0 / 512.0) < 1.5);
+    pick("modulatorDivision0", static_cast<int>(song.lfoDivisions().indexOf("1/8.")));
+    check(song.song().modulators[0].sync_beats == 0.75 &&
+          ctx.named("modulatorDivision0")->property("value").toString() == "1/8.");
+    const double dotted = rising_spacing(180);
+    check(std::abs(dotted - 18000.0 / 512.0) < 1.5);
+    pick("modulatorDivision0", static_cast<int>(song.lfoDivisions().indexOf("1/8")));
     check(hold(0, false));
     (void)settle_level(2);
     check(controller.rebuildCount() == reopened);
     std::cerr << "modulation: synced 1/8 LFO turns up every " << at_120 << " blocks at 120 BPM, "
-              << at_60 << " at 60 BPM\n";
+              << at_60 << " at 60 BPM; 1/8T every " << triplet << ", 1/8. every " << dotted
+              << "\n";
     reached("modulation: a synced LFO from the panel follows the tempo");
 
     // --- 6. A follower whose source is picked in the panel. ----------------

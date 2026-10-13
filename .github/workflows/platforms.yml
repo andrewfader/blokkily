@@ -1,9 +1,9 @@
 name: Platforms
 
-# Windows and macOS are not supported yet. These legs show how far each
-# platform gets (configure, build, tests) without blocking anything: a failing
-# leg is reported, but the run still passes. Once a platform is green, move it
-# into ci.yml and drop continue-on-error.
+# Windows and macOS are built and tested on every push. The release workflow
+# builds, tests and packages both for each tag. These legs report a failure
+# without failing the run (continue-on-error); moving them into ci.yml would
+# make a failing macOS or Windows test block a merge.
 
 on:
   push:

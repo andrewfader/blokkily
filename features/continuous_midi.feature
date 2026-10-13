@@ -25,7 +25,8 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
   pattern, and the running engine plays it without a rebuild.
 
   MPE: with the MIDI IN panel's MPE chip on (the lower zone, member channels
-  2-16, per-note pitch range 48 semitones), or turned on by the keyboard's
+  2-16, or with its UPPER chip the upper zone, member channels 1-15; per-note
+  pitch range 48 semitones), or turned on by the keyboard's
   MPE Configuration Message (RPN 6), a member channel's pitch bend, CC 74 and
   channel pressure (and poly pressure there) become per-note expression of
   the note it holds (PluginEvent::note_expression), and that note is marked
@@ -53,8 +54,7 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
 
   Not done: Controller movements are stamped at the block they arrived in, as
   notes are. Per-note expression is not drawn or edited in any editor (it
-  travels with its step when the step is moved, copied or transposed). No
-  upper-zone MPE chip (the keyboard's configuration message sets it). The built-in sampler ignores poly pressure; the SoundFont and VST3
+  travels with its step when the step is moved, copied or transposed). The built-in sampler ignores poly pressure; the SoundFont and VST3
   paths send it on the channel holding its key.
 
   Executable: tests/continuous_midi_tests.cpp (CTest continuous_midi_<case>),
@@ -196,7 +196,9 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
   Scenario: MPE is switched on in the application and an MPE note is recorded
     Given the real application with an armed song and the deterministic keyboard
     When the MPE chip is clicked on the MIDI IN panel and a note on channel 2 is bent and pressed while the song plays
-    Then the pattern holds the note with its own expression, and the chip turns MPE off again
+    Then the pattern holds the note with its own expression
+    When the UPPER chip is clicked and a note on channel 15 is bent and pressed while the song plays
+    Then the pattern holds that note with its own expression too, and the chip turns MPE off again
 
   # realtime_continuous_midi
   Scenario: Playing and chasing controllers never allocates on the audio thread
