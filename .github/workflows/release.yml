@@ -244,8 +244,11 @@ jobs:
       TEST_SF2_URL: https://raw.githubusercontent.com/free-wheeling/freewheeling/2ec066ee67614300a8b3dc61de7d059971883747/data/basic.sf2
       TEST_SF2_SHA256: 2e6cf4a8a1d78e6be3b00a0c22358d3ceec8c5a27a000714e65215e3f9b1d15a
     steps:
+      # Only the Qt modules the Linux packages are built from: macdeployqt
+      # copies whole QML import trees, so the qt meta-formula would put Qt 3D,
+      # WebEngine's PDF and the rest of Qt into the bundle.
       - name: Install dependencies
-        run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
+        run: brew install ninja pkgconf qtbase qtdeclarative qtshadertools qtsvg qttools fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -260,7 +263,7 @@ jobs:
       - name: Configure CMake (Release)
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
             -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
 
       - name: Build
@@ -298,16 +301,18 @@ jobs:
           </dict>
           </plist>
           PLIST
-          plugins="$("$(brew --prefix qt)/bin/qmake" -query QT_INSTALL_PLUGINS)"
+          plugins="$("$(brew --prefix qtbase)/bin/qmake" -query QT_INSTALL_PLUGINS)"
           cp "$plugins/platforms/libqoffscreen.dylib" "$app/Contents/PlugIns/platforms/"
           macdeployqt "$app" -qmldir=ui -always-overwrite \
             -executable="$bin/blokkily_scan" -executable="$bin/blokkily_cli" \
             -executable="$app/Contents/PlugIns/platforms/libqoffscreen.dylib"
-          # Nothing in the bundle may still point into Homebrew.
+          # Nothing in the bundle may still load from Homebrew. A library's
+          # own install name (otool -D) is not a dependency and is skipped.
           bad=0
           while IFS= read -r -d '' f; do
             file -b "$f" | grep -q Mach-O || continue
-            if otool -L "$f" | tail -n +2 | grep -E '/opt/homebrew|/usr/local'; then
+            self="$(otool -D "$f" | sed -n 2p)"
+            if otool -L "$f" | tail -n +2 | awk -v self="$self" '$1 != self' | grep -E '/opt/homebrew|/usr/local'; then
               echo "::error::$f links outside the bundle"
               bad=1
             fi
@@ -319,6 +324,7 @@ jobs:
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
           ln -s /Applications "stage/$name/Applications"
+          du -sh "$app"
           echo "PACKAGE=$name" >> "$GITHUB_ENV"
 
       # The packaged application runs the end-to-end gate's own command and
