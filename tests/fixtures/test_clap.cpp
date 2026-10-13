@@ -1,4 +1,5 @@
 #include "test_clap_gui.hpp"
+#include "test_clap_native.hpp"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -115,9 +116,11 @@ struct TestSynth {
     std::atomic<clap_id> turn_id{0};
     std::atomic<double> turn_value{0.0};
 
-    // The editor (clap.gui). It draws nothing; it keeps a timer and a pipe
-    // registered with the host while it exists, the way a real editor keeps
-    // its animation timer and its display connection.
+    // The editor (clap.gui). On X11 and Wayland it draws nothing; on macOS
+    // and Windows it is a #C8FF3C child of the window it is given
+    // (test_clap_native.hpp). It keeps a timer and a pipe registered with the
+    // host while it exists, the way a real editor keeps its animation timer
+    // and its display connection.
     const clap_host_gui_t* host_gui = nullptr;
     const clap_host_timer_support_t* host_timers = nullptr;
     const clap_host_posix_fd_support_t* host_fds = nullptr;
@@ -128,6 +131,7 @@ struct TestSynth {
     clap_id gui_timer = CLAP_INVALID_ID;
     int gui_pipe[2] = {-1, -1};
     bool gui_fd_registered = false;
+    void* gui_child = nullptr;   // the native child view, on macOS and Windows
 };
 
 // What every editor was asked, for blokkily_test_gui_report(), and the order
@@ -562,9 +566,10 @@ std::uint32_t tail_get(const clap_plugin_t*) { return tail_samples; }
 constexpr clap_plugin_tail_t tail_extension{tail_get};
 
 // --- clap.gui ------------------------------------------------------------------
-// An X11 or Wayland editor, embedded or floating. It records what the host
-// asks and the window it was given rather than drawing, so it works without a
-// display.
+// An X11 or Wayland editor, embedded or floating, and on macOS and Windows a
+// Cocoa or Win32 one. It records what the host asks and the window it was
+// given. On X11 and Wayland it draws nothing, so it works without a display;
+// embedded in a real Cocoa or Win32 window it fills it with #C8FF3C.
 namespace gui_report_field = blokkily::test_clap_gui;
 
 // A non-blocking, close-on-exec pipe, as pipe2() makes on Linux; macOS has no
@@ -589,12 +594,22 @@ bool open_gui_pipe(int (&fds)[2]) {
 #endif
 }
 
+// The platform's own windowing, which a floating editor uses.
+#if defined(_WIN32)
+constexpr const char* native_api = CLAP_WINDOW_API_WIN32;
+#elif defined(__APPLE__)
+constexpr const char* native_api = CLAP_WINDOW_API_COCOA;
+#else
+constexpr const char* native_api = CLAP_WINDOW_API_X11;
+#endif
+
 bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool) {
     return api != nullptr && (std::strcmp(api, CLAP_WINDOW_API_X11) == 0 ||
-                              std::strcmp(api, CLAP_WINDOW_API_WAYLAND) == 0);
+                              std::strcmp(api, CLAP_WINDOW_API_WAYLAND) == 0 ||
+                              std::strcmp(api, native_api) == 0);
 }
 bool gui_get_preferred_api(const clap_plugin_t*, const char** api, bool* is_floating) {
-    *api = CLAP_WINDOW_API_X11;
+    *api = native_api;
     *is_floating = false;
     return true;
 }
@@ -642,6 +657,10 @@ void gui_destroy(const clap_plugin_t* plugin) {
             close(end);
             end = -1;
         }
+    if (synth->gui_child != nullptr) {
+        blokkily::test_clap_native::detach(synth->gui_child);
+        synth->gui_child = nullptr;
+    }
     synth->gui_created = false;
     gui_record("destroy");
     gui_count(gui_report_field::destroys);
@@ -674,23 +693,30 @@ bool gui_set_size(const clap_plugin_t* plugin, std::uint32_t width, std::uint32_
     auto* synth = self(plugin);
     synth->gui_width = width;
     synth->gui_height = height;
+    if (synth->gui_child != nullptr) blokkily::test_clap_native::resize(synth->gui_child, width, height);
     gui_record("set-size");
     gui_set(gui_report_field::width, width);
     gui_set(gui_report_field::height, height);
     return true;
 }
 bool gui_set_parent(const clap_plugin_t* plugin, const clap_window_t* window) {
-    const auto* synth = self(plugin);
+    auto* synth = self(plugin);
     if (!synth->gui_created || synth->gui_floating || window == nullptr || window->api == nullptr ||
         !gui_is_api_supported(plugin, window->api, false))
         return false;
     gui_record("parent");
     gui_count(gui_report_field::set_parents);
     const bool wayland = std::strcmp(window->api, CLAP_WINDOW_API_WAYLAND) == 0;
+    const bool x11 = std::strcmp(window->api, CLAP_WINDOW_API_X11) == 0;
     gui_set(gui_report_field::last_parent, static_cast<long>(
-        wayland ? reinterpret_cast<std::uintptr_t>(window->ptr)
-                : static_cast<std::uintptr_t>(window->x11)));
+        x11 ? static_cast<std::uintptr_t>(window->x11)
+            : reinterpret_cast<std::uintptr_t>(window->ptr)));
     gui_set(gui_report_field::last_parent_wayland, wayland ? 1 : 0);
+    gui_set(gui_report_field::last_parent_native, !x11 && !wayland ? 1 : 0);
+    // On macOS and Windows the editor is a real view inside that window.
+    if (!x11 && !wayland && synth->gui_child == nullptr)
+        synth->gui_child = blokkily::test_clap_native::attach(window->ptr, synth->gui_width,
+                                                              synth->gui_height);
     return true;
 }
 bool gui_set_transient(const clap_plugin_t*, const clap_window_t*) { return true; }

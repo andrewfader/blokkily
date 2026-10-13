@@ -5,8 +5,9 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-// JUCE's editors are X11 windows only on Linux and the BSDs; elsewhere they
-// live on the platform's own windowing, which this adapter does not host yet.
+// JUCE's editors are X11 windows on Linux and the BSDs. On macOS they are
+// NSViews and on Windows HWNDs, embedded in the host's own window the same
+// way.
 #if defined(__linux__) || defined(__FreeBSD__)
 #define BLOKKILY_VST3_X11 1
 #include <dlfcn.h>
@@ -40,9 +41,9 @@ bool dispatchNextMessageOnSystemQueue(bool returnIfNoPendingMessages);
 namespace blokkily {
 
 namespace {
+#if BLOKKILY_VST3_X11
 constexpr const char* no_display_message = "Plugin window needs an X11 display";
 
-#if BLOKKILY_VST3_X11
 // Xlib, reached through the same libX11.so.6 that JUCE opens with dlopen, so
 // the error handler installed here is the one JUCE's connection uses. The
 // types are spelled opaquely rather than taken from <X11/Xlib.h>, whose
@@ -123,9 +124,6 @@ bool x11_reachable(const NativeParent* parent) {
     (void)x.close_display(display);
     return reachable;
 }
-#else
-// No X server to embed a JUCE editor in.
-bool x11_reachable(const NativeParent*) { return false; }
 #endif
 
 // Pumps the host's JUCE message queue from the installed run loop while any
@@ -982,8 +980,9 @@ bool Vst3PluginInstance::has_editor() const {
 }
 
 bool Vst3PluginInstance::supports_editor(WindowApi api, bool) const {
-    // JUCE puts its editors on X11, embedded or as a top-level of their own.
-    return api == WindowApi::x11 && has_editor();
+    // JUCE puts its editors on the platform's own windowing, embedded or as
+    // a top-level of their own.
+    return api == native_window_api() && has_editor();
 }
 
 bool Vst3PluginInstance::open_editor(const NativeParent* parent, EditorHost& host,
@@ -997,8 +996,13 @@ bool Vst3PluginInstance::open_editor(const NativeParent* parent, EditorHost& hos
         if (!impl_ || !impl_->plugin) return fail("No plugin");
         if (impl_->editor) return fail("The editor is already open");
         if (!impl_->plugin->hasEditor()) return fail("This plugin has no editor");
+#if BLOKKILY_VST3_X11
         // Decided before JUCE is asked for anything that would touch X.
         if (!x11_reachable(parent)) return fail(no_display_message);
+#else
+        if (parent != nullptr && parent->api != native_window_api())
+            return fail("The plugin cannot embed its editor in this window");
+#endif
         impl_->editor.reset(impl_->plugin->createEditorAndMakeActive());
         if (!impl_->editor) return fail("The plugin could not create its editor");
         auto& editor = *impl_->editor;
@@ -1017,10 +1021,12 @@ bool Vst3PluginInstance::open_editor(const NativeParent* parent, EditorHost& hos
         editor.addComponentListener(&impl_->resize_watcher);
         if (size != nullptr) {
             // JUCE sizes a Linux editor in physical pixels: it is not scaled by
-            // the host window's device pixel ratio.
+            // the host window's device pixel ratio. On macOS and Windows it
+            // measures in logical units and scales itself for the screen.
             size->width = static_cast<std::uint32_t>(std::max(0, editor.getWidth()));
             size->height = static_cast<std::uint32_t>(std::max(0, editor.getHeight()));
             size->resizable = editor.isResizable();
+            size->logical = !BLOKKILY_VST3_X11;
         }
         return true;
     });

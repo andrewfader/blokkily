@@ -14,6 +14,7 @@
 //   Scenario: A knob turned in the editor is one step of history, heard in the song
 //   Scenario: An open editor survives a rebuild of the audio graph
 //   Scenario: A VST3 editor is refused without an X11 display
+//   Scenario: On macOS and Windows a VST3 editor takes only the platform's own windows
 
 #include "editor_gestures.hpp"
 #include "engine_graph.hpp"
@@ -516,6 +517,35 @@ void vst3_editor_refused() {
     require(std::abs(probe::peak(left) - 0.25F) < 1e-4F, "and plays");
 }
 
+// features/plugin_windows.feature: Scenario: On macOS and Windows a VST3 editor
+// takes only the platform's own windows
+void vst3_editor_native_only() {
+    std::string error;
+    auto plugin = Vst3PluginInstance::create(BLOKKILY_TEST_VST3_PATH, 0, &error);
+    require(plugin != nullptr, "the VST3 fixture must instantiate: " + error);
+    const auto native = native_window_api();
+    require(native == WindowApi::cocoa || native == WindowApi::win32,
+            "this case is for macOS and Windows");
+    require(plugin->has_editor() && plugin->supports_editor(native, false) &&
+                plugin->supports_editor(native, true),
+            "the fixture's editor can be embedded in, or float as, the platform's own window");
+    require(!plugin->supports_editor(WindowApi::x11, false) &&
+                !plugin->supports_editor(WindowApi::wayland, false),
+            "and in nothing else");
+    // A parent of another windowing is refused before JUCE is asked for it.
+    RecordingHost host;
+    const NativeParent foreign{WindowApi::x11, fake_window, 1.0};
+    require(!plugin->open_editor(&foreign, host, nullptr, &error), "an X11 parent is refused");
+    require(error == "The plugin cannot embed its editor in this window",
+            "the refusal says why: " + error);
+    require(!plugin->editor_open() && host.closes == 0, "nothing was opened");
+    require(plugin->activate(rate, 1, block), "the instrument still activates");
+    std::vector<float> left(block), right(block);
+    const PluginEvent note{PluginEvent::Type::note_on, 0, 60, 1.0};
+    plugin->process({left, right}, std::span{&note, 1});
+    require(std::abs(probe::peak(left) - 0.25F) < 1e-4F, "and plays");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -531,6 +561,7 @@ int main(int argc, char** argv) {
         {"gesture_step", editor_gesture_step},
         {"survives_adoption", editor_survives_adoption},
         {"vst3_refused", vst3_editor_refused},
+        {"vst3_native_only", vst3_editor_native_only},
     };
     if (argc != 2 || !cases.contains(argv[1])) {
         std::cerr << "usage: blokkily_plugin_windows_tests <case>\n";

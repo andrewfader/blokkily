@@ -954,9 +954,9 @@ bool ClapPluginInstance::open_editor(const NativeParent* parent, EditorHost& hos
     const auto* plugin_gui = impl_->gui();
     if (plugin_gui == nullptr) return fail("This plugin has no editor");
     const bool floating = parent == nullptr;
-    // A floating window is the plugin's own top-level; on this platform that
-    // is an X11 window.
-    const char* api = floating ? CLAP_WINDOW_API_X11 : window_api_name(parent->api);
+    // A floating window is the plugin's own top-level, in this platform's
+    // own windowing.
+    const char* api = window_api_name(floating ? native_window_api() : parent->api);
     if (!plugin_gui->is_api_supported(impl_->plugin, api, floating))
         return fail(floating ? "The plugin cannot open a floating editor"
                              : "The plugin cannot embed its editor in this window");
@@ -975,7 +975,10 @@ bool ClapPluginInstance::open_editor(const NativeParent* parent, EditorHost& hos
     if (floating) {
         plugin_gui->suggest_title(impl_->plugin, impl_->plugin_name.c_str());
     } else {
-        (void)plugin_gui->set_scale(impl_->plugin, parent->scale);
+        // Cocoa measures in points, so its editors take no scale and their
+        // sizes are logical; X11, Wayland and Win32 count physical pixels.
+        measured.logical = parent->api == WindowApi::cocoa;
+        if (!measured.logical) (void)plugin_gui->set_scale(impl_->plugin, parent->scale);
         measured.resizable = plugin_gui->can_resize(impl_->plugin);
         std::uint32_t width = 0, height = 0;
         if (plugin_gui->get_size(impl_->plugin, &width, &height)) {

@@ -3,7 +3,7 @@
 // from the rendered E button and EDITOR bar; a knob turned in it heard in the
 // song and taken back by undo; the window surviving a rebuild, closing with
 // its instrument, and not coming back from a saved project; a VST3 editor
-// refused because offscreen has no X11 display.
+// refused because offscreen has no display.
 
 #include "verify/harness.hpp"
 
@@ -11,6 +11,7 @@
 
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/plugins/dynamic_library.hpp"
+#include "blokkily/plugins/plugin.hpp"
 
 #include <QCoreApplication>
 #include <QWindow>
@@ -265,10 +266,13 @@ void run_plugin_windows(VerifyContext& ctx) {
     check(editor_button != nullptr && editor_button->property("on").toBool());
     reached("plugin windows: EDITOR in the instrument panel opens the selected track's editor");
 
-    // Step 10: offscreen there is no X11 display, so the VST3 editor, which
-    // JUCE would put on X, is refused with a clear message, and nothing else
-    // is disturbed.
+    // Step 10: offscreen there is no display, so the VST3 editor, which JUCE
+    // would put on X (on Linux) or on the platform's own windowing, is
+    // refused with a clear message, and nothing else is disturbed.
     {
+        const QString refusal = blokkily::native_window_api() == blokkily::WindowApi::x11
+                                    ? QStringLiteral("Plugin window needs an X11 display")
+                                    : QStringLiteral("Plugin window needs a display");
         auto* e_vst3 = ctx.named("editor1");
         check(e_vst3 != nullptr && e_vst3->isEnabled());
         bring_into_view(e_vst3);
@@ -276,8 +280,8 @@ void run_plugin_windows(VerifyContext& ctx) {
             ctx.click_at(e_vst3, {e_vst3->width() / 2, e_vst3->height() / 2}, Qt::LeftButton);
         lay_out();
         check(!windows.isOpen(blokkily::track_instrument(1)));
-        check(controller.editorStatus() == "Plugin window needs an X11 display");
-        check(label("editorStatus") == "Plugin window needs an X11 display");
+        check(controller.editorStatus() == refusal);
+        check(label("editorStatus") == refusal);
         check(windows.isOpen(track0) && near(level_heard(1), 0.25F));
         reached("plugin windows: a VST3 editor is refused offscreen with a clear message");
     }

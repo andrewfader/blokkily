@@ -49,14 +49,30 @@ struct PluginEvent {
 
 // --- Native editor windows (implemented by item 2.6) -------------------------
 enum class WindowApi { x11, wayland, win32, cocoa };
+// The windowing a plugin's own top-level window uses on this platform: the
+// API a floating editor is asked for.
+constexpr WindowApi native_window_api() noexcept {
+#if defined(_WIN32)
+    return WindowApi::win32;
+#elif defined(__APPLE__)
+    return WindowApi::cocoa;
+#else
+    return WindowApi::x11;
+#endif
+}
 struct NativeParent {
     WindowApi api;
     std::uintptr_t handle;
     double scale = 1.0;
 };
+// An editor's size, and the size it later asks its window for. Physical
+// pixels unless `logical` says the editor measures in the platform's logical
+// units (Cocoa points, or a JUCE editor scaled for the screen), which the
+// host window takes as they are.
 struct EditorSize {
     std::uint32_t width = 0, height = 0;
     bool resizable = false;
+    bool logical = false;
 };
 // What an open editor asks of the window that hosts it. Called on the main
 // thread.

@@ -1,8 +1,9 @@
 #pragma once
 
 // What the CLAP fixture's editor (clap.gui) records, read by the tests and the
-// verify scenario through the exported blokkily_test_gui_report(). The editor
-// draws nothing: it records the calls the host makes, the window handle it
+// verify scenario through the exported blokkily_test_gui_report(). On X11 and
+// Wayland the editor draws nothing (on macOS and Windows it fills its parent
+// with #C8FF3C, test_clap_native.hpp): it records the calls the host makes, the window handle it
 // was given, and what its timer and descriptor callbacks received, so a host
 // can be checked without a display.
 
@@ -16,13 +17,14 @@ enum Report : int {
     set_parents,
     last_parent,       // the native window handle of the last set_parent
     last_parent_wayland, // 1 when the last parent used the Wayland API
+    last_parent_native, // 1 when the last parent used Cocoa or Win32
     last_floating,     // 1 when the last create asked for a floating window
     open_editors,      // editors created and not yet destroyed
     timer_ticks,       // on_timer calls
     fd_events,         // on_fd calls that found a byte to read
     timers_registered, // timers held with the host right now
     fds_registered,    // descriptors watched by the host right now
-    width,             // the size of the last editor, in physical pixels
+    width,             // the size of the last editor: physical pixels, or Cocoa points
     height,
     scale_percent,     // the last set_scale, times 100
     report_size

@@ -31,7 +31,7 @@ protected:
     }
 };
 
-int logical(std::uint32_t physical, qreal ratio) {
+int to_logical(std::uint32_t physical, qreal ratio) {
     return static_cast<int>(std::ceil(static_cast<double>(physical) / std::max<qreal>(ratio, 1.0)));
 }
 
@@ -44,6 +44,9 @@ struct PluginWindows::Editor final : blokkily::EditorHost {
     HostWindow* window = nullptr;   // owned; deleted later, never inside its own event
     std::uintptr_t x11_window = 0;  // owned, on owner->x11_; for Placement::xwayland
     Placement placement = Placement::embedded;
+    // The editor measures in logical units (Cocoa points, a JUCE editor on
+    // macOS or Windows), which the window takes as they are.
+    bool logical = false;
     int resizes = 0;
 
     ~Editor() override {
@@ -57,8 +60,8 @@ struct PluginWindows::Editor final : blokkily::EditorHost {
     void request_resize(std::uint32_t width, std::uint32_t height) override {
         ++resizes;
         if (window != nullptr && width > 0 && height > 0) {
-            const auto ratio = window->devicePixelRatio();
-            window->resize(logical(width, ratio), logical(height, ratio));
+            const auto ratio = logical ? 1.0 : window->devicePixelRatio();
+            window->resize(to_logical(width, ratio), to_logical(height, ratio));
         }
         // An X11 editor under XWayland is as many X pixels as it asks for.
         if (x11_window != 0) owner->x11_->resize(x11_window, width, height);
@@ -98,18 +101,30 @@ bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInsta
     if (isOpen(where)) return fail(QStringLiteral("The editor is already open"));
     if (!instance.has_editor()) return fail(QStringLiteral("This instrument has no editor"));
 
+    // What a Qt window's winId is on this platform: an X11 window on xcb (and,
+    // for verification, offscreen), a Wayland surface, an NSView on Cocoa,
+    // an HWND on Windows.
     const QString platform = QGuiApplication::platformName();
-    const bool x11_parent = platform == QLatin1String("xcb") || platform == QLatin1String("offscreen");
+    const bool offscreen = platform == QLatin1String("offscreen");
     const bool wayland_parent = platform.startsWith(QLatin1String("wayland"));
-    const WindowApi parent_api = wayland_parent ? WindowApi::wayland : WindowApi::x11;
-    const bool embed = (x11_parent || wayland_parent) &&
-                       instance.supports_editor(parent_api, false);
+    std::optional<WindowApi> parent_api;
+    if (platform == QLatin1String("xcb") || offscreen) parent_api = WindowApi::x11;
+    else if (wayland_parent) parent_api = WindowApi::wayland;
+    else if (platform == QLatin1String("cocoa")) parent_api = WindowApi::cocoa;
+    else if (platform == QLatin1String("windows")) parent_api = WindowApi::win32;
+    const bool embed = parent_api && instance.supports_editor(*parent_api, false);
     // On Wayland an X11 editor is embedded in a window of the host's own on
     // the X server, when there is one.
     const bool xwayland = wayland_parent && !embed &&
                           instance.supports_editor(WindowApi::x11, false) && x11() != nullptr;
-    if (!embed && !xwayland && !instance.supports_editor(WindowApi::x11, true))
-        return fail(QStringLiteral("Plugin window needs an X11 display"));
+    // A floating editor is the plugin's own top-level, in the platform's own
+    // windowing. Offscreen there is no screen for it, except an X server the
+    // adapter checks for itself.
+    const auto native = blokkily::native_window_api();
+    const bool floating_possible = !offscreen || native == WindowApi::x11;
+    if (!embed && !xwayland && !(floating_possible && instance.supports_editor(native, true)))
+        return fail(native == WindowApi::x11 ? QStringLiteral("Plugin window needs an X11 display")
+                                             : QStringLiteral("Plugin window needs a display"));
 
     auto editor = std::make_unique<Editor>();
     editor->owner = this;
@@ -123,16 +138,17 @@ bool PluginWindows::open(blokkily::ProcessorAddress where, blokkily::PluginInsta
         editor->window->setTitle(title);
         editor->window->resize(320, 200);
         editor->window->create();
-        const blokkily::NativeParent parent{parent_api,
+        const blokkily::NativeParent parent{*parent_api,
                                             static_cast<std::uintptr_t>(editor->window->winId()),
                                             editor->window->devicePixelRatio()};
         if (!instance.open_editor(&parent, *editor, &size, &reason)) {
             editor->instance = nullptr;
             return fail(QString::fromStdString(reason));
         }
+        editor->logical = size.logical;
         if (size.width > 0 && size.height > 0) {
-            const auto ratio = editor->window->devicePixelRatio();
-            editor->window->resize(logical(size.width, ratio), logical(size.height, ratio));
+            const auto ratio = size.logical ? 1.0 : editor->window->devicePixelRatio();
+            editor->window->resize(to_logical(size.width, ratio), to_logical(size.height, ratio));
         }
         auto* raw = editor.get();
         editor->window->on_close = [this, raw] { (void)close(raw->where); };

@@ -13,6 +13,9 @@
 //    adapter that needs a real display to embed (the VST3 adapter, through
 //    JUCE) refuses it with "Plugin window needs an X11 display", and one that
 //    only records it (the CLAP fixture) embeds.
+//  - On Cocoa (macOS) and Windows it is embedded in a Qt window made for it,
+//    whose winId is an NSView or an HWND. A floating editor is the plugin's
+//    own top-level there, except offscreen, where there is no screen for it.
 //  - On Wayland a CLAP editor that supports the Wayland API is embedded in a
 //    Qt Wayland surface. An X11 editor is embedded in an X11 top-level the
 //    host makes itself through XWayland (X11HostWindows), as it would be in a
@@ -21,7 +24,8 @@
 //    when it can; otherwise it is refused.
 //
 // The editor sizes itself in physical pixels, so the host window is made
-// that size divided by the device pixel ratio. An editor whose instance is
+// that size divided by the device pixel ratio, unless it says it measures in
+// logical units (Cocoa points, a JUCE editor on macOS or Windows). An editor whose instance is
 // destroyed (an instrument swapped, a project loaded) is told by the adapter,
 // and its window goes with it; one whose instance was adopted into a rebuilt
 // engine keeps its window.

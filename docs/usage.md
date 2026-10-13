@@ -145,8 +145,8 @@ show a row for each inversion.
 The browser scans standard CLAP and VST3 locations and labels each result by
 format. It also lists Sampler and Drum Sampler, which support keyed zones,
 loops, envelopes, kit pads and slicing. SoundFont instruments load SF2/SF3
-banks and let you choose presets. CLAP and VST3 plugins provide stereo ports and,
-on Linux, can open native editor windows; see the [display restrictions](limitations.md#plugin-windows).
+banks and let you choose presets. CLAP and VST3 plugins provide stereo ports and
+can open native editor windows; see the [display restrictions](limitations.md#plugin-windows).
 
 Ctrl+F focuses the browser's search field. Search matches letters in order
 across a name, maker or format: "fbs" finds "Fat Bass". Use the arrow keys to

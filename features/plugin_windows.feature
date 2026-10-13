@@ -113,14 +113,15 @@ Feature: Native plugin windows
     Then track 0's editor opens
 
   Scenario: A VST3 editor is refused without an X11 display
-    # core: vst3_refused; gate: "a VST3 editor is refused offscreen with a clear message"
+    # core: vst3_refused (Linux); gate: "a VST3 editor is refused offscreen with a clear message"
+    # (offscreen on macOS and Windows the refusal is "Plugin window needs a display")
     Given the VST3 fixture and no X11 display
     When the producer asks for its editor
     Then it is refused with "Plugin window needs an X11 display"
     And the instrument keeps playing
 
   Scenario: With no display at all, asking for a VST3 editor is refused at once
-    # nodisp
+    # nodisp (Linux)
     Given the VST3 fixture, and DISPLAY unset and then empty
     When its editor is asked for, embedded and floating
     Then each is refused with "Plugin window needs an X11 display" before JUCE touches X
@@ -142,6 +143,25 @@ Feature: Native plugin windows
     Then it is embedded in an X11 window the host made on the X server
     And the centre pixel grabbed from the server is the editor's #C8FF3C
     When the window manager asks that window to close
+    Then the editor closes
+
+  Scenario: On macOS and Windows a VST3 editor takes only the platform's own windows
+    # core: vst3_native_only (macOS and Windows)
+    Given the VST3 fixture on macOS or Windows
+    Then its editor can be embedded in, or float as, a Cocoa or Win32 window, and nothing else
+    When it is offered an X11 parent
+    Then it is refused with "The plugin cannot embed its editor in this window" before JUCE is asked
+    And the instrument keeps playing
+
+  Scenario: On macOS and Windows a plugin's editor is drawn inside the host window
+    # native: plugin_window_native_vst3, plugin_window_native_clap (macOS and Windows)
+    Given Qt on the platform's own windowing (cocoa or windows)
+    When the VST3 fixture's JUCE editor, or the CLAP fixture's editor, is opened
+    Then it is embedded in a host window whose winId is its NSView or HWND parent
+    And the platform finds the editor's own 320 x 200 view inside that window
+    And the host window is 320 x 200 logical units
+    And the centre pixel read back from the window is the editor's #C8FF3C
+    When the window's close button asks it to close
     Then the editor closes
 
   Scenario: An open editor costs the audio thread nothing

@@ -69,12 +69,18 @@ if(BLOKKILY_BUILD_TESTS)
             clap_timer
             clap_destroy_open
             gesture_step
-            survives_adoption
-            vst3_refused)
+            survives_adoption)
     # clap.posix-fd-support is a POSIX extension: Windows hosts watch no
     # descriptors, and the fixture opens none there.
     if(NOT WIN32)
         list(APPEND window_cases clap_posix_fd)
+    endif()
+    # A JUCE editor is an X11 window on Linux, refused without a display; on
+    # macOS and Windows it is a window of the platform's own.
+    if(UNIX AND NOT APPLE)
+        list(APPEND window_cases vst3_refused)
+    else()
+        list(APPEND window_cases vst3_native_only)
     endif()
     foreach(window_case IN LISTS window_cases)
         add_test(NAME plugin_windows_${window_case}
@@ -85,11 +91,16 @@ if(BLOKKILY_BUILD_TESTS)
     endforeach()
     set_property(TEST plugin_windows_gesture_step APPEND PROPERTY LABELS "audio;parameters")
     set_property(TEST plugin_windows_survives_adoption APPEND PROPERTY LABELS "engine")
-    set_property(TEST plugin_windows_vst3_refused APPEND PROPERTY LABELS "vst3")
+    if(UNIX AND NOT APPLE)
+        set_property(TEST plugin_windows_vst3_refused APPEND PROPERTY LABELS "vst3")
+    else()
+        set_property(TEST plugin_windows_vst3_native_only APPEND PROPERTY LABELS "vst3")
+    endif()
 
     # No display at all (DISPLAY unset, then empty): a VST3 editor is refused
     # at once rather than letting JUCE try ":0.0". Its own process, because it
-    # changes the environment.
+    # changes the environment. DISPLAY means nothing to JUCE elsewhere.
+    if(UNIX AND NOT APPLE)
     add_executable(blokkily_editor_nodisplay_check tests/editor_nodisplay_check.cpp)
     target_link_libraries(blokkily_editor_nodisplay_check PRIVATE blokkily_core)
     target_compile_definitions(blokkily_editor_nodisplay_check PRIVATE
@@ -99,6 +110,7 @@ if(BLOKKILY_BUILD_TESTS)
     set_tests_properties(blokkily_editor_nodisplay_check PROPERTIES
         LABELS "unit;integration;plugins;windows;vst3"
         ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
+    endif()
 
     # An open editor, its timer and its descriptor cost the audio thread
     # nothing.
@@ -159,6 +171,50 @@ if(BLOKKILY_BUILD_TESTS)
                 ENVIRONMENT "QT_QPA_PLATFORM=wayland;ALSA_CONFIG_PATH=/dev/null"
                 SKIP_RETURN_CODE 77
                 TIMEOUT 60)
+        endif()
+
+        # The same proof on macOS and Windows, on the platform's own windowing
+        # (Qt's cocoa and windows platforms): the VST3 and CLAP fixtures'
+        # editors embedded in a real window of the host, found inside it and
+        # read back by their pixels.
+        if(APPLE OR WIN32)
+            set(native_check_sources
+                tests/plugin_window_native_check.cpp
+                src/app/plugin_run_loop_qt.cpp
+                src/app/plugin_run_loop_qt.hpp
+                src/app/plugin_windows.cpp
+                src/app/plugin_windows.hpp
+                src/app/x11_host_window_none.cpp
+                src/app/x11_host_window.hpp)
+            if(APPLE)
+                list(APPEND native_check_sources tests/support/native_window_probe_mac.mm)
+            else()
+                list(APPEND native_check_sources tests/support/native_window_probe_win.cpp)
+            endif()
+            add_executable(blokkily_plugin_window_native_check ${native_check_sources})
+            target_include_directories(blokkily_plugin_window_native_check PRIVATE src/app tests)
+            target_link_libraries(blokkily_plugin_window_native_check PRIVATE
+                blokkily_core Qt6::Core Qt6::Gui ${CMAKE_DL_LIBS})
+            if(APPLE)
+                target_link_libraries(blokkily_plugin_window_native_check PRIVATE
+                    "-framework Cocoa")
+            else()
+                target_link_libraries(blokkily_plugin_window_native_check PRIVATE user32 gdi32)
+            endif()
+            set_target_properties(blokkily_plugin_window_native_check PROPERTIES AUTOMOC ON)
+            target_compile_definitions(blokkily_plugin_window_native_check PRIVATE
+                BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
+                BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
+                BLOKKILY_TEST_ARTIFACTS="${CMAKE_BINARY_DIR}/artifacts")
+            add_dependencies(blokkily_plugin_window_native_check
+                blokkily_test_clap blokkily_test_vst3_VST3)
+            foreach(native_format vst3 clap)
+                add_test(NAME plugin_window_native_${native_format}
+                    COMMAND blokkily_plugin_window_native_check ${native_format})
+                set_tests_properties(plugin_window_native_${native_format} PROPERTIES
+                    LABELS "integration;screenshot;display;plugins;windows;${native_format}"
+                    TIMEOUT 60)
+            endforeach()
         endif()
     endif()
 endif()

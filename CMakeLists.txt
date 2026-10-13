@@ -238,6 +238,16 @@ if(BLOKKILY_BUILD_TESTS)
     set(BLOKKILY_CLAP_FIXTURE_DIR "${CMAKE_BINARY_DIR}/clap-fixtures")
     add_library(blokkily_test_clap MODULE tests/fixtures/test_clap.cpp)
     target_include_directories(blokkily_test_clap PRIVATE third_party/clap/include)
+    # On macOS and Windows its editor is a real child view of the host's
+    # window, so a host window can be checked by its pixels.
+    if(APPLE)
+        enable_language(OBJCXX)
+        target_sources(blokkily_test_clap PRIVATE tests/fixtures/test_clap_native_mac.mm)
+        target_link_libraries(blokkily_test_clap PRIVATE "-framework Cocoa")
+    elseif(WIN32)
+        target_sources(blokkily_test_clap PRIVATE tests/fixtures/test_clap_native_win.cpp)
+        target_link_libraries(blokkily_test_clap PRIVATE user32 gdi32)
+    endif()
     set_target_properties(blokkily_test_clap PROPERTIES
         PREFIX "" SUFFIX ".clap" OUTPUT_NAME "blokkily-test"
         LIBRARY_OUTPUT_DIRECTORY "${BLOKKILY_CLAP_FIXTURE_DIR}"

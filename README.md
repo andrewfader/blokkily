@@ -81,7 +81,7 @@ keeps the layout consistent across desktops.
   options. A session with no instruments uses an installed SoundFont by
   default, preferring a General MIDI bank when available.
 - Load CLAP, VST3 and SoundFont instruments, or use the keyed and drum samplers.
-  On Linux, plugins can open their own editor windows.
+  Plugins open their own editor windows.
 - Mix with inserts (including the built-in EQ, delay, reverb and compressor),
   sends, returns, sidechains, auxiliary outputs, automation and modulation.
   Plugin latency is compensated in playback and export.
@@ -104,11 +104,10 @@ recording workflows.
 Blokkily is experimental. Comping and MIDI clock input are not implemented, and
 there is no MIDI output to hardware. MPE support varies by instrument format,
 and per-note expression has no editor. Large unwarped audio clips can stream
-from disk; warped clips and sampler samples still load into memory. Plugin
-editor windows open only on Linux: on X11, or on Wayland through XWayland or a
-CLAP plugin's own Wayland support. On macOS and Windows, plugins load and play
-but their editors do not open. Export always renders the arrangement, so record
-a launcher performance into it before exporting.
+from disk; warped clips and sampler samples still load into memory. On Linux,
+plugin editor windows need X11, or Wayland with XWayland or a CLAP plugin's own
+Wayland support. Export always renders the arrangement, so record a launcher
+performance into it before exporting.
 
 The [limitations reference](docs/limitations.md) covers these restrictions and
 others, including sidechains, modulation timing, sampler editing and stems.

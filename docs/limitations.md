@@ -69,12 +69,10 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Plugin windows
 
-Plugin editor windows open only on Linux. On X11 they embed in the host window.
-On Wayland a CLAP plugin with Wayland support embeds natively, and other
-editors embed through XWayland when an X server is available. On macOS and
-Windows, plugins load and play but their editors do not open yet: the CLAP
-host never selects the Cocoa or Win32 window API, and the VST3 editor needs
-X11. Offscreen verification
+Plugin editors embed in a window of the host's: an NSView on macOS, an HWND
+on Windows, and an X11 window on Linux. On a Wayland desktop a CLAP plugin with
+Wayland support embeds natively, and other editors embed through XWayland when
+an X server is available; without one they are refused. Offscreen verification
 checks the embedding lifecycle; a separate display gate checks real VST3
 pixels when an X server is available. See
 [verification](verification.md) for display-gate requirements and skips.
