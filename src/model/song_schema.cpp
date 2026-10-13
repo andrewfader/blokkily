@@ -438,6 +438,37 @@ bool Song::remove_insert(BusKind kind, std::size_t bus, std::size_t slot) {
             return address.kind == kind && address.bus == bus;
         },
         static_cast<std::int32_t>(slot));
+    // Step locks on the removed effect go with it; those on the effects after
+    // it follow them to their new slots. A track's parts are the patterns
+    // its sections give it, or, in a song without sections, the ones its
+    // clips play.
+    if (kind == BusKind::track) {
+        const auto removed = static_cast<std::int32_t>(slot);
+        for (std::size_t index = 0; index < patterns.size(); ++index) {
+            const bool owned =
+                !sections.empty()
+                    ? patterns[index].track == bus
+                    : std::any_of(clips.begin(), clips.end(), [&](const Clip& clip) {
+                          return clip.track == bus && clip.pattern == index;
+                      });
+            if (!owned) continue;
+            auto& pattern = patterns[index].pattern;
+            // A copy: update() may move the events it walks.
+            const std::vector<Trigger> triggers(pattern.events().begin(), pattern.events().end());
+            for (auto trigger : triggers) {
+                const auto before = trigger.locks.size();
+                std::erase_if(trigger.locks,
+                              [removed](const ParameterLock& lock) { return lock.slot == removed; });
+                bool moved = trigger.locks.size() != before;
+                for (auto& lock : trigger.locks)
+                    if (lock.slot > removed) {
+                        --lock.slot;
+                        moved = true;
+                    }
+                if (moved) (void)pattern.update(trigger.id, trigger);
+            }
+        }
+    }
     return true;
 }
 

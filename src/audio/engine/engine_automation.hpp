@@ -97,6 +97,11 @@ struct ParameterLaneTimeline {
     std::int32_t parameter = 0;
     AutomationMode mode = AutomationMode::read;
     std::vector<TimedValue> points;
+    // A lane of step locks on an insert effect: its values are modulation
+    // offsets (PluginEvent::Type::parameter_modulation) when the locks are,
+    // and it is no producer's lane, so a gesture never holds it.
+    bool modulation = false;
+    bool locks = false;
     // Callback only: the plugin's own gesture is holding this parameter, so
     // its lane is not played (touch: while held; latch: until the stop).
     mutable bool held = false;
@@ -126,9 +131,13 @@ struct ArrangementAutomation {
 };
 
 // Control thread. Compiles the automation of `song` for an arrangement
-// `song_samples` long under `clock`.
+// `song_samples` long under `clock`. `arranged` is what each track's clips
+// schedule (entry t for track t): a step lock on one of the track's insert
+// effects becomes a point of a lane of that insert, held from the step on, as
+// a lock on its instrument is.
 void compile_automation(ArrangementAutomation& target, const Song& song, const TickClock& clock,
-                        std::uint64_t song_samples);
+                        std::uint64_t song_samples,
+                        std::span<const ScheduledEvents> arranged = {});
 
 // What chunk stage 9 hands the mix: the strip gain at the chunk's first and
 // last frame (linear in between), and what the sends take.

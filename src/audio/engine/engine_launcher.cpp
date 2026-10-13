@@ -342,6 +342,9 @@ void compile_launcher(ArrangementLauncher& target, const Song& song, std::uint64
             const auto rendered = scheduler.render(pattern, loop, seed);
             // Parameters before notes on a tick, as the timeline orders them.
             for (const auto& parameter : rendered.parameters) {
+                // A launched cell plays its instrument's locks only; an
+                // insert's locks are heard from the arrangement.
+                if (parameter.slot >= 0) continue;
                 const auto type = parameter.kind == ParameterLock::Kind::modulation
                                       ? PluginEvent::Type::parameter_modulation
                                       : PluginEvent::Type::parameter_value;

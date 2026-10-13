@@ -344,8 +344,12 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     if (samples == 0) return fail("song has no length");
 
     target.timelines.resize(song.tracks.size());
+    // What each track's clips schedule: its timeline, and the step locks on
+    // its insert effects, which its automation takes (below).
+    std::vector<ScheduledEvents> arranged(song.tracks.size());
     for (std::size_t index = 0; index < song.tracks.size(); ++index) {
-        target.timelines[index] = compile_timeline(song.arrange(index, seed), clock, samples - 1);
+        arranged[index] = song.arrange(index, seed);
+        target.timelines[index] = compile_timeline(arranged[index], clock, samples - 1);
         if (!timeline_density_supported(target.timelines[index]))
             return fail("more than 256 simultaneous events on one track");
     }
@@ -366,7 +370,7 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     engine::compile_clip_regions(target.clips, song, clock, assets, renditions, streams_.get());
     // Automation: strip envelopes and parameter lanes, placed by the same
     // clock (item 3.1).
-    engine::compile_automation(target.automation, song, clock, samples);
+    engine::compile_automation(target.automation, song, clock, samples, arranged);
     // The click's beats, placed by the same clock (item 3.7).
     engine::compile_clicks(target.clicks, song.meter, clock, song.length(), samples);
     // Keys, modulators and the render order (waves 5.1 and 5.2). A target's

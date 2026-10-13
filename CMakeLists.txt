@@ -476,6 +476,7 @@ foreach(blokkily_feature
         per_stem_editing
         sequencer_workflow
         sequencer_fidelity
+        insert_locks
         tutorial
         mcp
         long_song)

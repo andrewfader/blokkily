@@ -18,6 +18,7 @@ std::span<const RecordModule* const> record_modules() {
         &core_records(),
         &timebase_records(),
         &chord_velocity_records(),
+        &lock_target_records(),
         &audio_records(),
         &effects_records(),
         &input_records(),

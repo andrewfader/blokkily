@@ -205,6 +205,53 @@ Rectangle {
                     onClicked: patternModel.clearSelectedLock()
                 }
             }
+            // What the lock moves: the track's instrument or one of its
+            // insert effects, and which of its parameters.
+            RowLayout {
+                id: lockTargetRow
+                Layout.fillWidth: true; spacing: 6
+                readonly property int slot: patternModel.selected.lockSlot !== undefined
+                                            ? patternModel.selected.lockSlot : -1
+                readonly property var targets: songModel.lockTargets(songModel.selectedTrack)
+                readonly property var parameters:
+                    appController.insertParameters("track", songModel.selectedTrack, slot)
+                function parameterNames() {
+                    var names = []
+                    for (var i = 0; i < parameters.length; ++i) names.push(parameters[i].name)
+                    return names
+                }
+                Label { text: "ON"; color: Theme.muted; font.pixelSize: 10
+                    font.letterSpacing: 1 }
+                Picker {
+                    objectName: "lockTarget"
+                    implicitHeight: 22
+                    choices: lockTargetRow.targets
+                    value: lockTargetRow.slot + 1 < lockTargetRow.targets.length
+                           ? lockTargetRow.targets[lockTargetRow.slot + 1] : ""
+                    onPicked: name => {
+                        const slot = lockTargetRow.targets.indexOf(name) - 1
+                        const parameters =
+                            appController.insertParameters("track", songModel.selectedTrack, slot)
+                        patternModel.setSelectedLockTarget(
+                            slot, parameters.length > 0 ? parameters[0].id : 0,
+                            parameters.length > 0 ? parameters[0].name : "")
+                    }
+                }
+                Picker {
+                    objectName: "lockParameter"
+                    Layout.fillWidth: true
+                    implicitHeight: 22
+                    choices: lockTargetRow.parameterNames()
+                    value: patternModel.selected.hasLock === true
+                           ? patternModel.selected.lockName : "—"
+                    onPicked: name => {
+                        for (var i = 0; i < lockTargetRow.parameters.length; ++i)
+                            if (lockTargetRow.parameters[i].name === name)
+                                patternModel.setSelectedLockTarget(
+                                    lockTargetRow.slot, lockTargetRow.parameters[i].id, name)
+                    }
+                }
+            }
             ValueDial {
                 Layout.fillWidth: true
                 label: "VALUE"; from: 0; to: 1

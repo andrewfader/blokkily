@@ -30,8 +30,11 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Parameter locks and routing
 
-- Step parameter locks target the track instrument. Insert parameters use
-  automation lanes; insert-targeted step locks are not supported in this release.
+- Step locks can target the track's instrument or its insert effects, not a
+  return or the master bus. A launched scene cell plays its instrument's locks
+  only.
+- A step lock sets its parameter from that step on. Removing a lock leaves the
+  parameter where the last lock put it until the project is reloaded.
 - Only the first auxiliary input of a CLAP or VST3 effect receives a sidechain
   key, as a stereo or mono signal. Other sidechain inputs receive silence.
 - VST3 extra buses are used only with a stereo main bus.

@@ -103,6 +103,8 @@ struct RecordModule {
 
 // Chord velocity and voice length: voicevel, voicelen (records_chord_velocity.cpp).
 [[nodiscard]] const RecordModule& chord_velocity_records();
+// Step locks on insert effects: lockslot (records_lock_targets.cpp).
+[[nodiscard]] const RecordModule& lock_target_records();
 
 // Program schema (item 1.5): audiofile, audioclip; return, insert, send;
 // input, record-offset; automode, automation. Each record naming a track or a

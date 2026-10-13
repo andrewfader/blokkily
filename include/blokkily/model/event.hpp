@@ -55,12 +55,17 @@ struct Chord {
 // A per-step parameter change. Automation and modulation stay distinct all the
 // way to the plugin: automation sets the parameter's value, modulation offsets
 // it without disturbing the value automation last wrote.
+// A step's parameter lock: a parameter of the step's track set (automation)
+// or offset (modulation) from the step on. `slot` is which processor of the
+// track: -1 its instrument, 0.. one of its insert effects in chain order, as
+// ProcessorAddress counts them.
 struct ParameterLock {
     enum class Kind { automation, modulation };
     std::string parameter_id;
     std::int32_t parameter_index = 0;
     double value = 0.0;
     Kind kind = Kind::automation;
+    std::int32_t slot = -1;
 };
 
 // A controller movement in a pattern (wave 4.1): the pitch wheel, a control
@@ -200,6 +205,7 @@ struct ScheduledParameter {
     std::int32_t index;
     double value;
     ParameterLock::Kind kind;
+    std::int32_t slot = -1;   // the lock's processor: -1 the instrument, 0.. an insert
 };
 
 struct ScheduledContinuous {

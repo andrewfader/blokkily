@@ -369,6 +369,9 @@ public:
     bool addInsert(blokkily::BusKind kind, int bus, const blokkily::PluginSlot& plugin);
     bool addInsertToRack(const blokkily::PluginSlot& plugin);
     Q_INVOKABLE bool removeInsert(const QString& kind, int bus, int slot);
+    // What a step lock on `track` can target, in slot order: "INSTRUMENT"
+    // (slot -1), then each insert effect as "FX 1 · <name>" (slot 0..).
+    Q_INVOKABLE QStringList lockTargets(int track) const;
     Q_INVOKABLE int addReturn();
     Q_INVOKABLE bool removeReturn(int bus);
     // Mixer moves: live on the running engine, never a rebuild.

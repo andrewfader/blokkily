@@ -270,6 +270,15 @@ bool SongModel::addInsertToRack(const blokkily::PluginSlot& plugin) {
     return addInsert(where.kind, static_cast<int>(where.bus), plugin);
 }
 
+QStringList SongModel::lockTargets(int track) const {
+    QStringList targets{QStringLiteral("INSTRUMENT")};
+    if (track < 0 || static_cast<std::size_t>(track) >= song_.tracks.size()) return targets;
+    const auto& inserts = song_.tracks[static_cast<std::size_t>(track)].inserts;
+    for (std::size_t index = 0; index < inserts.size(); ++index)
+        targets.push_back(QString("FX %1 · %2").arg(index + 1).arg(effectLabel(inserts[index].plugin)));
+    return targets;
+}
+
 bool SongModel::removeInsert(const QString& kind, int bus, int slot) {
     const auto parsed = bus_kind_from(kind);
     if (!parsed) return false;

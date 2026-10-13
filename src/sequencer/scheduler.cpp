@@ -61,7 +61,7 @@ ScheduledEvents Scheduler::render(
         // before the note it shapes sounds.
         for (const auto& lock : event.locks)
             result.parameters.push_back({event.id, start, lock.parameter_index,
-                                         lock.value, lock.kind});
+                                         lock.value, lock.kind, lock.slot});
         if (const auto* note = std::get_if<Note>(&event.musical_data)) {
             emit_note(result, event, *note, start, event.duration, 0);
             continue;

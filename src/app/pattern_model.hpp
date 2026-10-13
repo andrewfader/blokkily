@@ -200,7 +200,14 @@ public:
     // Ticks between one voice of the selected chord and the next, lowest
     // first, 0 to 60 (half a step). Nothing for a single note.
     Q_INVOKABLE void setSelectedStrum(int ticks);
+    // Sets the selected step's lock to `value` (0..1) of parameter `index`,
+    // as automation or as modulation. A lock already there keeps what it
+    // targets (setSelectedLockTarget); a new one locks the instrument.
     Q_INVOKABLE void setSelectedLock(int index, double value, bool modulation);
+    // Points the selected step's lock at parameter `parameter` (named `name`)
+    // of processor `slot` of its track: -1 the instrument, 0.. an insert
+    // effect. A step with no lock gains one at 0.5, as automation.
+    Q_INVOKABLE void setSelectedLockTarget(int slot, int parameter, const QString& name);
     Q_INVOKABLE void clearSelectedLock();
 
     const blokkily::Pattern& pattern() const;

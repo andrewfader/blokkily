@@ -127,8 +127,11 @@ void transpose_trigger(blokkily::Trigger& trigger, int semitones) {
 QString lock_text(const blokkily::Trigger& trigger) {
     if (trigger.locks.empty()) return QStringLiteral("---");
     const auto& lock = trigger.locks.front();
-    // Tracker-style effect column: kind, parameter index, then the value.
-    return QString("%1%2%3")
+    // Tracker-style effect column: the insert it locks (F1, F2.. for the
+    // track's first, second effect; nothing for the instrument), its kind,
+    // parameter index, then the value.
+    return QString("%1%2%3%4")
+        .arg(lock.slot >= 0 ? QString("F%1").arg(lock.slot + 1) : QString())
         .arg(lock.kind == blokkily::ParameterLock::Kind::modulation ? "M" : "A")
         .arg(lock.parameter_index, 1, 16)
         .arg(hex2(qRound(lock.value * 127.0)));
@@ -532,7 +535,11 @@ QVariantMap PatternModel::selected() const {
         detail["lockIndex"] = lock.parameter_index;
         detail["lockValue"] = lock.value;
         detail["lockModulation"] = lock.kind == blokkily::ParameterLock::Kind::modulation;
+        detail["lockSlot"] = lock.slot;
+        detail["lockName"] = QString::fromStdString(lock.parameter_id);
     } else {
+        detail["lockSlot"] = -1;
+        detail["lockName"] = QString();
         detail["lockIndex"] = 0;
         detail["lockValue"] = 0.5;
         detail["lockModulation"] = false;
@@ -1217,10 +1224,30 @@ void PatternModel::setSelectedPlayOnLoop(int loop) {
 
 void PatternModel::setSelectedLock(int index, double value, bool modulation) {
     mutate(selected_step_, [index, value, modulation](blokkily::Trigger& trigger) {
-        trigger.locks = {{"level", qBound(0, index, 15), qBound(0.0, value, 1.0),
-                          modulation ? blokkily::ParameterLock::Kind::modulation
-                                     : blokkily::ParameterLock::Kind::automation}};
+        const auto kind = modulation ? blokkily::ParameterLock::Kind::modulation
+                                     : blokkily::ParameterLock::Kind::automation;
+        const auto bounded = qBound(0.0, value, 1.0);
+        const auto parameter = std::max(0, index);
+        // What the lock targets stays: a turn of its value is not a new lock.
+        if (!trigger.locks.empty() && trigger.locks.front().parameter_index == parameter) {
+            auto& lock = trigger.locks.front();
+            trigger.locks = {{lock.parameter_id, parameter, bounded, kind, lock.slot}};
+            return;
+        }
+        trigger.locks = {{"level", parameter, bounded, kind}};
     }, QStringLiteral("lock"));
+}
+
+void PatternModel::setSelectedLockTarget(int slot, int parameter, const QString& name) {
+    mutate(selected_step_, [slot, parameter, &name](blokkily::Trigger& trigger) {
+        blokkily::ParameterLock lock;
+        if (!trigger.locks.empty()) lock = trigger.locks.front();
+        else lock.value = 0.5;
+        lock.slot = std::max(-1, slot);
+        lock.parameter_index = std::max(0, parameter);
+        lock.parameter_id = name.isEmpty() ? std::string("level") : name.toStdString();
+        trigger.locks = {lock};
+    });
 }
 
 void PatternModel::clearSelectedLock() {

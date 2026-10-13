@@ -97,7 +97,7 @@ ProcessorLanes& processor_entry(ArrangementAutomation& target, ProcessorAddress 
 } // namespace
 
 void compile_automation(ArrangementAutomation& target, const Song& song, const TickClock& clock,
-                        std::uint64_t song_samples) {
+                        std::uint64_t song_samples, std::span<const ScheduledEvents> arranged) {
     const auto tracks = song.tracks.size();
     target.song_samples = song_samples;
     target.strips.assign(tracks, StripEnvelope{});
@@ -162,6 +162,44 @@ void compile_automation(ArrangementAutomation& target, const Song& song, const T
             target.any_strip = true;
         }
     }
+
+    // Step locks on a track's insert effects: one lane per locked parameter
+    // and kind of each insert, a point on each step that locks it. They play
+    // whatever the track's automation mode, as instrument locks do.
+    for (std::size_t track = 0; track < arranged.size() && track < tracks; ++track) {
+        for (const auto& parameter : arranged[track].parameters) {
+            if (parameter.slot < 0) continue;
+            const bool modulation = parameter.kind == ParameterLock::Kind::modulation;
+            auto& processor = processor_entry(
+                target, {BusKind::track, static_cast<std::uint32_t>(track), parameter.slot});
+            auto lane = std::find_if(processor.lanes.begin(), processor.lanes.end(),
+                                     [&](const ParameterLaneTimeline& existing) {
+                                         return existing.locks &&
+                                                existing.parameter == parameter.index &&
+                                                existing.modulation == modulation;
+                                     });
+            if (lane == processor.lanes.end()) {
+                ParameterLaneTimeline created;
+                created.parameter = parameter.index;
+                created.mode = AutomationMode::read;
+                created.modulation = modulation;
+                created.locks = true;
+                processor.lanes.push_back(std::move(created));
+                lane = processor.lanes.end() - 1;
+            }
+            const auto sample = std::min(
+                sample_for_tick(clock, static_cast<double>(parameter.start)),
+                song_samples > 0 ? song_samples - 1 : 0);
+            lane->points.push_back({sample, parameter.value});
+        }
+    }
+    for (auto& processor : target.processors)
+        for (auto& lane : processor.lanes)
+            if (lane.locks)
+                std::stable_sort(lane.points.begin(), lane.points.end(),
+                                 [](const TimedValue& a, const TimedValue& b) {
+                                     return a.sample < b.sample;
+                                 });
 
     // Each processor's lanes merged into one event list in sample order.
     for (auto& processor : target.processors) {
@@ -271,9 +309,14 @@ std::size_t automation_events(const ProcessorLanes& processor, std::uint64_t pos
             const auto after = std::upper_bound(
                 lane.points.begin(), lane.points.end(), position,
                 [](std::uint64_t sample, const TimedValue& value) { return sample < value.sample; });
+            // Before its first lock a parameter is the processor's own: a
+            // lock lane, unlike an envelope, says nothing there.
+            if (lane.locks && after == lane.points.begin()) continue;
             const double value =
                 after == lane.points.begin() ? lane.points.front().value : (after - 1)->value;
-            out[count++] = {PluginEvent::Type::parameter_value, 0, lane.parameter, value};
+            out[count++] = {lane.modulation ? PluginEvent::Type::parameter_modulation
+                                            : PluginEvent::Type::parameter_value,
+                            0, lane.parameter, value};
         }
     }
     const auto& values = processor.event_values;
@@ -285,7 +328,8 @@ std::size_t automation_events(const ProcessorLanes& processor, std::uint64_t pos
             // An event that could not be delivered in its own chunk (the
             // budget was full) arrives at the start of the next.
             const auto offset = timed.sample > position ? timed.sample - position : 0;
-            out[count++] = {PluginEvent::Type::parameter_value,
+            out[count++] = {lane.modulation ? PluginEvent::Type::parameter_modulation
+                                            : PluginEvent::Type::parameter_value,
                             static_cast<std::uint32_t>(offset), lane.parameter, timed.value};
         }
         ++processor.cursor;
@@ -298,7 +342,7 @@ void note_parameter_edit(const ArrangementAutomation& lanes, ProcessorAddress wh
     const auto* processor = lanes_for(lanes, where);
     if (processor == nullptr) return;
     for (const auto& lane : processor->lanes) {
-        if (lane.parameter != edit.parameter) continue;
+        if (lane.locks || lane.parameter != edit.parameter) continue;
         if (lane.mode == AutomationMode::touch)
             lane.held = edit.kind != ParameterEdit::Kind::end;
         else if (lane.mode == AutomationMode::latch)
