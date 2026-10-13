@@ -22,6 +22,11 @@ env:
   # Pinned to an upstream commit and checked, so the fixture cannot drift.
   TEST_SF2_URL: https://raw.githubusercontent.com/free-wheeling/freewheeling/2ec066ee67614300a8b3dc61de7d059971883747/data/basic.sf2
   TEST_SF2_SHA256: 2e6cf4a8a1d78e6be3b00a0c22358d3ceec8c5a27a000714e65215e3f9b1d15a
+  # A real third-party plugin (Dexed, GPL-3.0), pinned and checked, whose
+  # CLAP and VST3 editors are opened in a real window after the suite.
+  DEXED_URL: https://github.com/asb2m10/dexed/releases/download/v1.0.1
+  DEXED_MACOS_SHA256: 4269448bc1312424cafd29aff615d891bc5905ebfc54b42ce70c56b9b10dc401
+  DEXED_WINDOWS_SHA256: 1f118445f2c5c411636bb41ddf8b456db09af74cd38f9ede8a93a01020505f05
 
 jobs:
   windows:
@@ -89,6 +94,17 @@ jobs:
 
       - name: Run Test Suite
         run: ctest --test-dir build --output-on-failure 2>&1 | tee test.log
+
+      # Dexed's own editors, as a producer installs it, embedded in the host
+      # window through the application's window code: it must play, draw and
+      # close. Not a ctest test, which may not use the network.
+      - name: Third-party plugin editors
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors -o dexed.zip "$DEXED_URL/Dexed-1.0.1-win.zip"
+          echo "$DEXED_WINDOWS_SHA256  dexed.zip" | sha256sum -c -
+          mkdir -p dexed && 7z x dexed.zip -odexed > /dev/null
+          ./build/blokkily_plugin_window_native_check.exe third-party CLAP "$(cygpath -m "$PWD/dexed/Dexed.clap")" 2>&1 | tee -a thirdparty.log
+          ./build/blokkily_plugin_window_native_check.exe third-party VST3 "$(cygpath -m "$PWD/dexed/Dexed.vst3")" 2>&1 | tee -a thirdparty.log
 
       # The failing step's errors as annotations, readable from the run page
       # and the checks API without downloading the full log.
@@ -169,6 +185,17 @@ jobs:
 
       - name: Run Test Suite
         run: ctest --test-dir build --output-on-failure 2>&1 | tee test.log
+
+      # Dexed's own editors, as a producer installs it, embedded in the host
+      # window through the application's window code: it must play, draw and
+      # close. Not a ctest test, which may not use the network.
+      - name: Third-party plugin editors
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors -o dexed.zip "$DEXED_URL/Dexed-1.0.1-macOS.zip"
+          echo "$DEXED_MACOS_SHA256  dexed.zip" | shasum -a 256 -c -
+          mkdir -p dexed && ditto -x -k dexed.zip dexed
+          ./build/blokkily_plugin_window_native_check third-party CLAP "$PWD/dexed/Dexed.clap" 2>&1 | tee -a thirdparty.log
+          ./build/blokkily_plugin_window_native_check third-party VST3 "$PWD/dexed/Dexed.vst3" 2>&1 | tee -a thirdparty.log
 
       # The failing step's errors as annotations, readable from the run page
       # and the checks API without downloading the full log.

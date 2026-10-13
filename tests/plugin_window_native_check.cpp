@@ -15,6 +15,7 @@
 //
 // features/plugin_windows.feature:
 //   Scenario: On macOS and Windows a plugin's editor is drawn inside the host window
+//   Scenario: A real third-party plugin plays and draws its editor on macOS and Windows (CI)
 //
 // Writes plugin-window-<platform>-<format>.png beside the other verification
 // screenshots.
@@ -24,6 +25,7 @@
 #include "fixtures/test_clap_gui.hpp"
 #include "support/native_window_probe.hpp"
 
+#include "blokkily/plugins/clap_catalog.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
 #include "blokkily/plugins/dynamic_library.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
@@ -39,6 +41,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <span>
+#include <vector>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -79,9 +84,135 @@ std::array<long, blokkily::test_clap_gui::report_size> clap_report() {
     return values;
 }
 
+// `third-party <CLAP|VST3> <path>`: a plugin nobody wrote for this suite,
+// installed from its own release, rather than a fixture. It must load, play a
+// note, and open its editor inside the host window at a real size, drawing
+// something other than one flat colour, and its window's close button must
+// close it. Run by CI with a downloaded plugin; never by ctest, which may
+// not depend on the network or on installed plugins.
+int third_party(const std::string& format, const std::string& path) {
+    const QString platform = QGuiApplication::platformName();
+    QtPluginRunLoop run_loop;
+    const blokkily::ScopedPluginRunLoop installed(run_loop);
+    std::string error;
+    std::unique_ptr<blokkily::PluginInstance> plugin;
+    if (format == "VST3") {
+        plugin = blokkily::Vst3PluginInstance::create(path, 0, &error);
+    } else if (format == "CLAP") {
+        const auto found = blokkily::ClapCatalog{}.scan_file(path);
+        if (found.plugins.empty()) {
+            std::cerr << "FAIL: the CLAP at " << path << " describes no plugin\n";
+            return 1;
+        }
+        std::cout << "CLAP plugin " << found.plugins.front().id << " ("
+                  << found.plugins.front().name << ")\n";
+        plugin = blokkily::ClapPluginInstance::create(path, found.plugins.front().id, &error);
+    }
+    if (!plugin) {
+        std::cerr << "FAIL: the " << format << " at " << path << " must instantiate: " << error << '\n';
+        return 1;
+    }
+    int status = 0;
+    const auto fail = [&status](const std::string& message) {
+        std::cerr << "FAIL: " << message << '\n';
+        status = 1;
+    };
+    // It plays: a held note, a few blocks, a peak above silence.
+    if (!plugin->activate(48000.0, 1, 512)) fail("the plugin must activate");
+    {
+        std::vector<float> left(512), right(512);
+        float peak = 0.0F;
+        const blokkily::PluginEvent note{blokkily::PluginEvent::Type::note_on, 0, 60, 1.0};
+        for (int block = 0; block < 40; ++block) {
+            std::fill(left.begin(), left.end(), 0.0F);
+            std::fill(right.begin(), right.end(), 0.0F);
+            if (block == 0) plugin->process({left, right}, std::span{&note, 1});
+            else plugin->process({left, right}, {});
+            for (const float sample : left) peak = std::max(peak, std::abs(sample));
+        }
+        std::cout << "a held C4 peaks at " << peak << '\n';
+        if (!(peak > 1e-4F)) fail("a held note must be heard");
+    }
+    {
+        PluginWindows windows;
+        const auto where = blokkily::track_instrument(0);
+        QString reason;
+        if (!windows.open(where, *plugin, QStringLiteral("third-party native check"), &reason)) {
+            std::cerr << "FAIL: the editor did not open: " << reason.toStdString() << '\n';
+            return 1;
+        }
+        QWindow* window = windows.window(where);
+        if (window == nullptr || windows.placement(where) != PluginWindows::Placement::embedded) {
+            std::cerr << "FAIL: the editor must be embedded in a window of the host\n";
+            return 1;
+        }
+        const WId host = window->winId();
+        std::vector<QSize> inside;
+        QImage seen;
+        int colours = 0;
+        QElapsedTimer waited;
+        waited.start();
+        while (waited.elapsed() < 15000) {
+            run_events(200);
+            if (!window->isExposed()) continue;
+            inside = native_probe::children(host);
+            for (const auto& [means, image] : native_probe::grab(host)) {
+                if (image.isNull()) continue;
+                // How many colours a sample of the image holds: an editor draws
+                // more than one.
+                std::vector<QRgb> found;
+                for (int y = 0; y < image.height(); y += std::max(1, image.height() / 40))
+                    for (int x = 0; x < image.width(); x += std::max(1, image.width() / 40)) {
+                        const auto pixel = image.pixel(x, y);
+                        if (std::find(found.begin(), found.end(), pixel) == found.end())
+                            found.push_back(pixel);
+                    }
+                if (static_cast<int>(found.size()) > colours) {
+                    colours = static_cast<int>(found.size());
+                    seen = image;
+                    std::cout << "grab by " << means.toStdString() << ": " << image.width()
+                              << "x" << image.height() << ", " << colours << " colours\n";
+                }
+            }
+            if (colours > 8 && !inside.empty()) break;
+        }
+        const QString directory = QStringLiteral(BLOKKILY_TEST_ARTIFACTS);
+        QDir{}.mkpath(directory);
+        const QString file = directory + QStringLiteral("/plugin-window-%1-thirdparty-%2.png")
+                                             .arg(platform, QString::fromStdString(format).toLower());
+        if (!seen.isNull()) (void)seen.save(file, "PNG");
+        std::cout << "host window logical " << window->width() << "x" << window->height()
+                  << "; " << inside.size() << " native view(s) inside:";
+        for (const auto& size : inside) std::cout << ' ' << size.width() << 'x' << size.height();
+        std::cout << "; written to " << file.toStdString() << '\n';
+        const bool sized = std::any_of(inside.begin(), inside.end(), [](const QSize& size) {
+            return size.width() >= 100 && size.height() >= 80;
+        });
+        if (!sized) fail("the editor's own view, at least 100x80, must be inside the host window");
+        if (window->width() < 100 || window->height() < 80)
+            fail("the host window must take the editor's size");
+        if (colours <= 8) fail("the editor must draw something other than a flat colour");
+        if (!native_probe::request_close(host)) fail("the close request could not be made");
+        QElapsedTimer closing;
+        closing.start();
+        while (windows.isOpen(where) && closing.elapsed() < 3000) run_events(50);
+        if (windows.isOpen(where) || plugin->editor_open())
+            fail("closing the window must close the editor");
+    }
+    plugin.reset();
+    std::cout << (status == 0 ? "PASS" : "FAIL") << ": the " << format << " at " << path
+              << " plays and draws its editor inside the host's " << platform.toStdString()
+              << " window\n";
+    return status;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 4 && std::strcmp(argv[1], "third-party") == 0) {
+        QGuiApplication app(argc, argv);
+        return third_party(argv[2], argv[3]);
+    }
     const bool clap = argc > 1 && std::strcmp(argv[1], "clap") == 0;
     const bool vst3 = argc > 1 && std::strcmp(argv[1], "vst3") == 0;
     if (!clap && !vst3) {

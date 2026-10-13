@@ -9,7 +9,12 @@
 
 namespace blokkily::dynamic_library {
 
-// The library at `path`, loaded if it is not already; nullptr on failure.
+// The file to load for `path`: `path` itself, or, for a macOS bundle (a
+// directory such as Dexed.clap holding Contents/MacOS), the executable inside
+// it, named as the bundle is or else the only file there.
+[[nodiscard]] std::filesystem::path module_path(const std::filesystem::path& path);
+// The library at `path` (or, for a bundle, the executable inside it), loaded
+// if it is not already; nullptr on failure.
 [[nodiscard]] void* open(const std::filesystem::path& path);
 // The library at `path` only if the process has already loaded it; this
 // never loads it. nullptr when it is not loaded.

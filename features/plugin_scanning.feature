@@ -41,3 +41,12 @@ Feature: Discover installed plugins without risking the interface
     Given more instruments than the browser can show at once
     When the producer scrolls the browser
     Then a scrollbar says where in the list they are
+
+  # clap_bundle (a regression: on macOS a .clap is a bundle directory, which
+  # neither scan nor the loader accepted, so no installed CLAP plugin there
+  # could be found or loaded)
+  Scenario: A CLAP plugin in a macOS bundle is found, loaded and played
+    Given the CLAP fixture laid out as Blokkily Bundle.clap/Contents/MacOS/Blokkily Bundle
+    When the plugin folders are scanned
+    Then the bundle is listed once, as the bundle, and its plugin is described
+    And it is instantiated from the bundle's path and plays a note

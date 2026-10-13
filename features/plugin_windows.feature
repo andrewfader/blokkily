@@ -164,6 +164,17 @@ Feature: Native plugin windows
     When the window's close button asks it to close
     Then the editor closes
 
+  Scenario: A real third-party plugin plays and draws its editor on macOS and Windows
+    # CI only, in the Platforms workflow's macOS and Windows legs: it downloads
+    # Dexed 1.0.1 (pinned, checksum checked), so it is not a ctest test, which
+    # may not use the network. `blokkily_plugin_window_native_check
+    # third-party <CLAP|VST3> <path>`.
+    Given Dexed's own CLAP and VST3, installed from its release
+    When each is loaded, given a held note, and its editor opened
+    Then it is heard
+    And its own view of at least 100 x 80 is inside the host window, drawing more than a flat colour
+    And the window's close button closes it
+
   Scenario: An open editor costs the audio thread nothing
     # rt
     Given the CLAP fixture with its editor open and its timer running

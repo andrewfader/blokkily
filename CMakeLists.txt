@@ -465,6 +465,7 @@ foreach(blokkily_feature
         midi_timing
         midi_output
         plugin_windows
+        clap_bundles
         automation
         dynamic_modulation
         audio_input

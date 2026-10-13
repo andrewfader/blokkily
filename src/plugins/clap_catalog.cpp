@@ -1,4 +1,5 @@
 #include "blokkily/plugins/clap_catalog.hpp"
+#include "blokkily/plugins/dynamic_library.hpp"
 
 #include <clap/clap.h>
 
@@ -17,13 +18,22 @@ namespace {
 
 std::string safe(const char* value) { return value == nullptr ? std::string{} : value; }
 
+// A macOS bundle: a directory holding its executable in Contents/MacOS.
+bool is_bundle(const std::filesystem::path& path) {
+    std::error_code error;
+    return std::filesystem::is_directory(path / "Contents" / "MacOS", error);
+}
+
 class DynamicLibrary {
 public:
+    // A macOS bundle is loaded by the executable inside it; the plugin is
+    // still told the bundle's path, as CLAP says.
     explicit DynamicLibrary(const std::filesystem::path& path) {
+        const auto file = dynamic_library::module_path(path);
 #if defined(_WIN32)
-        handle_ = LoadLibraryW(path.c_str());
+        handle_ = LoadLibraryW(file.c_str());
 #else
-        handle_ = dlopen(path.c_str(), RTLD_LOCAL | RTLD_NOW);
+        handle_ = dlopen(file.c_str(), RTLD_LOCAL | RTLD_NOW);
 #endif
     }
     ~DynamicLibrary() {
@@ -127,7 +137,8 @@ ClapScanResult ClapCatalog::scan_paths(
     ClapScanResult result;
     for (const auto& root : roots) {
         std::error_code error;
-        if (std::filesystem::is_regular_file(root, error) && root.extension() == ".clap") {
+        if (root.extension() == ".clap" &&
+            (std::filesystem::is_regular_file(root, error) || is_bundle(root))) {
             append(result, scan_file(root));
             continue;
         }
@@ -136,8 +147,13 @@ ClapScanResult ClapCatalog::scan_paths(
                  root, std::filesystem::directory_options::skip_permission_denied, error), end;
              it != end; it.increment(error)) {
             if (error) { error.clear(); continue; }
-            if (it->is_regular_file(error) && it->path().extension() == ".clap") {
+            if (it->path().extension() != ".clap") continue;
+            if (it->is_regular_file(error)) {
                 append(result, scan_file(it->path()));
+            } else if (is_bundle(it->path())) {
+                // A macOS bundle is one plugin, not a tree to search.
+                append(result, scan_file(it->path()));
+                it.disable_recursion_pending();
             }
         }
     }

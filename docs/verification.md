@@ -315,6 +315,13 @@ screen grab; on Windows from the screen or `PrintWindow`. The close request the
 window's close button makes must close the editor. These run in the macOS and
 Windows CI legs, which have a desktop session.
 
+`build/artifacts/plugin-window-<platform>-thirdparty-clap.png` and `-vst3.png`
+come from the same program run as `third-party <CLAP|VST3> <path>` against
+Dexed 1.0.1, a real third-party synth the Platforms workflow downloads (pinned
+and checked). It must play a held note, and its editor's own view of at least
+100 x 80 must be inside the host window, drawing more than one flat colour.
+It is not a ctest test, because it needs the network.
+
 `build/artifacts/effects.png` — from the `bdd_effects` gate
 (`blokkily --verify --scenario effects`), which runs the interface scenarios of
 `features/effects.feature`. The CLAP effect fixture is scanned beside the

@@ -136,8 +136,9 @@ std::vector<ScanCandidate> enumerate_scan_candidates(
     for (const auto& root : clap_paths) {
         std::error_code error;
         const auto normalized = normalize(root);
-        if (std::filesystem::is_regular_file(normalized, error) &&
-            has_extension(normalized, ".clap")) {
+        if (has_extension(normalized, ".clap") &&
+            (std::filesystem::is_regular_file(normalized, error) ||
+             std::filesystem::is_directory(normalized / "Contents" / "MacOS", error))) {
             add("CLAP", normalized);
             continue;
         }
@@ -148,8 +149,14 @@ std::vector<ScanCandidate> enumerate_scan_candidates(
                  normalized, std::filesystem::directory_options::skip_permission_denied, error),
              end; it != end; it.increment(error)) {
             if (error) { error.clear(); continue; }
-            if (it->is_regular_file(error) && has_extension(it->path(), ".clap"))
+            if (!has_extension(it->path(), ".clap")) continue;
+            if (it->is_regular_file(error)) {
                 add("CLAP", it->path());
+            } else if (std::filesystem::is_directory(it->path() / "Contents" / "MacOS", error)) {
+                // A macOS bundle is one plugin; its contents are its own.
+                add("CLAP", it->path());
+                it.disable_recursion_pending();
+            }
         }
     }
 

@@ -223,20 +223,88 @@ jobs:
           sha256sum "$PACKAGE.zip" > SHA256SUMS-windows
           cat SHA256SUMS-windows
 
+      # An installer of the same files: a Start-menu entry, an optional
+      # desktop shortcut and an uninstaller. It is installed silently and the
+      # installed copy checked before it is published.
+      - name: Installer
+        run: |
+          version="${PACKAGE#blokkily-}"
+          version="${version%-Windows-x64}"
+          iscc_path="$(command -v iscc || true)"
+          for candidate in "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "/c/Program Files/Inno Setup 6/ISCC.exe"; do
+            [ -z "$iscc_path" ] && [ -f "$candidate" ] && iscc_path="$candidate"
+          done
+          if [ -z "$iscc_path" ]; then
+            choco install innosetup -y --no-progress > /dev/null
+            iscc_path="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          fi
+          cat > blokkily.iss <<ISS
+          [Setup]
+          AppName=Blokkily
+          AppVersion=$version
+          AppPublisher=Blokkily
+          DefaultDirName={autopf}\Blokkily
+          DefaultGroupName=Blokkily
+          OutputDir=.
+          OutputBaseFilename=$PACKAGE-setup
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          Compression=lzma2
+          SolidCompression=yes
+          LicenseFile=LICENSE
+          UninstallDisplayIcon={app}\bin\blokkily.exe
+          [Tasks]
+          Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
+          [Files]
+          Source: "stage\\$PACKAGE\\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+          [Icons]
+          Name: "{group}\Blokkily"; Filename: "{app}\bin\blokkily.exe"
+          Name: "{group}\Uninstall Blokkily"; Filename: "{uninstallexe}"
+          Name: "{autodesktop}\Blokkily"; Filename: "{app}\bin\blokkily.exe"; Tasks: desktopicon
+          [Run]
+          Filename: "{app}\bin\blokkily.exe"; Description: "Launch Blokkily"; Flags: nowait postinstall skipifsilent
+          ISS
+          "$iscc_path" //Q blokkily.iss
+          test -s "$PACKAGE-setup.exe"
+          # Installed silently where the check can see it, then removed.
+          ./"$PACKAGE-setup.exe" //VERYSILENT //SUPPRESSMSGBOXES //NORESTART //DIR="C:\blokkily-install-check"
+          test -f /c/blokkily-install-check/bin/blokkily.exe
+          test -f /c/blokkily-install-check/bin/Qt6Core.dll
+          test -f /c/blokkily-install-check/bin/blokkily_scan.exe
+          /c/blokkily-install-check/unins000.exe //VERYSILENT //SUPPRESSMSGBOXES //NORESTART
+          for wait in 1 2 3 4 5 6 7 8 9 10; do
+            [ -f /c/blokkily-install-check/bin/blokkily.exe ] || break
+            sleep 2
+          done
+          test ! -f /c/blokkily-install-check/bin/blokkily.exe
+          sha256sum "$PACKAGE-setup.exe" >> SHA256SUMS-windows
+          cat SHA256SUMS-windows
+
       - name: Upload Windows Package
         uses: actions/upload-artifact@v4
         with:
           name: release-windows
           path: |
             ${{ env.PACKAGE }}.zip
+            ${{ env.PACKAGE }}-setup.exe
             SHA256SUMS-windows
             build/artifacts/package-smoke.png
 
   macos:
     # The same toolchain as the macOS leg in platforms.yml: Homebrew Qt and
     # dependencies, made into a self-contained Blokkily.app by macdeployqt.
-    name: Build & Package (macOS)
-    runs-on: macos-latest
+    # Apple Silicon and Intel, each with its own Homebrew: the libraries
+    # Homebrew installs are for the machine's own architecture only.
+    name: Build & Package (macOS ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         shell: bash
@@ -346,9 +414,11 @@ jobs:
           print("/usr/bin/env " + " ".join(shlex.quote(a) for a in env + command))
           PY
           cat smoke.sh
-          brew_prefix="$(brew --prefix)"
-          sudo mv "$brew_prefix" "$brew_prefix.away"
-          trap 'sudo mv "$brew_prefix.away" "$brew_prefix"' EXIT
+          # Homebrew's kegs moved out of the way, every link into them broken:
+          # its whole prefix cannot go on Intel, where it is /usr/local.
+          cellar="$(brew --cellar)"
+          sudo mv "$cellar" "$cellar.away"
+          trap 'sudo mv "$cellar.away" "$cellar"' EXIT
           /bin/bash smoke.sh
           test -s build/artifacts/package-smoke.png
 
@@ -360,16 +430,16 @@ jobs:
             [ "$attempt" = 3 ] && exit 1
             sleep 10
           done
-          shasum -a 256 "$PACKAGE.dmg" > SHA256SUMS-macos
-          cat SHA256SUMS-macos
+          shasum -a 256 "$PACKAGE.dmg" > SHA256SUMS-macos-${{ matrix.arch }}
+          cat SHA256SUMS-macos-${{ matrix.arch }}
 
       - name: Upload macOS Package
         uses: actions/upload-artifact@v4
         with:
-          name: release-macos
+          name: release-macos-${{ matrix.arch }}
           path: |
             ${{ env.PACKAGE }}.dmg
-            SHA256SUMS-macos
+            SHA256SUMS-macos-${{ matrix.arch }}
             build/artifacts/package-smoke.png
 
   publish:
@@ -391,18 +461,19 @@ jobs:
           name: release-windows
           path: windows
 
-      - name: Download macOS Package
+      - name: Download macOS Packages
         uses: actions/download-artifact@v4
         with:
-          name: release-macos
+          pattern: release-macos-*
+          merge-multiple: true
           path: macos
 
       - name: Merge Checksums
         run: |
-          mv windows/*.zip dist/
+          mv windows/*.zip windows/*.exe dist/
           mv macos/*.dmg dist/
           cat windows/SHA256SUMS-windows >> dist/SHA256SUMS
-          cat macos/SHA256SUMS-macos >> dist/SHA256SUMS
+          cat macos/SHA256SUMS-macos-* >> dist/SHA256SUMS
           cat dist/SHA256SUMS
 
       - name: Determine Tag Name

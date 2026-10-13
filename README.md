@@ -26,20 +26,21 @@ carries packages built and tested by CI:
 - **Linux:** `blokkily-<version>-Linux.tar.gz` (or `.tar.xz`), built on Arch
   Linux. It expects Qt 6, FluidSynth, RtAudio, RtMidi, libsndfile,
   libsamplerate and Rubber Band from the system.
-- **Windows:** `blokkily-<version>-Windows-x64.zip`, self-contained. Unzip it
-  and run `bin\blokkily.exe`.
-- **macOS (Apple Silicon):** `blokkily-<version>-macOS-arm64.dmg`, a
-  self-contained `Blokkily.app`. It is signed ad hoc, not notarized, so macOS
-  blocks the first launch. Either Control-click the app and choose Open, or
-  run `xattr -dr com.apple.quarantine /Applications/Blokkily.app`.
+- **Windows:** `blokkily-<version>-Windows-x64-setup.exe`, an installer with a
+  Start-menu entry and an uninstaller, or `blokkily-<version>-Windows-x64.zip`
+  to unzip anywhere and run `bin\blokkily.exe`.
+- **macOS:** `blokkily-<version>-macOS-arm64.dmg` for Apple Silicon, or
+  `blokkily-<version>-macOS-x86_64.dmg` for Intel Macs, each a self-contained
+  `Blokkily.app`. It is signed ad hoc, not notarized, so macOS blocks the first
+  launch. Either Control-click the app and choose Open, or run
+  `xattr -dr com.apple.quarantine /Applications/Blokkily.app`.
 
 `SHA256SUMS` lists every package's checksum.
 
-Plugin editors work in every package. CI opens the test CLAP and VST3 editors
-in a real window on each platform and reads their pixels back. On macOS and
-Windows so far that covers the suite's own test plugins on standard-density
-screens; third-party plugins and Retina or high-DPI scaling have not been
-checked there yet.
+Plugin editors work in every package. CI opens the suite's test CLAP and VST3
+editors, and the editors of a real third-party synth (Dexed), in a real window
+on macOS and Windows and reads their pixels back. Retina and high-DPI scaling
+have not been checked there yet.
 
 ## Build and run
 
