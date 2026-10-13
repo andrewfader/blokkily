@@ -232,9 +232,143 @@ jobs:
             SHA256SUMS-windows
             build/artifacts/package-smoke.png
 
+  macos:
+    # The same toolchain as the macOS leg in platforms.yml: Homebrew Qt and
+    # dependencies, made into a self-contained Blokkily.app by macdeployqt.
+    name: Build & Package (macOS)
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TEST_SF2_URL: https://raw.githubusercontent.com/free-wheeling/freewheeling/2ec066ee67614300a8b3dc61de7d059971883747/data/basic.sf2
+      TEST_SF2_SHA256: 2e6cf4a8a1d78e6be3b00a0c22358d3ceec8c5a27a000714e65215e3f9b1d15a
+    steps:
+      - name: Install dependencies
+        run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch test SoundFont
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors -o basic.sf2 "$TEST_SF2_URL"
+          echo "$TEST_SF2_SHA256  basic.sf2" | shasum -a 256 -c -
+
+      - name: Configure CMake (Release)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
+            -DBLOKKILY_TEST_SF2="$PWD/basic.sf2"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run Test Suite
+        run: ctest --test-dir build --output-on-failure
+
+      # A bundle of the three executables, the application's Qt frameworks,
+      # QML imports and plugins, and every Homebrew library they link. The
+      # offscreen platform is deployed too, so the package can be smoke-tested
+      # (and run headless) without reaching into the Qt installation.
+      - name: Package
+        run: |
+          version="$(sed -n 's/^project(blokkily VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          name="blokkily-$version-macOS-$(uname -m)"
+          app="stage/$name/Blokkily.app"
+          bin="$app/Contents/MacOS"
+          mkdir -p "$bin" "$app/Contents/Resources" "$app/Contents/PlugIns/platforms"
+          cp build/blokkily build/blokkily_scan build/blokkily_cli "$bin/"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>blokkily</string>
+            <key>CFBundleIdentifier</key><string>io.github.andrewfader.blokkily</string>
+            <key>CFBundleName</key><string>Blokkily</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>13.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>NSMicrophoneUsageDescription</key><string>Blokkily records audio input.</string>
+          </dict>
+          </plist>
+          PLIST
+          plugins="$("$(brew --prefix qt)/bin/qmake" -query QT_INSTALL_PLUGINS)"
+          cp "$plugins/platforms/libqoffscreen.dylib" "$app/Contents/PlugIns/platforms/"
+          macdeployqt "$app" -qmldir=ui -always-overwrite \
+            -executable="$bin/blokkily_scan" -executable="$bin/blokkily_cli" \
+            -executable="$app/Contents/PlugIns/platforms/libqoffscreen.dylib"
+          # Nothing in the bundle may still point into Homebrew.
+          bad=0
+          while IFS= read -r -d '' f; do
+            file -b "$f" | grep -q Mach-O || continue
+            if otool -L "$f" | tail -n +2 | grep -E '/opt/homebrew|/usr/local'; then
+              echo "::error::$f links outside the bundle"
+              bad=1
+            fi
+          done < <(find "$app" -type f -print0)
+          [ "$bad" = 0 ]
+          # Apple Silicon runs nothing unsigned; rewriting install names
+          # invalidated the original signatures, so the bundle is signed
+          # again, ad hoc.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ln -s /Applications "stage/$name/Applications"
+          echo "PACKAGE=$name" >> "$GITHUB_ENV"
+
+      # The packaged application runs the end-to-end gate's own command and
+      # environment with Homebrew moved out of the way and no Qt search
+      # paths, so a library or QML import left out of the bundle fails here
+      # rather than on a user's machine.
+      - name: Smoke-test the package
+        run: |
+          ctest --test-dir build --show-only=json-v1 > tests.json
+          /usr/bin/python3 - "$PWD/stage/$PACKAGE/Blokkily.app/Contents/MacOS/blokkily" > smoke.sh <<'PY'
+          import json, os, shlex, sys
+          test = next(t for t in json.load(open("tests.json"))["tests"]
+                      if t["name"] == "bdd_edit_once_see_everywhere")
+          props = {p["name"]: p["value"] for p in test.get("properties", [])}
+          command = [sys.argv[1]] + test["command"][1:]
+          command = [a.replace("edit-once-see-everywhere.png", "package-smoke.png") for a in command]
+          print("cd " + shlex.quote(props.get("WORKING_DIRECTORY", ".")))
+          env = ["-i", "HOME=" + os.environ["HOME"], "PATH=/usr/bin:/bin:/usr/sbin:/sbin"] + props.get("ENVIRONMENT", [])
+          print("/usr/bin/env " + " ".join(shlex.quote(a) for a in env + command))
+          PY
+          cat smoke.sh
+          brew_prefix="$(brew --prefix)"
+          sudo mv "$brew_prefix" "$brew_prefix.away"
+          trap 'sudo mv "$brew_prefix.away" "$brew_prefix"' EXIT
+          /bin/bash smoke.sh
+          test -s build/artifacts/package-smoke.png
+
+      - name: Archive
+        run: |
+          # hdiutil now and then finds the volume busy on hosted runners.
+          for attempt in 1 2 3; do
+            hdiutil create -volname Blokkily -srcfolder "stage/$PACKAGE" -ov -format UDZO "$PACKAGE.dmg" && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+          shasum -a 256 "$PACKAGE.dmg" > SHA256SUMS-macos
+          cat SHA256SUMS-macos
+
+      - name: Upload macOS Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            ${{ env.PACKAGE }}.dmg
+            SHA256SUMS-macos
+            build/artifacts/package-smoke.png
+
   publish:
     name: Publish GitHub Release
-    needs: [build, windows]
+    needs: [build, windows, macos]
     # A dispatch on a branch without a tag name builds and packages only.
     if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag_name != ''
     runs-on: ubuntu-latest
@@ -251,10 +385,18 @@ jobs:
           name: release-windows
           path: windows
 
+      - name: Download macOS Package
+        uses: actions/download-artifact@v4
+        with:
+          name: release-macos
+          path: macos
+
       - name: Merge Checksums
         run: |
           mv windows/*.zip dist/
+          mv macos/*.dmg dist/
           cat windows/SHA256SUMS-windows >> dist/SHA256SUMS
+          cat macos/SHA256SUMS-macos >> dist/SHA256SUMS
           cat dist/SHA256SUMS
 
       - name: Determine Tag Name
