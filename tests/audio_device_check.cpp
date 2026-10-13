@@ -129,6 +129,14 @@ int main(int argc, char** argv) {
     std::printf("api=%s device=\"%s\" rate=%u negotiated-block=%u prepared-max=%u\n",
                 info.api.c_str(), info.device.c_str(), info.sample_rate, info.buffer_frames,
                 maximum_block);
+    // macOS offers a Null Audio Device where there is no sound hardware (a
+    // CI runner): it opens and starts but never pulls the callback. That is
+    // an absent device too, not a broken player.
+    if (info.device.find("Null Audio Device") != std::string::npos) {
+        std::fprintf(stderr, "audio-device-check: SKIP — the only output is %s, which plays "
+                             "nothing\n", info.device.c_str());
+        return exit_skip;
+    }
 
     engine.set_playing(true);
     if (!output.start(&device_error)) {
