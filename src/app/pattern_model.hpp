@@ -192,6 +192,14 @@ public:
     Q_INVOKABLE void setSelectedRatchets(int ratchets);
     Q_INVOKABLE void setSelectedMicroOffset(int ticks);
     Q_INVOKABLE void setSelectedPlayOnLoop(int loop);
+    // Turns the selected chord through inversions, writing the voices it
+    // turns into so every editor shows them: up lifts the lowest voice an
+    // octave, down drops the highest. One step of history; a single note or
+    // a voice that would leave the keyboard changes nothing.
+    Q_INVOKABLE void invertSelected(int turns);
+    // Ticks between one voice of the selected chord and the next, lowest
+    // first, 0 to 60 (half a step). Nothing for a single note.
+    Q_INVOKABLE void setSelectedStrum(int ticks);
     Q_INVOKABLE void setSelectedLock(int index, double value, bool modulation);
     Q_INVOKABLE void clearSelectedLock();
 

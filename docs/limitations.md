@@ -11,7 +11,8 @@ in the [usage guide](usage.md).
 - VST3 instruments receive per-note pitch only within a two-semitone channel
   bend. SoundFonts have no CC 74 timbre response unless the SF2 maps it. The
   sampler supports per-note pitch only.
-- MIDI clock input is not supported.
+- MIDI clock input is not supported, and there is no MIDI output to hardware
+  (notes or clock); MIDI OUT exports a Standard MIDI File.
 - The built-in sampler ignores poly pressure. The controller lane cannot edit
   poly pressure.
 - Incoming notes and controllers are timestamped to the callback block.
@@ -68,7 +69,12 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Plugin windows
 
-Native plugin-window pixels require an X11 display. Offscreen verification
+Plugin editor windows open only on Linux. On X11 they embed in the host window.
+On Wayland a CLAP plugin with Wayland support embeds natively, and other
+editors embed through XWayland when an X server is available. On macOS and
+Windows, plugins load and play but their editors do not open yet: the CLAP
+host never selects the Cocoa or Win32 window API, and the VST3 editor needs
+X11. Offscreen verification
 checks the embedding lifecycle; a separate display gate checks real VST3
 pixels when an X server is available. See
 [verification](verification.md) for display-gate requirements and skips.

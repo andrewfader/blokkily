@@ -3,13 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "Format.js" as Format
 
-// The selected step, shaped: pitch and length, velocity and micro-timing,
-// probability and ratchets, and its parameter lock.
+// The selected step, shaped: pitch and length, velocity, micro-timing and a
+// chord's strum, probability, ratchets and a chord's inversion, and its
+// parameter lock.
 Rectangle {
     objectName: "stepInspector"
     Layout.fillWidth: true
-    Layout.preferredHeight: 228
-    Layout.minimumHeight: 228
+    Layout.preferredHeight: 264
+    Layout.minimumHeight: 264
     radius: 6; color: Theme.panel; border.color: Theme.line
 
     // Nothing selected, or an empty step: say so and say what to do.
@@ -101,6 +102,19 @@ Rectangle {
                           ? patternModel.selected.micro : 0)
                 onMoved: function(v) { patternModel.setSelectedMicroOffset(Math.round(v)) }
             }
+            // Ticks from one voice of a chord to the next, lowest voice first.
+            ValueDial {
+                objectName: "strumDial"
+                Layout.fillWidth: true
+                label: "STRUM"; from: 0; to: 60; grip: 16
+                accent: Theme.blue
+                enabled: patternModel.selected.voices > 1
+                value: patternModel.selected.strum !== undefined
+                       ? patternModel.selected.strum : 0
+                readout: patternModel.selected.voices > 1
+                         ? patternModel.selected.strum + " TK" : "chords"
+                onMoved: function(v) { patternModel.setSelectedStrum(Math.round(v)) }
+            }
         }
         }
 
@@ -136,6 +150,27 @@ Rectangle {
                             onClicked: patternModel.setSelectedRatchets(modelData)
                         }
                     }
+                }
+            }
+            // Turns a chord's voices: down drops its highest voice an octave,
+            // up lifts its lowest, and every editor shows the voices it turns
+            // into.
+            RowLayout {
+                Layout.fillWidth: true; spacing: 3
+                Label { text: "INVERSION"; color: Theme.muted; font.pixelSize: 10
+                    font.letterSpacing: 1 }
+                Item { Layout.fillWidth: true }
+                Chip {
+                    objectName: "invertDown"
+                    text: "▼ INV"; accent: Theme.blue
+                    enabled: patternModel.selected.voices > 1
+                    onClicked: patternModel.invertSelected(-1)
+                }
+                Chip {
+                    objectName: "invertUp"
+                    text: "INV ▲"; accent: Theme.blue
+                    enabled: patternModel.selected.voices > 1
+                    onClicked: patternModel.invertSelected(1)
                 }
             }
         }

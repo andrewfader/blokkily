@@ -521,6 +521,8 @@ QVariantMap PatternModel::selected() const {
     detail["probability"] = static_cast<double>(trigger->probability);
     detail["ratchets"] = static_cast<int>(trigger->ratchets);
     detail["micro"] = static_cast<int>(trigger->micro_offset);
+    const auto* chord = std::get_if<blokkily::Chord>(&trigger->musical_data);
+    detail["strum"] = chord != nullptr ? static_cast<int>(chord->strum) : 0;
     detail["duration"] = static_cast<int>(trigger->duration);
     detail["loop"] = static_cast<int>(trigger->play_on_loop);
     detail["hasLock"] = !trigger->locks.empty();
@@ -726,6 +728,74 @@ bool remove_roll_voice(blokkily::Trigger& trigger, int voice) {
     if (chord.intervals.size() == 1)
         trigger.musical_data = blokkily::Note{chord.root, chord.velocities.front(),
                                              0.0F, chord.cents.front()};
+    return true;
+}
+
+// Turns a chord through `turns` inversions in the pattern itself, so every
+// editor shows the voices that sound: each turn up lifts the lowest voice an
+// octave, each turn down drops the highest one. An inversion the chord was
+// given whole (by the assistant or a file) is folded into its voices first,
+// the way the scheduler plays it. The voices keep their own velocity, length,
+// tuning and expression and end in pitch order, so a strum runs from the
+// lowest voice up. False, and nothing changed, when a voice would leave the
+// keyboard.
+bool invert_chord(blokkily::Trigger& trigger, int turns) {
+    auto* chord = std::get_if<blokkily::Chord>(&trigger.musical_data);
+    if (chord == nullptr || chord->intervals.size() < 2 || turns == 0) return false;
+    struct Voice {
+        int interval;
+        double cents;
+        float velocity;
+        blokkily::Tick duration;
+        std::size_t source;   // the voice it was, for its expression
+    };
+    const auto size = static_cast<int>(chord->intervals.size());
+    std::vector<Voice> voices;
+    for (int voice = 0; voice < size; ++voice) {
+        const auto turned = voice + chord->inversion;
+        const auto source = ((turned % size) + size) % size;
+        const auto at = static_cast<std::size_t>(source);
+        voices.push_back({chord->intervals[at] + 12 * ((turned - source) / size),
+                          at < chord->cents.size() ? chord->cents[at] : 0.0,
+                          blokkily::voice_velocity(*chord, at),
+                          blokkily::voice_duration(*chord, at, trigger.duration),
+                          static_cast<std::size_t>(voice)});
+    }
+    const auto pitch = [](const Voice& voice) { return voice.interval + voice.cents / 100.0; };
+    for (int turn = 0; turn < std::abs(turns); ++turn) {
+        const auto moved = turns > 0
+            ? std::min_element(voices.begin(), voices.end(),
+                  [&](const Voice& a, const Voice& b) { return pitch(a) < pitch(b); })
+            : std::max_element(voices.begin(), voices.end(),
+                  [&](const Voice& a, const Voice& b) { return pitch(a) < pitch(b); });
+        moved->interval += turns > 0 ? 12 : -12;
+    }
+    std::stable_sort(voices.begin(), voices.end(),
+                     [&](const Voice& a, const Voice& b) { return pitch(a) < pitch(b); });
+    for (const auto& voice : voices)
+        if (chord->root + voice.interval < 0 || chord->root + voice.interval > 127) return false;
+
+    const bool own_cents = !chord->cents.empty();
+    const bool own_velocities = !chord->velocities.empty();
+    const bool own_durations = !chord->durations.empty();
+    std::vector<std::size_t> placed(voices.size());
+    chord->intervals.clear();
+    chord->cents.clear();
+    chord->velocities.clear();
+    chord->durations.clear();
+    for (std::size_t index = 0; index < voices.size(); ++index) {
+        const auto& voice = voices[index];
+        placed[voice.source] = index;
+        chord->intervals.push_back(static_cast<std::int16_t>(voice.interval));
+        if (own_cents) chord->cents.push_back(voice.cents);
+        if (own_velocities) chord->velocities.push_back(voice.velocity);
+        if (own_durations) chord->durations.push_back(voice.duration);
+    }
+    chord->inversion = 0;
+    for (auto& expression : trigger.expression)
+        if (expression.voice < placed.size())
+            expression.voice = static_cast<std::uint8_t>(placed[expression.voice]);
+    rebase_roll_chord(*chord);
     return true;
 }
 }
@@ -1120,6 +1190,23 @@ void PatternModel::setSelectedMicroOffset(int ticks) {
     mutate(selected_step_, [ticks](blokkily::Trigger& trigger) {
         trigger.micro_offset = qBound(-59, ticks, 59);
     }, QStringLiteral("micro"));
+}
+
+void PatternModel::invertSelected(int turns) {
+    const auto* existing = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+    if (existing == nullptr) return;
+    blokkily::Trigger turned = *existing;
+    if (!invert_chord(turned, turns)) return;
+    mutate(selected_step_, [&turned](blokkily::Trigger& trigger) { trigger = turned; });
+}
+
+void PatternModel::setSelectedStrum(int ticks) {
+    const auto* existing = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+    if (existing == nullptr || !std::holds_alternative<blokkily::Chord>(existing->musical_data))
+        return;
+    mutate(selected_step_, [ticks](blokkily::Trigger& trigger) {
+        std::get<blokkily::Chord>(trigger.musical_data).strum = qBound(0, ticks, 60);
+    }, QStringLiteral("strum"));
 }
 
 void PatternModel::setSelectedPlayOnLoop(int loop) {

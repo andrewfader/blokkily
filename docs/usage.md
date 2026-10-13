@@ -21,6 +21,13 @@ ratchets, loop conditions and parameter locks. Locks have an
 automation/modulation switch: automation sets a parameter's value, while
 modulation offsets it. Both can apply to the same parameter.
 
+On a chord step the inspector also sets its voicing. INV ▲ lifts the lowest
+voice an octave and ▼ INV drops the highest one. The chord's voices change in
+the pattern itself, so the tracker and piano roll show the inversion you hear.
+STRUM delays each voice after the one below it by 0 to 60 ticks (up to half a
+step). Each click, and each drag of the dial, is one undo step. See
+[the voicing scenarios](../features/chord_voicing.feature).
+
 ### Step grid
 
 Click a step to toggle it. The edit uses the tracker's entry octave.
@@ -138,8 +145,8 @@ show a row for each inversion.
 The browser scans standard CLAP and VST3 locations and labels each result by
 format. It also lists Sampler and Drum Sampler, which support keyed zones,
 loops, envelopes, kit pads and slicing. SoundFont instruments load SF2/SF3
-banks and let you choose presets. CLAP and VST3 plugins can open native editor
-windows and provide stereo ports; see the [display restrictions](limitations.md#plugin-windows).
+banks and let you choose presets. CLAP and VST3 plugins provide stereo ports and,
+on Linux, can open native editor windows; see the [display restrictions](limitations.md#plugin-windows).
 
 Ctrl+F focuses the browser's search field. Search matches letters in order
 across a name, maker or format: "fbs" finds "Fat Bass". Use the arrow keys to

@@ -30,6 +30,8 @@ ColumnLayout {
             font.pixelSize: 11; font.family: Theme.mono; font.bold: true }
     }
     Slider {
+        // Named after its dial, so a gate can press the slider itself.
+        objectName: parent.objectName.length > 0 ? parent.objectName + "Slider" : ""
         Layout.fillWidth: true
         Layout.preferredHeight: parent.grip > 0 ? parent.grip : -1
         Layout.minimumHeight: parent.grip

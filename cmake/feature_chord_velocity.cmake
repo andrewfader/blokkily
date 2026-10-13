@@ -42,8 +42,9 @@ if(BLOKKILY_BUILD_TESTS)
 endif()
 
 if(BLOKKILY_BUILD_GUI)
-    # The verify driver's `--scenario chords` group.
-    target_sources(blokkily PRIVATE src/app/verify/scenario_chords.cpp)
+    # The verify driver's `--scenario chords` and `--scenario voicing` groups.
+    target_sources(blokkily PRIVATE src/app/verify/scenario_chords.cpp
+        src/app/verify/scenario_voicing.cpp)
     if(BLOKKILY_BUILD_TESTS)
         # Two keys recorded onto one step at velocities 40 and 120: the chord
         # keeps both, the inspector's per-voice bar edits one of them, and the
@@ -55,6 +56,20 @@ if(BLOKKILY_BUILD_GUI)
                 --screenshot ${CMAKE_BINARY_DIR}/artifacts/chord-velocity.png)
         set_tests_properties(bdd_chord_velocity PROPERTIES
             LABELS "bdd;e2e;integration;screenshot;midi;recording;clap;project;chords;velocity"
+            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
+            TIMEOUT 120)
+
+        # features/chord_voicing.feature: the inspector's STRUM dial and
+        # inversion chips on a C4 E4 G4 chord, read back from every editor
+        # and, voice by voice, from the CLAP fixture's tone mode; undo, redo,
+        # save and load.
+        add_test(NAME bdd_chord_voicing
+            COMMAND blokkily --verify --scenario voicing
+                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+                --project ${CMAKE_BINARY_DIR}/artifacts/chord-voicing.blok
+                --screenshot ${CMAKE_BINARY_DIR}/artifacts/chord-voicing.png)
+        set_tests_properties(bdd_chord_voicing PROPERTIES
+            LABELS "bdd;e2e;integration;screenshot;clap;project;chords"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
             TIMEOUT 120)
     endif()

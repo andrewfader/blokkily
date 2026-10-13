@@ -10,18 +10,41 @@ sound) of an agent building a funky chiptune in Blokkily over
 [MCP](docs/mcp.md), using the [YANES](https://github.com/andrewfader/yanes) and
 [FUZZBOI](https://github.com/andrewfader/fuzzboi) CLAP synths.
 
-![Blokkily workstation showing an arrangement, synchronized editors, plugin browser, mixer, and keyboard](docs/images/blokkily-session.png)
+![Blokkily workstation showing an arrangement, synchronized editors, sampler, plugin browser and mixer](docs/images/blokkily-session.png)
 
 The screenshot comes from the `bdd_session_everything` verification session.
-It shows the arrangement, pattern editors, plugin browser, mixer and playable
-keyboard, with the composition assistant's prompt bar above the editors.
+It shows an eight-track arrangement with a tempo ramp and warped and recorded
+audio clips, the step grid, tracker and piano roll, the sampler, the plugin
+browser and the mixer, with the composition assistant's prompt bar above the
+editors.
+
+## Download
+
+Each [release](https://github.com/andrewfader/blokkily/releases/latest)
+carries packages built and tested by CI:
+
+- **Linux:** `blokkily-<version>-Linux.tar.gz` (or `.tar.xz`), built on Arch
+  Linux. It expects Qt 6, FluidSynth, RtAudio, RtMidi, libsndfile,
+  libsamplerate and Rubber Band from the system.
+- **Windows:** `blokkily-<version>-Windows-x64.zip`, self-contained. Unzip it
+  and run `bin\blokkily.exe`.
+- **macOS (Apple Silicon):** `blokkily-<version>-macOS-arm64.dmg`, a
+  self-contained `Blokkily.app`. It is signed ad hoc, not notarized, so macOS
+  blocks the first launch. Either Control-click the app and choose Open, or
+  run `xattr -dr com.apple.quarantine /Applications/Blokkily.app`.
+
+`SHA256SUMS` lists every package's checksum.
 
 ## Build and run
 
-You need Qt 6.5+, plus FluidSynth, RtAudio, RtMidi, libsndfile, libsamplerate and
-Rubber Band 4 (found through pkg-config). The verification tests also need a
-SoundFont. JUCE and the CLAP headers are vendored under
-`third_party/`.
+You need CMake 3.25+, Qt 6.5+, plus FluidSynth, RtAudio, RtMidi, libsndfile,
+libsamplerate and Rubber Band 4 (found through pkg-config). JUCE and the CLAP
+headers are vendored under `third_party/`, so clone with `--recursive`.
+
+The verification tests need a SoundFont. CMake looks for `basic.sf2`,
+`TimGM6mb.sf2` or `FluidR3_GM.sf2` in `/usr/share/fweelin`,
+`/usr/share/sounds/sf2` and `/usr/share/soundfonts`; otherwise pass
+`-DBLOKKILY_TEST_SF2=/path/to/bank.sf2`.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -31,6 +54,11 @@ ctest --test-dir build --output-on-failure
 ```
 
 `./build/blokkily_cli` runs the headless scheduler demo.
+
+Linux is the primary platform. macOS builds with Homebrew's Qt and libraries,
+and Windows builds with MSVC, vcpkg and the official Qt binaries. The CI
+workflows in `.github/workflows/` (`platforms.yml` and `release.yml`) show the
+exact commands for each.
 
 Clip warping links the Rubber Band Library, licensed under the GPL (version 2
 or later) unless you buy a commercial licence from its authors. A Blokkily
@@ -53,11 +81,17 @@ keeps the layout consistent across desktops.
   options. A session with no instruments uses an installed SoundFont by
   default, preferring a General MIDI bank when available.
 - Load CLAP, VST3 and SoundFont instruments, or use the keyed and drum samplers.
-  Mix with inserts, sends, returns, sidechains, auxiliary outputs, automation
-  and modulation.
-- Record audio and MIDI, resample a bus, or bounce stems. Export the arrangement
+  On Linux, plugins can open their own editor windows.
+- Mix with inserts (including the built-in EQ, delay, reverb and compressor),
+  sends, returns, sidechains, auxiliary outputs, automation and modulation.
+  Plugin latency is compensated in playback and export.
+- Warp audio clips to follow the tempo, or stretch and pitch-shift them.
+- Record audio and MIDI (including MPE and poly pressure), with a metronome and
+  count-in. Resample a bus or bounce stems. Export the arrangement
   as 16-bit, 24-bit or 32-bit float WAVE through the same engine used for
   playback. Import and export Standard MIDI Files for note exchange.
+- Press F1 or HELP for a guided tour of the window. CLEAR empties the session
+  in one undo step.
 - Ask the LLM composition assistant for a phrase. Review its proposal before
   applying it; each generation is one undo step. An MCP bridge also lets agents
   control the running application.
@@ -67,12 +101,14 @@ recording workflows.
 
 ## Current limitations
 
-Blokkily is experimental. Comping and MIDI clock input are not implemented.
-MPE support varies by instrument format, and per-note expression has no editor.
-Large unwarped audio clips can stream from disk; warped clips and sampler
-samples still load into memory. Native plugin-window pixels require an X11
-display. Export always renders the arrangement, so record a launcher
-performance into it before exporting.
+Blokkily is experimental. Comping and MIDI clock input are not implemented, and
+there is no MIDI output to hardware. MPE support varies by instrument format,
+and per-note expression has no editor. Large unwarped audio clips can stream
+from disk; warped clips and sampler samples still load into memory. Plugin
+editor windows open only on Linux: on X11, or on Wayland through XWayland or a
+CLAP plugin's own Wayland support. On macOS and Windows, plugins load and play
+but their editors do not open. Export always renders the arrangement, so record
+a launcher performance into it before exporting.
 
 The [limitations reference](docs/limitations.md) covers these restrictions and
 others, including sidechains, modulation timing, sampler editing and stems.
