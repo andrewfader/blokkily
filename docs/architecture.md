@@ -6,8 +6,10 @@ A song owns its named sections, their per-track pattern parts, tracks, mixer
 settings and arrangement clips.
 
 The interface calls a section such as VERSE or CHORUS a pattern. In the model,
-a `Section` groups one `PatternSlot` per track, each holding that track's
-`Pattern` of events. Selecting a track changes which part the editors show.
+a `Section` is a named entry, and each `PatternSlot` holds one track's `Pattern`
+of events and records the section and track it belongs to. A song loaded
+without sections gets them from `Song::adopt_sections()`. Selecting a track
+changes which part the editors show.
 A clip places one part on one track; placing a whole section creates clips
 across the tracks that have room for them.
 
@@ -58,8 +60,9 @@ peak metering through a master fader. Offline bounce uses the playback engine
 and writes 16-bit, 24-bit or 32-bit float WAVE. The float writer preserves the
 rendered samples; integer writers quantize them and clamp to full scale. Tests
 compare float exports with deterministic playback renders sample by sample
-and check integer exports within quantization tolerances. This does not promise
-identical passes from plugins with free-running state.
+and check integer exports within quantization tolerances. A bounce first resets
+instruments, effects, LFOs and followers to rest, so it matches a pass played
+from the start; plugin state that a reset does not clear can still differ.
 
 MIDI input arrives on the port's thread and reaches the render callback through
 a lock-free queue, avoiding delays from a busy interface. The recorder uses

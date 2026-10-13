@@ -24,6 +24,8 @@ modulation offsets it. Both can apply to the same parameter.
 ### Step grid
 
 Click a step to toggle it. The edit uses the tracker's entry octave.
+Shift-click selects a step for the inspector without toggling it, and
+Ctrl-click moves the playhead to that step.
 
 ### Tracker
 
@@ -33,7 +35,7 @@ vertically.
 
 Click or drag in the note column to enter notes. Type ZSXDCVGBHNJM for one octave
 and use the two keyboard rows above for the next. The entry octave is shown on
-screen; Ctrl+Left and Ctrl+Right change it. Backspace clears a row.
+screen; Ctrl+Left and Ctrl+Right change it. Backspace or Delete clears a row.
 
 The velocity column sets the row's velocity. Copying and pasting a step keeps
 its locks and length.
@@ -51,14 +53,24 @@ DUP copies the open pattern into a new one. Right-click a pattern to rename,
 duplicate, clear or delete it. Right-click a track to rename, mute, solo or
 delete it. Double-click either name to edit it.
 
-+TRK adds a track using the first SoundFont already assigned in the session,
-or an installed bank if none is assigned. Without an available bank, the new
-track has no instrument.
++TRK adds a track on the piano preset of the first SoundFont already assigned
+in the session, or of an installed bank if none is assigned. Without an
+available bank, the new track has no instrument. Renaming the track does not
+change its preset.
 
 The default instrument loader runs only when the session has no instruments.
 It prefers an installed General MIDI SoundFont and falls back to the first
-bank it finds. Track names containing DRUM, PERC or KIT select percussion bank
-128. If any track already has an instrument, the loader leaves all tracks
+bank it finds. It picks each track's preset from its name:
+
+| Name contains | Preset |
+| --- | --- |
+| DRUM, PERC or KIT | Percussion bank 128 |
+| BASS | Program 33, fingered electric bass |
+| PAD or STRING | Program 48, string ensemble |
+| LEAD or SYNTH | Program 81, sawtooth lead |
+| Anything else | Program 0, acoustic grand piano |
+
+If any track already has an instrument, the loader leaves all tracks
 alone, including empty ones. With no installed SoundFont, load an instrument
 from the browser to hear notes.
 
@@ -73,13 +85,14 @@ per bar. Patterns can have different lengths.
 | Ctrl-click an empty bar | Place only that track's part of the open pattern |
 | Click a filled clip | Open its pattern, select its track and seek to the clicked bar |
 | Right-click a clip | Remove only that track's clip |
-| Shift-click a filled bar | Set that clip's repeat count to cover the clicked bar |
+| Shift-click a filled bar | Set that clip's repeat count so it ends at the clicked bar |
 | Shift-click an empty bar | Extend the preceding clip on that lane to cover the clicked bar |
 | Alt-click an empty bar | Move the clip under the playhead on that lane to the clicked bar |
 | Click a bar number on the ruler | Locate the audio engine on that bar |
 
 Shift-click uses whole pattern repeats, so a clip may end beyond the clicked
-bar. Clicking within a long clip can shorten it. Resizing and moving clips
+bar, and a clip repeats at most 64 times. Shift-clicking within a long clip
+shortens it; a plain click only opens it. Resizing and moving clips
 cannot overlap another clip on the same lane.
 
 The arrangement scrolls horizontally and has +/− zoom controls, so long songs
@@ -126,7 +139,7 @@ The browser scans standard CLAP and VST3 locations and labels each result by
 format. It also lists Sampler and Drum Sampler, which support keyed zones,
 loops, envelopes, kit pads and slicing. SoundFont instruments load SF2/SF3
 banks and let you choose presets. CLAP and VST3 plugins can open native editor
-windows and provide stereo ports; see the [display restrictions](limitations.md).
+windows and provide stereo ports; see the [display restrictions](limitations.md#plugin-windows).
 
 Ctrl+F focuses the browser's search field. Search matches letters in order
 across a name, maker or format: "fbs" finds "Fat Bass". Use the arrow keys to
@@ -283,8 +296,10 @@ and exported as heard. Removing the source leaves its channels as plain tracks.
 The arrangement exports to 16-bit, 24-bit or 32-bit float WAVE through the same
 engine as playback. Float files preserve the rendered samples; 16-bit and
 24-bit files round them to the chosen precision and clip levels above full
-scale. Export renders the song again, so free-running effects can differ
-between playback and export.
+scale. Export is the mix you hear when you play the arrangement from its start:
+before the bounce, the engine resets instruments, effects, LFOs and followers
+to rest. A live pass can differ where state carried over from earlier
+playback, such as an LFO's phase or a plugin that does not fully reset.
 
 RESAMPLE in a rack arms its track, return or master output for the next
 recording pass. Arm the transport's record button and press Play. When the pass
@@ -360,14 +375,14 @@ or transport shortcuts.
 
 | Shortcut | Action |
 | --- | --- |
-| Space | Play |
+| Space | Play or stop |
 | Return or Home | Go to the start of the song |
 | Arrow keys | Move the step cursor |
 | Shift+Up / Shift+Down | Transpose the step by a semitone |
 | Ctrl+Up / Ctrl+Down | Transpose the step by an octave |
 | Ctrl+Left / Ctrl+Right | Change the tracker entry octave |
 | Tab / Shift+Tab | Select the next / previous tracker channel |
-| Backspace | Clear a tracker row |
+| Backspace or Delete | Clear a tracker row |
 | Insert | Push later rows down |
 | Shift+Backspace | Pull later rows up |
 | Alt+arrows | Nudge micro-timing and note length |
@@ -387,6 +402,7 @@ or transport shortcuts.
 | Ctrl+S | Save |
 | Ctrl+Shift+S | Save to a new file |
 | Ctrl+N | Start a new session |
+| Ctrl+O | Open a project |
 
 ## Composition assistant
 
