@@ -27,13 +27,21 @@ struct InputPlayback {
     static AudioInputRoute unpack(std::uint32_t word) noexcept;
 };
 
-// Chunk stage 1, input part (item 2.5): takes what a MIDI port and the
-// on-screen surfaces delivered since the last block into `into`, port first,
-// and returns how many. Each event names one track; a key played into several
-// armed tracks arrives as one event per track. What does not fit waits in its
+// Block stage, input part (item 2.5): takes what a MIDI port and the
+// on-screen surfaces delivered since the last block into `into`, and returns
+// how many. Each event names one track; a key played into several armed
+// tracks arrives as one event per track. What does not fit waits in its
 // queue for the next block.
+//
+// Each is placed in this block of `frames` where it arrived in the period
+// before it, [`period_begin`, `period_end`) on the input clock: its event's
+// sample_offset is that sample, so the block plays it with the timing it was
+// played with, one period late. An unstamped event, or one from before the
+// period, is placed on sample 0. `into` comes back in time order, events
+// placed on one sample in the order they arrived.
 std::size_t gather_input(InputQueue* port, PerformQueue& performed,
-                         std::span<RoutedEvent> into) noexcept;
+                         std::span<RoutedEvent> into, std::uint64_t period_begin,
+                         std::uint64_t period_end, std::size_t frames) noexcept;
 
 // 6. The track's raw device input for this chunk. With `capture` (a ring is
 // connected, the song is playing from the timeline and recording) and the

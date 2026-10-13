@@ -245,14 +245,24 @@ public:
     bool play_live(std::size_t track, const PluginEvent& event) noexcept;
 
     // Plays whatever arrives on an input — a MIDI port — on the track each
-    // event names, at the start of the next block, whether or not the
-    // transport is running. The queue belongs to the caller and must outlive
+    // event names, whether or not the transport is running. A stamped event
+    // (RoutedEvent::time_ns) sounds at the sample of the next block that
+    // matches where it arrived in the period before it, so playing keeps its
+    // timing to the sample, a block late; an unstamped one at the block's
+    // start. The queue belongs to the caller and must outlive
     // the connection; nullptr disconnects. One engine reads a queue at a time.
     void connect_input(InputQueue* input) noexcept {
         input_.store(input, std::memory_order_release);
     }
     [[nodiscard]] InputQueue* input() const noexcept {
         return input_.load(std::memory_order_acquire);
+    }
+    // The clock input stamps are read against, read once per block by the
+    // render callback: monotonic_ns() unless a test sets its own, so where
+    // played input lands can be proved without the wall clock.
+    using InputClock = std::uint64_t (*)() noexcept;
+    void set_input_clock(InputClock clock) noexcept {
+        input_clock_.store(clock != nullptr ? clock : &monotonic_ns, std::memory_order_release);
     }
     // A note played on an on-screen surface - the keyboard panel, the tracker's
     // note keys - for `track`. It is input like a MIDI port's: it sounds at the
@@ -456,8 +466,13 @@ private:
 
     // `from_timeline` is false when the transport is stopped: the arrangement
     // contributes nothing, but live notes and ringing tails still do.
+    // `chunk_begin` is where the chunk starts in the device's block, which
+    // places played input that arrived part way through the last one.
     void process_chunk(StereoBlock output, const InputBlock& input, std::uint64_t song_position,
-                       bool from_timeline) noexcept;
+                       bool from_timeline, std::size_t chunk_begin) noexcept;
+    // Takes what the input and the surfaces delivered since the last block,
+    // each placed in this block of `frames` (engine::gather_input).
+    void gather_block_input(std::size_t frames) noexcept;
     // Chunk stage 1: gathers what one track plays this chunk into its scratch.
     // `capture_sample` is where the listener was as the block began (the
     // output latency before `song_position`) and `capture_tick` its song tick
@@ -603,6 +618,16 @@ private:
     // before it is handed to the tracks it names. Touched by the callback alone.
     std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> incoming_{};
     std::size_t incoming_count_ = 0;
+    // What arrived for the whole device block, in time order, each with its
+    // sample in the block as its event's sample_offset; the chunks take their
+    // share in turn from `pending_next_`. Touched by the callback alone.
+    std::array<RoutedEvent, InputQueue::capacity() + PerformQueue::capacity()> pending_{};
+    std::size_t pending_count_ = 0;
+    std::size_t pending_next_ = 0;
+    std::atomic<InputClock> input_clock_{&monotonic_ns};
+    // When the last block began, on the input clock: the start of the
+    // period played input is placed against. 0 before the first block.
+    std::uint64_t last_block_ns_ = 0;
     // The scene launcher's commands, tracks and takes (wave 6.1): allocated
     // with the engine, sized by prepare().
     std::unique_ptr<engine::LauncherPlayback> launcher_;

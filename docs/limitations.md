@@ -13,7 +13,6 @@ in the [usage guide](usage.md).
   (notes or clock); MIDI OUT exports a Standard MIDI File.
 - The built-in sampler ignores poly pressure. The controller lane cannot edit
   poly pressure.
-- Incoming notes and controllers are timestamped to the callback block.
 
 MIDI file exchange also omits plugin state, parameter automation, per-note
 expression, audio clips and microtonal retuning. Tempo ramps export as

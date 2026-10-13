@@ -84,6 +84,9 @@ struct MidiInput::Impl {
     std::array<ChannelState, 16> channel_state{};
     std::atomic<int> last_key{-1};
     std::atomic<int> last_velocity{0};
+    // When the message being decoded arrived; producer only. Every event it
+    // turns into carries it, as do releases owed from earlier that it sends.
+    std::uint64_t stamp = 0;
     // Guards opening and closing against each other, never the note path.
     std::mutex control;
 
@@ -100,7 +103,7 @@ struct MidiInput::Impl {
         TrackMask delivered = 0;
         for (TrackMask left = tracks; left != 0; left &= left - 1) {
             const auto track = static_cast<std::uint32_t>(std::countr_zero(left));
-            if (!queue.push({track, event})) break;
+            if (!queue.push({track, event, stamp})) break;
             delivered |= track_bit(track);
         }
         return delivered;
@@ -189,7 +192,9 @@ struct MidiInput::Impl {
 namespace {
 void port_callback(double /*delta*/, std::vector<unsigned char>* message, void* user) {
     if (message == nullptr || user == nullptr) return;
-    static_cast<MidiInput*>(user)->receive({message->data(), message->size()});
+    // Stamped on arrival, before anything else is done with it.
+    const auto arrived = monotonic_ns();
+    static_cast<MidiInput*>(user)->receive({message->data(), message->size()}, arrived);
 }
 
 // RtMidi reports a missing sequencer or a vanished port through this rather
@@ -350,14 +355,15 @@ void MidiInput::set_key_map(const KeyMap& map) noexcept {
         impl_->key_map[key].store(map[key], std::memory_order_release);
 }
 
-bool MidiInput::inject(std::span<const std::uint8_t> message) noexcept {
+bool MidiInput::inject(std::span<const std::uint8_t> message, std::uint64_t time_ns) noexcept {
     if (impl_->mode != Mode::deterministic || !is_open()) return false;
-    receive(message);
+    receive(message, time_ns);
     return true;
 }
 
-void MidiInput::receive(std::span<const std::uint8_t> message) noexcept {
+void MidiInput::receive(std::span<const std::uint8_t> message, std::uint64_t time_ns) noexcept {
     if (!impl_->open.load(std::memory_order_acquire)) return;
+    impl_->stamp = time_ns;
     // Releases the queue had no room for go before anything newer.
     impl_->retry_owed();
     if (message.size() >= 2) {

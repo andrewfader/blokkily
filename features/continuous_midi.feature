@@ -52,8 +52,8 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
   Master-channel messages, and other CCs on a member channel, still reach
   the whole instrument.
 
-  Not done: Controller movements are stamped at the block they arrived in, as
-  notes are. Per-note expression is not drawn or edited in any editor (it
+  Controller movements keep their timing to the sample, as notes do
+  (features/midi_timing.feature). Not done: Per-note expression is not drawn or edited in any editor (it
   travels with its step when the step is moved, copied or transposed). The built-in sampler ignores poly pressure; the SoundFont and VST3
   paths send it on the channel holding its key.
 

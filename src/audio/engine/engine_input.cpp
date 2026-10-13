@@ -25,11 +25,36 @@ AudioInputRoute InputPlayback::unpack(std::uint32_t word) noexcept {
 }
 
 std::size_t gather_input(InputQueue* port, PerformQueue& performed,
-                         std::span<RoutedEvent> into) noexcept {
+                         std::span<RoutedEvent> into, std::uint64_t period_begin,
+                         std::uint64_t period_end, std::size_t frames) noexcept {
     std::size_t count = 0;
     if (port != nullptr)
         while (count < into.size() && port->pop(into[count])) ++count;
     while (count < into.size() && performed.pop(into[count])) ++count;
+    const std::uint64_t period = period_end > period_begin ? period_end - period_begin : 0;
+    for (std::size_t index = 0; index < count; ++index) {
+        auto& routed = into[index];
+        std::uint32_t sample = 0;
+        if (routed.time_ns > period_begin && period > 0 && frames > 0) {
+            const auto into_period = std::min(routed.time_ns - period_begin, period);
+            const auto placed = static_cast<std::uint64_t>(
+                static_cast<double>(into_period) / static_cast<double>(period) *
+                static_cast<double>(frames));
+            sample = static_cast<std::uint32_t>(std::min<std::uint64_t>(placed, frames - 1));
+        }
+        routed.event.sample_offset = sample;
+    }
+    // In time order, stable: an insertion sort, which neither allocates nor
+    // does more than a pass over input that arrived in order.
+    for (std::size_t index = 1; index < count; ++index) {
+        const RoutedEvent moving = into[index];
+        std::size_t at = index;
+        while (at > 0 && into[at - 1].event.sample_offset > moving.event.sample_offset) {
+            into[at] = into[at - 1];
+            --at;
+        }
+        into[at] = moving;
+    }
     return count;
 }
 

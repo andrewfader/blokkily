@@ -123,8 +123,10 @@ public:
 
     // Feeds a message through the port path. Only a deterministic input
     // accepts one: a device already has a producer, and the queue has room
-    // for exactly one.
-    bool inject(std::span<const std::uint8_t> message) noexcept;
+    // for exactly one. `time_ns` is when it arrived, on monotonic_ns()'s
+    // clock (or the engine's input clock a test set); 0 sounds it at the
+    // start of the next block.
+    bool inject(std::span<const std::uint8_t> message, std::uint64_t time_ns = 0) noexcept;
 
     // The render callback's end of the input.
     [[nodiscard]] InputQueue& queue() noexcept;
@@ -137,9 +139,9 @@ public:
     // Whether the sustain pedal (CC 64) is currently pressed on `channel`.
     [[nodiscard]] bool is_sustain_active(std::uint8_t channel = 0) const noexcept;
 
-    // Delivered by the port thread, or by inject(). Public only so the
-    // backend callback can reach it.
-    void receive(std::span<const std::uint8_t> message) noexcept;
+    // Delivered by the port thread, stamped as it arrived, or by inject().
+    // Public only so the backend callback can reach it.
+    void receive(std::span<const std::uint8_t> message, std::uint64_t time_ns = 0) noexcept;
 
 private:
     struct Impl;

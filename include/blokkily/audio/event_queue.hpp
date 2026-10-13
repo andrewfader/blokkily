@@ -5,6 +5,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
@@ -43,11 +44,23 @@ private:
 };
 
 // An event played from outside the arrangement, addressed to the track that
-// should sound it.
+// should sound it. `time_ns` is when it arrived, on monotonic_ns()'s clock:
+// the render callback places it at the matching sample of the period it
+// arrived in, so a played note keeps its timing within a block. 0 is
+// unstamped: it sounds at the start of the next block.
 struct RoutedEvent {
     std::uint32_t track = 0;
     PluginEvent event{};
+    std::uint64_t time_ns = 0;
 };
+
+// The clock input is stamped with, in nanoseconds: steady, never 0. Reading
+// it neither allocates nor locks, so the render callback reads it too.
+[[nodiscard]] inline std::uint64_t monotonic_ns() noexcept {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<std::uint64_t>(
+               std::chrono::duration_cast<std::chrono::nanoseconds>(now).count()) | 1U;
+}
 
 // Which tracks an input plays: one bit per track. Input can reach the first
 // `routable_tracks` tracks of a song; a track beyond them is never armed for

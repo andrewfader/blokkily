@@ -460,6 +460,7 @@ foreach(blokkily_feature
         effects
         record
         continuous_midi
+        midi_timing
         plugin_windows
         automation
         dynamic_modulation

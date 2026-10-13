@@ -696,21 +696,30 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
         events[count].sample_offset = 0;
         ++count;
     }
+    // Played input, each on the sample of this chunk it was placed on
+    // (gather_block_input): later than what comes before it, so the events
+    // are put back in time order below.
+    bool placed_late = false;
     for (std::size_t arrived = 0; arrived < incoming_count_; ++arrived) {
         const auto& routed = incoming_[arrived];
         if (routed.track != index || count >= capacity) continue;
         events[count] = routed.event;
-        events[count].sample_offset = 0;
+        const auto offset = routed.event.sample_offset;
+        placed_late = placed_late || offset > 0;
         ++count;
         // Captured where it was played: against what the performer heard as
-        // this block began, which the speakers sounded the output latency
-        // after the callback rendered it (capture_sample). A full capture
-        // ring loses the note from the take, never from the speakers.
-        // The tick is stamped here, with the clock this block is played
-        // under: a recompile published later must not re-read it.
-        if (capture)
-            (void)captured_.push(
-                {routed.track, capture_sample, capture_tick, events[count - 1]});
+        // its sample of this block began, which the speakers sounded the
+        // output latency after the callback rendered it (capture_sample). A
+        // full capture ring loses the note from the take, never from the
+        // speakers. The tick is stamped here, with the clock this block is
+        // played under: a recompile published later must not re-read it.
+        if (capture) {
+            const auto& clock = live_ != nullptr ? live_->clock : nothing_arranged.clock;
+            const auto at = capture_sample + offset;
+            (void)captured_.push({routed.track, at,
+                                  offset == 0 ? capture_tick : tick_at_sample(clock, at),
+                                  events[count - 1]});
+        }
     }
     const std::size_t timeline_begin = count;
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
@@ -776,6 +785,20 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
                 events[count++] = lane_first ? automation_scratch_[from_lanes++]
                                              : merge_scratch_[from_events++];
             }
+        }
+    }
+    // Input placed part way into the chunk goes where its sample falls among
+    // the rest, which are in time order: a stable insertion, which neither
+    // allocates nor moves anything but what is out of place.
+    if (placed_late) {
+        for (std::size_t at = 1; at < count; ++at) {
+            const PluginEvent moving = events[at];
+            std::size_t to = at;
+            while (to > 0 && events[to - 1].sample_offset > moving.sample_offset) {
+                events[to] = events[to - 1];
+                --to;
+            }
+            events[to] = moving;
         }
     }
     return count;
@@ -873,18 +896,48 @@ TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_
             sample_rate_ > 0.0 ? sample / sample_rate_ : 0.0};
 }
 
+void SongEngine::gather_block_input(std::size_t frames) noexcept {
+    // The period played input arrived in is the one since the last block
+    // began; the first block has none, and plays everything at its start.
+    const auto now = input_clock_.load(std::memory_order_acquire)();
+    const auto begin = last_block_ns_ != 0 ? last_block_ns_ : now;
+    last_block_ns_ = now;
+    // Anything a short block left over is due at once, ahead of what is new.
+    std::size_t kept = 0;
+    for (std::size_t left = pending_next_; left < pending_count_; ++left) {
+        pending_[kept] = pending_[left];
+        pending_[kept].event.sample_offset = 0;
+        ++kept;
+    }
+    pending_count_ = kept + engine::gather_input(input_.load(std::memory_order_acquire),
+                                                 performed_,
+                                                 std::span<RoutedEvent>(pending_).subspan(kept),
+                                                 begin, now, frames);
+    pending_next_ = 0;
+}
+
 void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
-                               std::uint64_t song_position, bool from_timeline) noexcept {
+                               std::uint64_t song_position, bool from_timeline,
+                               std::size_t chunk_begin) noexcept {
     const auto frames = output.left.size();
     std::fill(output.left.begin(), output.left.end(), 0.0F);
     std::fill(output.right.begin(), output.right.end(), 0.0F);
     const auto end = song_position + frames;
 
-    // Whatever a MIDI port and the on-screen surfaces delivered since the last
-    // block, one event per track it is routed to. It is taken once,
-    // before any track renders, and handed to the tracks it names below.
-    incoming_count_ = engine::gather_input(input_.load(std::memory_order_acquire), performed_,
-                                           incoming_);
+    // Whatever a MIDI port and the on-screen surfaces delivered that falls in
+    // this chunk of the device's block, one event per track it is routed to,
+    // each with its sample in the chunk. It is taken once, before any track
+    // renders, and handed to the tracks it names below.
+    incoming_count_ = 0;
+    const std::size_t chunk_end = chunk_begin + frames;
+    while (pending_next_ < pending_count_ &&
+           pending_[pending_next_].event.sample_offset < chunk_end) {
+        auto routed = pending_[pending_next_++];
+        const auto placed = routed.event.sample_offset;
+        routed.event.sample_offset =
+            placed > chunk_begin ? static_cast<std::uint32_t>(placed - chunk_begin) : 0U;
+        incoming_[incoming_count_++] = routed;
+    }
     const bool capture = from_timeline && recording_.load(std::memory_order_acquire);
     const Arrangement& arranged = live_ != nullptr ? *live_ : nothing_arranged;
     // What the performer heard as this block began: the song, the output
@@ -1146,6 +1199,8 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
             (void)strip_moves_.push({moved, at, tick_at_sample(live_->clock, at)});
         }
     }
+    // Played input, placed in this block where it arrived in the last one.
+    if (maximum_block_ != 0) gather_block_input(output.left.size());
     master_peak_.store(0.0F, std::memory_order_relaxed);
     for (auto& track : tracks_) track->peak.store(0.0F, std::memory_order_relaxed);
     for (auto& bus : buses_->returns) bus->peak.store(0.0F, std::memory_order_relaxed);
@@ -1175,7 +1230,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
                 frames = std::min<std::size_t>(frames, static_cast<std::size_t>(smoothing_frames));
             const StereoBlock chunk{output.left.subspan(idle, frames),
                                     output.right.subspan(idle, frames)};
-            process_chunk(chunk, input.slice(idle, frames), resting, false);
+            process_chunk(chunk, input.slice(idle, frames), resting, false, idle);
             // A click stopped mid-sound finishes; no new one starts.
             engine::render_clicks(*metronome_, chunk, {});
             idle += frames;
@@ -1206,7 +1261,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         }
         const StereoBlock chunk{output.left.subspan(rendered, frames),
                                 output.right.subspan(rendered, frames)};
-        process_chunk(chunk, input.slice(rendered, frames), resting, false);
+        process_chunk(chunk, input.slice(rendered, frames), resting, false, rendered);
         engine::hold_count_in_notes(*metronome_,
                                     std::span<const RoutedEvent>{incoming_.data(), incoming_count_});
         engine::render_clicks(*metronome_, chunk, {});
@@ -1256,7 +1311,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         const StereoBlock chunk{output.left.subspan(rendered, frames),
                                 output.right.subspan(rendered, frames)};
         process_chunk(chunk, input.slice(rendered, static_cast<std::size_t>(frames)),
-                      song_position, true);
+                      song_position, true, rendered);
         // The click, on the beats the listener reaches in this chunk.
         engine::render_clicks(*metronome_, chunk,
                               {live_ != nullptr ? &live_->clicks : nullptr,

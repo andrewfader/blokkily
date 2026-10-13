@@ -193,6 +193,11 @@ picker offers BEND, MOD, EXPR, any numbered CC or PRESSURE. Drag to draw a
 stroke, drag a point to move it, or right-click to erase it. Each gesture is one
 undo step and reaches playback on the next block.
 
+Played notes and controllers keep their timing to the sample. Each message is
+stamped as it arrives and placed at the matching sample of the next audio
+block, so what you play is heard, and recorded, one block late but without
+jitter. See [the timing scenarios](../features/midi_timing.feature).
+
 For MPE, enable MPE on the MIDI IN panel or let the keyboard send its
 configuration message. MPE reads the lower zone (notes on channels 2-16);
 click UPPER beside it for a keyboard set to the upper zone (channels 1-15). Each note's bend, CC 74 and pressure affect that note
