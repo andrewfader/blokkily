@@ -363,6 +363,8 @@ struct Song {
     // The sections the patterns are parts of (Section). Empty in a song built
     // without them; adopt_sections() gives such a song its sections.
     std::vector<Section> sections;
+    // The producer's notes on the song: free text, saved with it.
+    std::string notes;
     double master_gain_db = 0.0;
     // The tuning and scale the song is written in. Editors, keyboards, and the
     // engine all read these, so nothing can be in a different key from the

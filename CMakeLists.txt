@@ -483,7 +483,8 @@ foreach(blokkily_feature
         insert_locks
         tutorial
         mcp
-        long_song)
+        long_song
+        versions)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

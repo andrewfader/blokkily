@@ -156,7 +156,8 @@ void run_metronome(VerifyContext& ctx) {
     // can be, from its minimum up, the bar must end inside it.
     {
         const QSize kept = window->size();
-        for (const int width : {960, 1000, 1060, 1100, 1144, 1145, 1152, 1180, 1204, 1205, 1240, 1280, 1299, 1300, 1440}) {
+        for (const int width : {960, 1000, 1060, 1100, 1144, 1145, 1152, 1180, 1204, 1205, 1229, 1230, 1240, 1280,
+                               1299, 1300, 1329, 1330, 1429, 1430, 1440}) {
             window->resize(width, kept.height());
             lay_out();
             auto* rescan = ctx.named("rescanButton");
@@ -165,7 +166,7 @@ void run_metronome(VerifyContext& ctx) {
             // Every chip on the bar says what it is: none of their labels elided.
             bool whole = true;
             for (const char* name : {"viewALL", "viewSTEP", "viewTRACKER", "viewPIANO", "viewKEYS",
-                                     "viewLAUNCH", "undoButton", "redoButton", "clearButton", "rescanButton"})
+                                     "viewLAUNCH", "viewVERSIONS", "viewNOTES", "undoButton", "redoButton", "clearButton", "rescanButton"})
                 if (auto* chip = ctx.named(QString::fromLatin1(name)))
                     for (auto* child : chip->childItems())
                         if (child->property("truncated").toBool()) {

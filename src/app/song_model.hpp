@@ -2,6 +2,7 @@
 
 #include "blokkily/audio/scene_launcher_engine.hpp"
 #include "blokkily/model/song.hpp"
+#include "blokkily/project/project.hpp"
 
 #include <QElapsedTimer>
 #include <QObject>
@@ -59,6 +60,12 @@ class SongModel final : public QObject {
     // Whether the song differs from what was last saved or opened. Undoing
     // back to the saved state makes it clean again.
     Q_PROPERTY(bool dirty READ dirty NOTIFY historyChanged)
+    // The song's notes: free text, saved with it; each burst of typing is one
+    // step of history.
+    Q_PROPERTY(QString notes READ notes NOTIFY notesChanged)
+    // The versions saved along the way, newest first: {index, name, when,
+    // summary}, `index` counting the oldest as 0.
+    Q_PROPERTY(QVariantList versions READ versionRows NOTIFY versionsChanged)
     // The tuning and scale the whole session is written in. Every editor, the
     // keyboards, and the engine read these, so nothing on screen can be in a
     // different key from the notes it is editing.
@@ -168,7 +175,20 @@ public:
     QVariantList meters() const;
     bool canUndo() const noexcept { return !undo_.empty(); }
     bool canRedo() const noexcept { return !redo_.empty(); }
-    bool dirty() const noexcept { return state_id_ != saved_id_; }
+    bool dirty() const noexcept { return state_id_ != saved_id_ || versions_changed_; }
+    QString notes() const;
+    Q_INVOKABLE void setNotes(const QString& text);
+    QVariantList versionRows() const;
+    // The versions as the project file keeps them, oldest first. They are not
+    // the song's history: undo neither makes nor takes one away.
+    const std::vector<blokkily::ProjectVersion>& versions() const noexcept { return versions_; }
+    void setVersions(std::vector<blokkily::ProjectVersion> versions);
+    void addVersion(blokkily::ProjectVersion version);
+    bool removeVersion(int index);
+    bool renameVersion(int index, const QString& name);
+    // Puts `song` in place of the current one as one step of history, as a
+    // restored version is: undo brings back the song it replaced.
+    void restoreSong(blokkily::Song song);
     QString tuningName() const;
     QStringList tuningNames() const;
     int divisions() const noexcept { return song_.tuning.divisions(); }
@@ -581,6 +601,8 @@ signals:
     // or draws a pitch re-reads itself from this.
     void tuningChanged();
     void historyChanged();
+    void notesChanged();
+    void versionsChanged();
     // The tempo or meter map changed. Also covered by songChanged.
     void timebaseChanged();
     // Undo or redo gave these tracks back an earlier state of the instrument
@@ -657,6 +679,9 @@ private:
     blokkily::BusKind rack_kind_ = blokkily::BusKind::track;
     int rack_return_ = 0;
     std::vector<Snapshot> undo_;
+    std::vector<blokkily::ProjectVersion> versions_;
+    // A version saved, renamed or removed since the project was saved.
+    bool versions_changed_ = false;
     std::vector<Snapshot> redo_;
     std::uint64_t state_id_ = 0;
     std::uint64_t saved_id_ = 0;

@@ -16,9 +16,9 @@ ToolBar {
     // captions. The controls themselves never run off the window's edge,
     // however narrow it is allowed to get (bdd_metronome sweeps the widths).
     // Each step is taken a little before the wider layout stops fitting.
-    readonly property bool tight: width < 1300
-    readonly property bool cramped: width < 1205
-    readonly property bool narrow: width < 1145
+    readonly property bool tight: width < 1430
+    readonly property bool cramped: width < 1330
+    readonly property bool narrow: width < 1230
     height: 52
     background: Rectangle {
         color: "#141519"
@@ -204,17 +204,17 @@ ToolBar {
             objectName: "viewSwitcher"
             spacing: 2
             Repeater {
-                model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS", "LAUNCH"]
+                model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS", "LAUNCH", "VERSIONS", "NOTES"]
                 Chip {
                     required property var modelData
                     objectName: "view" + modelData
                     readonly property var shortNames: ({
                         "ALL": "ALL", "STEP": "STEP", "TRACKER": "TRK", "PIANO": "ROLL",
-                        "KEYS": "KEYS", "LAUNCH": "LNCH"
+                        "KEYS": "KEYS", "LAUNCH": "LNCH", "VERSIONS": "VERS", "NOTES": "NOTE"
                     })
                     readonly property var shortestNames: ({
                         "ALL": "ALL", "STEP": "STP", "TRACKER": "TRK", "PIANO": "ROL",
-                        "KEYS": "KEY", "LAUNCH": "LNC"
+                        "KEYS": "KEY", "LAUNCH": "LNC", "VERSIONS": "VER", "NOTES": "NTS"
                     })
                     readonly property string shown: root.narrow ? shortestNames[modelData]
                                                   : root.cramped ? shortNames[modelData] : modelData

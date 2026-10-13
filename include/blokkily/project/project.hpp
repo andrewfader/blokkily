@@ -3,18 +3,32 @@
 #include "blokkily/model/song.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace blokkily {
 
+// A saved version of a song: what the project file would have held, as its
+// text, when the producer named it. It is history, not a second song: nothing
+// plays or edits it until it is restored into the song.
+struct ProjectVersion {
+    std::string name;
+    std::int64_t saved_at = 0;   // seconds since 1970, UTC
+    std::string snapshot;        // ProjectFile::serialize of the song then, without versions
+
+    friend bool operator==(const ProjectVersion&, const ProjectVersion&) = default;
+};
+
 // A session: the arrangement and its name. Everything musical, the tempo map
 // included, lives in the song, so saving a project and saving a song are the
-// same act.
+// same act. The versions the producer saved along the way travel with it.
 struct Project {
     std::string name = "Untitled";
     Song song;
+    std::vector<ProjectVersion> versions;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return song.pattern(index); }
     [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {

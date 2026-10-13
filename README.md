@@ -100,6 +100,8 @@ keeps the layout consistent across desktops.
   count-in. Resample a bus or bounce stems. Export the arrangement
   as 16-bit, 24-bit or 32-bit float WAVE through the same engine used for
   playback. Import and export Standard MIDI Files for note exchange.
+- Save named versions of the song and restore any of them in one undo step,
+  and keep notes with it, in the VERSIONS and NOTES tabs.
 - Press F1 or HELP for a guided tour of the window. CLEAR empties the session
   in one undo step.
 - Ask the LLM composition assistant for a phrase. Review its proposal before

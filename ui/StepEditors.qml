@@ -33,7 +33,8 @@ ColumnLayout {
     // Laid out as the grid and the tracker/roll split always were: the one
     // that fills is the one the view focuses, and in KEYS neither is shown.
     Layout.fillWidth: true; Layout.fillHeight: true
-    visible: view !== "KEYS" && view !== "LAUNCH"
+    objectName: "stepEditors"
+    visible: view !== "KEYS" && view !== "LAUNCH" && view !== "VERSIONS" && view !== "NOTES"
     spacing: 10
 
     // ------------------------------------------------------ step grid

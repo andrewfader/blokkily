@@ -64,6 +64,7 @@ void SongModel::restore(Snapshot snapshot) {
     if (inputs_differ) emit inputChanged();
     notifyStructureChanged();
     emit historyChanged();
+    emit notesChanged();
 }
 
 void SongModel::beginGesture() {
@@ -122,6 +123,7 @@ bool SongModel::redo() {
 
 void SongModel::markSaved() {
     saved_id_ = state_id_;
+    versions_changed_ = false;
     last_merge_.clear();
     emit historyChanged();
 }

@@ -332,6 +332,7 @@ void SongModel::install(blokkily::Song song) {
     // The master fader, the sends and the inputs are the new song's too.
     emit mixChanged();
     emit inputChanged();
+    emit notesChanged();
     notifyStructureChanged();
 }
 

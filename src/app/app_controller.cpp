@@ -497,6 +497,8 @@ void AppController::newProject() {
     clip_assets_.clear();
     assets_->purge_unused();
     song_->replace(std::move(blank));
+    // A new song has no history of versions.
+    song_->setVersions({});
     if (song_->song().tracks.front().instrument.format.empty()) (void)loadDefaultInstrument();
     else (void)rebuildEngine();
     if (transport_ != nullptr) transport_->rewind();
@@ -1175,6 +1177,7 @@ bool AppController::saveProject(const QString& path) {
     blokkily::Project project;
     project.name = "Blokkily Session";
     project.song = song;
+    project.versions = song_->versions();
     // Files no clip plays any more are not written. The song in memory keeps
     // them, so undoing a deleted clip still finds its file.
     (void)project.song.prune_audio_files();
@@ -1217,6 +1220,7 @@ bool AppController::loadProject(const QString& path) {
     // sample named relative to it is found by the first engine built for it.
     project_path_ = path;
     song_->replace(std::move(project->song));
+    song_->setVersions(std::move(project->versions));
     // Patterns as the producer sees them: sections, not one per track.
     const auto patterns = song_->song().sections.size();
     if (pattern_ != nullptr) pattern_->refresh();

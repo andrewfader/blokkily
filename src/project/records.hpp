@@ -73,6 +73,9 @@ struct ParseContext {
         std::size_t track = 0;
     };
     std::vector<PartRecord> parts;
+    // The song's notes as read (records_versions.cpp), put into the song once
+    // the core module has built it.
+    std::optional<std::string> notes;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -103,6 +106,9 @@ struct RecordModule {
 
 // Chord velocity and voice length: voicevel, voicelen (records_chord_velocity.cpp).
 [[nodiscard]] const RecordModule& chord_velocity_records();
+// The song's notes and the project's saved versions: notes, version
+// (records_versions.cpp).
+[[nodiscard]] const RecordModule& version_records();
 // Step locks on insert effects: lockslot (records_lock_targets.cpp).
 [[nodiscard]] const RecordModule& lock_target_records();
 

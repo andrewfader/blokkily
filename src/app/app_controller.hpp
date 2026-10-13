@@ -305,6 +305,14 @@ public:
     // piano roll's keyboard gutter is heard the way a key of the surface is.
     Q_INVOKABLE bool auditionKey(int key, bool held = false);
     Q_INVOKABLE bool saveProjectFile(const QString& path);
+    // Saves the song as it is now as a version named `name` ("VERSION n" when
+    // empty), with what every processor sounds like. Saved with the project.
+    Q_INVOKABLE bool saveVersion(const QString& name);
+    // Puts version `index` (0 is the oldest) in place of the song, as one step
+    // of history: undo brings the song back as it was.
+    Q_INVOKABLE bool restoreVersion(int index);
+    Q_INVOKABLE bool renameVersion(int index, const QString& name);
+    Q_INVOKABLE bool deleteVersion(int index);
     Q_INVOKABLE bool loadProjectFile(const QString& path);
     // Sounds pitches straight through the running engine, so a keyboard is
     // audible on a stopped song. Returns false when no engine is live.

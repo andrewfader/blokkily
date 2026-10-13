@@ -25,7 +25,8 @@ ApplicationWindow {
 
     // STEP / TRACKER / PIANO focus one editor; ALL keeps every projection on
     // screen at once, which is the point of the instrument. LAUNCH shows the
-    // scene launcher in the editors' place.
+    // scene launcher in the editors' place, VERSIONS the song's saved
+    // versions and NOTES its notes.
     property string view: "ALL"
     // Bit depth the next bounce is written at.
     property string exportDepth: "PCM24"
@@ -546,6 +547,16 @@ ApplicationWindow {
                         focusHome: noteEntry
                     }
 
+                    VersionsPanel {
+                        view: root.view
+                        focusHome: noteEntry
+                    }
+
+                    NotesPanel {
+                        view: root.view
+                        focusHome: noteEntry
+                    }
+
                     StepEditors {
                         view: root.view
                         entryOctave: root.entryOctave
@@ -559,9 +570,11 @@ ApplicationWindow {
                         focusHome: noteEntry
                     }
 
-                    Inspector {}
+                    // The step's inspector and the modulators belong to the
+                    // editors; VERSIONS and NOTES take their place.
+                    Inspector { visible: root.view !== "VERSIONS" && root.view !== "NOTES" }
 
-                    ModulationPanel {}
+                    ModulationPanel { visible: root.view !== "VERSIONS" && root.view !== "NOTES" }
                 }
             }
         }

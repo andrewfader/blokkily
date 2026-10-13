@@ -407,6 +407,20 @@ Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes edits to steps, strokes, clips,
 tracks, patterns, faders and tuning. A phrase-drawing or fader drag is one undo
 step, rather than one per pointer movement.
 
+## Versions and notes
+
+VERSIONS (VERS when the window is narrow) lists the versions of the song saved
+along the way, newest first. Type a name and press SAVE VERSION, or leave the
+name empty for VERSION 1, VERSION 2 and so on. A version keeps the whole song,
+with what every plugin sounds like. RESTORE puts one in the song's place as a
+single undo step, so UNDO brings back the song it replaced. Saving, restoring
+and deleting versions is never undone itself. DELETE asks again (SURE?)
+before it removes a version. Versions are saved in the project file.
+
+NOTES holds free text about the song: lyrics, ideas, what to try next. It is
+saved with the song, and each burst of typing is one undo step. Escape returns
+the keyboard to the editors.
+
 ## Keyboard shortcuts
 
 While a text field has focus, typing a search or name does not trigger editing
