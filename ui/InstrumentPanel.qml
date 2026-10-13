@@ -150,6 +150,62 @@ ColumnLayout {
         }
     }
 
+    // Outboard gear: the selected track plays a MIDI output port on one of
+    // its channels instead of an instrument of its own, and the song can
+    // send MIDI clock to a port so drum machines and sequencers follow it.
+    GridLayout {
+        id: midiOutPanel
+        objectName: "midiOutPanel"
+        Layout.fillWidth: true
+        columns: 3; columnSpacing: 6; rowSpacing: 4
+        // Read again whenever the song changes, so a track that is given
+        // another instrument stops showing a port.
+        readonly property string trackPort:
+            (songModel.tracks, appController.trackMidiOut(songModel.selectedTrack))
+        readonly property int trackChannel:
+            (songModel.tracks, appController.trackMidiOutChannel(songModel.selectedTrack))
+        readonly property var channels: {
+            var names = []
+            for (var channel = 1; channel <= 16; ++channel) names.push("CH " + channel)
+            return names
+        }
+        Component.onCompleted: appController.refreshMidiPorts()
+        SectionLabel { text: "MIDI OUT" }
+        Picker {
+            objectName: "midiOutPort"
+            Layout.fillWidth: true; Layout.minimumWidth: 60
+            implicitHeight: 22
+            choices: ["OFF"].concat(appController.midiOutPorts)
+            value: midiOutPanel.trackPort !== "" ? midiOutPanel.trackPort : "OFF"
+            onPicked: name => {
+                if (name !== "OFF")
+                    appController.setTrackMidiOut(songModel.selectedTrack, name,
+                                                  midiOutPanel.trackChannel)
+                else if (midiOutPanel.trackPort !== "")
+                    appController.setTrackMidiOut(songModel.selectedTrack, "")
+            }
+        }
+        Picker {
+            objectName: "midiOutChannel"
+            visible: midiOutPanel.trackPort !== ""
+            implicitHeight: 22
+            choices: midiOutPanel.channels
+            value: "CH " + (midiOutPanel.trackChannel + 1)
+            onPicked: name => appController.setTrackMidiOutChannel(
+                          songModel.selectedTrack, parseInt(name.slice(3)) - 1)
+        }
+        SectionLabel { text: "CLOCK" }
+        Picker {
+            objectName: "midiClockPort"
+            Layout.columnSpan: 2
+            Layout.fillWidth: true; Layout.minimumWidth: 60
+            implicitHeight: 22
+            choices: ["OFF"].concat(appController.midiOutPorts)
+            value: appController.midiClockPort !== "" ? appController.midiClockPort : "OFF"
+            onPicked: name => appController.setMidiClockPort(name === "OFF" ? "" : name)
+        }
+    }
+
     RowLayout {
         Layout.fillWidth: true; spacing: 6
         SectionLabel { text: "PLUGINS" }

@@ -26,6 +26,8 @@
 
 namespace blokkily {
 
+class MidiOutput;
+
 class DiskStream;
 
 // A parameter edit a processor made, stamped on the audio thread with where in
@@ -138,6 +140,28 @@ public:
     }
     [[nodiscard]] bool blocking_disk_reads() const noexcept {
         return blocking_reads_.load(std::memory_order_acquire);
+    }
+
+    // Hardware MIDI. Muted, nothing leaves the engine for outboard gear: no
+    // instrument is told when its block will be heard (TransportInfo::heard_ns
+    // is 0) and no clock is sent. bounce_song() mutes it, because an offline
+    // render runs faster than real time.
+    void set_hardware_midi_muted(bool muted) noexcept {
+        midi_muted_.store(muted, std::memory_order_release);
+    }
+    [[nodiscard]] bool hardware_midi_muted() const noexcept {
+        return midi_muted_.load(std::memory_order_acquire);
+    }
+    // Sends MIDI clock to `output` while the song plays: 24 pulses a beat on
+    // the song's own tempo map, Start when it plays from its beginning, Song
+    // Position and Continue when it plays from anywhere else or jumps there
+    // (a seek, the loop), Stop when it stops. Each is due when its sample is
+    // heard. nullptr sends none. The output must outlive the connection.
+    void set_clock_output(MidiOutput* output) noexcept {
+        clock_output_.store(output, std::memory_order_release);
+    }
+    [[nodiscard]] MidiOutput* clock_output() const noexcept {
+        return clock_output_.load(std::memory_order_acquire);
     }
 
     ~SongEngine();
@@ -625,6 +649,23 @@ private:
     std::size_t pending_count_ = 0;
     std::size_t pending_next_ = 0;
     std::atomic<InputClock> input_clock_{&monotonic_ns};
+    // Every frame process() has rendered, and the length of the block being
+    // rendered: what a chunk's frame and heard time are counted from.
+    std::uint64_t frames_rendered_ = 0;
+    std::size_t block_frames_ = 0;
+    std::atomic<bool> midi_muted_{false};
+    std::atomic<MidiOutput*> clock_output_{nullptr};
+    // Callback only: whether the clock's receiver has been started, and where
+    // the song is due to be next, so a jump is told.
+    bool clock_running_ = false;
+    std::uint64_t clock_expected_ = 0;
+    // When sample `offset` of the block being rendered reaches the speakers,
+    // on the input clock; 0 while hardware MIDI is muted.
+    [[nodiscard]] std::uint64_t heard_ns_at(std::size_t offset) const noexcept;
+    // The clock for one chunk of the playing song (set_clock_output).
+    void send_clock(std::uint64_t song_position, std::uint64_t frames,
+                    std::size_t chunk_begin) noexcept;
+    void stop_clock() noexcept;
     // When the last block began, on the input clock: the start of the
     // period played input is placed against. 0 before the first block.
     std::uint64_t last_block_ns_ = 0;

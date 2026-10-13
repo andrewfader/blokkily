@@ -77,6 +77,8 @@ add_library(blokkily_core
     src/sequencer/scheduler.cpp
     src/sequencer/take.cpp
     src/midi/midi_input.cpp
+    src/midi/midi_output.cpp
+    src/midi/midi_out_instrument.cpp
 )
 target_include_directories(blokkily_core PUBLIC include PRIVATE third_party/clap/include)
 target_link_libraries(blokkily_core PRIVATE ${CMAKE_DL_LIBS})
@@ -461,6 +463,7 @@ foreach(blokkily_feature
         record
         continuous_midi
         midi_timing
+        midi_output
         plugin_windows
         automation
         dynamic_modulation

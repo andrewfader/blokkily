@@ -209,6 +209,24 @@ per-note channel for SoundFont and VST3. See
 CLICK follows the tempo and meter. CI counts in up to four bars without moving
 the song. Exports exclude the click unless + CLICK is enabled.
 
+## Outboard gear and MIDI clock
+
+The MIDI OUT row under MIDI IN gives the selected track a MIDI output port in
+place of an instrument, and a channel beside it. The track's notes, its
+patterns' controller movements and keys played into it then go to that port on
+that channel. Each one is timed to the sample it is heard on, so the gear plays
+in time with the rest of the mix. Pick OFF to take the port away. The port and
+channel are saved with the song, and each change is one undo step.
+
+CLOCK sends MIDI clock to a port so a drum machine or sequencer follows the
+song: Start when the song plays from its beginning, Song Position and Continue
+when it plays from anywhere else or jumps, 24 pulses a beat on the song's tempo
+map, and Stop when it stops. An export sends neither notes nor clock. The CLOCK
+setting is the studio's and is not saved with the song.
+
+These are not the project panel's MIDI IN and MIDI OUT buttons, which import
+and export Standard MIDI Files.
+
 ## MIDI file exchange
 
 The project panel's MIDI IN / MIDI OUT buttons import and export Standard MIDI

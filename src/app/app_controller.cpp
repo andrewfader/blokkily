@@ -1,4 +1,6 @@
 #include "app_controller.hpp"
+
+#include "blokkily/midi/midi_out_instrument.hpp"
 #include "app_controller_internal.hpp"
 #include "blokkily/project/midi_file.hpp"
 #include "blokkily/instruments/soundfont_catalog.hpp"
@@ -57,6 +59,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
           // one shares the recompile.
           [this](std::function<void()> work) { QTimer::singleShot(0, this, std::move(work)); }),
       audio_output_(std::move(output)) {
+    registerMidiOut();
     // Audio clips larger than this (decoded) stream from disk (wave 4.2).
     // The environment can lower it, so a gate streams a short file.
     if (const char* threshold = std::getenv("BLOKKILY_STREAM_THRESHOLD_BYTES")) {
@@ -179,6 +182,9 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
 }
 
 AppController::~AppController() {
+    // The factory no longer makes MIDI Out instruments on this controller's
+    // outputs.
+    blokkily::register_internal(blokkily::midi_out_format, nullptr);
     // A take still being written is abandoned with the session, and so is the
     // temporary folder of a session that was never saved.
     discardAudioTake();
@@ -629,6 +635,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     // The controller's keys reach whichever engine is live, and a take being
     // recorded carries on into it.
     engine_->connect_input(&midi_input_->queue());
+    engine_->set_clock_output(clock_output_.get());
     engine_->set_recording(record_armed_);
     engine_->set_launcher_recording(launcher_recording_);
     // Recorded audio input reaches the take writer through its ring, and

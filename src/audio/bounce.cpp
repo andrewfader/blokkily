@@ -59,6 +59,10 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // they are played: an export never waits on, or is short of, a worker.
     const bool was_blocking = engine.blocking_disk_reads();
     engine.set_blocking_disk_reads(true);
+    // Nothing goes to outboard gear while the export renders faster than
+    // real time: no notes, no clock.
+    const bool midi_was_muted = engine.hardware_midi_muted();
+    engine.set_hardware_midi_muted(true);
     engine.set_playing(true);
     engine.rewind();
     // The export is the song from silence: whatever playback left in the
@@ -118,6 +122,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
         if (!state.empty()) restored = instance->load_state(state) && restored;
     engine.set_bounce_tap(previous_tap);
     engine.set_blocking_disk_reads(was_blocking);
+    engine.set_hardware_midi_muted(midi_was_muted);
     engine.set_metronome_enabled(had_metronome);
     engine.set_playing(was_playing);
     engine.seek(resume_at);

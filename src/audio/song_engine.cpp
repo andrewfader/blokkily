@@ -1,4 +1,5 @@
 #include "blokkily/audio/song_engine.hpp"
+#include "blokkily/midi/midi_output.hpp"
 
 #include "engine/arrangement.hpp"
 #include "engine/engine_automation.hpp"
@@ -900,6 +901,68 @@ TransportInfo SongEngine::transport_at(const Arrangement& arranged, std::uint64_
             sample_rate_ > 0.0 ? sample / sample_rate_ : 0.0};
 }
 
+std::uint64_t SongEngine::heard_ns_at(std::size_t offset) const noexcept {
+    if (midi_muted_.load(std::memory_order_acquire) || last_block_ns_ == 0 || sample_rate_ <= 0.0)
+        return 0;
+    // The block rendered now is heard once the one before it has played,
+    // and the compensation after that.
+    const double samples = static_cast<double>(block_frames_ + offset + output_latency());
+    return (last_block_ns_ +
+            static_cast<std::uint64_t>(std::llround(samples * 1e9 / sample_rate_))) | 1U;
+}
+
+void SongEngine::stop_clock() noexcept {
+    auto* output = clock_output_.load(std::memory_order_acquire);
+    if (clock_running_ && output != nullptr && !midi_muted_.load(std::memory_order_acquire))
+        (void)output->send({heard_ns_at(0), frames_rendered_, {0xFC, 0, 0}, 1});
+    clock_running_ = false;
+}
+
+void SongEngine::send_clock(std::uint64_t song_position, std::uint64_t frames,
+                            std::size_t chunk_begin) noexcept {
+    auto* output = clock_output_.load(std::memory_order_acquire);
+    if (output == nullptr || live_ == nullptr || midi_muted_.load(std::memory_order_acquire)) {
+        clock_running_ = false;
+        return;
+    }
+    const auto& clock = live_->clock;
+    const double ticks_per_beat = static_cast<double>(std::max<Tick>(1, live_->ticks_per_beat));
+    const auto put = [&](std::uint64_t offset, std::array<std::uint8_t, 3> bytes,
+                         std::uint8_t size) {
+        const auto at = chunk_begin + static_cast<std::size_t>(offset);
+        (void)output->send({heard_ns_at(at), frames_rendered_ + at, bytes, size});
+    };
+    // Started, or told where the song has jumped to.
+    if (!clock_running_ || song_position != clock_expected_) {
+        if (clock_running_) put(0, {0xFC, 0, 0}, 1);
+        if (song_position == 0 && !clock_running_) {
+            put(0, {0xFA, 0, 0}, 1);
+        } else {
+            // Song Position counts sixteenth notes.
+            const auto sixteenths = static_cast<std::uint32_t>(std::clamp(
+                std::floor(clock.tick_at(static_cast<double>(song_position)) * 4.0 / ticks_per_beat),
+                0.0, 16383.0));
+            put(0, {0xF2, static_cast<std::uint8_t>(sixteenths & 0x7FU),
+                    static_cast<std::uint8_t>((sixteenths >> 7) & 0x7FU)}, 3);
+            put(0, {0xFB, 0, 0}, 1);
+        }
+        clock_running_ = true;
+    }
+    // A pulse every 24th of a beat, on the sample the tempo map puts it on;
+    // each pulse's sample is worked out the same way whichever chunk asks, so
+    // none is sent twice or missed at a chunk's edge.
+    const double pulse = ticks_per_beat / 24.0;
+    const auto end = song_position + frames;
+    const double first = std::floor(clock.tick_at(static_cast<double>(song_position)) / pulse) - 1.0;
+    const double last = std::ceil(clock.tick_at(static_cast<double>(end)) / pulse) + 1.0;
+    for (double index = std::max(0.0, first); index <= last; ++index) {
+        const auto at = sample_for_tick(clock, index * pulse);
+        if (at < song_position || at >= end) continue;
+        put(at - song_position, {0xF8, 0, 0}, 1);
+    }
+    clock_expected_ = end;
+}
+
 void SongEngine::gather_block_input(std::size_t frames) noexcept {
     // The period played input arrived in is the one since the last block
     // began; the first block has none, and plays everything at its start.
@@ -950,7 +1013,9 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     const Tick capture_tick = capture ? tick_at_sample(arranged.clock, capture_sample) : 0;
     // Where the song is for every processor this chunk: a tempo-synced effect
     // follows the tempo map from here (plan C20).
-    const TransportInfo transport = transport_at(arranged, song_position, from_timeline);
+    TransportInfo transport = transport_at(arranged, song_position, from_timeline);
+    transport.frame = frames_rendered_ + chunk_begin;
+    transport.heard_ns = heard_ns_at(chunk_begin);
     // Recorded input goes here only while the song plays and records.
     SampleRing* const capture_ring = capture ? capture_.load(std::memory_order_acquire) : nullptr;
     DrainContext drain_context{this,
@@ -1153,6 +1218,14 @@ void SongEngine::process(StereoBlock output) noexcept { process(output, InputBlo
 void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     if (output.left.size() != output.right.size()) return;
     if (input.frames != output.left.size()) input = {};
+    // Every frame of the block is counted once it is rendered, whichever way
+    // this returns.
+    struct Counted {
+        std::uint64_t& rendered;
+        std::size_t frames;
+        ~Counted() { rendered += frames; }
+    } counted{frames_rendered_, output.left.size()};
+    block_frames_ = output.left.size();
     const DenormalGuard denormals;
     const auto requested = requested_position_.exchange(no_seek, std::memory_order_acq_rel);
     const bool seeked = requested != no_seek;
@@ -1190,6 +1263,8 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     if (rolling && !rolled_) cursors_valid_ = false;
     const bool was_rolling = rolled_;
     rolled_ = rolling;
+    // A stopped song stops the clock's receiver.
+    if (!rolling) stop_clock();
     // Strip moves from the interface: each sets its control's touch bit and,
     // while the song plays, goes back stamped with where it was heard.
     StripMove moved;
@@ -1316,6 +1391,7 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
                                 output.right.subspan(rendered, frames)};
         process_chunk(chunk, input.slice(rendered, static_cast<std::size_t>(frames)),
                       song_position, true, rendered);
+        send_clock(song_position, frames, rendered);
         // The click, on the beats the listener reaches in this chunk.
         engine::render_clicks(*metronome_, chunk,
                               {live_ != nullptr ? &live_->clicks : nullptr,

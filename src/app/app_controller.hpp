@@ -16,6 +16,7 @@
 #include "blokkily/audio/take_writer.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/midi/midi_input.hpp"
+#include "blokkily/midi/midi_output.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
 #include "blokkily/sequencer/take.hpp"
 #include "blokkily/sequencer/automation_take.hpp"
@@ -79,6 +80,10 @@ class AppController final : public QObject {
     // MIDI input: the ports the system offers, the one being played, and what
     // it last delivered, so a producer can see a keyboard is reaching the app.
     Q_PROPERTY(QStringList midiPorts READ midiPorts NOTIFY midiChanged)
+    // The MIDI output ports outboard gear can be reached through, and the
+    // one the song sends MIDI clock to ("" for none).
+    Q_PROPERTY(QStringList midiOutPorts READ midiOutPorts NOTIFY midiChanged)
+    Q_PROPERTY(QString midiClockPort READ midiClockPort NOTIFY midiChanged)
     Q_PROPERTY(QString midiPort READ midiPort NOTIFY midiChanged)
     // Whether the MIDI input reads an MPE keyboard (the lower zone), or the
     // keyboard turned MPE on itself with its configuration message.
@@ -176,6 +181,23 @@ public:
     QString projectName() const;
     double sampleRate() const noexcept { return engine_ ? engine_->sample_rate() : 0.0; }
     QStringList midiPorts() const { return midi_ports_; }
+    QStringList midiOutPorts() const { return midi_out_ports_; }
+    QString midiClockPort() const { return midi_clock_port_; }
+    // A track played by outboard gear: its instrument is the MIDI output
+    // `port` on `channel` (0-15). "" gives the track no instrument. One step
+    // of history.
+    Q_INVOKABLE bool setTrackMidiOut(int track, const QString& port, int channel = 0);
+    // The MIDI output port track `track` plays through, or "" when its
+    // instrument is something else; and its channel (0-15).
+    Q_INVOKABLE QString trackMidiOut(int track) const;
+    Q_INVOKABLE int trackMidiOutChannel(int track) const;
+    // Moves a MIDI Out track to `channel`, live; one step of history.
+    Q_INVOKABLE bool setTrackMidiOutChannel(int track, int channel);
+    // Sends MIDI clock to `port` from now on; "" stops sending it.
+    Q_INVOKABLE bool setMidiClockPort(const QString& port);
+    // The output `port` names, opened when first asked for; nullptr when it
+    // cannot be opened. Shared with every MIDI Out instrument playing it.
+    std::shared_ptr<blokkily::MidiOutput> midiOutput(const std::string& port);
     QString midiPort() const;
     bool mpe() const;
     Q_INVOKABLE void setMpe(bool enabled);
@@ -683,6 +705,15 @@ private:
     // Declared before the engine and the device so it outlives both: the render
     // callback reads its queue until the device has stopped.
     std::unique_ptr<blokkily::MidiInput> midi_input_;
+    // The MIDI outputs open now, by port; deterministic under verification,
+    // as the input is.
+    std::map<std::string, std::shared_ptr<blokkily::MidiOutput>> midi_outputs_;
+    QStringList midi_out_ports_;
+    QString midi_clock_port_;
+    std::shared_ptr<blokkily::MidiOutput> clock_output_;
+    // Makes the factory create MIDI Out instruments from this controller's
+    // outputs (blokkily::midi_out_format).
+    void registerMidiOut();
     // What the engine captures recorded input into, and the thread that
     // writes it to disk. Declared before the engine and the device so it
     // outlives both: the callback writes into its ring until the device stops.

@@ -77,8 +77,15 @@ void AppController::refreshMidiPorts() {
     } else {
         for (const auto& name : midi_input_->ports()) ports << QString::fromStdString(name);
     }
-    if (ports == midi_ports_) return;
+    // The outputs outboard gear is reached through, listed the same way.
+    QStringList outputs;
+    blokkily::MidiOutput probe(midi_input_->mode() == blokkily::MidiInput::Mode::deterministic
+                                   ? blokkily::MidiOutput::Mode::deterministic
+                                   : blokkily::MidiOutput::Mode::device);
+    for (const auto& name : probe.ports()) outputs << QString::fromStdString(name);
+    if (ports == midi_ports_ && outputs == midi_out_ports_) return;
     midi_ports_ = ports;
+    midi_out_ports_ = outputs;
     emit midiChanged();
 }
 

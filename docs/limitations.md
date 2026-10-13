@@ -9,8 +9,9 @@ in the [usage guide](usage.md).
 - VST3 instruments receive per-note pitch only within a two-semitone channel
   bend. SoundFonts have no CC 74 timbre response unless the SF2 maps it. The
   sampler supports per-note pitch only.
-- MIDI clock input is not supported, and there is no MIDI output to hardware
-  (notes or clock); MIDI OUT exports a Standard MIDI File.
+- MIDI clock input is not supported: Blokkily can send clock but not follow
+  it. A track played through a MIDI output sends no microtonal retuning, and
+  the clock port is not saved with the song.
 - The built-in sampler ignores poly pressure. The controller lane cannot edit
   poly pressure.
 

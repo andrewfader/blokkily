@@ -133,6 +133,13 @@ struct TransportInfo {
     double bar_start_beat = 0.0;
     // The playhead in seconds, for a plugin that keeps a seconds timeline.
     double seconds = 0.0;
+    // For a processor that talks to the outside world (a MIDI output): the
+    // engine frame the block's first sample is (SongEngine counts every frame
+    // it renders, whatever the song does), and when that sample reaches the
+    // speakers on monotonic_ns()'s clock. 0 when nothing should leave the
+    // engine: an offline bounce, which renders faster than real time.
+    std::uint64_t frame = 0;
+    std::uint64_t heard_ns = 0;
 };
 
 class PluginInstance {

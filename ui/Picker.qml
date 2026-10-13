@@ -17,6 +17,10 @@ Rectangle {
         id: pickerText
         anchors.left: parent.left; anchors.leftMargin: 9
         anchors.verticalCenter: parent.verticalCenter
+        // A picker squeezed narrower than its value shortens it rather than
+        // running into what is beside it.
+        width: Math.min(implicitWidth, pickerRoot.width - 30)
+        elide: Text.ElideRight
         text: pickerRoot.value; color: Theme.ink; font.pixelSize: 11; font.bold: true
     }
     Label {

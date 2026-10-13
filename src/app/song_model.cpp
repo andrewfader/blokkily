@@ -1,5 +1,7 @@
 #include "song_model.hpp"
 
+#include "blokkily/midi/midi_out_instrument.hpp"
+
 #include "blokkily/audio/audio_input.hpp"
 #include "blokkily/audio/event_queue.hpp"
 #include "blokkily/audio/mixer.hpp"
@@ -17,6 +19,11 @@ namespace {
 // rather than showing a blank, because an empty track is a normal state.
 QString instrument_label(const blokkily::InstrumentSlot& slot) {
     if (slot.format.empty()) return QStringLiteral("no instrument");
+    // Outboard gear is named by the port it is reached through and its channel.
+    if (slot.format == blokkily::midi_out_format)
+        return QString("MIDI · %1 · CH %2")
+            .arg(QString::fromStdString(slot.identifier))
+            .arg((slot.state.empty() ? 0 : static_cast<int>(slot.state.front()) & 0x0F) + 1);
     // The built-in sampler has no file of its own: it is named by what it
     // plays, the first sample of its program, or by its mode while empty.
     if (slot.format == "Sampler") {

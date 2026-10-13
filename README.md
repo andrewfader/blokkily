@@ -93,6 +93,8 @@ keeps the layout consistent across desktops.
   sends, returns, sidechains, auxiliary outputs, automation and modulation.
   Plugin latency is compensated in playback and export.
 - Warp audio clips to follow the tempo, or stretch and pitch-shift them.
+- Play hardware synths and drum machines from a track through a MIDI output,
+  and send them MIDI clock.
 - Record audio and MIDI (including MPE and poly pressure), with a metronome and
   count-in. Resample a bus or bounce stems. Export the arrangement
   as 16-bit, 24-bit or 32-bit float WAVE through the same engine used for
@@ -108,13 +110,13 @@ recording workflows.
 
 ## Current limitations
 
-Blokkily is experimental. Comping and MIDI clock input are not implemented, and
-there is no MIDI output to hardware. MPE support varies by instrument format,
-and per-note expression has no editor. Large unwarped audio clips can stream
-from disk; warped clips and sampler samples still load into memory. On Linux,
-plugin editor windows need X11, or Wayland with XWayland or a CLAP plugin's own
-Wayland support. Export always renders the arrangement, so record a launcher
-performance into it before exporting.
+Blokkily is experimental. Comping and MIDI clock input are not implemented. MPE
+support varies by instrument format, and per-note expression has no editor.
+Large unwarped audio clips can stream from disk; warped clips and sampler
+samples still load into memory. On Linux, plugin editor windows need X11, or
+Wayland with XWayland or a CLAP plugin's own Wayland support. Export always
+renders the arrangement, so record a launcher performance into it before
+exporting.
 
 The [limitations reference](docs/limitations.md) covers these restrictions and
 others, including sidechains, modulation timing, sampler editing and stems.
