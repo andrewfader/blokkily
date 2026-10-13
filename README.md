@@ -35,6 +35,12 @@ carries packages built and tested by CI:
 
 `SHA256SUMS` lists every package's checksum.
 
+Plugin editors work in every package. CI opens the test CLAP and VST3 editors
+in a real window on each platform and reads their pixels back. On macOS and
+Windows so far that covers the suite's own test plugins on standard-density
+screens; third-party plugins and Retina or high-DPI scaling have not been
+checked there yet.
+
 ## Build and run
 
 You need CMake 3.25+, Qt 6.5+, plus FluidSynth, RtAudio, RtMidi, libsndfile,
@@ -81,7 +87,8 @@ keeps the layout consistent across desktops.
   options. A session with no instruments uses an installed SoundFont by
   default, preferring a General MIDI bank when available.
 - Load CLAP, VST3 and SoundFont instruments, or use the keyed and drum samplers.
-  Plugins open their own editor windows.
+  CLAP and VST3 plugins open their own editors, embedded in a Blokkily window
+  on Linux, macOS and Windows.
 - Mix with inserts (including the built-in EQ, delay, reverb and compressor),
   sends, returns, sidechains, auxiliary outputs, automation and modulation.
   Plugin latency is compensated in playback and export.
