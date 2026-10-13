@@ -1,4 +1,5 @@
 #include "blokkily/model/tuning.hpp"
+#include "blokkily/model/number_text.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -27,8 +28,7 @@ std::optional<double> to_double(std::string_view text) {
     // charconv knows no locale, so a Scala file reads the same whatever the
     // machine's decimal mark is.
     double value = 0.0;
-    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (result.ec != std::errc() || result.ptr != text.data() + text.size()) return std::nullopt;
+    if (!read_number_text(text, value)) return std::nullopt;
     if (!std::isfinite(value)) return std::nullopt;
     return value;
 }

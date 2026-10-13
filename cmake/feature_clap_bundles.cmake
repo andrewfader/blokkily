@@ -3,7 +3,10 @@
 # and played (features/plugin_scanning.feature). The change lives in the
 # plugin loader and both scanners; this fragment adds the regression test.
 
-if(BLOKKILY_BUILD_TESTS)
+# A bundle is a macOS layout. Linux proves it too (the executable inside is
+# an ordinary shared library), but Windows never installs a CLAP that way,
+# and LoadLibrary would look for the inner file with ".dll" added.
+if(BLOKKILY_BUILD_TESTS AND NOT WIN32)
     add_executable(blokkily_clap_bundle_tests tests/clap_bundle_tests.cpp)
     target_link_libraries(blokkily_clap_bundle_tests PRIVATE blokkily_core)
     target_compile_options(blokkily_clap_bundle_tests PRIVATE

@@ -1,4 +1,5 @@
 #include "blokkily/instruments/sampler_program.hpp"
+#include "blokkily/model/number_text.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -98,10 +99,7 @@ bool tokenize(std::string_view line, std::vector<std::string>& tokens) {
 
 template <typename Number>
 bool read_number(const std::string& text, Number& value) {
-    const auto* first = text.data();
-    const auto* last = text.data() + text.size();
-    const auto result = std::from_chars(first, last, value);
-    return result.ec == std::errc{} && result.ptr == last;
+    return read_number_text(text, value);
 }
 
 bool read_flag(const std::string& text, bool& value) {

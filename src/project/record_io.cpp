@@ -1,4 +1,5 @@
 #include "record_io.hpp"
+#include "blokkily/model/number_text.hpp"
 
 #include <algorithm>
 #include <array>
@@ -131,8 +132,7 @@ std::optional<double> Fields::real(std::size_t index) const {
     if (index >= tokens.size()) return std::nullopt;
     const auto& token = tokens[index];
     double value = 0.0;
-    const auto result = std::from_chars(token.data(), token.data() + token.size(), value);
-    if (result.ec != std::errc() || result.ptr != token.data() + token.size()) return std::nullopt;
+    if (!read_number_text(token, value)) return std::nullopt;
     // A file never legitimately carries a NaN or an infinity, and one that
     // did would hand the plugins NaN audio with no diagnostic.
     if (!std::isfinite(value)) return std::nullopt;
