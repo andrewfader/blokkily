@@ -7,7 +7,8 @@ samplers. CLAP support is required in every build.
 
 **[Watch a short video](https://www.youtube.com/watch?v=_mbjwN5OBEg)** (with
 sound) of an agent building a funky chiptune in Blokkily over
-[MCP](docs/mcp.md), using the YANES and FUZZBOI CLAP synths.
+[MCP](docs/mcp.md), using the [YANES](https://github.com/andrewfader/yanes) and
+[FUZZBOI](https://github.com/andrewfader/fuzzboi) CLAP synths.
 
 ![Blokkily workstation showing an arrangement, synchronized editors, plugin browser, mixer, and keyboard](docs/images/blokkily-session.png)
 
