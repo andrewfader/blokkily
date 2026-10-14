@@ -42,10 +42,24 @@ Rectangle {
                 color: Theme.ink; font.pixelSize: 13
                 selectByMouse: true
                 Accessible.name: "Song notes"
-                // The song's text while the producer is not typing in it; what
-                // they type goes straight into the song.
-                text: songModel.notes
+                // What they type goes straight into the song; what the song
+                // holds (an undo, a redo, a restored version, another
+                // project) is put here by the handler below, which keeps the
+                // caret where it was. A binding would put it back at the start.
+                Component.onCompleted: text = songModel.notes
                 onTextChanged: if (text !== songModel.notes) songModel.setNotes(text)
+                Connections {
+                    target: songModel
+                    function onNotesChanged() {
+                        if (notes.text === songModel.notes) return
+                        // The caret stays where it was, not at the start: at
+                        // the end if it was at the end.
+                        const atEnd = notes.cursorPosition >= notes.length
+                        const caret = notes.cursorPosition
+                        notes.text = songModel.notes
+                        notes.cursorPosition = atEnd ? notes.length : Math.min(caret, notes.length)
+                    }
+                }
                 Keys.onEscapePressed: if (root.focusHome) root.focusHome.forceActiveFocus()
                 background: Rectangle {
                     color: notes.activeFocus ? Theme.bg : Theme.raised; radius: 4

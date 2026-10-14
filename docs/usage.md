@@ -413,9 +413,14 @@ VERSIONS (VERS when the window is narrow) lists the versions of the song saved
 along the way, newest first. Type a name and press SAVE VERSION, or leave the
 name empty for VERSION 1, VERSION 2 and so on. A version keeps the whole song,
 with what every plugin sounds like. RESTORE puts one in the song's place as a
-single undo step, so UNDO brings back the song it replaced. Saving, restoring
-and deleting versions is never undone itself. DELETE asks again (SURE?)
-before it removes a version. Versions are saved in the project file.
+single undo step, so UNDO brings back the song it replaced. It also keeps the
+song it replaces as a version named BEFORE <version>, unless that song is
+already saved as one, so a restore never loses work even after the session
+is closed. Each row says what its version holds and how it differs from the
+song now in tempo, tracks, patterns and note count. RENAME (or a double-click
+on the name) edits it in place. Saving, restoring and deleting versions is
+never undone itself. DELETE asks again (SURE?) before it removes a version.
+Versions are saved in the project file.
 
 NOTES holds free text about the song: lyrics, ideas, what to try next. It is
 saved with the song, and each burst of typing is one undo step. Escape returns

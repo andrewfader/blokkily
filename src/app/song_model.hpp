@@ -66,6 +66,9 @@ class SongModel final : public QObject {
     // The versions saved along the way, newest first: {index, name, when,
     // summary}, `index` counting the oldest as 0.
     Q_PROPERTY(QVariantList versions READ versionRows NOTIFY versionsChanged)
+    // The song now, in the figures a version row is compared by: {bpm,
+    // tracks, patterns, notes}.
+    Q_PROPERTY(QVariantMap songFigures READ songFigures NOTIFY songChanged)
     // The tuning and scale the whole session is written in. Every editor, the
     // keyboards, and the engine read these, so nothing on screen can be in a
     // different key from the notes it is editing.
@@ -179,6 +182,9 @@ public:
     QString notes() const;
     Q_INVOKABLE void setNotes(const QString& text);
     QVariantList versionRows() const;
+    QVariantMap songFigures() const;
+    // Whether the song now is already saved as a version, exactly.
+    bool songIsAVersion(const std::string& snapshot) const;
     // The versions as the project file keeps them, oldest first. They are not
     // the song's history: undo neither makes nor takes one away.
     const std::vector<blokkily::ProjectVersion>& versions() const noexcept { return versions_; }
@@ -680,6 +686,8 @@ private:
     int rack_return_ = 0;
     std::vector<Snapshot> undo_;
     std::vector<blokkily::ProjectVersion> versions_;
+    // Each version's figures, read once from its text (versions_ order).
+    mutable std::vector<QVariantMap> version_figures_;
     // A version saved, renamed or removed since the project was saved.
     bool versions_changed_ = false;
     std::vector<Snapshot> redo_;

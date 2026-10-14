@@ -36,7 +36,8 @@ bool AppController::restoreVersion(int index) {
     if (song_ == nullptr || index < 0 ||
         static_cast<std::size_t>(index) >= song_->versions().size())
         return false;
-    const auto& version = song_->versions()[static_cast<std::size_t>(index)];
+    // A copy: saving the song as it is now, below, may move the list.
+    const auto version = song_->versions()[static_cast<std::size_t>(index)];
     std::string error;
     auto project = blokkily::ProjectFile::parse(version.snapshot, &error, base_dir_of(project_path_));
     if (!project) {
@@ -49,15 +50,27 @@ bool AppController::restoreVersion(int index) {
     forgetSoundingNotes();
     takes_.clear();
     discardAudioTake();
-    // The step of history the restore makes holds what every processor
-    // sounds like now, so undo brings the song back as it was dialled in.
+    // What every processor sounds like now goes with the song being replaced,
+    // into the step of history the restore makes and into the version below.
     if (engine_)
         (void)blokkily::capture_processor_states(*engine_, song_->song(), engine_signature_);
+    // The song being replaced is kept as a version of its own unless it
+    // already is one, so restoring never loses work, even after the session
+    // (and its undo) is gone.
     const auto label = QString::fromStdString(version.name);
+    blokkily::Project now;
+    now.name = "Blokkily Session";
+    now.song = song_->song();
+    const auto current = blokkily::ProjectFile::serialize(now, base_dir_of(project_path_));
+    const bool kept = !song_->songIsAVersion(current);
+    if (kept)
+        song_->addVersion({QString("BEFORE %1").arg(label).toStdString(),
+                           QDateTime::currentSecsSinceEpoch(), current});
     song_->restoreSong(std::move(project->song));
     if (pattern_ != nullptr) pattern_->refresh();
     if (transport_ != nullptr) transport_->rewind();
-    status_ = QString("Restored %1 · UNDO brings back the song before it").arg(label);
+    status_ = kept ? QString("Restored %1 · the song before it is saved as BEFORE %1").arg(label)
+                   : QString("Restored %1 · UNDO brings back the song before it").arg(label);
     emit statusChanged();
     return true;
 }

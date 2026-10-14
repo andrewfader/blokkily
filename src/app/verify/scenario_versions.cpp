@@ -92,13 +92,24 @@ void run_versions(VerifyContext& ctx) {
     check(song.notes() == "hook in bar nine");
     check(song.undo());
     lay_out();
-    check(song.notes().isEmpty());
+    // The box shows what the song holds, after an undo as after typing.
+    check(song.notes().isEmpty() && ctx.named("notesText") != nullptr &&
+          ctx.named("notesText")->property("text").toString().isEmpty());
     check(song.redo());
     lay_out();
     check(song.notes() == "hook in bar nine");
     check(ctx.named("notesText") != nullptr &&
           ctx.named("notesText")->property("text").toString() == "hook in bar nine");
-    reached("versions: NOTES keeps the song's notes, one step of history");
+    // Undo and redo leave the caret where it was, not at the start.
+    check(ctx.named("notesText") != nullptr &&
+          ctx.named("notesText")->property("cursorPosition").toInt() > 0);
+    // The NOTES view, as evidence to look at, beside the gate's screenshot.
+    if (parser.isSet("screenshot")) {
+        QString path = parser.value("screenshot");
+        path = path.left(path.size() - 4) + QStringLiteral("-notes.png");
+        check(window->grabWindow().save(path));
+    }
+        reached("versions: NOTES keeps the song's notes, one step of history");
 
     // VERSIONS: FIRST saved as the song is, then the note taken away and the
     // tempo changed, and SECOND saved.
@@ -122,7 +133,20 @@ void run_versions(VerifyContext& ctx) {
           oldest != nullptr && oldest->property("text").toString() == "FIRST");
     reached("versions: SAVE VERSION keeps the song as it is, newest first");
 
-    // RESTORE FIRST: the note and the tempo are back, and heard.
+    // Each row says how its version differs from the song now: FIRST had the
+    // note and 120 BPM.
+    auto* first_difference = ctx.named("versionDifference1");
+    const auto first_says = first_difference != nullptr
+                                ? first_difference->property("text").toString() : QString();
+    check(first_says.startsWith("differs: ") && first_says.contains("120 BPM, now 90") &&
+          first_says.contains("note"));
+    auto* second_difference = ctx.named("versionDifference0");
+    check(second_difference != nullptr &&
+          second_difference->property("text").toString().startsWith("same tempo"));
+    details << " | FIRST " << first_says.toStdString();
+
+    // RESTORE FIRST: the note and the tempo are back, and heard. The song it
+    // replaced is VERSION 2 exactly, so it is not saved again.
     check(click("restoreVersion1"));
     controller.flushRecompile();
     lay_out();
@@ -131,6 +155,10 @@ void run_versions(VerifyContext& ctx) {
     check(std::abs(restored - with_note) < 1e-4F);
     check(song.versions().size() == 2);
     details << " | heard " << with_note << " → " << restored;
+    // FIRST now matches the song; VERSION 2 differs.
+    lay_out();
+    check(ctx.named("versionDifference1") != nullptr &&
+          ctx.named("versionDifference1")->property("text").toString().startsWith("same tempo"));
     reached("versions: RESTORE brings a version back, heard as it was");
 
     // One step of history: undo brings back the song RESTORE replaced, and the
@@ -146,6 +174,41 @@ void run_versions(VerifyContext& ctx) {
     check(pattern.hasStep(0));
     reached("versions: undo takes a restore back, never a version");
 
+    // A song that is no version yet is kept as one before a restore replaces
+    // it: BEFORE FIRST, and restoring that brings the change back.
+    controller.setTempo(100.0);
+    controller.flushRecompile();
+    lay_out();
+    check(click("restoreVersion1"));
+    controller.flushRecompile();
+    lay_out();
+    check(song.versions().size() == 3 && song.versions().back().name == "BEFORE FIRST");
+    check(std::abs(song.song().tempo.bpm_at(0) - 120.0) < 1e-9);
+    // Newest first: BEFORE FIRST is row 0.
+    check(ctx.named("versionTitle0") != nullptr &&
+          ctx.named("versionTitle0")->property("text").toString() == "BEFORE FIRST");
+    check(click("restoreVersion0"));
+    controller.flushRecompile();
+    lay_out();
+    check(std::abs(song.song().tempo.bpm_at(0) - 100.0) < 1e-9);
+    check(song.versions().size() == 3);
+    reached("versions: a restore keeps the song it replaces as a version");
+
+    // RENAME edits the name in place.
+    check(click("versionRename0"));
+    auto* field = ctx.named("versionRenameField0");
+    check(field != nullptr && field->isVisible() && field->hasActiveFocus());
+    if (!(field != nullptr && field->isVisible() && field->hasActiveFocus()))
+        std::cerr << "versions: rename field " << (field != nullptr) << " visible "
+                  << (field != nullptr && field->isVisible()) << " focused "
+                  << (field != nullptr && field->hasActiveFocus()) << '\n';
+    type(QStringLiteral("SPARE"));
+    ctx.type_key(Qt::Key_Return, QStringLiteral("\r"));
+    lay_out();
+    check(song.versions().back().name == "SPARE" && ctx.named("versionTitle0") != nullptr &&
+          ctx.named("versionTitle0")->property("text").toString() == "SPARE");
+    reached("versions: RENAME edits a version's name in place");
+
     // Saved and loaded, the versions and the notes come back.
     const QString project = parser.value("project");
     check(!project.isEmpty());
@@ -155,8 +218,11 @@ void run_versions(VerifyContext& ctx) {
         check(controller.loadProjectFile(project));
         VerifyContext::settle(40);
         lay_out();
-        check(song.versions().size() == 2 && song.versions().front().name == "FIRST");
+        check(song.versions().size() == 3 && song.versions().front().name == "FIRST" &&
+              song.versions().back().name == "SPARE");
         check(song.notes() == "hook in bar nine");
+        check(ctx.named("notesText") != nullptr &&
+              ctx.named("notesText")->property("text").toString() == "hook in bar nine");
     }
     reached("versions: versions and notes survive a save and a load");
 
@@ -164,10 +230,11 @@ void run_versions(VerifyContext& ctx) {
     window->setProperty("view", "VERSIONS");
     lay_out();
     check(click("deleteVersion0"));
-    check(song.versions().size() == 2 && ctx.named("deleteVersion0") != nullptr &&
+    check(song.versions().size() == 3 && ctx.named("deleteVersion0") != nullptr &&
           ctx.named("deleteVersion0")->property("text").toString() == "SURE?");
     check(click("deleteVersion0"));
-    check(song.versions().size() == 1 && song.versions().front().name == "FIRST");
+    check(song.versions().size() == 2 && song.versions().front().name == "FIRST" &&
+          song.versions().back().name == "VERSION 2");
     check(song.dirty());
     reached("versions: DELETE asks twice");
 
@@ -175,6 +242,15 @@ void run_versions(VerifyContext& ctx) {
     type(QStringLiteral("MIX TWO"));
     check(click("saveVersion"));
     lay_out();
+    // A version saved after a rename shows its name, not a rename box (a
+    // regression: the rename left the panel renaming whichever row came next).
+    auto* newest_title = ctx.named("versionTitle0");
+    auto* newest_field = ctx.named("versionRenameField0");
+    const bool named_row = newest_title != nullptr && newest_title->isVisible() &&
+                           newest_title->property("text").toString() == "MIX TWO" &&
+                           (newest_field == nullptr || !newest_field->isVisible());
+    check(named_row);
+    if (!named_row) std::cerr << "REGRESSION: the newest version opened in rename mode\n";
     check(ctx.save_screenshot());
     reached("screenshot");
     ctx.finish(details.str());

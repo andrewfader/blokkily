@@ -4,6 +4,8 @@
 
 #include <QDateTime>
 
+#include <algorithm>
+
 QString SongModel::notes() const { return QString::fromStdString(song_.notes); }
 
 void SongModel::setNotes(const QString& text) {
@@ -16,39 +18,56 @@ void SongModel::setNotes(const QString& text) {
 }
 
 namespace {
-// What a version holds, said briefly: its sections, tracks and tempo.
-QString summary_of(const blokkily::ProjectVersion& version) {
-    std::string error;
-    const auto project = blokkily::ProjectFile::parse(version.snapshot, &error);
-    if (!project) return QStringLiteral("unreadable");
-    const auto& song = project->song;
-    const auto sections = song.sections.empty() ? song.patterns.size() : song.sections.size();
-    const auto tracks = song.tracks.size();
-    const double bpm = song.tempo.points.empty() ? 120.0 : song.tempo.points.front().bpm;
-    return QString("%1 pattern%2 · %3 track%4 · %5 BPM")
-        .arg(sections).arg(sections == 1 ? "" : "s")
-        .arg(tracks).arg(tracks == 1 ? "" : "s")
-        .arg(bpm, 0, 'f', bpm == static_cast<int>(bpm) ? 0 : 2);
+// The figures a version is told apart by: its tempo, tracks, patterns (what a
+// producer calls a pattern: a section) and how many notes it plays.
+QVariantMap figures_of(const blokkily::Song& song) {
+    const auto patterns = song.sections.empty() ? song.patterns.size() : song.sections.size();
+    std::size_t notes = 0;
+    for (const auto& slot : song.patterns) notes += slot.pattern.events().size();
+    return {{"bpm", song.tempo.points.empty() ? 120.0 : song.tempo.points.front().bpm},
+            {"tracks", static_cast<int>(song.tracks.size())},
+            {"patterns", static_cast<int>(patterns)},
+            {"notes", static_cast<int>(notes)},
+            {"readable", true}};
 }
 } // namespace
 
+QVariantMap SongModel::songFigures() const { return figures_of(song_); }
+
+bool SongModel::songIsAVersion(const std::string& snapshot) const {
+    return std::any_of(versions_.begin(), versions_.end(),
+                       [&](const blokkily::ProjectVersion& version) {
+                           return version.snapshot == snapshot;
+                       });
+}
+
 QVariantList SongModel::versionRows() const {
+    if (version_figures_.size() != versions_.size()) {
+        version_figures_.clear();
+        for (const auto& version : versions_) {
+            std::string error;
+            const auto project = blokkily::ProjectFile::parse(version.snapshot, &error);
+            version_figures_.push_back(project ? figures_of(project->song)
+                                               : QVariantMap{{"readable", false}});
+        }
+    }
     QVariantList rows;
     for (int index = static_cast<int>(versions_.size()) - 1; index >= 0; --index) {
         const auto& version = versions_[static_cast<std::size_t>(index)];
-        rows.push_back(QVariantMap{
-            {"index", index},
-            {"name", QString::fromStdString(version.name)},
-            {"when", QDateTime::fromSecsSinceEpoch(version.saved_at)
-                         .toLocalTime()
-                         .toString(QStringLiteral("yyyy-MM-dd HH:mm"))},
-            {"summary", summary_of(version)}});
+        auto row = version_figures_[static_cast<std::size_t>(index)];
+        row["index"] = index;
+        row["name"] = QString::fromStdString(version.name);
+        row["when"] = QDateTime::fromSecsSinceEpoch(version.saved_at)
+                          .toLocalTime()
+                          .toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        rows.push_back(row);
     }
     return rows;
 }
 
 void SongModel::setVersions(std::vector<blokkily::ProjectVersion> versions) {
     versions_ = std::move(versions);
+    version_figures_.clear();
     versions_changed_ = false;
     emit versionsChanged();
     emit historyChanged();
@@ -64,6 +83,7 @@ void SongModel::addVersion(blokkily::ProjectVersion version) {
 bool SongModel::removeVersion(int index) {
     if (index < 0 || static_cast<std::size_t>(index) >= versions_.size()) return false;
     versions_.erase(versions_.begin() + index);
+    version_figures_.clear();
     versions_changed_ = true;
     emit versionsChanged();
     emit historyChanged();
