@@ -186,6 +186,7 @@ void run_metronome(VerifyContext& ctx) {
             if (!fits)
                 std::cerr << "REGRESSION: at " << width << " px the transport runs to "
                           << right_edge << '\n';
+            if (width == 960) std::cerr << "metronome: at 960 px the transport ends at " << right_edge << '\n';
             check(fits);
         }
         window->resize(kept);

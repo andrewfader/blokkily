@@ -220,7 +220,7 @@ ToolBar {
                                                   : root.cramped ? shortNames[modelData] : modelData
                     text: shown
                     accessibleLabel: modelData
-                    labelPadding: root.narrow ? 6 : root.tight ? 8 : 12
+                    labelPadding: root.narrow ? 4 : root.tight ? 8 : 12
                     implicitWidth: Math.ceil(viewName.advanceWidth) + labelPadding + 1
                     TextMetrics {
                         id: viewName
