@@ -48,6 +48,11 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   place after its source, receives the previous block's level.
 - A modulation "bar" is four beats regardless of the song's meter.
 
+## Arrangement loop
+
+- Export always renders the whole arrangement. A loop is for playback; the
+  bounce turns it off for that pass so the file is the song from its start.
+
 ## Scene launcher
 
 - Scenes have no individual tempo settings.

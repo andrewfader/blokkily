@@ -20,7 +20,8 @@ namespace {
 // control the ring is drawn round; the first has none.
 constexpr const char* stops[] = {
     "",           "playButton",      "tempoBox",   "viewSwitcher", "arrangementView",
-    "stepGrid",   "instrumentPanel", "mixerPanel", "promptBar",    "helpButton",
+    "loopButton", "stepGrid",        "instrumentPanel", "mixerPanel", "promptBar",
+    "helpButton",
 };
 constexpr int stop_count = static_cast<int>(sizeof(stops) / sizeof(stops[0]));
 

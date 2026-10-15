@@ -438,6 +438,15 @@ public:
     // A count-in is playing and the song has not started yet. Any thread.
     [[nodiscard]] bool counting_in() const noexcept;
 
+    // Arrangement loop. apply_mix() sets it from song.loop, converting the
+    // ticks through the published clock. While it is on, process() wraps at
+    // the end sample back to the start sample without rebuilding the graph.
+    // An export turns it off for the bounce, then puts it back. Safe from
+    // the control thread while audio runs.
+    void set_loop(bool enabled, std::uint64_t start_sample, std::uint64_t end_sample) noexcept;
+    void set_loop_enabled(bool enabled) noexcept;
+    [[nodiscard]] bool loop_enabled() const noexcept;
+
     // How late the speakers hear the song, in samples, as of prepare(): the
     // slowest track chain, plus the slowest return, plus the master inserts.
     // Every path is compensated to it, live and in a bounce (decision 10),
@@ -540,6 +549,14 @@ private:
     // Where the listener is when the callback renders `song_position`: the
     // output latency earlier, wrapping at the loop point.
     [[nodiscard]] std::uint64_t heard_position(std::uint64_t song_position) const noexcept;
+    // The samples playback wraps at and to: the arrangement loop while it is
+    // on and well formed, otherwise the song's end and its start.
+    [[nodiscard]] std::uint64_t wrap_end_sample() const noexcept;
+    [[nodiscard]] std::uint64_t wrap_start_sample() const noexcept;
+    // Keeps the playhead inside the wrap window. Callback, no allocation.
+    void fold_playhead() noexcept;
+    // Converts song.loop ticks through the published clock. Control thread.
+    void apply_loop(const Song& song);
     // Installs a queued arrangement, if one is waiting, and keeps the playhead
     // on its tick under the new clock unless `seeked` (a seek was taken in
     // this block). Called by the render callback and by nothing else.
@@ -609,6 +626,9 @@ private:
     bool rest_at_end_ = false;
     std::atomic<float> master_peak_{0.0F};
     std::atomic<bool> playing_{false};
+    std::atomic<bool> loop_enabled_{false};
+    std::atomic<std::uint64_t> loop_start_samples_{0};
+    std::atomic<std::uint64_t> loop_end_samples_{0};
     std::atomic<InputQueue*> input_{nullptr};
     std::atomic<bool> recording_{false};
     std::atomic<SampleRing*> capture_{nullptr};

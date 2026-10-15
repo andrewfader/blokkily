@@ -25,7 +25,7 @@ Feature: Blokkily shows a newcomer around
     Then the bubble moves, and a ring is drawn round the play button
     And the bubble does not cover the play button
     When they keep clicking NEXT
-    Then the ring goes round the tempo, the views, the song, the step grid,
+    Then the ring goes round the tempo, the views, the song, the loop, the step grid,
       the instrument, the mixer, the assistant and HELP, in that order
     And at every stop the bubble and Blokkily lie wholly inside the window
     And the last stop's button reads DONE

@@ -81,8 +81,10 @@ keeps the layout consistent across desktops.
   support inversions, strum, microtiming, probability, ratchets, loop conditions
   and parameter locks. Edits are heard during playback without stopping it.
 - Arrange named patterns and audio clips on a multi-track timeline, with tempo
-  steps, ramps and meter changes. The scene launcher lets you perform patterns
-  live and record the performance into the arrangement.
+  steps, ramps and meter changes. LOOP wraps playback between IN and OUT on
+  the arrangement; an export still writes the whole song. The scene launcher
+  lets you perform patterns live and record the performance into the
+  arrangement.
 - Play and record with a MIDI controller or the on-screen piano, isomorphic
   grids, fretboards and chord pads. Tunings and scales include microtonal
   options. A session with no instruments uses an installed SoundFont by

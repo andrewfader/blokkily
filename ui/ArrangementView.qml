@@ -86,6 +86,7 @@ ColumnLayout {
             accessibleLabel: "Zoom the arrangement in"
             enabled: root.zoom < 16
             onClicked: root.setZoom(root.zoom * 1.5) }
+        LoopControls { objectName: "loopControls" }
         // The hint gives way first: it elides before anything is pushed off.
         Label {
             text: "click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes"
@@ -228,10 +229,14 @@ ColumnLayout {
                             || root.layout[index - 1].numerator !== entry.numerator
                             || root.layout[index - 1].denominator !== entry.denominator)
                         objectName: "rulerBar" + index
+                        readonly property bool inLoop: songModel.loopEnabled
+                            && index >= songModel.loopStartBar
+                            && index < songModel.loopEndBar
                         Layout.preferredWidth: root.barWidth(index)
                         Layout.preferredHeight: 14
                         radius: 2
-                        color: transport.bar === index ? Theme.acid : "transparent"
+                        color: transport.bar === index ? Theme.acid
+                               : (inLoop ? "#2a3a14" : "transparent")
                         Label {
                             anchors.left: parent.left; anchors.leftMargin: 3
                             anchors.verticalCenter: parent.verticalCenter
@@ -262,6 +267,14 @@ ColumnLayout {
                                 if (mouse.button === Qt.RightButton) {
                                     meterMenu.bar = rulerCell.index
                                     meterMenu.popup(rulerCell, 0, rulerCell.height)
+                                    return
+                                }
+                                if (mouse.modifiers & Qt.ShiftModifier) {
+                                    songModel.setLoopStartBar(rulerCell.index)
+                                    return
+                                }
+                                if (mouse.modifiers & Qt.ControlModifier) {
+                                    songModel.setLoopEndBar(rulerCell.index)
                                     return
                                 }
                                 appController.seekToBar(rulerCell.index)

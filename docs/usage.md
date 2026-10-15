@@ -113,6 +113,15 @@ The arrangement scrolls horizontally and has +/− zoom controls, so long songs
 can keep usable bar widths. Each repetition of a clip advances its pattern's
 loop count; probability and loop conditions work across the arrangement.
 
+LOOP on the arrangement wraps playback from OUT back to IN, so a phrase can
+be heard over and over without stopping. IN is the first bar of the loop; OUT
+is the bar it wraps at. Click IN or OUT at the playhead, or Shift-click a bar
+number for IN and Ctrl-click for OUT. Turning LOOP on with no region yet
+loops the first four bars. Mixer moves still reach the running engine.
+Export still renders the whole arrangement from its start; the bounce turns
+the loop off for that pass and puts it back afterwards. The region is saved
+with the song and is not undone.
+
 The playhead reads the audio engine's position in bar.beat.sixteenth across the
 whole song. The tempo lane supports steps and ramps. Meter edits on the ruler
 keep clips on their bar numbers. Drag or scroll the tempo to change it, hold

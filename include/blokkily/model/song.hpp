@@ -1,5 +1,6 @@
 #pragma once
 
+#include "blokkily/model/loop.hpp"
 #include "blokkily/model/metronome.hpp"
 #include "blokkily/model/modulation.hpp"
 #include "blokkily/model/pattern.hpp"
@@ -390,6 +391,10 @@ struct Song {
     // The click and the count-in (item 3.7): session settings saved with the
     // song, kept as they are by undo.
     MetronomeSettings metronome;
+    // Playback wrap in the arrangement: while enabled, the engine wraps at
+    // `loop.end` back to `loop.start`. An export still renders the whole
+    // song. Saved with the project, never a step of history.
+    ArrangementLoop loop;
     // The non-linear clip / scene launcher matrix (Item 5).
     SceneMatrix launcher;
     // LFOs, macros and envelope followers, and the parameters each moves

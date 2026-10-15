@@ -125,6 +125,11 @@ class SongModel final : public QObject {
     Q_PROPERTY(bool metronomeOn READ metronomeOn NOTIFY metronomeChanged)
     Q_PROPERTY(double metronomeLevelDb READ metronomeLevelDb NOTIFY metronomeChanged)
     Q_PROPERTY(int countInBars READ countInBars NOTIFY metronomeChanged)
+    // Arrangement loop: on or off, and the bars it spans (end exclusive).
+    // Saved with the song, never a step of history, and left alone by undo.
+    Q_PROPERTY(bool loopEnabled READ loopEnabled NOTIFY loopChanged)
+    Q_PROPERTY(int loopStartBar READ loopStartBar NOTIFY loopChanged)
+    Q_PROPERTY(int loopEndBar READ loopEndBar NOTIFY loopChanged)
     // Modulators (phase 2, wave 5.1; song_model_modulation.cpp). How many the
     // song has - what a panel repeats over, so a dial being dragged is not
     // rebuilt under the pointer - and one row per modulator: {index, kind
@@ -425,6 +430,15 @@ public:
     // Steps the count-in through 0, 1, 2, 3, 4 and round, by `step`.
     Q_INVOKABLE void cycleCountIn(int step = 1);
 
+    // --- Arrangement loop (song_model_loop.cpp) -----------------------------
+    bool loopEnabled() const noexcept { return song_.loop.enabled; }
+    int loopStartBar() const;
+    int loopEndBar() const;
+    Q_INVOKABLE void setLoopEnabled(bool on);
+    Q_INVOKABLE void toggleLoop();
+    Q_INVOKABLE void setLoopStartBar(int bar);
+    Q_INVOKABLE void setLoopEndBar(int bar);
+
     blokkily::Song& song() noexcept { return song_; }
     const blokkily::Song& song() const noexcept { return song_; }
     blokkily::Pattern& editPattern();
@@ -629,6 +643,7 @@ signals:
     void stripMoved(int track, int control, double value, double previous);
     // The metronome or count-in settings changed (item 3.7).
     void metronomeChanged();
+    void loopChanged();
     // A modulator, one of its targets, or a live value of one changed.
     void modulationChanged();
 

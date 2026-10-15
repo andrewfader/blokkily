@@ -55,6 +55,10 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     // session's.
     const bool had_metronome = engine.metronome_enabled();
     engine.set_metronome_enabled(options.include_metronome);
+    // The arrangement loop is for playback. An export is the whole song,
+    // the mix that plays from the start with the loop off.
+    const bool had_loop = engine.loop_enabled();
+    engine.set_loop_enabled(false);
     // Streamed clips (wave 4.2) are read from disk on this thread before
     // they are played: an export never waits on, or is short of, a worker.
     const bool was_blocking = engine.blocking_disk_reads();
@@ -125,6 +129,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     engine.set_blocking_disk_reads(was_blocking);
     engine.set_hardware_midi_muted(midi_was_muted);
     engine.set_metronome_enabled(had_metronome);
+    engine.set_loop_enabled(had_loop);
     engine.set_playing(was_playing);
     engine.seek(resume_at);
     engine.set_recording(was_recording);

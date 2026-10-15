@@ -461,6 +461,7 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
     // seek taken in this same block was placed against the song as edited,
     // not against the length still installed here, and is left as placed.
     if (!seeked && song_samples_ > 0) sample_position_ %= song_samples_;
+    if (!seeked) fold_playhead();
     // A new tempo is a new place for every tick, not a new place in the music:
     // the playhead stays on the tick it had reached and moves to the sample
     // where that tick now falls. A seek taken in this same block was placed
@@ -519,10 +520,19 @@ bool SongEngine::strip_move_pending() const noexcept {
 }
 
 std::uint64_t SongEngine::heard_position(std::uint64_t song_position) const noexcept {
-    if (song_samples_ == 0) return song_position;
-    const auto latency = static_cast<std::uint64_t>(output_latency()) % song_samples_;
-    const auto position = song_position % song_samples_;
-    return position >= latency ? position - latency : song_samples_ - (latency - position);
+    const auto end = wrap_end_sample();
+    if (end == 0) return song_position;
+    const auto start = wrap_start_sample();
+    const auto span = end > start ? end - start : end;
+    if (span == 0) return song_position;
+    const auto latency = static_cast<std::uint64_t>(output_latency()) % span;
+    auto position = song_position;
+    if (position >= end) position = start + (position - end) % span;
+    if (loop_enabled() && position >= start) {
+        const auto into = position - start;
+        return into >= latency ? start + into - latency : end - (latency - into);
+    }
+    return position >= latency ? position - latency : end - (latency - position);
 }
 
 void SongEngine::set_strip(std::size_t track, const MixerStrip& strip, bool any_solo) {
@@ -573,6 +583,7 @@ void SongEngine::apply_mix(const Song& song) {
     set_master_gain_db(song.master_gain_db);
     engine::apply_effect_mix(song, track_chains(), *buses_);
     set_metronome(song.metronome.enabled, song.metronome.level_db);
+    apply_loop(song);
     // The modulators' rates, shapes, depths and macros: live, like a fader.
     engine::apply_modulation_controls(*modulation_, song);
 }
@@ -1355,12 +1366,15 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     }
     rest_at_end_ = false;
     while (rendered < output.left.size()) {
-        const auto song_position = sample_position_ % song_samples_;
+        fold_playhead();
+        const auto song_position =
+            loop_enabled() ? sample_position_ : sample_position_ % song_samples_;
         if (!cursors_valid_ || song_position != continuous_from_) {
             seek_cursors(song_position);
             cursors_valid_ = true;
         }
-        const auto until_wrap = song_samples_ - song_position;
+        const auto until_wrap = wrap_end_sample() - song_position;
+        if (until_wrap == 0) break;
         // A chunk never exceeds what prepare() sized the per-track buffers for,
         // however long a block the host asks for.
         auto frames = std::min<std::uint64_t>(
@@ -1401,6 +1415,9 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
         rendered += static_cast<std::size_t>(frames);
         sample_position_ += frames;
         continuous_from_ = song_position + frames;
+        // Publish a playhead inside the loop, not sitting on the exclusive
+        // OUT sample until the next callback folds it.
+        fold_playhead();
     }
     published_position_.store(sample_position_, std::memory_order_release);
     // What the listener hears now, read with the clock this block was played

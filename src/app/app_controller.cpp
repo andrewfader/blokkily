@@ -137,6 +137,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         QObject::connect(song_, &SongModel::stripMoved, this, &AppController::stripMoved);
         // The click's settings reach the running engine the same way (item 3.7).
         QObject::connect(song_, &SongModel::metronomeChanged, this, &AppController::applyMix);
+        QObject::connect(song_, &SongModel::loopChanged, this, &AppController::applyMix);
         // The transport reads bars, beats and the tempo shown from the song's
         // own maps; a tempo edit reaches the engine as a recompile, through
         // structureChanged, like any other change to when events fall.
