@@ -86,7 +86,6 @@ ColumnLayout {
             accessibleLabel: "Zoom the arrangement in"
             enabled: root.zoom < 16
             onClicked: root.setZoom(root.zoom * 1.5) }
-        LoopControls { objectName: "loopControls" }
         // The hint gives way first: it elides before anything is pushed off.
         Label {
             text: "click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes"
@@ -147,6 +146,10 @@ ColumnLayout {
         Chip { objectName: "addAudioButton"; text: "+AUD"; accent: Theme.amber
             onClicked: audioClipLane.importToNewTrack() }
     }
+
+    // LOOP / IN / OUT sit on the arrangement, on their own row so they
+    // never pinch the pattern chips the launcher and the song share.
+    LoopControls { objectName: "loopControls" }
 
     Rectangle {
         objectName: "arrangement"
