@@ -1,4 +1,6 @@
 #include "app_controller.hpp"
+#include "pattern_model.hpp"
+#include "song_model.hpp"
 #include "sampler_processor.hpp"
 #include "blokkily/instruments/sampler.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
@@ -6,6 +8,7 @@
 
 #include <QVariantMap>
 
+#include <cmath>
 #include <map>
 #include <optional>
 #include <system_error>
@@ -63,6 +66,36 @@ bool AppController::automateInsert(const QString& kind, int bus, int slot, int p
         return true;
     }
     return false;
+}
+
+bool AppController::setStepLock(int track, int pattern, int step, int slot, int parameter,
+                                double value, bool modulation) {
+    if (song_ == nullptr || pattern_ == nullptr || song_->partOf(pattern, track) < 0) return false;
+    const auto where = address("track", track, slot);
+    const auto* instance = where && engine_ ? engine_->processor(*where) : nullptr;
+    if (instance == nullptr) return false;
+    for (const auto& info : instance->parameters()) {
+        if (info.id != parameter || !info.automatable) continue;
+        // Modulation offsets the value, up or down by at most the whole range.
+        const double span = info.max - info.min;
+        if (modulation ? !(std::abs(value) <= span) : !(value >= info.min && value <= info.max))
+            return false;
+        song_->selectSection(pattern);
+        song_->selectTrack(track);
+        return pattern_->lockStep(
+            step, {info.name, parameter, value,
+                   modulation ? blokkily::ParameterLock::Kind::modulation
+                              : blokkily::ParameterLock::Kind::automation,
+                   slot});
+    }
+    return false;
+}
+
+bool AppController::clearStepLocks(int track, int pattern, int step) {
+    if (song_ == nullptr || pattern_ == nullptr || song_->partOf(pattern, track) < 0) return false;
+    song_->selectSection(pattern);
+    song_->selectTrack(track);
+    return pattern_->clearStepLocks(step);
 }
 
 QVariantMap AppController::parameterRange(const QString& kind, int bus, int slot, int parameter) const {

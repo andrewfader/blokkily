@@ -1254,6 +1254,26 @@ void PatternModel::clearSelectedLock() {
     mutate(selected_step_, [](blokkily::Trigger& trigger) { trigger.locks.clear(); });
 }
 
+bool PatternModel::lockStep(int step, const blokkily::ParameterLock& lock) {
+    if (triggerAt(step) == nullptr) return false;
+    mutate(step, [&lock](blokkily::Trigger& trigger) {
+        const auto same = std::find_if(trigger.locks.begin(), trigger.locks.end(),
+                                       [&lock](const blokkily::ParameterLock& held) {
+                                           return held.slot == lock.slot &&
+                                                  held.parameter_index == lock.parameter_index;
+                                       });
+        if (same != trigger.locks.end()) *same = lock;
+        else trigger.locks.push_back(lock);
+    });
+    return true;
+}
+
+bool PatternModel::clearStepLocks(int step) {
+    if (triggerAt(step) == nullptr) return false;
+    mutate(step, [](blokkily::Trigger& trigger) { trigger.locks.clear(); });
+    return true;
+}
+
 void PatternModel::replace(blokkily::Pattern replacement) {
     song_->checkpoint();
     beginResetModel();

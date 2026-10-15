@@ -343,6 +343,94 @@ void run_mcp(VerifyContext& ctx) {
     check(isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "no such knob"}, {"value", 0}})));
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent locks a parameter on one step, by its address");
+    // The lane the agent drew would hold the level over the whole song; the
+    // locks are to be heard on their own.
+    check(textOf(agent.tool("call", {{"object", "songModel"},
+                                     {"method", "removeAutomationLane"},
+                                     {"args", QJsonArray{0, 0}}})) == "true");
+    check(song.song().tracks.at(0).automation.empty());
+    const auto call_controller = [&agent](const char* method, const QJsonArray& args) {
+        return textOf(agent.tool("call", {{"object", "appController"},
+                                          {"method", QLatin1String(method)},
+                                          {"args", args}}));
+    };
+    // Level (parameter 0 of the instrument, slot -1) down on step 5's note,
+    // up again on step 9's.
+    check(call_controller("setStepLock", {0, 0, 4, -1, 0, 0.0, false}) == "true");
+    check(call_controller("setStepLock", {0, 0, 8, -1, 0, 0.25, false}) == "true");
+    const auto locks_on = [&agent](int step) {
+        for (const auto& entry : agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
+                                     .value("structuredContent").toObject()
+                                     .value("notes").toArray()) {
+            const auto note = entry.toObject();
+            if (std::lround(note.value("step").toDouble()) == step)
+                return note.value("locks").toArray();
+        }
+        return QJsonArray{};
+    };
+    {
+        const auto down = locks_on(4);
+        check(down.size() == 1);
+        const auto lock = down.at(0).toObject();
+        check(lock.value("slot").toInt() == -1 && lock.value("parameter").toInt() == 0 &&
+              lock.value("name").toString() == "Level" && lock.value("value").toDouble() == 0.0 &&
+              !lock.value("modulation").toBool());
+        check(locks_on(8).size() == 1 && locks_on(8).at(0).toObject().value("value").toDouble() == 0.25);
+        check(locks_on(0).isEmpty());
+    }
+    // The loudest sample of each block of the first bar, read from the
+    // production callback, so each step's window can be heard on its own.
+    const double blocks_per_step = 60.0 / ctx.transport.bpm() / 4.0 *
+                                   controller.engine()->sample_rate() / 512.0;
+    const auto play_steps = [&] {
+        check(!isError(agent.tool("transport", {{"action", "seek"}, {"bar", 0}})));
+        check(!isError(agent.tool("transport", {{"action", "play"}})));
+        std::vector<float> peaks;
+        for (int block = 0; block < static_cast<int>(blocks_per_step * 12.0); ++block)
+            peaks.push_back(ctx.pump());
+        check(!isError(agent.tool("transport", {{"action", "stop"}})));
+        return peaks;
+    };
+    // The loudest block wholly inside steps [from, to).
+    const auto within = [&](const std::vector<float>& peaks, double from, double to) {
+        float loudest = 0.0F;
+        const auto first = static_cast<std::size_t>(std::ceil(from * blocks_per_step)) + 1;
+        const auto last = static_cast<std::size_t>(std::floor(to * blocks_per_step)) - 1;
+        for (auto block = first; block < last && block < peaks.size(); ++block)
+            loudest = std::max(loudest, peaks[block]);
+        return loudest;
+    };
+    {
+        const auto peaks = play_steps();
+        check(within(peaks, 0, 4) > 0.001F);
+        check(within(peaks, 4, 8) == 0.0F);
+        check(within(peaks, 8, 12) > 0.001F);
+    }
+    check(call_controller("clearStepLocks", {0, 0, 4}) == "true");
+    check(locks_on(4).isEmpty());
+    {
+        const auto peaks = play_steps();
+        check(within(peaks, 4, 8) > 0.001F);
+    }
+    check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+    check(locks_on(4).size() == 1);
+    {
+        const auto peaks = play_steps();
+        check(within(peaks, 0, 4) > 0.001F);
+        check(within(peaks, 4, 8) == 0.0F);
+    }
+    // Refusals leave every lock as it was.
+    check(call_controller("setStepLock", {0, 0, 2, -1, 0, 0.5, false}) == "false");   // no note
+    check(call_controller("setStepLock", {0, 0, 4, -1, 999, 0.5, false}) == "false"); // no parameter
+    check(call_controller("setStepLock", {0, 0, 4, -1, 0, 99.0, false}) == "false");  // out of range
+    check(call_controller("setStepLock", {0, 0, 4, 3, 0, 0.5, false}) == "false");    // no insert
+    check(call_controller("setStepLock", {7, 0, 4, -1, 0, 0.5, false}) == "false");   // no track
+    check(call_controller("setStepLock", {0, 5, 4, -1, 0, 0.5, false}) == "false");   // no pattern
+    check(call_controller("clearStepLocks", {0, 0, 2}) == "false");
+    check(locks_on(4).size() == 1 && locks_on(4).at(0).toObject().value("value").toDouble() == 0.0);
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: the agent chooses a SoundFont's preset, and its note is heard");
     check(isError(agent.tool("set_soundfont_preset", {{"track", 0}, {"bank", 0}, {"program", 0}})));
     check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "addTrack"}})));

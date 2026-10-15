@@ -453,6 +453,16 @@ public:
     // for a track's instrument (so an agent can set a synth's preset or a
     // knob for the whole song). False when there is no such parameter.
     Q_INVOKABLE bool automateInsert(const QString& kind, int bus, int slot, int parameter);
+    // A parameter lock on the note at `step` of `track`'s part of `pattern`,
+    // addressed rather than through the editor's selection, so an agent can
+    // lock any step of any part: parameter `parameter` of processor `slot`
+    // (-1 the instrument, 0.. an insert) set to `value`, in the parameter's
+    // own range, from that step on - as automation, or as modulation. The
+    // part is opened, as a click on its lane would. False, changing nothing,
+    // when there is no such part, note, parameter, or the value is out of range.
+    Q_INVOKABLE bool setStepLock(int track, int pattern, int step, int slot, int parameter,
+                                 double value, bool modulation = false);
+    Q_INVOKABLE bool clearStepLocks(int track, int pattern, int step);
     // Modulation (phase 2, wave 5.1): every parameter a modulator can aim at
     // on the selected track - its instrument's, then each insert's - as
     // {kind, bus, slot, parameter, label}, read from the processors the engine

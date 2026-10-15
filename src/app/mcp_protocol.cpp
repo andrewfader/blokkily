@@ -114,7 +114,7 @@ QJsonArray toolDefinitions() {
              schema({})),
         tool("get_pattern",
              "The notes of one track's part of one pattern: start step, length in steps, key "
-             "and velocity of each.",
+             "and velocity of each, and the parameter locks a note holds.",
              schema({{"track", track}, {"section", section}})),
         tool("write_notes",
              "Writes notes into one track's part of one pattern, as one step of undo. Opens "
@@ -194,7 +194,9 @@ QString instructions() {
         "and set_parameter choose sounds. Anything else the interface can do "
         "is a method: describe lists them, call runs one (e.g. songModel.setTrackGain(track, "
         "dB), songModel.addPattern(), songModel.placeClip(track, bar), appController.setTempo"
-        "(bpm), songModel.undo(), appController.saveProjectFile(path), "
+        "(bpm), appController.setStepLock(track, pattern, step, slot, parameter, value, "
+        "modulation) to lock a parameter on one note (slot -1 the instrument, 0.. an insert), "
+        "songModel.undo(), appController.saveProjectFile(path), "
         "appController.exportAudioFile(path)). Every edit can be undone. screenshot shows the "
         "window.");
 }

@@ -169,6 +169,17 @@ QJsonObject McpTools::getPattern(const QJsonObject& arguments) const {
             for (const auto interval : chord->intervals) keys.append(chord->root + interval);
             entry.insert("keys", keys);
         }
+        if (!trigger.locks.empty()) {
+            QJsonArray locks;
+            for (const auto& lock : trigger.locks)
+                locks.append(QJsonObject{
+                    {"slot", lock.slot},
+                    {"parameter", lock.parameter_index},
+                    {"name", QString::fromStdString(lock.parameter_id)},
+                    {"value", lock.value},
+                    {"modulation", lock.kind == blokkily::ParameterLock::Kind::modulation}});
+            entry.insert("locks", locks);
+        }
         notes.append(entry);
     }
     return jsonResult(QJsonObject{

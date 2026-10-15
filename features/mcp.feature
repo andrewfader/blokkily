@@ -56,6 +56,15 @@ Feature: An agent drives Blokkily over MCP
     Then the song renders silent, and set to 0.25 it is heard again
     And a value out of range, or a parameter that does not exist, is refused
 
+  Scenario: The agent locks a parameter on one step, by its address
+    Given the CLAP track plays notes on steps 1, 5 and 9, with no lane on its Level
+    When the agent calls appController.setStepLock to lock Level to 0 on step 5 and to 0.25 on step 9
+    Then get_pattern reads each lock back on its note, named Level
+    And the production render callback is heard on step 1, silent from step 5, and heard again from step 9
+    When it calls appController.clearStepLocks on step 5
+    Then step 5 is heard again, and songModel.undo puts its lock back and silences it
+    And a step with no note, a parameter that does not exist, a value out of range, or a part that does not exist is refused, changing nothing
+
   Scenario: The agent chooses a SoundFont's preset, and its note is heard
     Given a second track playing the test SoundFont
     When the agent calls set_soundfont_preset for bank 0, program 0

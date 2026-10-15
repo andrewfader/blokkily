@@ -209,6 +209,13 @@ public:
     // effect. A step with no lock gains one at 0.5, as automation.
     Q_INVOKABLE void setSelectedLockTarget(int slot, int parameter, const QString& name);
     Q_INVOKABLE void clearSelectedLock();
+    // Locks one parameter on the note that starts on `step`, beside any other
+    // locks the step holds: a lock already on the same processor and
+    // parameter takes `lock`'s value and kind. One step of history. False when
+    // no note starts there.
+    bool lockStep(int step, const blokkily::ParameterLock& lock);
+    // Takes every lock off the note on `step`. False when no note starts there.
+    bool clearStepLocks(int step);
 
     const blokkily::Pattern& pattern() const;
     void replace(blokkily::Pattern pattern);
