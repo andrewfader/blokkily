@@ -55,7 +55,7 @@ public:
 
     const juce::String getName() const override { return "Blokkily Test VST3"; }
     void prepareToPlay(double sample_rate, int) override { sample_rate_ = sample_rate; }
-    void releaseResources() override {}
+    void releaseResources() override { throw_if_broken(); }
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override {
         if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo()) return false;
         if (layouts.outputBuses.size() < 2) return true;

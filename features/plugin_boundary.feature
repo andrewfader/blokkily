@@ -90,3 +90,9 @@ Feature: Plugins talk back to the host through one boundary
     Then Blokkily keeps running and the plugin is turned off
     And the plugin plays silence and is not called again
     And the status line says which track's plugin stopped responding
+
+  Scenario: A plugin that throws while it is removed does not end Blokkily
+    Given a VST3 plugin whose calls have started throwing
+    When its track is given another instrument and the plugin is removed
+    Then Blokkily keeps running
+    And a fresh instance of the plugin loads and plays

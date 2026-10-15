@@ -41,7 +41,8 @@ if(BLOKKILY_BUILD_TESTS)
             vst3_turn_base
             vst3_turn_edits
             vst3_parameters
-            vst3_throwing_plugin)
+            vst3_throwing_plugin
+            vst3_throwing_teardown)
         add_test(NAME plugin_${boundary_case}
             COMMAND blokkily_plugin_boundary_tests ${boundary_case})
         if(boundary_case MATCHES "^clap_")
@@ -49,7 +50,7 @@ if(BLOKKILY_BUILD_TESTS)
         else()
             set(boundary_labels "unit;integration;plugins;parameters;vst3")
         endif()
-        if(boundary_case MATCHES "_base$")
+        if(boundary_case MATCHES "_base$" OR boundary_case STREQUAL "vst3_throwing_teardown")
             list(APPEND boundary_labels regression)
         endif()
         set_tests_properties(plugin_${boundary_case} PROPERTIES

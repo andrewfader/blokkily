@@ -358,6 +358,16 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
             if (host != nullptr) host->closed();
         }
         stop_listening();
+        // Destroying the plugin calls into it once more: JUCE deactivates and
+        // terminates it from its destructor, where an exception cannot be
+        // caught and ends Blokkily. So it is deactivated here, under the
+        // guard, and a plugin that has thrown, now or before, is let go
+        // without those calls: the process behind it (a yabridge plugin's
+        // Wine host) is gone, and only its memory is lost.
+        if (plugin) {
+            guard([this] { plugin->releaseResources(); });
+            if (failed.load(std::memory_order_acquire)) (void)plugin.release();
+        }
         JucePump::release();
     }
 

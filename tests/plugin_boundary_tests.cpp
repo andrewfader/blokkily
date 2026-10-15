@@ -507,6 +507,33 @@ void vst3_throwing_plugin() {
     require(plugin->failed(), "it stays off once it has failed");
 }
 
+// features/plugin_boundary.feature: A plugin that throws while it is removed does not end Blokkily.
+// Removing a plugin deactivates it, and JUCE does that from a destructor,
+// where an exception cannot be caught: a yabridge plugin whose Wine process
+// had died aborted Blokkily when its track was given another instrument.
+void vst3_throwing_teardown() {
+    const PluginEvent note{PluginEvent::Type::note_on, 0, 60, 1.0};
+    auto plugin = vst3();
+    const auto break_all = fixture_hook<void (*)(bool)>(BLOKKILY_TEST_VST3_BINARY,
+                                                        "blokkily_test_vst3_break");
+    struct Mend {
+        void (*mend)(bool);
+        ~Mend() { mend(false); }
+    } mend{break_all};
+    // The second instance keeps the module loaded while the first is removed.
+    auto failing = vst3();
+    require(near(vst3_level(*plugin, std::span{&note, 1}), 0.25), "the fixture plays 0.25");
+    break_all(true);
+    plugin.reset();  // deactivating it now throws
+    failing->idle();  // this one fails first, then is removed
+    require(failing->failed(), "the plugin is turned off when it throws");
+    failing.reset();
+    break_all(false);
+    auto again = vst3();
+    require(near(vst3_level(*again, std::span{&note, 1}), 0.25),
+            "Blokkily is still running and a fresh instance plays");
+}
+
 const std::map<std::string, std::function<void()>> cases{
     {"clap_parameters", clap_parameters},
     {"clap_gui_turn", clap_gui_turn},
@@ -522,6 +549,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"vst3_turn_edits", vst3_turn_edits},
     {"vst3_parameters", vst3_parameters},
     {"vst3_throwing_plugin", vst3_throwing_plugin},
+    {"vst3_throwing_teardown", vst3_throwing_teardown},
 };
 
 } // namespace
