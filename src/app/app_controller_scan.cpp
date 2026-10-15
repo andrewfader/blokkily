@@ -137,7 +137,14 @@ void AppController::appendRecords(const std::vector<blokkily::ScanRecord>& recor
     emit pluginsChanged();
 }
 
+double AppController::scanProgress() const {
+    if (!scanning_) return -1.0;
+    if (scan_queue_.empty()) return 0.0;
+    return static_cast<double>(scan_index_) / static_cast<double>(scan_queue_.size());
+}
+
 void AppController::reportScanProgress() {
+    emit scanProgressChanged();
     status_ = QString("Scanning %1/%2 — %3 found, %4 failure%5")
                   .arg(scan_index_).arg(scan_queue_.size())
                   .arg(plugins_.size()).arg(scan_failures_)
@@ -147,12 +154,19 @@ void AppController::reportScanProgress() {
 
 void AppController::scanNext() {
     const QString helper = scanHelperPath();
+    // Everything the cache already describes reaches the browser at once:
+    // listed one plugin at a time, a large installation would have the
+    // browser rebuilt once per plugin before the window could draw.
+    std::vector<blokkily::ScanRecord> cached_records;
+    const auto list_cached = [this, &cached_records] { appendRecords(cached_records); };
     while (scan_index_ < scan_queue_.size()) {
         const auto& candidate = scan_queue_[scan_index_];
         if (const auto* cached = cachedScan(candidate)) {
             // Already described, or already known to be unscannable: either way
             // the plugin is not loaded again.
-            if (cached->ok) appendRecords(cached->records);
+            if (cached->ok)
+                cached_records.insert(cached_records.end(), cached->records.begin(),
+                                      cached->records.end());
             else ++scan_failures_;
             ++scan_index_;
             continue;
@@ -163,9 +177,12 @@ void AppController::scanNext() {
             scan_index_ = scan_queue_.size();
             break;
         }
+        list_cached();
+        reportScanProgress();
         startScanner(candidate);
         return;
     }
+    list_cached();
     finishScan();
 }
 
@@ -237,6 +254,7 @@ void AppController::completeCandidate(bool ok, const QString& failure,
 
 void AppController::finishScan() {
     scanning_ = false;
+    emit scanProgressChanged();
     saveScanCache();
     emit pluginsChanged();
     int clap = 0;

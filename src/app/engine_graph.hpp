@@ -14,6 +14,7 @@
 #include "blokkily/model/song.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -77,11 +78,17 @@ struct GraphBuild {
     std::vector<ProcessorAddress> fresh;
 };
 
+// Told before each processor is put in place: how many are in place, how
+// many the song names, and the slot about to be created or adopted.
+using GraphProgress =
+    std::function<void(std::size_t placed, std::size_t total, const InstrumentSlot& slot)>;
+
 // Puts every processor `song` names into `engine`: the adopted instance where
 // one is given for that address, a new one from the factory otherwise.
 [[nodiscard]] GraphBuild populate_graph(SongEngine& engine, const Song& song,
                                         std::vector<ReleasedProcessor> adopted,
-                                        const ProcessorContext& context);
+                                        const ProcessorContext& context,
+                                        const GraphProgress& progress = {});
 
 // After prepare(): loads the song's saved state into the processors that were
 // created fresh. Adopted processors keep the state they already have.

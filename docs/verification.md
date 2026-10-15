@@ -419,6 +419,28 @@ from canned replies by `blokkily_llm_tests` (`ctest -L llm`); the backends'
 HTTP plumbing is proved by captured `QNetworkAccessManager` requests so the
 gate never depends on a server.
 
+`build/artifacts/loading-progress.png` — from the `bdd_loading_progress` gate
+(`blokkily --verify --scenario loading`), which runs
+`features/loading_progress.feature`. Every load is set to show from its first
+report and draw a frame at every percent, and the gate reads each frame as the
+window drew it. A saved song with the CLAP fixture and a SoundFont is opened.
+Every frame must show the card covering the window, titled "OPENING LOADING",
+naming each instrument as it loads, with a bar that never goes back and is
+filled as far as the work says. The engine must be built once (it was built
+twice) and the song must be heard through the production callback. The export
+must show the card titled "EXPORTING LOADING-EXPORT.WAV" with "m:ss OF m:ss",
+filling to the end. A click on PLAY and a typed note half way through must not
+reach the song. A `get_session` sent over the gate's MCP socket half way
+through must get no answer until the export ends. The export is read back and
+must equal, sample for sample, the same export made with its progress never
+shown, which draws no frame. The screenshot is the window half way through
+that export. `build/artifacts/loading-scan.png` is the transport bar mid-scan,
+its strip half filled while the scan waits on a plugin that never returns. A
+rescan of four plugins the cache knows must list the browser three times (it
+was six). The closed tour must not look for a stop while the window is laid
+out and resized (it looked 6565 times). The three regression checks were run
+failing against the old code.
+
 `output_recording_state` reproduces a parameter-lock export changing the next
 export. `output_recording_soundfont_reset` covers repeated SoundFont rendering.
 Both regression tests were run failing before their fixes.

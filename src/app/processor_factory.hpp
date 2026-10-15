@@ -9,6 +9,7 @@
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/plugin.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -49,6 +50,9 @@ void register_internal(const std::string& format, ProcessorFactory factory,
 [[nodiscard]] bool is_internal_format(const std::string& format);
 // Every entry the internal processors offer, in registration order.
 [[nodiscard]] std::vector<CatalogEntry> internal_catalog();
+// Changes whenever register_internal() does, so a copy of the catalog can
+// tell that it is out of date.
+[[nodiscard]] std::uint64_t internal_catalog_revision();
 
 // The processor `slot` names, without its state loaded, or nullptr with the
 // reason in `error`.

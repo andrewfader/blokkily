@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -45,6 +46,10 @@ struct BounceOptions {
     // A stem is a post-insert, post-fader/pan bus tap, before downstream
     // returns/master processing. Empty selects the complete master mix.
     std::optional<OutputTap> source{};
+    // Told after every block how many of the file's frames are written and
+    // how many it will hold, so a window can show the export's progress.
+    // Called on the bouncing thread between blocks, never inside one.
+    std::function<void(std::uint64_t written, std::uint64_t total)> progress{};
 };
 
 [[nodiscard]] std::optional<BounceReport> bounce_song(

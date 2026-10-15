@@ -86,7 +86,8 @@ bool AppController::toggleEditor(int track) {
 }
 
 void AppController::serviceEditors() {
-    if (!engine_) return;
+    // A load drawing a frame owns the engine; plugins are served once it ends.
+    if (!engine_ || progress_.pumping()) return;
     // Every processor, not only the instruments: an insert asks the main
     // thread for callbacks, flushes and tail rescans as an instrument does.
     blokkily::serve_processors(*engine_);

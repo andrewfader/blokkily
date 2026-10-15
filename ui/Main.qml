@@ -363,6 +363,10 @@ ApplicationWindow {
         focusHome: noteEntry
     }
 
+    // A song opening, its instruments loading, an export: the window shows
+    // how far it has got, above everything else, tour included.
+    LoadingOverlay { parent: root.Overlay.overlay }
+
     // Note entry from the computer keyboard, laid out the way a tracker has
     // always laid it out: the bottom two rows are one octave, the top two are
     // the octave above it. A key writes onto the row the cursor is on and steps

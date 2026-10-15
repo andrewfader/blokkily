@@ -108,8 +108,11 @@ bool AppController::bounceRackInPlace(bool muteSource) {
     for (int n = 2; !ec && std::filesystem::exists(file, ec); ++n)
         file = directory / ("stem-" + std::to_string(n) + ".wav");
     std::string error = ec.message();
+    const LoadProgress::Scope bouncing(
+        progress_, QStringLiteral("BOUNCING %1").arg(song_->rack().value("title").toString().toUpper()));
     blokkily::BounceOptions options;
     options.source = source;
+    options.progress = bounceProgress(engine_->sample_rate());
     const auto report = ec ? std::optional<blokkily::BounceReport>{} :
         blokkily::bounce_song(*engine_, file, blokkily::WaveFormat::float32, 0, options, &error);
     bool success = false;

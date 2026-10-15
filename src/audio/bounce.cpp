@@ -112,6 +112,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
                                     std::abs(kept_right[frame])});
         wrote = writer.write(kept_left, kept_right, &writer_error);
         report.frames += kept;
+        if (options.progress) options.progress(report.frames, total);
     }
 
     // The export's own tail is not left ringing into the session: playback

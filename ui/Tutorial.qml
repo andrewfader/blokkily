@@ -61,7 +61,14 @@ Item {
           keys: "F1" }
     ]
     readonly property var current: steps[step]
-    readonly property bool lastStep: nextShown(step) < 0
+    // Worked out when the tour moves rather than bound: finding the stops
+    // walks every item in the window, and a binding over that walk would be
+    // re-run by any item anywhere changing its size or visibility, tour or
+    // no tour.
+    property bool lastStep: false
+    // How many times a stop's target has been looked for. A closed tour looks
+    // for none, however much the window around it is laid out again.
+    property int searches: 0
 
     // ------------------------------------------------------------ the tour
 
@@ -138,6 +145,7 @@ Item {
 
     // The item stop `index` points at, if it is on screen and has a size.
     function targetOf(index) {
+        ++searches
         var name = steps[index].target
         if (name === "") return null
         var found = findNamed(tour.Window.contentItem, name)
@@ -174,6 +182,7 @@ Item {
         var gap = 10
         var groupWidth = mascot.width + gap + bubble.width
         var groupHeight = Math.max(mascot.height, bubble.height)
+        lastStep = nextShown(step) < 0
         var target = targetOf(step)
         var centre, top
         if (target !== null) {

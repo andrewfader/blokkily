@@ -155,6 +155,17 @@ loops, envelopes, kit pads and slicing. SoundFont instruments load SF2/SF3
 banks and let you choose presets. CLAP and VST3 plugins provide stereo ports and
 can open native editor windows; see the [display restrictions](limitations.md#plugin-windows).
 
+The scan runs in a helper process while you work. A thin blue strip along the
+bottom of the transport bar fills as it goes, and runs a moving block while
+audio is being imported or warped. Plugins the last scan already described are
+listed at once.
+
+Opening a song, starting a new one, or loading an instrument or effect that
+takes more than a quarter of a second covers the window with a card. The card
+names what is loading, shows a bar filled as far as it has got, and names each
+instrument as it loads ("FUZZBOI · 5 OF 16"). Clicks, keys and agents' MCP
+requests wait until it is done.
+
 Ctrl+F focuses the browser's search field. Search matches letters in order
 across a name, maker or format: "fbs" finds "Fat Bass". Use the arrow keys to
 select a result and Return to load it. Escape clears the filter.
@@ -339,6 +350,11 @@ scale. Export is the mix you hear when you play the arrangement from its start:
 before the bounce, the engine resets instruments, effects, LFOs and followers
 to rest. A live pass can differ where state carried over from earlier
 playback, such as an LFO's phase or a plugin that does not fully reset.
+
+An export renders as fast as its plugins allow, which can be slower than real
+time for a song full of heavy synths. While it runs, a card shows how much of
+the song is written ("1:23 OF 3:10"); STEM shows the same card. The file is
+the same whether or not the card was shown.
 
 RESAMPLE in a rack arms its track, return or master output for the next
 recording pass. Arm the transport's record button and press Play. When the pass

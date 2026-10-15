@@ -484,7 +484,8 @@ foreach(blokkily_feature
         tutorial
         mcp
         long_song
-        versions)
+        versions
+        loading_progress)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

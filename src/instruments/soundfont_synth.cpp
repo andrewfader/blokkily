@@ -6,6 +6,9 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 namespace blokkily {
 
@@ -14,9 +17,23 @@ namespace {
 // second, with no voice left, has finished its reverb and chorus tail.
 constexpr float silence = 1e-6F;
 constexpr double quiet_seconds = 0.25;
+
+// FluidSynth registers every audio driver it was built with the first time a
+// settings object is made, and each new settings object then opens them to
+// list their devices (PortAudio and ALSA probe every card). The synth here
+// only ever renders into the host's buffers, so it registers none: that was a
+// tenth of a second per SoundFont track, every time one was created.
+void register_no_audio_drivers() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        const char* none[] = {nullptr};
+        (void)fluid_audio_driver_register(none);
+    });
+}
 } // namespace
 
 SoundFontSynth::SoundFontSynth() {
+    register_no_audio_drivers();
     renderers_.resize(renderer_count);
     scratch_left_.resize(512);
     scratch_right_.resize(512);
@@ -90,8 +107,22 @@ bool SoundFontSynth::load(const std::filesystem::path& path) {
                 return false;
     }
     path_.clear();
-    for (auto& renderer : renderers_)
-        if (!load_into(renderer, path)) return false;
+    // The first renderer reads the bank, which leaves its samples in
+    // FluidSynth's cache; the others only parse its presets again, each into
+    // a synth of its own, so they do that side by side.
+    if (!load_into(renderers_.front(), path)) return false;
+    std::vector<char> loaded(renderers_.size(), 0);
+    loaded.front() = 1;
+    {
+        std::vector<std::thread> loaders;
+        loaders.reserve(renderers_.size() - 1);
+        for (std::size_t index = 1; index < renderers_.size(); ++index)
+            loaders.emplace_back([this, &loaded, &path, index] {
+                loaded[index] = load_into(renderers_[index], path) ? 1 : 0;
+            });
+        for (auto& loader : loaders) loader.join();
+    }
+    if (std::find(loaded.begin(), loaded.end(), 0) != loaded.end()) return false;
     path_ = path;
     // The bank a project asked for may not be in the file it was pointed at —
     // a percussion bank is missing from most single-instrument SoundFonts. The

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "load_progress.hpp"
 #include "pattern_model.hpp"
 #include "song_model.hpp"
 #include "transport.hpp"
@@ -139,6 +140,11 @@ class AppController final : public QObject {
     // is being printed into the arrangement.
     Q_PROPERTY(QVariantList launcherState READ launcherState NOTIFY launcherChanged)
     Q_PROPERTY(bool launcherRecording READ launcherRecording NOTIFY launcherChanged)
+    // What the window shows while a song opens, its instruments load or it is
+    // exported (load_progress.hpp, features/loading_progress.feature).
+    Q_PROPERTY(LoadProgress* progress READ progress CONSTANT)
+    // How far the plugin scan has got, 0 to 1, or negative when none is running.
+    Q_PROPERTY(double scanProgress READ scanProgress NOTIFY scanProgressChanged)
 
 public:
     explicit AppController(SongModel* song = nullptr, PatternModel* pattern = nullptr,
@@ -147,6 +153,8 @@ public:
                            std::unique_ptr<blokkily::MidiInput> midi = {});
     ~AppController() override;
     QString status() const { return status_; }
+    LoadProgress* progress() noexcept { return &progress_; }
+    double scanProgress() const;
     // Everything the browser can offer: what the scan found, then what the
     // application provides itself (the built-in effects), each entry with
     // its format and kind.
@@ -568,6 +576,7 @@ signals:
     void audioTakeChanged();
     void countInChanged();
     void launcherChanged();
+    void scanProgressChanged();
 
 private:
     struct ImportResult;
@@ -704,6 +713,15 @@ private:
     std::unordered_set<const blokkily::PluginInstance*> failed_reported_;
     QVariantList plugins_;
     QString browser_filter_;
+    // What the browser lists, ranked, until the scan, the filter or the kind
+    // changes it. Every reader in the interface asks for the whole list, and
+    // ranking it again for each would make a long installation slow to draw.
+    // Whatever changes it lets it go before emitting browserChanged.
+    // The built-in catalog is the process's (a second controller registers
+    // into it too), so the copy also remembers which revision it was ranked
+    // from.
+    mutable std::optional<QVariantList> browser_cache_;
+    mutable std::uint64_t browser_cache_revision_ = 0;
     QString browser_kind_ = QStringLiteral("instrument");
     QString soundfont_status_ = "No instrument loaded";
     QString project_status_ = "Not saved";
@@ -762,6 +780,20 @@ private:
     blokkily::GraphSignature engine_signature_;
     blokkily::RecompileCoalescer recompiler_;
     int rebuilds_ = 0;
+    // Shown while something the window waits on loads. A rebuild or a
+    // recompile asked for while it lets a frame be drawn is owed, and done
+    // once the load is over (load_progress.hpp).
+    LoadProgress progress_;
+    // A song is being replaced (opened, or started afresh); whoever replaces
+    // it builds its engine once it is in place.
+    bool replacing_ = false;
+    bool rebuild_owed_ = false;
+    bool recompile_owed_ = false;
+    // Owes the engine `rebuild` (or a recompile) when a load is drawing a
+    // frame; true when the caller must leave the engine alone now.
+    bool oweDuringLoad(bool rebuild);
+    // An export's progress callback (bounce.hpp), reporting into the open load.
+    std::function<void(std::uint64_t, std::uint64_t)> bounceProgress(double rate);
     bool follow_playback_ = true;
     // Opens the pattern under the playhead on the selected track (followPlayback).
     void followPlayhead();

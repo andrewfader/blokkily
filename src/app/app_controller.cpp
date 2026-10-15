@@ -1,4 +1,5 @@
 #include "app_controller.hpp"
+#include "processor_factory.hpp"
 
 #include "blokkily/midi/midi_out_instrument.hpp"
 #include "app_controller_internal.hpp"
@@ -29,6 +30,7 @@
 #include <cmath>
 #include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -51,6 +53,9 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
       midi_input_(midi ? std::move(midi) : std::make_unique<blokkily::MidiInput>()),
       recompiler_(
           [this]() -> blokkily::RecompileCoalescer::Outcome {
+              // A load drawing a frame is not cut into; the recompile is done
+              // once it is over.
+              if (oweDuringLoad(false)) return {true, {}};
               std::string error;
               if (refreshArrangement(&error)) return {true, {}};
               return {false, error};
@@ -70,8 +75,13 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
     // What the browser lists follows both what the scan found and what the
     // producer has typed, so a plugin arriving mid-scan reaches a filtered
     // browser too.
-    QObject::connect(this, &AppController::pluginsChanged,
-                     this, &AppController::browserChanged);
+    // The ranked copy is let go before anyone hears of the change: QML
+    // bindings are told of a signal before any connected slot runs, so a
+    // slot that cleared it would come too late for them.
+    QObject::connect(this, &AppController::pluginsChanged, this, [this] {
+        browser_cache_.reset();
+        emit browserChanged();
+    });
     // A rack row names an effect as the browser listed it.
     if (song_ != nullptr)
         QObject::connect(this, &AppController::pluginsChanged, this,
@@ -99,8 +109,10 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         });
         QObject::connect(song_, &SongModel::structureChanged, this, [this] {
             // Takes printed while a rebuild retires its engine: that rebuild
-            // compiles the song they were printed into.
-            if (rebuilding_) return;
+            // compiles the song they were printed into. A song opening or
+            // starting afresh is built once, by whoever is replacing it, after
+            // the editors have caught up with it.
+            if (rebuilding_ || replacing_) return;
             // A clip moved on the timeline is the same kind of change as a
             // step edit. A track added or an instrument swapped is not: that
             // needs a graph the running engine does not have.
@@ -157,8 +169,11 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
     // keyboard cannot leave a voice sounding after the finger has left it.
     audition_timer_.setSingleShot(true);
     audition_timer_.setInterval(450);
-    QObject::connect(&audition_timer_, &QTimer::timeout, this,
-                     &AppController::releaseSoundingNotes);
+    QObject::connect(&audition_timer_, &QTimer::timeout, this, [this] {
+        // A load drawing a frame is not reached into; the notes go when it ends.
+        if (progress_.pumping()) return audition_timer_.start();
+        releaseSoundingNotes();
+    });
     if (transport_) {
         // The pattern is opened first, so the editors read the playhead in it.
         QObject::connect(transport_, &Transport::changed, this, &AppController::followPlayhead);
@@ -298,7 +313,9 @@ void AppController::applyMix() {
 }
 
 void AppController::pollMeters() {
-    if (!engine_ || song_ == nullptr) return;
+    // A load drawing a frame owns the engine: nothing is printed from it or
+    // read off it until the load is over.
+    if (!engine_ || song_ == nullptr || progress_.pumping()) return;
     drainTake();
     pollCountIn();
     pollLauncher();
@@ -330,6 +347,22 @@ bool AppController::builtFromCurrentGraph() const {
 }
 
 void AppController::requestRecompile() { recompiler_.request(); }
+
+bool AppController::oweDuringLoad(bool rebuild) {
+    if (!progress_.pumping()) return false;
+    const bool first = !rebuild_owed_ && !recompile_owed_;
+    (rebuild ? rebuild_owed_ : recompile_owed_) = true;
+    if (first)
+        progress_.afterLoad([this] {
+            const bool rebuild_now = std::exchange(rebuild_owed_, false);
+            (void)std::exchange(recompile_owed_, false);
+            // What the load left may already be what was asked for; a
+            // recompile rebuilds when the graph has changed since.
+            if (rebuild_now && (!engine_ || !builtFromCurrentGraph())) (void)rebuildEngine();
+            else requestRecompile();
+        });
+    return true;
+}
 
 void AppController::flushRecompile() { recompiler_.flush(); }
 
@@ -439,6 +472,8 @@ bool AppController::loadDefaultInstrument(const std::vector<std::filesystem::pat
         emit soundfontStatusChanged();
         return false;
     }
+    const LoadProgress::Scope loading(
+        progress_, QStringLiteral("LOADING %1").arg(QString::fromStdString(bank.stem().string()).toUpper()));
     for (auto& track : song.tracks) track.instrument = defaultSlot(bank, track.name);
     song_->refreshStructure();
     soundfont_status_ = QString("%1 · %2 track%3")
@@ -475,6 +510,7 @@ bool AppController::saveProjectInPlace() {
 
 void AppController::newProject() {
     if (song_ == nullptr) return;
+    const LoadProgress::Scope starting(progress_, QStringLiteral("NEW SONG"));
     blokkily::Song blank;
     blank.patterns.front().name = "PATTERN 1";
     blank.tracks.front().name = "TRACK 1";
@@ -496,7 +532,9 @@ void AppController::newProject() {
     // The audio the last song played is let go unless the next one plays it.
     clip_assets_.clear();
     assets_->purge_unused();
+    replacing_ = true;
     song_->replace(std::move(blank));
+    replacing_ = false;
     // A new song has no history of versions.
     song_->setVersions({});
     if (song_->song().tracks.front().instrument.format.empty()) (void)loadDefaultInstrument();
@@ -531,6 +569,9 @@ void AppController::clearEverything() {
 
 bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     if (song_ == nullptr || transport_ == nullptr) return false;
+    // Asked for by something that ran while a load drew a frame: the load is
+    // half way through the engine, so this waits until it is over.
+    if (oweDuringLoad(true)) return false;
     const bool resume = transport_->playing();
     auto& song = song_->song();
     ++rebuilds_;
@@ -585,8 +626,19 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
 
     auto next = std::make_unique<blokkily::SongEngine>();
     std::string error;
-    const auto build = blokkily::populate_graph(*next, song, std::move(adopted),
-                                                processorContext());
+    // Each processor is named as it loads, which is what a song with a dozen
+    // plugins spends its opening on.
+    const auto build = blokkily::populate_graph(
+        *next, song, std::move(adopted), processorContext(),
+        [this](std::size_t placed, std::size_t total, const blokkily::InstrumentSlot& slot) {
+            const QFileInfo file(QString::fromStdString(slot.path));
+            const QString name = !slot.path.empty() ? file.completeBaseName()
+                                                    : QString::fromStdString(slot.identifier);
+            progress_.report(0.9 * static_cast<double>(placed) /
+                                 static_cast<double>(std::max<std::size_t>(1, total)),
+                             QStringLiteral("%1 · %2 OF %3")
+                                 .arg(name.toUpper()).arg(placed + 1).arg(total));
+        });
     error = build.error;
     const int loaded = build.loaded;
     adopted_processors_ = build.adopted;
@@ -617,6 +669,8 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
                             ? static_cast<double>(audio_output_->device_info().sample_rate)
                             : static_cast<double>(default_sample_rate);
     const auto assets = clipAssets(rate);
+    // Activating every plugin at the device's rate, and reading the clips.
+    progress_.report(0.92, QStringLiteral("PREPARING THE MIX"));
     if (!next->prepare(song, rate, 512, 0, &error, assets, clipRenditions(rate))) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
         emit statusChanged();
@@ -696,6 +750,8 @@ void AppController::assignInstrument(int track, const blokkily::InstrumentSlot& 
 }
 
 QVariantList AppController::browserPlugins() const {
+    if (browser_cache_ && browser_cache_revision_ == blokkily::internal_catalog_revision())
+        return *browser_cache_;
     const auto query = browser_filter_.trimmed().toStdString();
     // A ranked row and where it came from, kept together so the browser can
     // load what it lists.
@@ -735,12 +791,15 @@ QVariantList AppController::browserPlugins() const {
         fields.insert("source", entry.source);
         listed.push_back(fields);
     }
+    browser_cache_ = listed;
+    browser_cache_revision_ = blokkily::internal_catalog_revision();
     return listed;
 }
 
 void AppController::setBrowserFilter(const QString& query) {
     if (browser_filter_ == query) return;
     browser_filter_ = query;
+    browser_cache_.reset();
     emit browserChanged();
 }
 
@@ -752,6 +811,8 @@ bool AppController::selectInstrument(int index) {
     // its place.
     if (entry.value("kind").toString() == "effect") return addEffect(index);
     const QString format = entry.value("format").toString();
+    const LoadProgress::Scope loading(
+        progress_, QStringLiteral("LOADING %1").arg(entry.value("name").toString().toUpper()));
     blokkily::InstrumentSlot slot;
     slot.format = (format == "SF" ? QStringLiteral("SoundFont") : format).toStdString();
     slot.path = entry.value("path").toString().toStdString();
@@ -907,6 +968,9 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
     // The bounce is of the song as it is now, edits of this turn included,
     // with every warped clip's rendition in it.
     flushRecompile();
+    const LoadProgress::Scope exporting(
+        progress_, QStringLiteral("EXPORTING %1").arg(QFileInfo(local_path(path)).fileName().toUpper()));
+    progress_.report(-1.0, QStringLiteral("FINISHING WARPED CLIPS"));
     waitForWarpRenders();
     std::string error;
     const bool resume_device = audio_output_ && audio_output_->is_running();
@@ -916,6 +980,7 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
     const auto tail = static_cast<std::uint64_t>(engine_->sample_rate() / 2.0);
     blokkily::BounceOptions options;
     options.include_metronome = withClick;
+    options.progress = bounceProgress(engine_->sample_rate());
     const auto report = bounce_song(*engine_, local_path(path).toStdString(), format,
                                     tail, options, &error);
     if (resume_device) {
@@ -942,11 +1007,27 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
     return true;
 }
 
+std::function<void(std::uint64_t, std::uint64_t)> AppController::bounceProgress(double rate) {
+    // Minutes and seconds of the song, which is what a producer knows its
+    // length in.
+    const auto clock = [rate](std::uint64_t frames) {
+        const auto seconds = static_cast<long long>(static_cast<double>(frames) /
+                                                    std::max(1.0, rate));
+        return QStringLiteral("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
+    };
+    return [this, clock](std::uint64_t written, std::uint64_t total) {
+        progress_.report(static_cast<double>(written) / static_cast<double>(std::max<std::uint64_t>(1, total)),
+                         QStringLiteral("%1 OF %2").arg(clock(written), clock(total)));
+    };
+}
+
 bool AppController::saveProjectFile(const QString& path) {
     return saveProject(local_path(path));
 }
 
 bool AppController::loadProjectFile(const QString& path) {
+    const LoadProgress::Scope opening(
+        progress_, QStringLiteral("OPENING %1").arg(QFileInfo(local_path(path)).completeBaseName().toUpper()));
     const bool loaded = loadProject(local_path(path));
     if (loaded && transport_) transport_->rewind();
     return loaded;
@@ -1219,7 +1300,9 @@ bool AppController::loadProject(const QString& path) {
     // The project's folder is known before its instruments are created, so a
     // sample named relative to it is found by the first engine built for it.
     project_path_ = path;
+    replacing_ = true;
     song_->replace(std::move(project->song));
+    replacing_ = false;
     song_->setVersions(std::move(project->versions));
     // Patterns as the producer sees them: sections, not one per track.
     const auto patterns = song_->song().sections.size();
@@ -1230,6 +1313,8 @@ bool AppController::loadProject(const QString& path) {
                           .arg(patterns).arg(patterns == 1 ? "" : "s")
                           .arg(tracks).arg(tracks == 1 ? "" : "s");
     emit projectStatusChanged();
+    // Built once, here: replacing the song used to build it as well, which
+    // activated every plugin of the song twice.
     (void)rebuildEngine();
     return true;
 }

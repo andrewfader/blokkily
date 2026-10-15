@@ -1,6 +1,7 @@
 #include "mcp_server.hpp"
 
 #include <QLocalSocket>
+#include <QTimer>
 
 McpServer::McpServer(McpTools& tools, QObject* parent)
     : QObject(parent), tools_(tools),
@@ -36,15 +37,28 @@ void McpServer::accept() {
         QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
         // A message may arrive in pieces, or several in one read; each whole
         // line is answered in order.
-        QObject::connect(socket, &QLocalSocket::readyRead, this, [this, socket] {
-            while (socket->canReadLine()) {
-                const QByteArray line = socket->readLine();
-                if (const auto reply = session_.handleLine(line)) {
-                    socket->write(*reply);
-                    socket->write("\n");
-                }
-            }
-            socket->flush();
-        });
+        QObject::connect(socket, &QLocalSocket::readyRead, this, [this, socket] { serve(socket); });
     }
+}
+
+void McpServer::serve(QLocalSocket* socket) {
+    while (!held_ && socket->canReadLine()) {
+        const QByteArray line = socket->readLine();
+        if (const auto reply = session_.handleLine(line)) {
+            socket->write(*reply);
+            socket->write("\n");
+        }
+    }
+    socket->flush();
+}
+
+void McpServer::setHeld(bool held) {
+    if (held_ == held) return;
+    held_ = held;
+    if (held) return;
+    // Next turn: the request that held them may still be on the stack, and
+    // its reply goes first.
+    QTimer::singleShot(0, this, [this] {
+        for (auto* socket : server_.findChildren<QLocalSocket*>()) serve(socket);
+    });
 }

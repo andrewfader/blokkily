@@ -23,6 +23,44 @@ ToolBar {
     background: Rectangle {
         color: "#141519"
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
+        // Work going on behind the window (features/loading_progress.feature):
+        // the plugin scan, filled as far as it has got, or audio being decoded
+        // or warped, a block moving along. Drawn over the bar's bottom edge,
+        // so it takes no room from the controls.
+        Rectangle {
+            id: activity
+            objectName: "activityStrip"
+            readonly property real scan: appController.scanProgress
+            readonly property bool counted: scan >= 0
+            readonly property bool busy: counted || appController.importsPending > 0
+                                         || appController.warpRendersPending > 0
+            anchors.bottom: parent.bottom
+            width: parent.width; height: 3
+            visible: busy
+            color: Theme.raised
+            clip: true
+            Accessible.role: Accessible.ProgressBar
+            Accessible.name: appController.status
+            Rectangle {
+                objectName: "activityFill"
+                visible: activity.counted
+                height: parent.height
+                width: parent.width * Math.max(0, Math.min(1, activity.scan))
+                color: Theme.blue
+            }
+            Rectangle {
+                id: activitySweep
+                visible: !activity.counted
+                height: parent.height; width: parent.width / 5
+                color: Theme.blue
+                NumberAnimation on x {
+                    running: activity.visible && !activity.counted
+                    loops: Animation.Infinite
+                    from: -activitySweep.width; to: activity.width
+                    duration: 1400
+                }
+            }
+        }
     }
     RowLayout {
         anchors.fill: parent; anchors.leftMargin: root.narrow ? 10 : 16

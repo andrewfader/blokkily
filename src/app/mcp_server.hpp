@@ -25,12 +25,19 @@ public:
     bool listen(const QString& path, const blokkily::mcp::SocketLock& lock);
     QString path() const { return server_.fullServerName(); }
     QString error() const { return error_; }
+    // While held, requests wait in their sockets unread; released, they are
+    // answered in the order they came, after whatever held them has returned.
+    // A load the window is showing holds them (load_progress.hpp), so an
+    // agent never edits a song half way through opening.
+    void setHeld(bool held);
 
 private:
     void accept();
+    void serve(class QLocalSocket* socket);
 
     McpTools& tools_;
     blokkily::mcp::Session session_;
     QLocalServer server_;
     QString error_;
+    bool held_ = false;
 };

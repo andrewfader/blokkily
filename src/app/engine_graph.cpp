@@ -142,10 +142,18 @@ std::vector<ReleasedProcessor> adopt_processors(std::vector<ReleasedProcessor> r
 
 GraphBuild populate_graph(SongEngine& engine, const Song& song,
                           std::vector<ReleasedProcessor> adopted,
-                          const ProcessorContext& context) {
+                          const ProcessorContext& context, const GraphProgress& progress) {
     GraphBuild build;
-    for (const auto& [address, identity] : graph_signature(song).processors) {
+    const auto signature = graph_signature(song);
+    const auto total = static_cast<std::size_t>(std::count_if(
+        signature.processors.begin(), signature.processors.end(),
+        [](const auto& entry) { return !entry.second.empty(); }));
+    std::size_t placed = 0;
+    for (const auto& [address, identity] : signature.processors) {
         if (identity.empty()) continue;
+        if (progress)
+            if (const auto* named = song_slot(song, address)) progress(placed, total, *named);
+        ++placed;
         const auto kept = std::find_if(adopted.begin(), adopted.end(),
                                        [&](const ReleasedProcessor& candidate) {
                                            return candidate.where == address && candidate.instance;

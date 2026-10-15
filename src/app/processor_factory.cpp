@@ -52,6 +52,11 @@ std::vector<Registration>& registry() {
     return registrations;
 }
 
+std::uint64_t& revision() {
+    static std::uint64_t changes = 0;
+    return changes;
+}
+
 const Registration* find(const std::string& format) {
     for (const auto& registration : registry())
         if (registration.format == format) return &registration;
@@ -62,6 +67,7 @@ const Registration* find(const std::string& format) {
 
 void register_internal(const std::string& format, ProcessorFactory factory,
                        std::vector<CatalogEntry> entries) {
+    ++revision();
     for (auto& registration : registry())
         if (registration.format == format) {
             registration.factory = std::move(factory);
@@ -72,6 +78,8 @@ void register_internal(const std::string& format, ProcessorFactory factory,
 }
 
 bool is_internal_format(const std::string& format) { return find(format) != nullptr; }
+
+std::uint64_t internal_catalog_revision() { return revision(); }
 
 std::vector<CatalogEntry> internal_catalog() {
     std::vector<CatalogEntry> entries;

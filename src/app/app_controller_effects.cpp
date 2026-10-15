@@ -30,6 +30,7 @@ void AppController::setBrowserKind(const QString& kind) {
                                : QStringLiteral("instrument");
     if (wanted == browser_kind_) return;
     browser_kind_ = wanted;
+    browser_cache_.reset();
     emit browserChanged();
 }
 
@@ -43,6 +44,9 @@ int AppController::browserTotal() const {
 bool AppController::addEffect(int index) {
     const auto entries = plugins();
     if (song_ == nullptr || index < 0 || index >= entries.size()) return false;
+    const LoadProgress::Scope loading(
+        progress_,
+        QStringLiteral("LOADING %1").arg(entries.at(index).toMap().value("name").toString().toUpper()));
     const auto entry = entries.at(index).toMap();
     if (entry.value("kind").toString() != "effect") return false;
     blokkily::PluginSlot slot;

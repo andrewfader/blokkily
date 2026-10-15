@@ -148,6 +148,8 @@ int main(int argc, char* argv[]) {
     McpTools mcp_tools(song, pattern, controller, transport,
                        qobject_cast<QQuickWindow*>(engine.rootObjects().front()));
     McpServer mcp_server(mcp_tools);
+    QObject::connect(controller.progress(), &LoadProgress::holdRequests, &mcp_server,
+                     &McpServer::setHeld);
     if (serve_mcp) {
         if (mcp_server.listen(mcp_socket, *mcp_lock))
             app.setProperty("blokkilyMcpSocket", mcp_server.path());
