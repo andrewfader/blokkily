@@ -78,8 +78,9 @@ keeps the layout consistent across desktops.
 ## What you can do
 
 - Edit notes and chords in any of the three synchronized editors. Patterns
-  support inversions, strum, microtiming, probability, ratchets, loop conditions
-  and parameter locks. Edits are heard during playback without stopping it.
+  support inversions, strum, swing, microtiming, probability, ratchets, loop
+  conditions and parameter locks. Edits are heard during playback without
+  stopping it.
 - Arrange named patterns and audio clips on a multi-track timeline, with tempo
   steps, ramps and meter changes. The scene launcher lets you perform patterns
   live and record the performance into the arrangement.
