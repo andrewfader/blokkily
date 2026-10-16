@@ -115,6 +115,9 @@ Item {
             height: row !== null ? row.height - 2 : 20
             radius: 3
             clip: true
+            // A take kept but not played lies under the one that plays, faint.
+            z: modelData.compedOut ? 0 : 1
+            opacity: modelData.compedOut ? 0.35 : 1
             color: modelData.missing ? "#3a1b21" : Theme.amber
             border.color: modelData.missing ? Theme.record : "#ffd98a"
             border.width: modelData.missing ? 2 : 1
@@ -322,6 +325,29 @@ Item {
                     text: "RENDERING…"
                     color: Theme.amber
                     font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
+                }
+            }
+            // One of several takes of these bars: which, and a click plays
+            // the next one instead (comping).
+            Rectangle {
+                objectName: "takeBadge" + clipBox.modelData.id
+                visible: clipBox.modelData.takeCount > 1 && clipBox.width > 30
+                anchors.right: parent.right; anchors.rightMargin: 4
+                anchors.top: parent.top; anchors.topMargin: 2
+                width: takeLabel.implicitWidth + 8; height: 12; radius: 2
+                color: "#0e0f12"
+                Label {
+                    id: takeLabel
+                    anchors.centerIn: parent
+                    // Short on a narrow clip, so the badge never hides it.
+                    text: (clipBox.width > 80 ? "TAKE " : "") + clipBox.modelData.takeIndex + "/"
+                          + clipBox.modelData.takeCount
+                    color: Theme.amber; font.pixelSize: 8; font.bold: true
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: songModel.chooseTake(songModel.nextTake(clipBox.modelData.id))
                 }
             }
             Label {

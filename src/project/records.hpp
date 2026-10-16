@@ -81,6 +81,10 @@ struct ParseContext {
     // The song's notes as read (records_versions.cpp), put into the song once
     // the core module has built it.
     std::optional<std::string> notes;
+    // Comping and punch as read (records_comping.cpp), applied once the audio
+    // clips and the loop are in.
+    std::vector<AudioClipId> comped_out;
+    bool punch = false;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -133,6 +137,8 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& swing_records();
 // Track arpeggiators: arp (records_arpeggiator.cpp).
 [[nodiscard]] const RecordModule& arpeggiator_records();
+// Comped-out takes and punch: comped_out, punch (records_comping.cpp).
+[[nodiscard]] const RecordModule& comping_records();
 // MIDI learn bindings: midi_learn (records_midi_learn.cpp).
 [[nodiscard]] const RecordModule& midi_learn_records();
 // Clip warp (item 3.6): clipwarp, after the audio clips it names

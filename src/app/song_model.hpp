@@ -137,6 +137,9 @@ class SongModel final : public QObject {
     // Arrangement loop: on or off, and the bars it spans (end exclusive).
     // Saved with the song, never a step of history, and left alone by undo.
     Q_PROPERTY(bool loopEnabled READ loopEnabled NOTIFY loopChanged)
+    // Punch (song_model_comping.cpp): recording keeps only what is played
+    // between the loop's IN and OUT, looped or not.
+    Q_PROPERTY(bool punch READ punch NOTIFY loopChanged)
     Q_PROPERTY(int loopStartBar READ loopStartBar NOTIFY loopChanged)
     Q_PROPERTY(int loopEndBar READ loopEndBar NOTIFY loopChanged)
     // Modulators (phase 2, wave 5.1; song_model_modulation.cpp). How many the
@@ -463,6 +466,18 @@ public:
     int loopStartBar() const;
     int loopEndBar() const;
     Q_INVOKABLE void setLoopEnabled(bool on);
+    bool punch() const noexcept { return song_.loop.punch; }
+    // On without a range, it takes the one the LOOP chip would.
+    Q_INVOKABLE void setPunch(bool on);
+    // Comping: `id` plays and the takes it overlaps are kept, comped out.
+    // One step of history.
+    Q_INVOKABLE bool chooseTake(qint64 id);
+    // The take of `id`'s stack after the one that plays, or -1 for a clip
+    // with no other take.
+    Q_INVOKABLE qint64 nextTake(qint64 id) const;
+    // Cuts every clip on `track` that spans `tick` in two there, so each
+    // section can play a different take. How many were cut; one step.
+    Q_INVOKABLE int splitTakes(int track, double tick);
     Q_INVOKABLE void toggleLoop();
     Q_INVOKABLE void setLoopStartBar(int bar);
     Q_INVOKABLE void setLoopEndBar(int bar);

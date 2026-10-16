@@ -60,7 +60,8 @@ std::size_t gather_input(InputQueue* port, PerformQueue& performed,
 
 void add_input_monitoring(InputPlayback& input, StereoBlock track, const InputBlock& device,
                           SampleRing* capture, std::uint32_t track_index,
-                          std::uint64_t song_position) noexcept {
+                          std::uint64_t song_position, std::size_t capture_from,
+                          std::size_t capture_to) noexcept {
     const auto route = InputPlayback::unpack(input.route.load(std::memory_order_acquire));
     if (route.channels == 0 || device.empty()) return;
     const auto frames = track.left.size();
@@ -71,9 +72,14 @@ void add_input_monitoring(InputPlayback& input, StereoBlock track, const InputBl
     const auto second = route.channels == 2 ? device.channel(route.first_channel + 1U) : first;
     // The raw input, as it arrived: what a take records is never what the
     // track's inserts or strip made of it.
-    if (capture != nullptr && route.capture)
-        (void)capture->push(track_index, song_position, first,
-                            route.channels == 2 ? second : std::span<const float>{});
+    capture_to = std::min(capture_to, frames);
+    if (capture != nullptr && route.capture && capture_from < capture_to) {
+        const auto length = capture_to - capture_from;
+        (void)capture->push(track_index, song_position + capture_from,
+                            first.subspan(capture_from, length),
+                            route.channels == 2 ? second.subspan(capture_from, length)
+                                                : std::span<const float>{});
+    }
     if (!route.monitor) return;
     for (std::size_t frame = 0; frame < frames; ++frame) {
         track.left[frame] += first[frame];

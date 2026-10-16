@@ -16,6 +16,13 @@ void SongEngine::set_loop(bool enabled, std::uint64_t start_sample,
     loop_enabled_.store(enabled, std::memory_order_release);
 }
 
+void SongEngine::set_punch(bool enabled, std::uint64_t start_sample,
+                           std::uint64_t end_sample) noexcept {
+    punch_start_samples_.store(start_sample, std::memory_order_relaxed);
+    punch_end_samples_.store(end_sample, std::memory_order_relaxed);
+    punch_enabled_.store(enabled && end_sample > start_sample, std::memory_order_release);
+}
+
 void SongEngine::set_loop_enabled(bool enabled) noexcept {
     loop_enabled_.store(enabled, std::memory_order_release);
 }
@@ -57,6 +64,11 @@ void SongEngine::fold_playhead() noexcept {
 }
 
 void SongEngine::apply_loop(const Song& song) {
+    if (song.loop.punching())
+        set_punch(true, sample_for_tick(published_clock_, static_cast<double>(song.loop.start)),
+                  sample_for_tick(published_clock_, static_cast<double>(song.loop.end)));
+    else
+        set_punch(false, 0, 0);
     if (!song.loop.active() || song_samples_ == 0) {
         set_loop(false, 0, 0);
         return;

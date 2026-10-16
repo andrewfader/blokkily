@@ -446,6 +446,10 @@ public:
     void set_loop(bool enabled, std::uint64_t start_sample, std::uint64_t end_sample) noexcept;
     void set_loop_enabled(bool enabled) noexcept;
     [[nodiscard]] bool loop_enabled() const noexcept;
+    // Punch: while on, a recording captures only what the performer heard
+    // between the two samples (audio input and MIDI alike). apply_mix() sets
+    // it from song.loop. Safe from the control thread while audio runs.
+    void set_punch(bool enabled, std::uint64_t start_sample, std::uint64_t end_sample) noexcept;
 
     // How late the speakers hear the song, in samples, as of prepare(): the
     // slowest track chain, plus the slowest return, plus the master inserts.
@@ -627,6 +631,13 @@ private:
     std::atomic<float> master_peak_{0.0F};
     std::atomic<bool> playing_{false};
     std::atomic<bool> loop_enabled_{false};
+    std::atomic<bool> punch_enabled_{false};
+    std::atomic<std::uint64_t> punch_start_samples_{0};
+    std::atomic<std::uint64_t> punch_end_samples_{0};
+    // This chunk's capture window, as offsets into the chunk: everything
+    // without punch, the part inside the punch range with it. Callback only.
+    std::size_t capture_from_ = 0;
+    std::size_t capture_to_ = 0;
     std::atomic<std::uint64_t> loop_start_samples_{0};
     std::atomic<std::uint64_t> loop_end_samples_{0};
     std::atomic<InputQueue*> input_{nullptr};

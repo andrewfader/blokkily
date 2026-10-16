@@ -21,7 +21,8 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Audio and sampling
 
-- Comping, or choosing alternate passes of a recorded lane, is not implemented.
+- Comping chooses between audio takes. MIDI passes recorded in a loop still
+  merge into the pattern rather than stacking as takes.
 - Disk streaming handles unwarped audio clips only. Warped clips decode into
   memory before stretching, and the sampler always decodes its samples.
 - A streamed clip that crosses the song's wrap point dips briefly at the wrap

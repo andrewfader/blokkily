@@ -734,7 +734,10 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
         // full capture ring loses the note from the take, never from the
         // speakers. The tick is stamped here, with the clock this block is
         // played under: a recompile published later must not re-read it.
-        if (capture) {
+        // Punched, a note-off past the range still reaches the take, so a
+        // note played inside it does not hang.
+        if (capture && ((offset >= capture_from_ && offset < capture_to_) ||
+                        events[count - 1].type == PluginEvent::Type::note_off)) {
             const auto& clock = live_ != nullptr ? live_->clock : nothing_arranged.clock;
             const auto at = capture_sample + offset;
             (void)captured_.push({routed.track, at,
@@ -1027,6 +1030,15 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     // latency ago (decision 10 compensates every path to it).
     const std::uint64_t capture_sample = capture ? heard_position(song_position) : 0;
     const Tick capture_tick = capture ? tick_at_sample(arranged.clock, capture_sample) : 0;
+    // Punch: only what the performer heard inside the range is captured.
+    capture_from_ = 0;
+    capture_to_ = frames;
+    if (capture && punch_enabled_.load(std::memory_order_acquire)) {
+        const auto in = punch_start_samples_.load(std::memory_order_relaxed);
+        const auto out = punch_end_samples_.load(std::memory_order_relaxed);
+        capture_from_ = in > capture_sample ? static_cast<std::size_t>(std::min<std::uint64_t>(in - capture_sample, frames)) : 0;
+        capture_to_ = out > capture_sample ? static_cast<std::size_t>(std::min<std::uint64_t>(out - capture_sample, frames)) : 0;
+    }
     // Where the song is for every processor this chunk: a tempo-synced effect
     // follows the tempo map from here (plan C20).
     TransportInfo transport = transport_at(arranged, song_position, from_timeline);
@@ -1117,7 +1129,8 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
                                  song_samples_);
         // 6. Input monitoring; a capture taps the raw input here.
         engine::add_input_monitoring(track.input, buffer, input, capture_ring,
-                                     static_cast<std::uint32_t>(index), song_position);
+                                     static_cast<std::uint32_t>(index), song_position,
+                                     capture_from_, capture_to_);
         // 7. The insert chain, in place. 8. Its compensation delay.
         engine::run_insert_chain(track.chain, buffer, BusKind::track,
                                  static_cast<std::uint32_t>(index), transport, drain);

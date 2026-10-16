@@ -66,6 +66,7 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
     target.cue_window = static_cast<std::uint64_t>(engine_rate) * 2;
     for (const auto& clip : song.audio_clips) {
         if (clip.track >= song.tracks.size() || clip.file >= song.audio_files.size()) continue;
+        if (clip.comped_out) continue;   // a take kept, not played
         if (clip.file >= assets.size() || !assets[clip.file]) continue;   // missing
         const AudioAsset& asset = *assets[clip.file];
         const auto file_rate = song.audio_files[clip.file].sample_rate;

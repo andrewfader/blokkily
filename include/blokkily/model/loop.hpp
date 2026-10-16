@@ -13,8 +13,13 @@ struct ArrangementLoop {
     bool enabled = false;
     Tick start = 0;
     Tick end = 0; // exclusive; must be greater than start while enabled
+    // Punch (features/comping_and_punch.feature): while on, recording keeps
+    // only what is played between `start` and `end` - the same IN and OUT -
+    // whether the loop is on or not. Looped, every pass is a take.
+    bool punch = false;
 
     [[nodiscard]] bool active() const noexcept { return enabled && end > start; }
+    [[nodiscard]] bool punching() const noexcept { return punch && end > start; }
 
     friend bool operator==(const ArrangementLoop&, const ArrangementLoop&) = default;
 };

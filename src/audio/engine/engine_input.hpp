@@ -49,8 +49,11 @@ std::size_t gather_input(InputQueue* port, PerformQueue& performed,
 // before anything else touches it. Monitored, it is added to the track's
 // buffer: a mono input to both sides. A route naming inputs the device does
 // not have hears nothing.
+// Only frames [capture_from, capture_to) are captured (a punch range); the
+// whole chunk is monitored.
 void add_input_monitoring(InputPlayback& input, StereoBlock track, const InputBlock& device,
                           SampleRing* capture, std::uint32_t track_index,
-                          std::uint64_t song_position) noexcept;
+                          std::uint64_t song_position, std::size_t capture_from,
+                          std::size_t capture_to) noexcept;
 
 } // namespace blokkily::engine

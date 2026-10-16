@@ -12,6 +12,7 @@
 // (app_controller_take.cpp) calls them at its edges and nothing more.
 
 #include "app_controller.hpp"
+#include "blokkily/audio/comping.hpp"
 
 #include "blokkily/audio/audio_input.hpp"
 
@@ -120,6 +121,7 @@ void AppController::commitAudioTakes(std::vector<blokkily::RecordedTake> takes) 
     const auto clock = engine_->published_clock();
     int placed = 0;
     QString failure;
+    std::vector<blokkily::AudioClipId> recorded;
     for (const auto& take : takes) {
         if (!take.error.empty()) {
             failure = QString::fromStdString(take.error);
@@ -134,13 +136,20 @@ void AppController::commitAudioTakes(std::vector<blokkily::RecordedTake> takes) 
         assets_->adopt(take.file, {take.frames, take.sample_rate, take.channels}, take.audio);
         if (const auto id = blokkily::commit_take(song_->song(), take, clock, compensation)) {
             last_recorded_clip_ = static_cast<qint64>(*id);
+            recorded.push_back(*id);
             ++placed;
         }
     }
+    // Passes of one recording over the same bars are takes: the last plays,
+    // the earlier are kept to be chosen instead (comping.hpp). Part of the
+    // last pass's step of history.
+    const int kept = blokkily::comp_recorded_takes(song_->song(), recorded);
     if (placed > 0) song_->notifyStructureChanged();
     if (placed == 0 && failure.isEmpty() && dropped_input_frames_ == 0) return;
     audio_take_status_ = placed == 1 ? QStringLiteral("1 audio take recorded")
                                      : QString("%1 audio takes recorded").arg(placed);
+    if (kept > 0)
+        audio_take_status_ += QString(" · %1 earlier pass%2 kept as take%2").arg(kept).arg(kept == 1 ? "" : "es");
     if (dropped_input_frames_ > 0)
         audio_take_status_ += QString(" · %1 input frames dropped").arg(dropped_input_frames_);
     if (!failure.isEmpty()) audio_take_status_ += QString(" · write failed: %1").arg(failure);

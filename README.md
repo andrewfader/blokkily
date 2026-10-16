@@ -121,7 +121,7 @@ recording workflows.
 
 ## Current limitations
 
-Blokkily is experimental. Comping and MIDI clock input are not implemented. MPE
+Blokkily is experimental. MIDI clock input is not implemented. MPE
 support varies by instrument format, and per-note expression has no editor.
 Large unwarped audio clips can stream from disk; warped clips and sampler
 samples still load into memory. On Linux, plugin editor windows need X11, or

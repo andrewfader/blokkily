@@ -31,9 +31,29 @@ RowLayout {
         on: songModel.loopEnabled
         onClicked: songModel.setLoopEndBar(transport.bar)
     }
+    // PUNCH records only between IN and OUT; looped, each pass is a take.
+    Chip {
+        objectName: "punchButton"
+        text: "PUNCH"
+        implicitWidth: 56; implicitHeight: 22
+        accent: Theme.record
+        accessibleLabel: "Record only between IN and OUT"
+        on: songModel.punch
+        onClicked: songModel.setPunch(!songModel.punch)
+    }
+    // Cuts the selected track's takes at the playhead, so each side can
+    // play a different take.
+    Chip {
+        objectName: "splitTakesButton"
+        text: "SPLIT"
+        implicitWidth: 48; implicitHeight: 22
+        accent: Theme.amber
+        accessibleLabel: "Split the selected track's takes at the playhead"
+        onClicked: songModel.splitTakes(songModel.selectedTrack, transport.tick)
+    }
     Label {
         objectName: "loopRangeReadout"
-        visible: songModel.loopEnabled
+        visible: songModel.loopEnabled || songModel.punch
         text: (songModel.loopStartBar + 1) + "–" + (songModel.loopEndBar + 1)
         color: Theme.acid
         font.family: Theme.mono; font.pixelSize: 9; font.bold: true

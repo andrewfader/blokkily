@@ -4,6 +4,7 @@
 // through the same structureChanged recompile a step edit takes.
 
 #include "song_model.hpp"
+#include "blokkily/audio/comping.hpp"
 
 #include "blokkily/audio/audio_clips.hpp"
 
@@ -84,6 +85,11 @@ QVariantMap SongModel::audioClipRow(const blokkily::AudioClip& clip) const {
     row["warped"] = clip.warp.active();
     row["rendering"] = std::find(rendering_clips_.begin(), rendering_clips_.end(), clip.id) !=
                        rendering_clips_.end();
+    // Comping: whether it plays, and where it sits in its stack of takes.
+    const auto stack = blokkily::take_stack(song_, clip.id);
+    row["compedOut"] = clip.comped_out;
+    row["takeCount"] = static_cast<int>(stack.size());
+    row["takeIndex"] = static_cast<int>(std::find(stack.begin(), stack.end(), clip.id) - stack.begin()) + 1;
     return row;
 }
 

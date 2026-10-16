@@ -345,6 +345,9 @@ struct AudioClip {
     // Stretch and pitch (item 3.6). The frames above always count the file's
     // own frames at its own rate, warped or not.
     ClipWarp warp;
+    // A take kept but not played: another take of the same bars was chosen
+    // over it (comping.hpp).
+    bool comped_out = false;
 
     friend bool operator==(const AudioClip&, const AudioClip&) = default;
 };

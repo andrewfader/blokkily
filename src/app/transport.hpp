@@ -32,6 +32,8 @@ class Transport final : public QObject {
     // roll mark, since a bar of 7/8 is fourteen steps and not sixteen.
     Q_PROPERTY(QString meter READ meterText NOTIFY changed)
     Q_PROPERTY(double barStepFraction READ barStepFraction NOTIFY changed)
+    // The playhead in song ticks.
+    Q_PROPERTY(double tick READ tick NOTIFY changed)
 
 public:
     // A step is a sixteenth note, whatever the meter.

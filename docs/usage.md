@@ -318,6 +318,18 @@ timing, and durations are capped at the section length.
 MIDI exchange omits plugin state, parameter automation, per-note expression,
 audio clips and microtonal retuning. Use project files to back up a session.
 
+## Punch and comping
+
+PUNCH, beside LOOP, IN and OUT, records only what is played between IN and
+OUT; with LOOP on too, each pass becomes a take of the same bars. Takes of
+the same bars on a track are a stack: after a recording the last pass
+plays and the others are kept, drawn faint beneath it. A clip's TAKE badge
+(n/m) plays the next take instead. To build a comp, put the playhead where
+one take should give way to another and press SPLIT: the selected track's
+takes are cut there, and each side's badge chooses its own take. Choosing
+and splitting undo like any edit. See
+[the scenarios](../features/comping_and_punch.feature).
+
 ## Audio clips and files
 
 +AUD imports WAV, FLAC or AIFF files as waveform clips with trim, fades and gain.
