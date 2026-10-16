@@ -84,6 +84,14 @@ target_include_directories(blokkily_core PUBLIC include PRIVATE third_party/clap
 target_link_libraries(blokkily_core PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(blokkily_core PUBLIC PkgConfig::FLUIDSYNTH)
 target_link_libraries(blokkily_core PUBLIC PkgConfig::RTAUDIO)
+# JACK is played through directly (playback.cpp): RtAudio cannot follow a
+# server that changes its block size, which PipeWire's JACK does. RtAudio
+# already needs libjack on Linux, so it is required there.
+if(UNIX AND NOT APPLE)
+    pkg_check_modules(JACK REQUIRED IMPORTED_TARGET jack)
+    target_link_libraries(blokkily_core PRIVATE PkgConfig::JACK)
+    target_compile_definitions(blokkily_core PRIVATE BLOKKILY_HAVE_JACK=1)
+endif()
 target_link_libraries(blokkily_core PRIVATE PkgConfig::RTMIDI)
 # JUCE is compiled once, GUI-capable, here and nowhere else in the host
 # (docs/plans/spike-1.7-juce-gui.md, "core links GUI"). Everything that needs

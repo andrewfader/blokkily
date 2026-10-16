@@ -297,7 +297,10 @@ AUDIO in the device rail chooses the audio system: ALSA, PulseAudio, or
 JACK - which is also how PipeWire is reached through its JACK interface, as
 a client called Blokkily that any patchbay can route - or AUTO, RtAudio's own
 choice. It is remembered between launches, and `BLOKKILY_AUDIO_API=jack`
-(or `alsa`, `pulse`) overrides it for one run. See
+(or `alsa`, `pulse`) overrides it for one run.
+On Linux Blokkily talks to JACK directly, so it plays at whatever block size
+the server runs, which PipeWire changes whenever another application asks for
+a different latency. See
 [the scenarios](../features/audio_systems.feature).
 
 ## Following an external clock

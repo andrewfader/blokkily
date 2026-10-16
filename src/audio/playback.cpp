@@ -5,10 +5,15 @@
 
 #include <RtAudio.h>
 
+#if BLOKKILY_HAVE_JACK
+#include <jack/jack.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -112,25 +117,184 @@ struct RtAudioOutput::Impl {
     std::vector<float> input;
     std::vector<float> piece;
 
+#if BLOKKILY_HAVE_JACK
+    // JACK is driven directly rather than through RtAudio. RtAudio reads the
+    // server's block size once, before its client is activated, and stops
+    // processing for good when the server then calls with another size - as
+    // PipeWire's JACK does whenever its graph runs at a quantum other than
+    // its default. A block here is whatever the server hands over.
+    bool use_jack = false;
+    jack_client_t* jack = nullptr;
+    std::array<jack_port_t*, 2> jack_outputs{};
+    std::vector<jack_port_t*> jack_inputs;
+    // Each input port has a buffer of its own; InputBlock wants them one
+    // after another. Sized at open for the largest block PipeWire runs by
+    // default, so the process callback never allocates.
+    static constexpr std::size_t jack_input_capacity = 8192;
+    std::vector<float> jack_input;
+    bool jack_running = false;
+
+    static int jack_process(jack_nframes_t frames, void* user) noexcept {
+        auto* self = static_cast<Impl*>(user);
+        auto* left = static_cast<float*>(jack_port_get_buffer(self->jack_outputs[0], frames));
+        auto* right = static_cast<float*>(jack_port_get_buffer(self->jack_outputs[1], frames));
+        InputBlock block;
+        const auto channels = self->jack_inputs.size();
+        if (channels > 0 && frames <= jack_input_capacity) {
+            for (std::size_t channel = 0; channel < channels; ++channel)
+                std::memcpy(self->jack_input.data() + channel * frames,
+                            jack_port_get_buffer(self->jack_inputs[channel], frames),
+                            frames * sizeof(float));
+            block = {self->jack_input.data(), static_cast<std::uint32_t>(channels), frames,
+                     frames};
+        }
+        self->render({std::span{left, frames}, std::span{right, frames}}, block);
+        return 0;
+    }
+
+    bool open_jack(std::string* error);
+    bool start_jack(std::string* error);
+    void close_jack() noexcept;
+#endif
+
+    void render(StereoBlock output, InputBlock block) noexcept {
+        const auto frames = static_cast<unsigned int>(output.left.size());
+        callbacks.fetch_add(1, std::memory_order_relaxed);
+        unsigned int seen = largest.load(std::memory_order_relaxed);
+        while (frames > seen &&
+               !largest.compare_exchange_weak(seen, frames, std::memory_order_relaxed)) {
+        }
+        source->process(output, block);
+    }
+
     static int callback(void* output, void* input, unsigned int frames, double,
                         RtAudioStreamStatus, void* user) {
         auto* self = static_cast<Impl*>(user);
         auto* samples = static_cast<float*>(output);
-        self->callbacks.fetch_add(1, std::memory_order_relaxed);
-        unsigned int seen = self->largest.load(std::memory_order_relaxed);
-        while (frames > seen &&
-               !self->largest.compare_exchange_weak(seen, frames, std::memory_order_relaxed)) {
-        }
         // RtAudio hands a duplex stream's input non-interleaved, channel by
         // channel, exactly as InputBlock reads it.
         InputBlock block;
         if (input != nullptr && self->input_channels > 0)
             block = {static_cast<const float*>(input), self->input_channels, frames, frames};
-        self->source->process({std::span{samples, frames}, std::span{samples + frames, frames}},
-                              block);
+        self->render({std::span{samples, frames}, std::span{samples + frames, frames}}, block);
         return 0;
     }
 };
+
+#if BLOKKILY_HAVE_JACK
+namespace {
+// The server's physical ports of one direction, in its order; empty when it
+// has none.
+std::vector<std::string> physical_ports(jack_client_t* client, unsigned long direction) {
+    std::vector<std::string> names;
+    const char** ports = jack_get_ports(client, nullptr, JACK_DEFAULT_AUDIO_TYPE,
+                                        JackPortIsPhysical | direction);
+    if (ports == nullptr) return names;
+    for (auto** port = ports; *port != nullptr; ++port) names.emplace_back(*port);
+    jack_free(static_cast<void*>(ports));
+    return names;
+}
+
+// A port is "client:port"; the client is the device a patchbay shows.
+std::string device_of(const std::string& port) { return port.substr(0, port.find(':')); }
+
+std::uint32_t latency_of(jack_client_t* client, const std::string& port,
+                         jack_latency_callback_mode_t mode) {
+    jack_port_t* handle = jack_port_by_name(client, port.c_str());
+    if (handle == nullptr) return 0;
+    jack_latency_range_t range{};
+    jack_port_get_latency_range(handle, mode, &range);
+    return range.max;
+}
+} // namespace
+
+bool RtAudioOutput::Impl::open_jack(std::string* error) {
+    jack_status_t status{};
+    // Never starts a server of its own: the one the desktop runs is the one
+    // to play through.
+    jack = jack_client_open("Blokkily", JackNoStartServer, &status);
+    if (jack == nullptr) {
+        if (error) *error = "no JACK server is running";
+        return false;
+    }
+    jack_outputs[0] = jack_port_register(jack, "out_1", JACK_DEFAULT_AUDIO_TYPE,
+                                         JackPortIsOutput, 0);
+    jack_outputs[1] = jack_port_register(jack, "out_2", JACK_DEFAULT_AUDIO_TYPE,
+                                         JackPortIsOutput, 0);
+    const auto playback = physical_ports(jack, JackPortIsInput);
+    if (jack_outputs[0] == nullptr || jack_outputs[1] == nullptr || playback.empty()) {
+        if (error) *error = playback.empty() ? "the JACK server has no output to play through"
+                                             : "JACK refused the output ports";
+        close_jack();
+        return false;
+    }
+    opened_wanting_input = want_input;
+    const auto capture = want_input ? physical_ports(jack, JackPortIsOutput)
+                                    : std::vector<std::string>{};
+    // A pair is what a track records at most; a few more let a track pick
+    // its pair on an interface with several.
+    for (std::size_t index = 0; index < std::min<std::size_t>(capture.size(), 8); ++index) {
+        const auto name = "in_" + std::to_string(index + 1);
+        jack_port_t* port = jack_port_register(jack, name.c_str(), JACK_DEFAULT_AUDIO_TYPE,
+                                               JackPortIsInput, 0);
+        if (port == nullptr) break;
+        jack_inputs.push_back(port);
+    }
+    jack_input.assign(jack_inputs.size() * jack_input_capacity, 0.0F);
+    input_channels = static_cast<unsigned int>(jack_inputs.size());
+    if (jack_set_process_callback(jack, &Impl::jack_process, this) != 0) {
+        if (error) *error = "JACK refused the process callback";
+        close_jack();
+        return false;
+    }
+    round_trip = latency_of(jack, playback.front(), JackPlaybackLatency) +
+                 (input_channels > 0 ? latency_of(jack, capture.front(), JackCaptureLatency) : 0);
+    info.api = RtAudio::getApiDisplayName(RtAudio::UNIX_JACK);
+    info.device = device_of(playback.front());
+    info.input_device = input_channels > 0 ? device_of(capture.front()) : std::string{};
+    info.input_channels = input_channels;
+    info.round_trip_frames = round_trip;
+    info.sample_rate = jack_get_sample_rate(jack);
+    // What the server says now; it may run another size once the client is
+    // active, and every block is rendered at whatever size it arrives.
+    info.buffer_frames = jack_get_buffer_size(jack);
+    return true;
+}
+
+bool RtAudioOutput::Impl::start_jack(std::string* error) {
+    if (jack == nullptr) {
+        if (error) *error = "the JACK client is not open";
+        return false;
+    }
+    if (jack_running) return true;
+    if (jack_activate(jack) != 0) {
+        if (error) *error = "JACK would not activate the client";
+        return false;
+    }
+    jack_running = true;
+    // Connected as RtAudio did: to the first physical outputs, and from the
+    // first physical inputs. A single physical output takes both sides.
+    const auto playback = physical_ports(jack, JackPortIsInput);
+    for (std::size_t side = 0; side < 2 && !playback.empty(); ++side)
+        (void)jack_connect(jack, jack_port_name(jack_outputs[side]),
+                           playback[std::min(side, playback.size() - 1)].c_str());
+    const auto capture = physical_ports(jack, JackPortIsOutput);
+    for (std::size_t index = 0; index < jack_inputs.size() && index < capture.size(); ++index)
+        (void)jack_connect(jack, capture[index].c_str(), jack_port_name(jack_inputs[index]));
+    return true;
+}
+
+void RtAudioOutput::Impl::close_jack() noexcept {
+    if (jack == nullptr) return;
+    if (jack_running) (void)jack_deactivate(jack);
+    jack_running = false;
+    (void)jack_client_close(jack);
+    jack = nullptr;
+    jack_outputs = {};
+    jack_inputs.clear();
+    jack_input.clear();
+}
+#endif
 
 RtAudioOutput::DeviceInfo RtAudioOutput::device_info() const { return impl_->info; }
 
@@ -151,6 +315,12 @@ RtAudioOutput::RtAudioOutput(Mode mode, unsigned int negotiated_rate)
 RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::make_unique<Impl>()) {
     impl_->deterministic = mode == Mode::deterministic;
     if (impl_->deterministic) return;
+#if BLOKKILY_HAVE_JACK
+    if (api == RtAudio::getApiName(RtAudio::UNIX_JACK)) {
+        impl_->use_jack = true;
+        return;
+    }
+#endif
     if (api.empty()) {
         impl_->audio = std::make_unique<RtAudio>();
         return;
@@ -180,6 +350,9 @@ std::vector<RtAudioOutput::AudioSystem> RtAudioOutput::audio_systems() {
 
 RtAudioOutput::~RtAudioOutput() {
     stop();
+#if BLOKKILY_HAVE_JACK
+    impl_->close_jack();
+#endif
     if (impl_->audio && impl_->audio->isStreamOpen()) impl_->audio->closeStream();
 }
 
@@ -197,6 +370,16 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
         impl_->info.buffer_frames = requested_frames;
         return true;
     }
+#if BLOKKILY_HAVE_JACK
+    if (impl_->use_jack) {
+        // The server sets the rate and the block: neither is asked for.
+        (void)sample_rate;
+        (void)requested_frames;
+        impl_->close_jack();
+        impl_->source = &source;
+        return impl_->open_jack(error);
+    }
+#endif
     if (!impl_->audio) {
         if (error) *error = "audio system '" + impl_->missing_api + "' is not available in this build";
         return false;
@@ -275,6 +458,9 @@ bool RtAudioOutput::start(std::string* error) {
         impl_->running = is_open();
         return impl_->running;
     }
+#if BLOKKILY_HAVE_JACK
+    if (impl_->use_jack) return impl_->start_jack(error);
+#endif
     if (!impl_->audio) {
         if (error) *error = "audio system '" + impl_->missing_api + "' is not available in this build";
         return false;
@@ -286,6 +472,13 @@ bool RtAudioOutput::start(std::string* error) {
 }
 
 void RtAudioOutput::stop() noexcept {
+#if BLOKKILY_HAVE_JACK
+    if (impl_->use_jack) {
+        if (impl_->jack != nullptr && impl_->jack_running) (void)jack_deactivate(impl_->jack);
+        impl_->jack_running = false;
+        return;
+    }
+#endif
     if (impl_->deterministic) impl_->running = false;
     else if (impl_->audio && impl_->audio->isStreamRunning()) (void)impl_->audio->stopStream();
 }
@@ -293,10 +486,16 @@ void RtAudioOutput::rebind(AudioSource& source) noexcept {
     if (impl_) impl_->source = &source;
 }
 bool RtAudioOutput::is_open() const noexcept {
+#if BLOKKILY_HAVE_JACK
+    if (impl_->use_jack) return impl_->jack != nullptr;
+#endif
     return impl_->deterministic ? impl_->source != nullptr
                                 : impl_->audio != nullptr && impl_->audio->isStreamOpen();
 }
 bool RtAudioOutput::is_running() const noexcept {
+#if BLOKKILY_HAVE_JACK
+    if (impl_->use_jack) return impl_->jack_running;
+#endif
     return impl_->deterministic ? impl_->running
                                 : impl_->audio != nullptr && impl_->audio->isStreamRunning();
 }
@@ -379,6 +578,9 @@ bool RtAudioOutput::opened_for_input(bool wanted) const noexcept {
 void RtAudioOutput::close() noexcept {
     if (impl_->deterministic) return;
     stop();
+#if BLOKKILY_HAVE_JACK
+    impl_->close_jack();
+#endif
     if (impl_->audio && impl_->audio->isStreamOpen()) impl_->audio->closeStream();
     impl_->input_channels = 0;
     impl_->round_trip = 0;

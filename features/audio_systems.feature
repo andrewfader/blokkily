@@ -18,6 +18,8 @@ Feature: Choosing the audio system: ALSA, PulseAudio, JACK and PipeWire
   Scenario: Playing through JACK (or PipeWire's JACK)
     Given a JACK or PipeWire server is running (skipped where none is)
     Then the song plays through it: the callback is pulled and what reaches the server is not silent
+    And it keeps time at whatever block size the server runs, even one other than it reported when the client opened, as PipeWire's JACK does when its graph runs at another quantum
+    And stopping returns rather than waiting on a block that never comes
 
   # bdd_audio_system
   Scenario: The AUDIO picker
