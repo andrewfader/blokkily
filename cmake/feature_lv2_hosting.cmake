@@ -16,6 +16,12 @@ if(BLOKKILY_BUILD_TESTS)
     target_sources(blokkily_test_lv2 PRIVATE tests/fixtures/test_lv2.cpp)
     target_link_libraries(blokkily_test_lv2 PRIVATE
         juce::juce_audio_utils juce::juce_recommended_config_flags)
+    # JUCE's LV2 manifest helper takes CommandLineToArgvW from windows.h,
+    # which leaves shellapi.h out under the WIN32_LEAN_AND_MEAN every target
+    # here is built with.
+    if(MSVC AND TARGET juce_lv2_helper)
+        target_compile_options(juce_lv2_helper PRIVATE /FIwindows.h /FIshellapi.h)
+    endif()
     # The bundle is the directory the plugin's module is built into.
     set(BLOKKILY_TEST_LV2_BUNDLE "$<TARGET_FILE_DIR:blokkily_test_lv2_LV2>")
 

@@ -614,11 +614,19 @@ std::vector<Vst3Descriptor> Vst3PluginInstance::scan_lv2(const std::filesystem::
     std::vector<Vst3Descriptor> result;
     std::size_t index = 0;
     for (const auto* description : lv2_descriptions(bundle)) {
+        // JUCE calls a plugin an instrument when its class descends from
+        // lv2:GeneratorPlugin. lilv knows that tree only when an LV2 core
+        // bundle is installed: JUCE loads its own copy after lilv has built
+        // the tree, so on macOS, Windows or a bare Linux every instrument
+        // would be listed as an effect. A plugin that makes sound without
+        // taking any is a generator whatever its class says.
+        const bool generates =
+            description->numInputChannels == 0 && description->numOutputChannels > 0;
         // An LV2 plugin is named by its URI, which is what fileOrIdentifier
         // holds for one.
         result.push_back({description->name.toStdString(), description->manufacturerName.toStdString(),
                           description->fileOrIdentifier.toStdString(), bundle, index,
-                          description->isInstrument});
+                          description->isInstrument || generates});
         ++index;
     }
     return result;
