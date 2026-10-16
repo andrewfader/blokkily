@@ -4,6 +4,7 @@
 // Each later feature owns one member struct and the stage that reads it, so
 // features touch disjoint code (plan F-D).
 
+#include "engine_arpeggiator.hpp"
 #include "engine_automation.hpp"
 #include "engine_clips.hpp"
 #include "engine_effects.hpp"
@@ -88,6 +89,7 @@ struct TrackPlayback {
     InsertChain chain;
     InputPlayback input;
     StripAutomation automation;
+    ArpPlayback arp;
 };
 
 } // namespace blokkily::engine

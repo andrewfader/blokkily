@@ -53,6 +53,11 @@ class SongModel final : public QObject {
     // order. The first is always at tick 0.
     Q_PROPERTY(QVariantList tempoPoints READ tempoPoints NOTIFY arrangementChanged)
     Q_PROPERTY(double masterGainDb READ masterGainDb NOTIFY mixChanged)
+    // Every track's arpeggiator ({enabled, mode, rate, octaves, gate, latch}),
+    // and the names its pickers offer (song_model_arpeggiator.cpp).
+    Q_PROPERTY(QVariantList arpeggiators READ arpeggiators NOTIFY mixChanged)
+    Q_PROPERTY(QStringList arpModes READ arpModes CONSTANT)
+    Q_PROPERTY(QStringList arpRates READ arpRates CONSTANT)
     Q_PROPERTY(double masterPeak READ masterPeak NOTIFY metersChanged)
     // Each track's meter, as the fraction of its bar to light. Kept apart from
     // `tracks` so thirty meter updates a second do not re-read the whole song.
@@ -275,6 +280,19 @@ public:
     Q_INVOKABLE void toggleArm(int track);
     Q_INVOKABLE void setArmed(int track, bool armed);
     // 0 hears every MIDI channel; 1..16 hears that one.
+    // --- Arpeggiator (song_model_arpeggiator.cpp) -------------------------
+    QVariantList arpeggiators() const;
+    QStringList arpModes() const;
+    QStringList arpRates() const;
+    // Each is one step of history and reaches the engine live; false when
+    // nothing changed or the value is out of range. Mode and rate by the
+    // names arpModes and arpRates list; octaves 1..4; gate 0.05..1.
+    Q_INVOKABLE bool setArpEnabled(int track, bool enabled);
+    Q_INVOKABLE bool setArpMode(int track, const QString& mode);
+    Q_INVOKABLE bool setArpRate(int track, const QString& rate);
+    Q_INVOKABLE bool setArpOctaves(int track, int octaves);
+    Q_INVOKABLE bool setArpGate(int track, double gate);
+    Q_INVOKABLE bool setArpLatch(int track, bool latch);
     Q_INVOKABLE void setInputChannel(int track, int channel);
     // Steps the channel through ALL, 1 .. 16 and round, by `step`.
     Q_INVOKABLE void cycleInputChannel(int track, int step = 1);
@@ -678,6 +696,7 @@ private:
     ParameterNamer parameter_namer_;
     [[nodiscard]] QString effectLabel(const blokkily::PluginSlot& slot) const;
     [[nodiscard]] bool validTrack(int track) const;
+    bool editArpeggiator(int track, const std::function<void(blokkily::Arpeggiator&)>& edit);
     [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
     // The cell of the grid, when the scene and the track exist.
     [[nodiscard]] bool validCell(int scene, int track) const;

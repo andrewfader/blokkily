@@ -100,6 +100,15 @@ steps halfway there. HUMAN loosens every step's timing (up to 8 ticks) and
 velocity (up to 0.08), differently each time. Each is one undo step. See
 [the scenarios](../features/quantize_humanize.feature).
 
+The ARP rows under CLOCK switch the selected track's arpeggiator. While it
+is ON, the notes held on the track, whether written, launched or played,
+sound one at a time on a grid of 1/4 to 1/32 (T for triplets): UP, DOWN,
+UP/DN, in PLAYED order or at RANDOM, across 1 to 4 octaves, each held for
+its gate (25 to 100% of a step). LATCH keeps the arpeggio going after the
+keys are let go, until a new chord is played. It runs before the
+instrument, so it works with any of them, and it plays in exports. See
+[the scenarios](../features/arpeggiator.feature).
+
 ## Arranging a song
 
 The arrangement sits above the editors, with one lane per track and one cell

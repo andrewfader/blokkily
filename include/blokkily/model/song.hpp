@@ -1,5 +1,7 @@
 #pragma once
 
+#include "blokkily/model/arpeggiator.hpp"
+
 #include "blokkily/model/loop.hpp"
 #include "blokkily/model/metronome.hpp"
 #include "blokkily/model/modulation.hpp"
@@ -207,6 +209,8 @@ struct Track {
     // the mix through this track alone: it is never also mixed into the
     // source track. Each output feeds at most one track.
     std::optional<InstrumentOutput> source{};
+    // Notes held on the track arpeggiated before its instrument hears them.
+    Arpeggiator arp;
 };
 
 // One part of a section: the notes one track plays in it. `section` and

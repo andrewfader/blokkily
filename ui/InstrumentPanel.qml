@@ -210,6 +210,67 @@ ColumnLayout {
                 onPicked: name => appController.setMidiClockPort(name === "OFF" ? "" : name)
             }
         }
+        // The selected track's arpeggiator: the notes it holds play one at a
+        // time on the grid, before its instrument hears them.
+        readonly property var arp: songModel.arpeggiators[songModel.selectedTrack] || ({})
+        // Three short rows that fit the rail, each picker sharing what its
+        // row has left, so no name is cut short.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            SectionLabel { text: "ARP"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            Chip {
+                objectName: "arpEnabled"
+                text: midiOutPanel.arp.enabled ? "ON" : "OFF"
+                implicitHeight: 22; implicitWidth: 44
+                on: midiOutPanel.arp.enabled === true
+                onClicked: songModel.setArpEnabled(songModel.selectedTrack, !midiOutPanel.arp.enabled)
+            }
+            Chip {
+                objectName: "arpLatch"
+                text: "LATCH"; implicitHeight: 22
+                on: midiOutPanel.arp.latch === true
+                onClicked: songModel.setArpLatch(songModel.selectedTrack, !midiOutPanel.arp.latch)
+            }
+            Item { Layout.fillWidth: true }
+        }
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            Picker {
+                objectName: "arpMode"
+                Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
+                implicitHeight: 22
+                choices: songModel.arpModes
+                value: midiOutPanel.arp.mode || "UP"
+                onPicked: name => songModel.setArpMode(songModel.selectedTrack, name)
+            }
+            Picker {
+                objectName: "arpRate"
+                Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
+                implicitHeight: 22
+                choices: songModel.arpRates
+                value: midiOutPanel.arp.rate || "1/16"
+                onPicked: name => songModel.setArpRate(songModel.selectedTrack, name)
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            Picker {
+                objectName: "arpOctaves"
+                Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
+                implicitHeight: 22
+                choices: ["1 OCT", "2 OCT", "3 OCT", "4 OCT"]
+                value: (midiOutPanel.arp.octaves || 1) + " OCT"
+                onPicked: name => songModel.setArpOctaves(songModel.selectedTrack, parseInt(name))
+            }
+            Picker {
+                objectName: "arpGate"
+                Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
+                implicitHeight: 22
+                choices: ["GATE 25%", "GATE 50%", "GATE 75%", "GATE 100%"]
+                value: "GATE " + Math.round((midiOutPanel.arp.gate || 0.5) * 100) + "%"
+                onPicked: name => songModel.setArpGate(songModel.selectedTrack, parseInt(name.slice(5)) / 100)
+            }
+        }
     }
 
     RowLayout {

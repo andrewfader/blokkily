@@ -131,6 +131,8 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& loop_records();
 // Pattern swing: swing (records_swing.cpp).
 [[nodiscard]] const RecordModule& swing_records();
+// Track arpeggiators: arp (records_arpeggiator.cpp).
+[[nodiscard]] const RecordModule& arpeggiator_records();
 // Clip warp (item 3.6): clipwarp, after the audio clips it names
 // (records_clip_warp.cpp).
 [[nodiscard]] const RecordModule& clip_warp_records();

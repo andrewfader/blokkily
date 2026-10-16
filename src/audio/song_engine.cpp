@@ -196,6 +196,8 @@ void SongEngine::reset_processing() {
         // release any more.
         track->sounding.fill(0);
         track->peak.store(0.0F, std::memory_order_relaxed);
+        // And the arpeggiator holds no key and sounds no note.
+        engine::reset_arpeggiator(track->arp);
     }
     engine::reset_buses(*buses_);
     // The click sounding and any count-in are forgotten with the rest.
@@ -577,9 +579,12 @@ bool SongEngine::move(const StripMove& move) {
 
 void SongEngine::apply_mix(const Song& song) {
     const bool solo = song.any_solo();
-    for (std::size_t index = 0; index < song.tracks.size() && index < tracks_.size(); ++index)
+    for (std::size_t index = 0; index < song.tracks.size() && index < tracks_.size(); ++index) {
         // An instrument's aux channels are soloed with it (Song::soloed).
         set_strip(index, song.heard_strip(index), solo);
+        // The arpeggiator's settings are live, like a fader.
+        engine::set_arpeggiator(tracks_[index]->arp, song.tracks[index].arp);
+    }
     set_master_gain_db(song.master_gain_db);
     engine::apply_effect_mix(song, track_chains(), *buses_);
     set_metronome(song.metronome.enabled, song.metronome.level_db);
@@ -1064,9 +1069,16 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         // A track added after prepare() has no buffers yet and is not played.
         if (track.left.size() < frames || track.right.size() < frames) continue;
         // 1. Events: owed releases, live, routed input, then the timeline.
-        const auto count =
+        auto count =
             collect_events(track, index, song_position, end, from_timeline, capture,
                            capture_sample, capture_tick);
+        // The arpeggiator turns the notes it holds into its own (it passes
+        // them through untouched while off).
+        count = engine::run_arpeggiator(
+            track.arp,
+            {song_position, frames, from_timeline, release_arrangement_notes_, &arranged.clock,
+             arranged.ticks_per_beat, sample_rate_},
+            track.events, count, merge_scratch_);
         // 2. The track's buffer starts silent, with or without an instrument,
         // because the stages after the instrument's still add to it - unless
         // it is an instrument output's channel, which its source's instrument
