@@ -570,6 +570,22 @@ Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes edits to steps, strokes, clips,
 tracks, patterns, faders and tuning. A phrase-drawing or fader drag is one undo
 step, rather than one per pointer movement.
 
+## Packages
+
+Installing also puts AppStream metadata in
+`share/metainfo/dev.blokkily.Blokkily.metainfo.xml`, for software centres.
+`packaging/appimage/build-appimage.sh <release-build-dir> [output-dir]`
+installs a Release build into an AppDir and bundles it with linuxdeploy and
+its Qt plugin, which it downloads once into `~/.cache/blokkily-appimage`. The
+result is `Blokkily-<version>-<arch>.AppImage`. It carries Qt and the
+libraries Blokkily links, and still uses the plugins, SoundFonts and audio
+server of the machine it runs on. To build the Flatpak, run
+`flatpak-builder --user --install build-flatpak packaging/flatpak/dev.blokkily.Blokkily.json`.
+It runs on the KDE 6.8 runtime and may reach the audio server, MIDI devices
+and the usual plugin and SoundFont folders. The suite checks that the
+metadata, manifest and script agree with the build, but it does not build
+either package. See [the scenarios](../features/packaging.feature).
+
 ## Versions and notes
 
 VERSIONS (VERS when the window is narrow) lists the versions of the song saved

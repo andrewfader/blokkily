@@ -1,0 +1,65 @@
+# features/packaging.feature: the AppStream metadata, the desktop entry, the
+# Flatpak manifest and the AppImage script agree with one another and with
+# the project, without building either package (which needs a network and
+# a Flatpak runtime). Building them is the packaging workflow's job.
+#   cmake -DSOURCE=<repo> -DMETAINFO=<generated> -DVERSION=<x.y.z>
+#         -DXMLLINT=<exe> -DVALIDATE=<exe> -DBASH=<exe> -P
+cmake_minimum_required(VERSION 3.25)
+# `position` is a string(FIND) result, -1 when nothing was found.
+function(require_found position message)
+    if(position EQUAL -1)
+        message(FATAL_ERROR "FAIL ${message}")
+    endif()
+endfunction()
+# `result` is a command's exit status.
+function(require_success result message)
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "FAIL ${message}")
+    endif()
+endfunction()
+
+execute_process(COMMAND "${XMLLINT}" --noout "${METAINFO}" RESULT_VARIABLE bad ERROR_VARIABLE said)
+require_success(${bad} "the metainfo is well-formed XML: ${said}")
+file(READ "${METAINFO}" info)
+string(FIND "${info}" "<id>dev.blokkily.Blokkily</id>" at)
+require_found(${at} "the metainfo names the app dev.blokkily.Blokkily")
+string(FIND "${info}" "<release version=\"${VERSION}\" date=\"" at)
+require_found(${at} "the metainfo's release is this version, ${VERSION}, dated")
+string(FIND "${info}" "<launchable type=\"desktop-id\">blokkily.desktop</launchable>" at)
+require_found(${at} "it launches the desktop entry Blokkily installs")
+string(FIND "${info}" "<mediatype>application/x-blokkily-project</mediatype>" at)
+require_found(${at} "it says it opens .blok projects")
+foreach(tag name summary description content_rating project_license)
+    string(FIND "${info}" "<${tag}" at)
+    require_found(${at} "the metainfo has <${tag}>")
+endforeach()
+
+execute_process(COMMAND "${VALIDATE}" "${SOURCE}/resources/blokkily.desktop" RESULT_VARIABLE bad OUTPUT_VARIABLE said ERROR_VARIABLE said)
+require_success(${bad} "the desktop entry validates: ${said}")
+
+file(READ "${SOURCE}/packaging/flatpak/dev.blokkily.Blokkily.json" manifest)
+function(manifest_is expected)
+    string(JSON value ERROR_VARIABLE bad GET "${manifest}" ${ARGN})
+    if(bad OR NOT value STREQUAL expected)
+        message(FATAL_ERROR "FAIL the Flatpak manifest's ${ARGN} is ${expected}: ${value} ${bad}")
+    endif()
+endfunction()
+manifest_is(dev.blokkily.Blokkily app-id)
+manifest_is(blokkily command)
+manifest_is(blokkily.desktop rename-desktop-file)
+manifest_is(dev.blokkily.Blokkily.metainfo.xml rename-appdata-file)
+string(JSON modules ERROR_VARIABLE bad LENGTH "${manifest}" modules)
+if(bad)
+    message(FATAL_ERROR "FAIL the Flatpak manifest lists modules: ${bad}")
+endif()
+math(EXPR last "${modules} - 1")
+manifest_is(blokkily modules ${last} name)
+string(JSON args ERROR_VARIABLE bad GET "${manifest}" finish-args)
+foreach(wanted --socket=pulseaudio --filesystem=xdg-run/pipewire-0 --filesystem=/usr/lib/clap --filesystem=/usr/lib/vst3 --filesystem=/usr/lib/lv2 soundfonts)
+    string(FIND "${args}" "${wanted}" at)
+    require_found(${at} "the Flatpak sandbox reaches ${wanted}")
+endforeach()
+
+execute_process(COMMAND "${BASH}" -n "${SOURCE}/packaging/appimage/build-appimage.sh" RESULT_VARIABLE bad ERROR_VARIABLE said)
+require_success(${bad} "the AppImage script parses: ${said}")
+message(STATUS "PASS packaging")

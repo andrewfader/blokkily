@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What software centres (GNOME Software, Discover, COSMIC Store, Flathub)
+     show for Blokkily. CMake fills in the release from the project's version
+     and the date of the commit it is built from. -->
+<component type="desktop-application">
+  <id>dev.blokkily.Blokkily</id>
+  <name>Blokkily</name>
+  <summary>Pattern-first digital audio workstation</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-Blokkily-Source-Available</project_license>
+  <description>
+    <p>
+      Blokkily is a pattern-first DAW: a tracker, a piano roll and a step grid
+      that edit one pattern, an arrangement of named sections, a mixer with
+      inserts, sends, sidechains and automation, and CLAP, VST3, LV2 and
+      SoundFont instruments beside its own samplers and effects.
+    </p>
+    <p>
+      It records audio and MIDI with punch and comping, follows or sends MIDI
+      clock, and exports WAV, MP3, Ogg, stems and an oscilloscope video.
+    </p>
+  </description>
+  <launchable type="desktop-id">blokkily.desktop</launchable>
+  <provides>
+    <binary>blokkily</binary>
+    <mediatype>application/x-blokkily-project</mediatype>
+  </provides>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@PROJECT_VERSION@" date="@BLOKKILY_RELEASE_DATE@"/>
+  </releases>
+</component>

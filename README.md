@@ -37,6 +37,11 @@ carries packages built and tested by CI:
 
 `SHA256SUMS` lists every package's checksum.
 
+To make a self-contained Linux package, `packaging/appimage/build-appimage.sh`
+turns a Release build into an AppImage, and
+`packaging/flatpak/dev.blokkily.Blokkily.json` builds a Flatpak with
+`flatpak-builder`. See [usage](docs/usage.md#packages).
+
 Plugin editors work in every package. CI opens the suite's test CLAP and VST3
 editors, and the editors of a real third-party synth (Dexed), in a real window
 on macOS and Windows and reads their pixels back. Retina and high-DPI scaling

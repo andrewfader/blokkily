@@ -223,6 +223,18 @@ if(BLOKKILY_BUILD_GUI)
     # update-mime-database and update-desktop-database, as for any MIME type.
     install(FILES resources/blokkily-mime.xml
         DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/mime/packages" RENAME blokkily.xml)
+    # What software centres show (packaging/, features/packaging.feature):
+    # the release is this version, dated by the commit it is built from.
+    execute_process(COMMAND git log -1 --format=%cs
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE BLOKKILY_RELEASE_DATE
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT BLOKKILY_RELEASE_DATE)
+        string(TIMESTAMP BLOKKILY_RELEASE_DATE "%Y-%m-%d" UTC)
+    endif()
+    configure_file(resources/dev.blokkily.Blokkily.metainfo.xml.in
+        "${CMAKE_BINARY_DIR}/dev.blokkily.Blokkily.metainfo.xml" @ONLY)
+    install(FILES "${CMAKE_BINARY_DIR}/dev.blokkily.Blokkily.metainfo.xml"
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
 endif()
 
 # Headless tests and offscreen gates must not reach whatever display the
@@ -506,7 +518,8 @@ foreach(blokkily_feature
         track_freeze
         midi_clock_input
         lv2_hosting
-        audio_systems)
+        audio_systems
+        packaging)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

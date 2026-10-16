@@ -1,0 +1,110 @@
+{
+  "app-id": "dev.blokkily.Blokkily",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6.8",
+  "sdk": "org.kde.Sdk",
+  "command": "blokkily",
+  "rename-desktop-file": "blokkily.desktop",
+  "rename-icon": "blokkily",
+  "rename-appdata-file": "dev.blokkily.Blokkily.metainfo.xml",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=x11",
+    "--socket=wayland",
+    "--socket=pulseaudio",
+    "--device=all",
+    "--filesystem=xdg-run/pipewire-0",
+    "--filesystem=home",
+    "--filesystem=/usr/lib/clap:ro",
+    "--filesystem=/usr/lib/vst3:ro",
+    "--filesystem=/usr/lib/lv2:ro",
+    "--filesystem=/usr/local/lib:ro",
+    "--filesystem=/usr/share/soundfonts:ro",
+    "--filesystem=/usr/share/sounds/sf2:ro",
+    "--env=LV2_PATH=/app/extensions/lv2:/usr/lib/lv2:/usr/local/lib/lv2"
+  ],
+  "modules": [
+    {
+      "name": "rtaudio",
+      "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DRTAUDIO_API_JACK=ON",
+        "-DRTAUDIO_API_PULSE=ON",
+        "-DRTAUDIO_API_ALSA=ON"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/thestk/rtaudio.git",
+          "tag": "6.0.1"
+        }
+      ]
+    },
+    {
+      "name": "rtmidi",
+      "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/thestk/rtmidi.git",
+          "tag": "6.0.0"
+        }
+      ]
+    },
+    {
+      "name": "fluidsynth",
+      "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-Denable-libinstpatch=OFF",
+        "-Denable-sdl2=OFF"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/FluidSynth/fluidsynth.git",
+          "tag": "v2.4.0"
+        }
+      ]
+    },
+    {
+      "name": "rubberband",
+      "buildsystem": "meson",
+      "config-opts": [
+        "-Dfft=builtin",
+        "-Dresampler=builtin",
+        "-Djni=disabled",
+        "-Dladspa=disabled",
+        "-Dlv2=disabled",
+        "-Dvamp=disabled",
+        "-Dcmdline=disabled",
+        "-Dtests=disabled"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/breakfastquay/rubberband.git",
+          "tag": "v4.0.0"
+        }
+      ]
+    },
+    {
+      "name": "blokkily",
+      "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBLOKKILY_BUILD_TESTS=OFF"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "../.."
+        }
+      ]
+    }
+  ]
+}
