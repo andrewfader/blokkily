@@ -256,6 +256,9 @@ std::optional<Lane> lane_of(const QString& kind, int controller) {
     using Kind = blokkily::ContinuousEvent::Kind;
     if (kind == QStringLiteral("bend")) return Lane{Kind::pitch_bend, 0};
     if (kind == QStringLiteral("pressure")) return Lane{Kind::channel_pressure, 0};
+    // Poly pressure: one key's own pressure, the key as the controller.
+    if (kind == QStringLiteral("poly") && controller >= 0 && controller < 128)
+        return Lane{Kind::poly_pressure, static_cast<std::uint8_t>(controller)};
     if (kind == QStringLiteral("cc") && controller >= 0 && controller < 120 && controller != 64)
         return Lane{Kind::control_change, static_cast<std::uint8_t>(controller)};
     return std::nullopt;
@@ -269,8 +272,108 @@ std::uint16_t lane_value(const Lane& lane, double level) {
 }
 } // namespace
 
+// --- Per-note expression lanes ----------------------------------------------
+
+namespace {
+// The note lanes: the selected note's own pitch, timbre and pressure.
+std::optional<blokkily::NoteExpression::Kind> note_lane_of(const QString& kind) {
+    using Kind = blokkily::NoteExpression::Kind;
+    if (kind == QStringLiteral("notepitch")) return Kind::pitch;
+    if (kind == QStringLiteral("notetimbre")) return Kind::timbre;
+    if (kind == QStringLiteral("notepressure")) return Kind::pressure;
+    return std::nullopt;
+}
+// The lane shows pitch from -12 to +12 semitones; timbre and pressure 0..1.
+constexpr double note_pitch_span = 12.0;
+float note_value(blokkily::NoteExpression::Kind kind, double level) {
+    if (!std::isfinite(level)) level = 0.0;
+    if (kind == blokkily::NoteExpression::Kind::pitch)
+        return static_cast<float>(std::clamp(level, -1.0, 1.0) * note_pitch_span);
+    return static_cast<float>(std::clamp(level, 0.0, 1.0));
+}
+void sort_expression(std::vector<blokkily::NoteExpression>& points) {
+    std::stable_sort(points.begin(), points.end(), [](const auto& a, const auto& b) {
+        return a.voice != b.voice ? a.voice < b.voice : a.offset < b.offset;
+    });
+}
+} // namespace
+
+QVariantList PatternModel::noteExpression() const {
+    QVariantList rows;
+    const auto* trigger = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+    if (trigger == nullptr) return rows;
+    for (const auto& point : trigger->expression) {
+        QVariantMap row;
+        row["tick"] = static_cast<qint64>(trigger->start + point.offset);
+        row["offset"] = static_cast<qint64>(point.offset);
+        row["voice"] = point.voice;
+        switch (point.kind) {
+        case blokkily::NoteExpression::Kind::pitch:
+            row["kind"] = QStringLiteral("notepitch");
+            row["level"] = std::clamp(point.value / note_pitch_span, -1.0, 1.0);
+            break;
+        case blokkily::NoteExpression::Kind::timbre:
+            row["kind"] = QStringLiteral("notetimbre");
+            row["level"] = static_cast<double>(point.value);
+            break;
+        case blokkily::NoteExpression::Kind::pressure:
+            row["kind"] = QStringLiteral("notepressure");
+            row["level"] = static_cast<double>(point.value);
+            break;
+        }
+        row["value"] = static_cast<double>(point.value);
+        rows.push_back(row);
+    }
+    return rows;
+}
+
+bool PatternModel::editNoteExpression(const QString& kind, int voice, int fromTick, int toTick,
+                                      const std::function<void(std::vector<blokkily::NoteExpression>&,
+                                                               blokkily::NoteExpression::Kind,
+                                                               blokkily::Tick, blokkily::Tick)>& edit) {
+    const auto dimension = note_lane_of(kind);
+    const auto* trigger = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+    if (!dimension || trigger == nullptr || voice < 0 || voice > 255) return false;
+    // Offsets into the note, which the lane shows from the note's start.
+    const auto last = std::max<blokkily::Tick>(0, trigger->duration - 1);
+    const auto from = std::clamp<blokkily::Tick>(std::min(fromTick, toTick) - trigger->start, 0, last);
+    const auto to = std::clamp<blokkily::Tick>(std::max(fromTick, toTick) - trigger->start, 0, last);
+    if (std::max(fromTick, toTick) < trigger->start) return false;
+    mutate(selected_step_, [&](blokkily::Trigger& edited) {
+        edit(edited.expression, *dimension, from, to);
+        sort_expression(edited.expression);
+    });
+    return true;
+}
+
 void PatternModel::drawControl(const QString& kind, int controller, int fromTick,
                                double fromLevel, int toTick, double toLevel) {
+    if (note_lane_of(kind)) {
+        const auto* trigger = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+        if (trigger == nullptr) return;
+        const auto start = trigger->start;
+        const bool reversed = fromTick > toTick;
+        const double low_level = reversed ? toLevel : fromLevel;
+        const double high_level = reversed ? fromLevel : toLevel;
+        (void)editNoteExpression(kind, controller, fromTick, toTick,
+            [&](auto& points, auto dimension, blokkily::Tick from, blokkily::Tick to) {
+                std::erase_if(points, [&](const blokkily::NoteExpression& point) {
+                    return point.voice == controller && point.kind == dimension &&
+                           point.offset >= from && point.offset <= to;
+                });
+                constexpr blokkily::Tick grid = 15;
+                const auto span = std::max<blokkily::Tick>(1, to - from);
+                for (blokkily::Tick offset = from;;) {
+                    const double along = to == from ? 1.0 : static_cast<double>(offset - from) / span;
+                    points.push_back({static_cast<std::uint8_t>(controller), offset, dimension,
+                                      note_value(dimension, low_level + (high_level - low_level) * along)});
+                    if (offset == to) break;
+                    offset = std::min(to, (offset / grid + 1) * grid);
+                }
+                (void)start;
+            });
+        return;
+    }
     const auto lane = lane_of(kind, controller);
     if (!lane) return;
     const auto last = pattern().length() - 1;
@@ -298,6 +401,29 @@ void PatternModel::drawControl(const QString& kind, int controller, int fromTick
 
 bool PatternModel::moveControl(const QString& kind, int controller, int fromTick, int toTick,
                                double level) {
+    if (note_lane_of(kind)) {
+        const auto* trigger = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+        if (trigger == nullptr) return false;
+        const auto dimension = *note_lane_of(kind);
+        const auto offset = fromTick - trigger->start;
+        const bool found = std::any_of(trigger->expression.begin(), trigger->expression.end(),
+            [&](const auto& point) {
+                return point.voice == controller && point.kind == dimension && point.offset == offset;
+            });
+        if (!found) return false;
+        const auto last = std::max<blokkily::Tick>(0, trigger->duration - 1);
+        const auto target = std::clamp<blokkily::Tick>(toTick - trigger->start, 0, last);
+        mutate(selected_step_, [&](blokkily::Trigger& edited) {
+            std::erase_if(edited.expression, [&](const auto& point) {
+                return point.voice == controller && point.kind == dimension &&
+                       (point.offset == offset || point.offset == target);
+            });
+            edited.expression.push_back({static_cast<std::uint8_t>(controller), target, dimension,
+                                         note_value(dimension, level)});
+            sort_expression(edited.expression);
+        });
+        return true;
+    }
     const auto lane = lane_of(kind, controller);
     if (!lane) return false;
     const auto held = pattern().continuous();
@@ -317,6 +443,26 @@ bool PatternModel::moveControl(const QString& kind, int controller, int fromTick
 }
 
 int PatternModel::eraseControls(const QString& kind, int controller, int fromTick, int toTick) {
+    if (note_lane_of(kind)) {
+        const auto* trigger = selected_step_ < 0 ? nullptr : triggerAt(selected_step_);
+        if (trigger == nullptr) return 0;
+        const auto dimension = *note_lane_of(kind);
+        const auto from = std::min(fromTick, toTick) - trigger->start;
+        const auto to = std::max(fromTick, toTick) - trigger->start;
+        const auto doomed = std::count_if(trigger->expression.begin(), trigger->expression.end(),
+            [&](const auto& point) {
+                return point.voice == controller && point.kind == dimension && point.offset >= from &&
+                       point.offset <= to;
+            });
+        if (doomed == 0) return 0;
+        mutate(selected_step_, [&](blokkily::Trigger& edited) {
+            std::erase_if(edited.expression, [&](const auto& point) {
+                return point.voice == controller && point.kind == dimension && point.offset >= from &&
+                       point.offset <= to;
+            });
+        });
+        return static_cast<int>(doomed);
+    }
     const auto lane = lane_of(kind, controller);
     if (!lane) return 0;
     const auto from = std::min(fromTick, toTick);

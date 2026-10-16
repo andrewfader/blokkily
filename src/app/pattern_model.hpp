@@ -26,6 +26,14 @@ class PatternModel final : public QAbstractListModel {
     // the wheel, 0..1 otherwise). The piano roll's controller lane draws and
     // edits them through drawControl, moveControl and eraseControls.
     Q_PROPERTY(QVariantList controls READ controls NOTIFY patternChanged)
+    // The selected note's own expression (wave 4.1, MPE): one map per point
+    // with its tick in the pattern (the note's start plus its offset), its
+    // offset, voice, kind ("notepitch", "notetimbre", "notepressure") and
+    // level (pitch -1..1 for -12..+12 semitones, the others 0..1). The
+    // controller lane edits it through drawControl, moveControl and
+    // eraseControls with those kinds and the voice as the controller; "poly"
+    // with a key edits that key's poly pressure in the pattern.
+    Q_PROPERTY(QVariantList noteExpression READ noteExpression NOTIFY selectedChanged)
     // The open pattern's length in ticks, for a lane that maps x to ticks.
     Q_PROPERTY(int patternTicks READ patternTicks NOTIFY patternChanged)
     // Where the cursor is, kept apart from what the pattern holds: moving the
@@ -244,6 +252,11 @@ signals:
 
 private:
     const blokkily::Trigger* triggerAt(int step) const;
+    QVariantList noteExpression() const;
+    bool editNoteExpression(const QString& kind, int voice, int fromTick, int toTick,
+                            const std::function<void(std::vector<blokkily::NoteExpression>&,
+                                                     blokkily::NoteExpression::Kind, blokkily::Tick,
+                                                     blokkily::Tick)>& edit);
     // `merge` names a control whose moves arrive as a stream, so dragging it
     // is one step of history.
     void mutate(int step, const std::function<void(blokkily::Trigger&)>& edit,

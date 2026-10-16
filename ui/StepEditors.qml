@@ -1198,28 +1198,52 @@ ColumnLayout {
                     readonly property int count: marks.length
                     property string laneKind: "bend"
                     property int laneController: 1
-                    readonly property bool bend: laneKind === "bend"
+                    // The note lanes edit the selected note's own pitch,
+                    // timbre and pressure (its voice as the controller); the
+                    // poly lane one key's pressure across the pattern.
+                    readonly property bool noteLane: laneKind.indexOf("note") === 0
+                    readonly property var selectedNote: patternModel.selected
+                    readonly property bool bend: laneKind === "bend" || laneKind === "notepitch"
                     readonly property string laneName: laneKind === "bend" ? "BEND"
                         : laneKind === "pressure" ? "PRESSURE"
+                        : laneKind === "poly" ? "POLY"
+                        : laneKind === "notepitch" ? "NOTE PITCH"
+                        : laneKind === "notetimbre" ? "NOTE TIMBRE"
+                        : laneKind === "notepressure" ? "NOTE PRESS"
                         : laneController === 1 ? "MOD"
                         : laneController === 11 ? "EXPR" : "CC"
-                    readonly property var lanePoints: marks.filter(function(mark) {
-                        return mark.kind === laneKind &&
-                               (laneKind !== "cc" || mark.controller === laneController)
-                    })
+                    readonly property var lanePoints: (noteLane ? patternModel.noteExpression : marks)
+                        .filter(function(mark) {
+                            return mark.kind === laneKind &&
+                                   ((laneKind !== "cc" && laneKind !== "poly" && !noteLane) ||
+                                    (noteLane ? mark.voice === laneController
+                                              : mark.controller === laneController))
+                        })
+                    readonly property var noteNames: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
                     function pick(name) {
                         if (name === "BEND") laneKind = "bend"
                         else if (name === "PRESSURE") laneKind = "pressure"
-                        else {
+                        else if (name === "POLY") {
+                            laneKind = "poly"
+                            // The selected note's key, else middle C.
+                            laneController = selectedNote && selectedNote.key !== undefined
+                                ? selectedNote.key : 60
+                        } else if (name.indexOf("NOTE") === 0) {
+                            laneKind = name === "NOTE PITCH" ? "notepitch"
+                                : name === "NOTE TIMBRE" ? "notetimbre" : "notepressure"
+                            laneController = 0
+                        } else {
                             laneKind = "cc"
                             laneController = name === "MOD" ? 1 : name === "EXPR" ? 11
                                 : (laneController === 1 || laneController === 11 ? 7 : laneController)
                         }
                     }
                     // The next controller a lane may show: 0..119, never
-                    // the sustain pedal, which the input keeps.
+                    // the sustain pedal, which the input keeps; a key for
+                    // the poly lane.
                     function stepController(delta) {
                         var next = laneController + delta
+                        if (laneKind === "poly") { laneController = Math.max(0, Math.min(127, next)); return }
                         if (next === 64) next += delta
                         laneController = Math.max(0, Math.min(119, next))
                     }
@@ -1230,26 +1254,30 @@ ColumnLayout {
                         Picker {
                             objectName: "controllerLanePicker"
                             implicitHeight: 20
-                            choices: ["BEND", "MOD", "EXPR", "CC", "PRESSURE"]
+                            choices: ["BEND", "MOD", "EXPR", "CC", "PRESSURE", "POLY",
+                                      "NOTE PITCH", "NOTE TIMBRE", "NOTE PRESS"]
                             value: rollControls.laneName
                             onPicked: function(name) { rollControls.pick(name) }
                         }
                         Chip {
                             objectName: "controllerNumberDown"
-                            visible: rollControls.laneKind === "cc"
+                            visible: rollControls.laneKind === "cc" || rollControls.laneKind === "poly"
                             text: "−"; implicitHeight: 20; implicitWidth: 22
                             accessibleLabel: "Lower controller number"
                             onClicked: rollControls.stepController(-1)
                         }
                         Label {
                             objectName: "controllerNumber"
-                            visible: rollControls.laneKind === "cc"
-                            text: "CC " + rollControls.laneController
+                            visible: rollControls.laneKind === "cc" || rollControls.laneKind === "poly"
+                            text: rollControls.laneKind === "poly"
+                                ? rollControls.noteNames[rollControls.laneController % 12]
+                                  + (Math.floor(rollControls.laneController / 12) - 1)
+                                : "CC " + rollControls.laneController
                             color: Theme.ink; font.pixelSize: 10; font.family: Theme.mono
                         }
                         Chip {
                             objectName: "controllerNumberUp"
-                            visible: rollControls.laneKind === "cc"
+                            visible: rollControls.laneKind === "cc" || rollControls.laneKind === "poly"
                             text: "+"; implicitHeight: 20; implicitWidth: 22
                             accessibleLabel: "Raise controller number"
                             onClicked: rollControls.stepController(1)
@@ -1257,7 +1285,10 @@ ColumnLayout {
                         Label {
                             Layout.fillWidth: true; Layout.minimumWidth: 0
                             horizontalAlignment: Text.AlignRight; elide: Text.ElideRight
-                            text: "drag draws  |  drag a point to move  |  right-click erases"
+                            text: rollControls.noteLane && !(rollControls.selectedNote
+                                                                 && rollControls.selectedNote.exists)
+                                  ? "select a note to draw its own expression"
+                                  : "drag draws  |  drag a point to move  |  right-click erases"
                             color: Theme.muted; font.pixelSize: 9
                         }
                         Label {
@@ -1310,7 +1341,8 @@ ColumnLayout {
                                 width: 3
                                 y: Math.min(levelY, base)
                                 height: Math.max(2, Math.abs(base - levelY))
-                                color: rollControls.bend ? Theme.amber
+                                color: rollControls.noteLane ? Theme.record
+                                     : rollControls.bend ? Theme.amber
                                      : rollControls.laneKind === "cc" ? Theme.blue : Theme.acid
                             }
                         }

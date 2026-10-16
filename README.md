@@ -122,7 +122,7 @@ recording workflows.
 ## Current limitations
 
 Blokkily is experimental. MIDI clock input is not implemented. MPE
-support varies by instrument format, and per-note expression has no editor.
+support varies by instrument format.
 Large unwarped audio clips can stream from disk; warped clips and sampler
 samples still load into memory. On Linux, plugin editor windows need X11, or
 Wayland with XWayland or a CLAP plugin's own Wayland support. Export always

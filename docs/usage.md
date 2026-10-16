@@ -109,6 +109,12 @@ keys are let go, until a new chord is played. It runs before the
 instrument, so it works with any of them, and it plays in exports. See
 [the scenarios](../features/arpeggiator.feature).
 
+The piano roll's CTRL lane also edits expression. NOTE PITCH, NOTE TIMBRE
+and NOTE PRESS draw the selected note's own bend (-12 to +12 semitones),
+timbre and pressure across its length; POLY draws one key's poly pressure
+across the pattern (the selected note's key, or another with the arrows).
+See [the scenarios](../features/note_expression_editing.feature).
+
 ## Arranging a song
 
 The arrangement sits above the editors, with one lane per track and one cell
