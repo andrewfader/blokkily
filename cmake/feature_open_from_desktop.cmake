@@ -3,7 +3,10 @@
 # resources/blokkily-mime.xml defines and passes the file (Exec=blokkily %f);
 # gui_main.cpp opens a project named on the command line at launch.
 
-if(BLOKKILY_BUILD_TESTS)
+# The desktop entry and the shared MIME database are freedesktop conventions,
+# so their check runs only where those desktops are. macOS and Windows take
+# the file named on the command line, which the gates below cover everywhere.
+if(BLOKKILY_BUILD_TESTS AND UNIX AND NOT APPLE)
     find_program(BLOKKILY_UPDATE_MIME update-mime-database REQUIRED)
     find_program(BLOKKILY_DESKTOP_VALIDATE desktop-file-validate REQUIRED)
     add_test(NAME desktop_integration COMMAND ${CMAKE_COMMAND}
@@ -21,6 +24,8 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     # A space in the name, and a file:// URL with it escaped, as a file
     # manager may hand either over.
     set(BLOKKILY_OPENED_PROJECT "${CMAKE_BINARY_DIR}/artifacts/open-file/opened song.blok")
+    # file:///D:/... on Windows; file://D:/... would name a host called D.
+    string(REGEX REPLACE "^/" "" opened_dir "${CMAKE_BINARY_DIR}/artifacts/open-file")
     add_test(NAME bdd_open_file_setup COMMAND blokkily --verify --scenario open_file_setup
         --project ${BLOKKILY_OPENED_PROJECT})
     set_tests_properties(bdd_open_file_setup PROPERTIES
@@ -31,7 +36,7 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
         --screenshot ${CMAKE_BINARY_DIR}/artifacts/open-file.png
         ${BLOKKILY_OPENED_PROJECT})
     add_test(NAME bdd_open_file_url COMMAND blokkily --verify --scenario open_file
-        "file://${CMAKE_BINARY_DIR}/artifacts/open-file/opened%20song.blok")
+        "file:///${opened_dir}/opened%20song.blok")
     add_test(NAME bdd_open_file_missing COMMAND blokkily --verify --scenario open_file_missing
         ${CMAKE_BINARY_DIR}/artifacts/open-file/not-there.blok)
     set_tests_properties(bdd_open_file_path bdd_open_file_url PROPERTIES

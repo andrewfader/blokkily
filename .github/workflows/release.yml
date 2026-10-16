@@ -58,7 +58,8 @@ jobs:
             fluidsynth rtaudio rtmidi libsndfile libsamplerate rubberband \
             alsa-lib freetype2 libx11 libxext libxi libxrandr libxinerama \
             libxcursor libxrender libxcomposite \
-            freewheeling ttf-dejavu fontconfig ffmpeg
+            freewheeling ttf-dejavu fontconfig ffmpeg \
+            desktop-file-utils shared-mime-info
 
       - name: Configure Git safe directory
         run: git config --global --add safe.directory '*'
