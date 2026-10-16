@@ -18,6 +18,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace blokkily {
@@ -103,6 +104,30 @@ inline constexpr int sampler_state_version = 1;
 // region is shorter than `count` frames.
 bool slice_evenly(SamplerProgram& program, const SamplerZone& source,
                   std::uint64_t source_frames, int count, int first_key);
+
+// --- Multi-sample import (features/sampler_editing.feature) -----------------
+
+// The key a sample's file name names, as instrument libraries name them:
+// "Piano_C4.wav", "harp-F#2", "Strings Db3 v2". C4 is 60; sharps (#) and
+// flats (b) are read; the last note name in the name wins. Nothing when the
+// name has none.
+[[nodiscard]] std::optional<int> key_from_name(std::string_view name);
+// The velocity layer a file name names, louder is higher: v1, v2, ... or
+// vel1, ..., or a dynamic (ppp, pp, p, mp, mf, f, ff, fff). Nothing when the
+// name has none.
+[[nodiscard]] std::optional<int> layer_from_name(std::string_view name);
+
+struct MultisampleSource {
+    SamplerZone zone; // the file, its region and loop, as make_zone read them
+    int root_key = 60;
+    int layer = 0;    // higher is louder; any integers, ranked
+};
+// A keyed program from several samples: each velocity layer's samples split
+// the keyboard between them, each answering from halfway to the root below
+// to halfway to the root above (the lowest down to key 0, the highest up to
+// 127); the layers split the velocities 1..127 evenly, softest lowest. Two
+// samples on one root in one layer keep the first. Empty when `sources` is.
+[[nodiscard]] SamplerProgram multisample_program(std::vector<MultisampleSource> sources);
 
 // Every zone that answers a key at a MIDI velocity (1..127), in program order.
 [[nodiscard]] std::vector<const SamplerZone*> zones_for(const SamplerProgram& program, int key,

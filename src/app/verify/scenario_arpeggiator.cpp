@@ -71,12 +71,10 @@ void run_arpeggiator(VerifyContext& ctx) {
     auto* enabled = ctx.named("arpEnabled");
     // Each control is usable and lies inside the device panel, and the
     // panel is no wider than the rail's column: the rows fit the rail
-    // rather than widening it. (The panel has long stood 2 px wider than
-    // its column, with or without these rows; anything more is a row that
-    // does not fit.)
+    // rather than widening it.
     auto* panel = ctx.named("instrumentPanel");
     auto* column = panel ? panel->parentItem() : nullptr;
-    check(panel && column && panel->width() <= column->width() + 2.5);
+    check(panel && column && panel->width() <= column->width() + 0.5);
     for (const char* name : {"arpEnabled", "arpMode", "arpLatch", "arpRate", "arpOctaves", "arpGate"}) {
         auto* item = ctx.named(name);
         check(VerifyContext::usable(item, 36, 18));

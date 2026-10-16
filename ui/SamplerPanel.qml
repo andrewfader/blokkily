@@ -16,6 +16,8 @@ Rectangle {
     readonly property var sampler: appController.sampler
     readonly property bool hasZone: sampler.zone !== undefined && sampler.zone >= 0
     readonly property bool kit: sampler.mode === "kit"
+    // Whether the zone map, velocities and waveform are open.
+    property bool editing: false
     implicitHeight: body.implicitHeight + 16
     Layout.minimumHeight: 220
     radius: 6
@@ -64,6 +66,17 @@ Rectangle {
         nameFilters: ["Audio (*.wav *.flac *.aif *.aiff *.ogg *.mp3)", "All files (*)"]
         fileMode: FileDialog.OpenFile
         onAccepted: appController.loadSamplerSample(selectedFile.toString())
+    }
+    FileDialog {
+        id: multiDialog
+        title: "Import a multi-sampled instrument (key and layer from each file's name)"
+        nameFilters: ["Audio (*.wav *.flac *.aif *.aiff *.ogg *.mp3)", "All files (*)"]
+        fileMode: FileDialog.OpenFiles
+        onAccepted: {
+            var paths = []
+            for (var i = 0; i < selectedFiles.length; ++i) paths.push(selectedFiles[i].toString())
+            appController.importMultisample(paths)
+        }
     }
 
     ColumnLayout {
@@ -129,10 +142,32 @@ Rectangle {
                      : panel.hasZone ? Theme.ink : Theme.muted
                 font.pixelSize: 10; font.bold: true; elide: Text.ElideMiddle
             }
+        }
+        // One file for the zone, or a multi-sampled instrument from many.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 4
             Chip {
                 objectName: "samplerLoad"
                 text: "LOAD"; implicitHeight: 20
+                Layout.fillWidth: true
                 onClicked: sampleDialog.open()
+            }
+            Chip {
+                objectName: "samplerImportMulti"
+                text: "MULTI"; implicitHeight: 20; accent: Theme.amber
+                Layout.fillWidth: true
+                accessibleLabel: "Import a multi-sampled instrument"
+                onClicked: multiDialog.open()
+            }
+            // The zone's velocities, the map of every zone and its waveform,
+            // opened when wanted so the browser below keeps its room.
+            Chip {
+                objectName: "samplerEditToggle"
+                text: "EDIT"; implicitHeight: 20
+                Layout.fillWidth: true
+                accessibleLabel: "Show the zone map, velocities and waveform"
+                on: panel.editing
+                onClicked: panel.editing = !panel.editing
             }
         }
         Label {
@@ -180,6 +215,130 @@ Rectangle {
                     onValueModified: appController.setSamplerKeyRange(
                         Math.min(value, panel.sampler.lowKey), value)
                 }
+            }
+        }
+
+        ColumnLayout {
+            objectName: "samplerEditing"
+            Layout.fillWidth: true
+            spacing: 6
+            visible: panel.editing
+            // The velocities the zone answers.
+            RowLayout {
+                Layout.fillWidth: true; spacing: 4
+                Caption { text: "VEL"; Layout.preferredWidth: 30 }
+                Stepper {
+                    objectName: "samplerLowVelocity"
+                    Layout.fillWidth: true
+                    keyNames: false; from: 1; to: 127
+                    enabled: panel.hasZone
+                    value: panel.hasZone ? panel.sampler.lowVelocity : 1
+                    onValueModified: appController.setSamplerVelocityRange(
+                        value, Math.max(value, panel.sampler.highVelocity))
+                }
+                Stepper {
+                    objectName: "samplerHighVelocity"
+                    Layout.fillWidth: true
+                    keyNames: false; from: 1; to: 127
+                    enabled: panel.hasZone
+                    value: panel.hasZone ? panel.sampler.highVelocity : 127
+                    onValueModified: appController.setSamplerVelocityRange(
+                        Math.min(value, panel.sampler.lowVelocity), value)
+                }
+            }
+
+            // Every zone as a box of the keys (across) and velocities (up) it
+            // answers: velocity layers stack. A click picks the zone to edit.
+            Rectangle {
+                objectName: "samplerZoneMap"
+                Layout.fillWidth: true
+                implicitHeight: 54
+                visible: panel.sampler.map !== undefined && panel.sampler.map.length > 0
+                radius: 3; color: Theme.bg; border.color: Theme.line
+                Repeater {
+                    model: panel.sampler.map !== undefined ? panel.sampler.map : []
+                    Rectangle {
+                        required property var modelData
+                        objectName: "samplerZoneBox" + modelData.zone
+                        readonly property bool chosen: modelData.zone === panel.sampler.zone
+                        x: 1 + modelData.lowKey / 128 * (parent.width - 2)
+                        width: Math.max(2, (modelData.highKey - modelData.lowKey + 1) / 128 * (parent.width - 2))
+                        y: 1 + (127 - modelData.highVelocity) / 127 * (parent.height - 2)
+                        height: Math.max(2, (modelData.highVelocity - modelData.lowVelocity + 1) / 127 * (parent.height - 2))
+                        color: chosen ? Theme.amber : "#4d3a16"
+                        border.color: Theme.bg; border.width: 1
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: appController.selectSamplerZone(parent.modelData.zone)
+                        }
+                    }
+                }
+            }
+
+            // The zone's file: what plays (START..END) and its loop, each marker
+            // dragged to move it.
+            Rectangle {
+                id: wave
+                objectName: "samplerWaveform"
+                Layout.fillWidth: true
+                implicitHeight: 52
+                visible: panel.hasZone && panel.sampler.frames > 0
+                radius: 3; color: Theme.bg; border.color: Theme.line
+                readonly property real frames: Math.max(1, panel.sampler.frames || 1)
+                readonly property real startFrame: panel.sampler.start || 0
+                readonly property real endFrame: panel.sampler.end > 0 ? panel.sampler.end : frames
+                readonly property bool looped: panel.sampler.loop !== undefined && panel.sampler.loop !== "off"
+                function xOf(frame) { return 1 + frame / frames * (width - 2) }
+                function frameOf(x) { return Math.max(0, Math.min(frames, (x - 1) / (width - 2) * frames)) }
+                WaveformItem {
+                    objectName: "samplerWaveformPeaks"
+                    anchors.fill: parent; anchors.margins: 1
+                    color: Theme.amber
+                    peaks: wave.visible ? (panel.sampler, appController.samplerPeaks(Math.max(1, Math.round(width / 2)))) : []
+                }
+                // What does not play is shaded.
+                Rectangle { x: 1; width: Math.max(0, wave.xOf(wave.startFrame) - 1); height: parent.height
+                    color: "#b00e0f12" }
+                Rectangle { x: wave.xOf(wave.endFrame); width: Math.max(0, wave.width - 1 - x); height: parent.height
+                    color: "#b00e0f12" }
+                Rectangle {
+                    visible: wave.looped
+                    x: wave.xOf(panel.sampler.loopStart || 0)
+                    width: Math.max(1, wave.xOf(panel.sampler.loopEnd || 0) - x); height: 4
+                    color: Theme.acid
+                }
+                component Marker: Rectangle {
+                    id: marker
+                    property real frame: 0
+                    property color tint: Theme.ink
+                    signal dropped(real frame)
+                    x: wave.xOf(frame) - width / 2
+                    width: 9; height: wave.height; color: "transparent"
+                    Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 2; height: parent.height
+                        color: marker.tint }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.SizeHorCursor
+                        drag.target: marker; drag.axis: Drag.XAxis
+                        drag.minimumX: -marker.width / 2; drag.maximumX: wave.width - marker.width / 2
+                        onReleased: {
+                            marker.dropped(wave.frameOf(marker.x + marker.width / 2))
+                            // Follows the zone again, wherever the edit put it.
+                            marker.x = Qt.binding(function() { return wave.xOf(marker.frame) - marker.width / 2 })
+                        }
+                    }
+                }
+                Marker { objectName: "samplerStartMarker"; frame: wave.startFrame; tint: Theme.ink
+                    onDropped: f => appController.setSamplerRegion(f, wave.endFrame) }
+                Marker { objectName: "samplerEndMarker"; frame: wave.endFrame; tint: Theme.ink
+                    onDropped: f => appController.setSamplerRegion(wave.startFrame, f) }
+                Marker { objectName: "samplerLoopStartMarker"; visible: wave.looped
+                    frame: panel.sampler.loopStart || 0; tint: Theme.acid
+                    onDropped: f => appController.setSamplerLoopPoints(f, panel.sampler.loopEnd) }
+                Marker { objectName: "samplerLoopEndMarker"; visible: wave.looped
+                    frame: panel.sampler.loopEnd || 0; tint: Theme.acid
+                    onDropped: f => appController.setSamplerLoopPoints(panel.sampler.loopStart, f) }
             }
         }
 

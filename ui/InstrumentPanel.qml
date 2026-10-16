@@ -360,6 +360,8 @@ ColumnLayout {
         id: pluginBrowser
         objectName: "pluginBrowser"
         Layout.fillWidth: true; Layout.fillHeight: true
+        // Never squeezed to nothing by the panels above it: two rows at least.
+        Layout.minimumHeight: 88
         clip: true; spacing: 4
         model: appController.browserPlugins
         currentIndex: 0

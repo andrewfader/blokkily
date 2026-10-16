@@ -288,6 +288,73 @@ void key_velocity_range() {
                                                   number(loud_hz));
 }
 
+// --- Multi-sample import (features/sampler_editing.feature) ----------------
+
+void multisample_names() {
+    const std::pair<const char*, int> keys[] = {
+        {"Piano_C4.wav", 60}, {"harp-F#2.flac", 42}, {"Strings Db3 v2.wav", 49}, {"bass_e1.wav", 28},
+        {"Pad A-1 ff.wav", 9}, {"Kit/Snare_G5_v3.aif", 79}, {"Cs4.wav", 61}};
+    for (const auto& [name, key] : keys) {
+        const auto found = key_from_name(name);
+        require(found && *found == key, std::string(name) + " names key " + std::to_string(key) +
+                                            ", read " + (found ? std::to_string(*found) : "nothing"));
+    }
+    for (const char* name : {"Bass_hit.wav", "Cello 120bpm.wav", "Abacus.wav", "Track 12.wav"})
+        require(!key_from_name(name), std::string(name) + " names no key");
+    require(layer_from_name("Piano_C4_v2.wav") == 2 && layer_from_name("Piano C4 vel10") == 10 &&
+                layer_from_name("Str pp A2.wav") == 2 && layer_from_name("Str ff A2.wav") == 7 &&
+                layer_from_name("Str mf A2.wav") == 5 && !layer_from_name("Piano_C4.wav"),
+            "layers are read from v<n>, vel<n> and dynamics");
+}
+
+void multisample_map() {
+    std::vector<MultisampleSource> sources;
+    for (const int layer : {2, 1})
+        for (const int root : {72, 48, 60}) {
+            MultisampleSource source;
+            source.zone = zone_for(fixture("sine1k_44k1_pcm16.wav"));
+            source.root_key = root;
+            source.layer = layer;
+            sources.push_back(source);
+        }
+    const auto program = multisample_program(sources);
+    require(program.mode == SamplerProgram::Mode::keyed && program.zones.size() == 6, "six zones");
+    std::string error;
+    require(validate_sampler(program, &error), "the program is valid: " + error);
+    // Softest layer first, lowest root first.
+    const auto& z = program.zones;
+    require(z[0].root_key == 48 && z[0].low_key == 0 && z[0].high_key == 54, "48 answers up to halfway to 60");
+    require(z[1].root_key == 60 && z[1].low_key == 55 && z[1].high_key == 66, "60 from halfway to halfway");
+    require(z[2].root_key == 72 && z[2].low_key == 67 && z[2].high_key == 127, "72 up to the top");
+    require(z[0].low_velocity == 1 && z[0].high_velocity == 63 && z[3].low_velocity == 64 &&
+                z[3].high_velocity == 127, "the layers split the velocities, softest lowest");
+    // Every key and every velocity is answered by exactly one zone.
+    for (int key = 0; key < 128; ++key)
+        for (int velocity = 1; velocity < 128; ++velocity)
+            require(zones_for(program, key, velocity).size() == 1,
+                    "key " + std::to_string(key) + " velocity " + std::to_string(velocity) + " has one zone");
+}
+
+void multisample_render() {
+    SamplerInstrument probe_instrument;
+    // Soft layer: the 1 kHz sine rooted on 60. Loud layer: the 480 Hz loop
+    // rooted on 72. Key 66 is the sine's, transposed up 6 semitones.
+    MultisampleSource soft{zone_for(fixture("sine1k_44k1_pcm16.wav")), 60, 1};
+    MultisampleSource loud{*probe_instrument.make_zone(fixture("loop480_48k_pcm16.wav")), 72, 2};
+    loud.zone.envelope.attack_s = 0.0;
+    const auto program = multisample_program({soft, loud});
+    const auto quiet = render(*sampler_with(program), 9600, {note_on(0, 66, 0.3)});
+    const auto hard = render(*sampler_with(program), 9600, {note_on(0, 66, 0.9)});
+    // The 1 kHz file rooted on 60, six semitones up.
+    const double expected_soft = 1000.0 * std::pow(2.0, 6.0 / 12.0);
+    const double quiet_hz = frequency_near(quiet.window(480, 8192), expected_soft, 60.0);
+    const double hard_hz = frequency_near(hard.window(480, 8192), 480.0 * std::pow(2.0, -6.0 / 12.0), 40.0);
+    std::cout << "multisample: soft " << quiet_hz << " Hz (" << expected_soft << "), loud " << hard_hz << " Hz\n";
+    require(std::abs(quiet_hz - expected_soft) <= 3.0, "velocity 38 plays the soft layer's sample");
+    require(std::abs(hard_hz - 480.0 * std::pow(2.0, -6.0 / 12.0)) <= 3.0,
+            "velocity 114 plays the loud layer's, six semitones under its root");
+}
+
 // The level a velocity plays at follows the documented (linear) curve.
 void velocity() {
     const auto full = render(*sampler_with(keyed({tuned_sine()})), 9600, {note_on(0, 69, 1.0)});
@@ -753,6 +820,9 @@ const std::map<std::string, std::function<void()>> cases{
     {"keyed_pitch", keyed_pitch},
     {"key_velocity_range", key_velocity_range},
     {"velocity", velocity},
+    {"multisample_names", multisample_names},
+    {"multisample_map", multisample_map},
+    {"multisample_render", multisample_render},
     {"envelope", envelope},
     {"loop", loop},
     {"loop_seam", loop_seam},

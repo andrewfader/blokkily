@@ -543,8 +543,22 @@ ApplicationWindow {
         Rectangle {
             SplitView.preferredWidth: 232; SplitView.minimumWidth: 200
             color: "#121317"
+            // The rail scrolls when what it holds is taller than the window
+            // (a sampler's editing tools open, a small screen), so nothing
+            // at its foot is pushed out of reach.
+            Flickable {
+                id: railScroll
+                objectName: "railScroll"
+                anchors.fill: parent; anchors.margins: 14
+                contentWidth: width
+                contentHeight: Math.max(height, railColumn.implicitHeight)
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded; width: 6 }
             ColumnLayout {
-                anchors.fill: parent; anchors.margins: 14; spacing: 10
+                id: railColumn
+                width: railScroll.width; height: railScroll.contentHeight
+                spacing: 10
 
                 InstrumentPanel {
                     id: instrumentPanel
@@ -573,6 +587,7 @@ ApplicationWindow {
                     onImportMidiRequested: importMidiDialog.open()
                     onExportMidiRequested: exportMidiDialog.open()
                 }
+            }
             }
         }
 

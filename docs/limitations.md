@@ -25,8 +25,8 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   memory before stretching, and the sampler always decodes its samples.
 - A streamed clip that crosses the song's wrap point dips briefly at the wrap
   because there is one stream per clip.
-- The sampler panel loads one file at a time. It has no multi-sample import
-  wizard, velocity-layer editor or waveform editing surface.
+- The sampler's waveform shows the whole file; it has no zoom, and markers
+  move by whole pixels of it.
 
 ## Parameter locks and routing
 

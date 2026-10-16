@@ -501,7 +501,8 @@ foreach(blokkily_feature
         arpeggiator
         midi_learn
         comping_and_punch
-        note_expression_editing)
+        note_expression_editing
+        sampler_editing)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

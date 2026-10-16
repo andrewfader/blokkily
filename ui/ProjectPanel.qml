@@ -106,15 +106,20 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true; spacing: 4
+        // The chips share the row rather than each insisting on its width:
+        // four fixed chips were wider than the rail and widened every row
+        // of it with them.
         Chip {
             objectName: "exportButton"
             text: "BOUNCE"; accent: Theme.amber
+            Layout.fillWidth: true; Layout.preferredWidth: implicitWidth; Layout.minimumWidth: 40
             onClicked: root.exportRequested()
         }
         Repeater {
             model: ["PCM16", "PCM24", "FLOAT32"]
             Chip {
                 required property var modelData
+                Layout.fillWidth: true; Layout.preferredWidth: implicitWidth; Layout.minimumWidth: 28
                 objectName: "exportDepth" + modelData
                 text: modelData === "FLOAT32" ? "F32" : modelData.substring(3)
                 accent: Theme.amber

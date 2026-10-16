@@ -343,4 +343,129 @@ std::vector<const SamplerZone*> zones_for(const SamplerProgram& program, int key
     return found;
 }
 
+// --- Multi-sample import ----------------------------------------------------
+
+namespace {
+
+bool is_letter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+bool is_digit(char c) { return c >= '0' && c <= '9'; }
+
+std::string lowered(std::string_view text) {
+    std::string out(text);
+    for (auto& c : out)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return out;
+}
+
+// The name without its extension.
+std::string_view stem_of(std::string_view name) {
+    const auto slash = name.find_last_of("/\\");
+    if (slash != std::string_view::npos) name.remove_prefix(slash + 1);
+    const auto dot = name.find_last_of('.');
+    return dot == std::string_view::npos ? name : name.substr(0, dot);
+}
+
+} // namespace
+
+std::optional<int> key_from_name(std::string_view name) {
+    const auto stem = stem_of(name);
+    std::optional<int> found;
+    for (std::size_t at = 0; at < stem.size(); ++at) {
+        const char letter = stem[at];
+        const char upper = (letter >= 'a' && letter <= 'g') ? static_cast<char>(letter - 'a' + 'A') : letter;
+        if (upper < 'A' || upper > 'G') continue;
+        // A note name stands alone: not inside a word.
+        if (at > 0 && is_letter(stem[at - 1])) continue;
+        std::size_t next = at + 1;
+        int accidental = 0;
+        if (next < stem.size() && (stem[next] == '#' || stem[next] == 's')) {
+            // "s" only as "Cs4", never the start of a word such as "Cs" + letter.
+            if (stem[next] == '#' || (next + 1 < stem.size() && (is_digit(stem[next + 1]) || stem[next + 1] == '-')))
+                { accidental = 1; ++next; }
+        } else if (next < stem.size() && stem[next] == 'b' && next + 1 < stem.size() &&
+                   (is_digit(stem[next + 1]) || stem[next + 1] == '-')) {
+            accidental = -1;
+            ++next;
+        }
+        bool negative = false;
+        if (next < stem.size() && stem[next] == '-' && next + 1 < stem.size() && is_digit(stem[next + 1])) {
+            negative = true;
+            ++next;
+        }
+        if (next >= stem.size() || !is_digit(stem[next])) continue;
+        int octave = stem[next] - '0';
+        ++next;
+        // One digit of octave, and no digit straight after (that is a number).
+        if (next < stem.size() && is_digit(stem[next])) continue;
+        if (next < stem.size() && is_letter(stem[next]) && stem[next] != 'v') continue;
+        if (negative) octave = -octave;
+        static constexpr int steps[] = {9, 11, 0, 2, 4, 5, 7}; // A B C D E F G
+        const int key = (octave + 1) * 12 + steps[upper - 'A'] + accidental;
+        if (key >= 0 && key <= 127) found = key;
+    }
+    return found;
+}
+
+std::optional<int> layer_from_name(std::string_view name) {
+    const auto stem = lowered(stem_of(name));
+    // Split into words at anything that is not a letter or a digit.
+    std::vector<std::string> words;
+    std::string word;
+    for (const char c : stem) {
+        if (is_letter(c) || is_digit(c)) word += c;
+        else if (!word.empty()) { words.push_back(word); word.clear(); }
+    }
+    if (!word.empty()) words.push_back(word);
+    std::optional<int> found;
+    static const std::pair<const char*, int> dynamics[] = {
+        {"ppp", 1}, {"pp", 2}, {"p", 3}, {"mp", 4}, {"mf", 5}, {"f", 6}, {"ff", 7}, {"fff", 8}};
+    for (const auto& token : words) {
+        for (const auto& [dynamic, rank] : dynamics)
+            if (token == dynamic) found = rank;
+        for (const char* prefix : {"vel", "v", "layer", "l"}) {
+            const std::string_view lead(prefix);
+            if (token.size() > lead.size() && token.compare(0, lead.size(), lead) == 0 &&
+                std::all_of(token.begin() + static_cast<std::ptrdiff_t>(lead.size()), token.end(), is_digit)) {
+                found = std::stoi(token.substr(lead.size()));
+                break;
+            }
+        }
+    }
+    return found;
+}
+
+SamplerProgram multisample_program(std::vector<MultisampleSource> sources) {
+    SamplerProgram program = default_sampler(SamplerProgram::Mode::keyed);
+    if (sources.empty()) return program;
+    std::vector<int> layers;
+    for (const auto& source : sources) layers.push_back(source.layer);
+    std::sort(layers.begin(), layers.end());
+    layers.erase(std::unique(layers.begin(), layers.end()), layers.end());
+    const int count = static_cast<int>(layers.size());
+    for (int rank = 0; rank < count; ++rank) {
+        std::vector<MultisampleSource> in_layer;
+        for (const auto& source : sources)
+            if (source.layer == layers[static_cast<std::size_t>(rank)] &&
+                std::none_of(in_layer.begin(), in_layer.end(),
+                             [&](const auto& kept) { return kept.root_key == source.root_key; }))
+                in_layer.push_back(source);
+        std::stable_sort(in_layer.begin(), in_layer.end(),
+                         [](const auto& a, const auto& b) { return a.root_key < b.root_key; });
+        const int low_velocity = 1 + rank * 127 / count;
+        const int high_velocity = (rank + 1) * 127 / count;
+        for (std::size_t i = 0; i < in_layer.size(); ++i) {
+            auto zone = in_layer[i].zone;
+            zone.root_key = std::clamp(in_layer[i].root_key, 0, 127);
+            zone.low_key = i == 0 ? 0 : (in_layer[i - 1].root_key + zone.root_key) / 2 + 1;
+            zone.high_key = i + 1 == in_layer.size() ? 127 : (zone.root_key + in_layer[i + 1].root_key) / 2;
+            zone.low_velocity = low_velocity;
+            zone.high_velocity = high_velocity;
+            zone.track_pitch = true;
+            zone.one_shot = false;
+            program.zones.push_back(zone);
+        }
+    }
+    return program;
+}
+
 } // namespace blokkily

@@ -504,6 +504,21 @@ public:
     // Chops the selected zone's whole file into `count` equal pads on
     // consecutive keys from C2 (36); the sampler becomes a kit.
     Q_INVOKABLE bool sliceSampler(int count);
+    // Several samples at once as one keyed program (features/sampler_editing.
+    // feature): each file's key from its name ("Piano_C#3.wav"), else from
+    // the file, else the next key up from C3; its velocity layer from its
+    // name (v1, v2 ..., pp, mf, ff ...). Keys split between neighbouring
+    // roots, layers split the velocities. One step of history; returns how
+    // many zones the program has.
+    Q_INVOKABLE int importMultisample(const QStringList& paths);
+    // The selected zone's velocities (1..127), its region of the file and
+    // its loop (frames of the file); setting loop points turns a loop on.
+    Q_INVOKABLE bool setSamplerVelocityRange(int low, int high);
+    Q_INVOKABLE bool setSamplerRegion(double start, double end);
+    Q_INVOKABLE bool setSamplerLoopPoints(double start, double end);
+    // The selected zone's whole file as `columns` low, high pairs, flattened
+    // (as WaveformItem draws them), for the panel's waveform.
+    Q_INVOKABLE QVariantList samplerPeaks(int columns) const;
     // How many recompiles have run, and how many graphs have been built.
     int recompileCount() const noexcept { return recompiler_.recompiles(); }
     int rebuildCount() const noexcept { return rebuilds_; }

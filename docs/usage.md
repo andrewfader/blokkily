@@ -206,6 +206,13 @@ Ctrl+F focuses the browser's search field. Search matches letters in order
 across a name, maker or format: "fbs" finds "Fat Bass". Use the arrow keys to
 select a result and Return to load it. Escape clears the filter.
 
+MULTI in the sampler panel imports a multi-sampled instrument: pick every
+file at once and each is placed by its name (Piano_C#3_v2.wav: key C#3,
+velocity layer 2; pp, mf, ff work too). EDIT opens the zone map (keys
+across, velocities up; click a box to edit that zone), the zone's VEL range,
+and its waveform, where START, END and the loop markers are dragged. See
+[the scenarios](../features/sampler_editing.feature).
+
 ## MIDI input and recording
 
 The MIDI IN panel on the left chooses the controller. Its light flashes on

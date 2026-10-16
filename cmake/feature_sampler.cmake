@@ -30,6 +30,9 @@ if(BLOKKILY_BUILD_TESTS)
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_sampler_tests blokkily_audio_fixtures)
     foreach(sampler_case
+            multisample_names
+            multisample_map
+            multisample_render
             file_metadata
             missing_sample
             keyed_pitch

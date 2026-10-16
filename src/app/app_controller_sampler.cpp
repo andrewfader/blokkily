@@ -148,6 +148,30 @@ QVariantMap AppController::sampler() const {
     view["release"] = selected.envelope.release_s;
     view["trackPitch"] = selected.track_pitch;
     view["oneShot"] = selected.one_shot;
+    view["lowVelocity"] = selected.low_velocity;
+    view["highVelocity"] = selected.high_velocity;
+    view["start"] = static_cast<double>(selected.start);
+    view["end"] = static_cast<double>(selected.end);
+    view["loopStart"] = static_cast<double>(selected.loop_start);
+    view["loopEnd"] = static_cast<double>(selected.loop_end);
+    // The file's length, for the waveform's markers.
+    std::uint64_t frames = 0;
+    if (const auto audio = [&] {
+            blokkily::SamplerInstrument probe(assets_.get());
+            probe.set_base_directory(processorContext().project_dir);
+            return probe.asset_for(selected);
+        }())
+        frames = audio->frames;
+    view["frames"] = static_cast<double>(frames);
+    // Every zone's keys and velocities, for the map that shows the layers.
+    QVariantList map;
+    for (std::size_t index = 0; index < program->zones.size(); ++index) {
+        const auto& zone = program->zones[index];
+        map.append(QVariantMap{{"zone", static_cast<int>(index)}, {"lowKey", zone.low_key},
+                               {"highKey", zone.high_key}, {"lowVelocity", zone.low_velocity},
+                               {"highVelocity", zone.high_velocity}, {"rootKey", zone.root_key}});
+    }
+    view["map"] = map;
     return view;
 }
 
@@ -363,4 +387,150 @@ void AppController::rebaseSamplers(const std::filesystem::path& directory) {
             (void)running->set_program(*program);
         }
     }
+}
+
+// --- Multi-sample import, velocity layers and the waveform -------------------
+// (features/sampler_editing.feature)
+
+int AppController::importMultisample(const QStringList& paths) {
+    if (paths.isEmpty()) return 0;
+    blokkily::SamplerInstrument probe(assets_.get());
+    probe.set_base_directory(processorContext().project_dir);
+    std::vector<blokkily::MultisampleSource> sources;
+    QStringList refused;
+    int unnamed = 0;
+    for (const auto& path : paths) {
+        const auto file = std::filesystem::path(local_file(path).toStdString());
+        std::string error;
+        auto made = probe.make_zone(file, &error);
+        if (!made) {
+            refused << QFileInfo(local_file(path)).fileName();
+            continue;
+        }
+        const auto name = file.filename().string();
+        blokkily::MultisampleSource source;
+        // The key the name says, else the one the file says (its smpl
+        // chunk), else the next key up from C3 for a file that says neither.
+        const auto named = blokkily::key_from_name(name);
+        source.root_key = named ? *named : made->root_key != 60 ? made->root_key : 48 + unnamed++;
+        source.layer = blokkily::layer_from_name(name).value_or(0);
+        source.zone = *made;
+        sources.push_back(std::move(source));
+    }
+    if (sources.empty()) {
+        status_ = QString("No sample could be read · %1").arg(refused.join(", "));
+        emit statusChanged();
+        return 0;
+    }
+    const auto program = blokkily::multisample_program(sources);
+    const int zones = static_cast<int>(program.zones.size());
+    const bool edited = editSampler({}, [&](blokkily::SamplerProgram& current) {
+        const int polyphony = current.polyphony;
+        current = program;
+        current.polyphony = polyphony;
+        return true;
+    });
+    if (!edited) return 0;
+    sampler_zone_ = 0;
+    int layers = 0;
+    for (const auto& zone : program.zones)
+        if (zone.low_key == 0) ++layers;
+    status_ = QString("%1 samples mapped · %2 velocity layer%3").arg(zones).arg(layers).arg(layers == 1 ? "" : "s");
+    if (!refused.isEmpty()) status_ += QString(" · not read: %1").arg(refused.join(", "));
+    emit statusChanged();
+    emit samplerChanged();
+    return zones;
+}
+
+bool AppController::setSamplerVelocityRange(int low, int high) {
+    if (low < 1 || high > 127 || low > high) return false;
+    return editSampler("sampler-velocity", [&](blokkily::SamplerProgram& program) {
+        auto* zone = selected_zone(program, sampler_zone_);
+        if (zone == nullptr) return false;
+        zone->low_velocity = low;
+        zone->high_velocity = high;
+        return true;
+    });
+}
+
+namespace {
+// The frames of the selected zone's file, read through the sampler's own
+// loader so the path resolves as the sampler resolves it.
+blokkily::AudioAssetPtr zone_audio(blokkily::AudioAssetCache* assets,
+                                   const std::filesystem::path& base, const blokkily::SamplerZone& zone) {
+    blokkily::SamplerInstrument probe(assets);
+    probe.set_base_directory(base);
+    return probe.asset_for(zone);
+}
+} // namespace
+
+bool AppController::setSamplerRegion(double start, double end) {
+    const auto program = samplerProgram(song_ != nullptr ? song_->selectedTrack() : -1);
+    if (!program || program->zones.empty()) return false;
+    const auto& selected = program->zones[static_cast<std::size_t>(std::clamp(
+        sampler_zone_, 0, static_cast<int>(program->zones.size()) - 1))];
+    const auto audio = zone_audio(assets_.get(), processorContext().project_dir, selected);
+    if (!audio) return false;
+    const auto frames = static_cast<double>(audio->frames);
+    const auto first = static_cast<std::uint64_t>(std::llround(std::clamp(start, 0.0, frames - 1.0)));
+    const auto last = static_cast<std::uint64_t>(std::llround(std::clamp(end, 0.0, frames)));
+    if (last <= first + 1) return false;
+    return editSampler("sampler-region", [&](blokkily::SamplerProgram& edited) {
+        auto* zone = selected_zone(edited, sampler_zone_);
+        if (zone == nullptr) return false;
+        zone->start = first;
+        zone->end = last == audio->frames ? 0 : last;
+        // A loop stays inside what plays.
+        if (zone->loop != blokkily::LoopMode::off) {
+            zone->loop_start = std::clamp(zone->loop_start, first, last - 1);
+            zone->loop_end = std::clamp(zone->loop_end, zone->loop_start + 1, last);
+        }
+        return true;
+    });
+}
+
+bool AppController::setSamplerLoopPoints(double start, double end) {
+    const auto program = samplerProgram(song_ != nullptr ? song_->selectedTrack() : -1);
+    if (!program || program->zones.empty()) return false;
+    const auto& selected = program->zones[static_cast<std::size_t>(std::clamp(
+        sampler_zone_, 0, static_cast<int>(program->zones.size()) - 1))];
+    const auto audio = zone_audio(assets_.get(), processorContext().project_dir, selected);
+    if (!audio) return false;
+    const auto region_end = selected.end == 0 ? audio->frames : selected.end;
+    const auto first = static_cast<std::uint64_t>(std::llround(std::max(start, static_cast<double>(selected.start))));
+    const auto last = static_cast<std::uint64_t>(std::llround(std::min(end, static_cast<double>(region_end))));
+    if (last <= first) return false;
+    return editSampler("sampler-loop-points", [&](blokkily::SamplerProgram& edited) {
+        auto* zone = selected_zone(edited, sampler_zone_);
+        if (zone == nullptr) return false;
+        zone->loop_start = first;
+        zone->loop_end = last;
+        if (zone->loop == blokkily::LoopMode::off) zone->loop = blokkily::LoopMode::forward;
+        return true;
+    });
+}
+
+QVariantList AppController::samplerPeaks(int columns) const {
+    QVariantList peaks;
+    const auto program = samplerProgram(song_ != nullptr ? song_->selectedTrack() : -1);
+    if (!program || program->zones.empty() || columns <= 0) return peaks;
+    const auto& selected = program->zones[static_cast<std::size_t>(std::clamp(
+        sampler_zone_, 0, static_cast<int>(program->zones.size()) - 1))];
+    const auto audio = zone_audio(assets_.get(), processorContext().project_dir, selected);
+    if (!audio || audio->left.empty()) return peaks;
+    const auto frames = audio->left.size();
+    for (int column = 0; column < columns; ++column) {
+        const auto from = frames * static_cast<std::size_t>(column) / static_cast<std::size_t>(columns);
+        const auto to = std::max(from + 1, frames * static_cast<std::size_t>(column + 1) / static_cast<std::size_t>(columns));
+        float low = 0.0F, high = 0.0F;
+        for (auto frame = from; frame < to && frame < frames; ++frame) {
+            const float sample = audio->right.empty() ? audio->left[frame]
+                                                      : 0.5F * (audio->left[frame] + audio->right[frame]);
+            low = std::min(low, sample);
+            high = std::max(high, sample);
+        }
+        peaks.append(low);
+        peaks.append(high);
+    }
+    return peaks;
 }
