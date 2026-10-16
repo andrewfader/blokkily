@@ -61,6 +61,9 @@ struct ParseContext {
     // The metronome record as read (records_metronome.cpp), so a second one
     // is refused and the settings are applied once the file is read.
     std::optional<MetronomeSettings> metronome;
+    // Per-pattern swing as read (records_swing.cpp): one optional percent
+    // per pattern index, applied once the core module has built the song.
+    std::vector<std::optional<int>> pattern_swing;
     // Controller movements as read (records_continuous.cpp), by pattern
     // index, placed into the patterns once the core module has built them.
     std::vector<std::pair<std::size_t, ContinuousEvent>> continuous;
@@ -122,6 +125,8 @@ struct RecordModule {
 
 // The metronome and count-in settings (item 3.7): metronome.
 [[nodiscard]] const RecordModule& metronome_records();
+// Pattern swing: swing (records_swing.cpp).
+[[nodiscard]] const RecordModule& swing_records();
 // Clip warp (item 3.6): clipwarp, after the audio clips it names
 // (records_clip_warp.cpp).
 [[nodiscard]] const RecordModule& clip_warp_records();

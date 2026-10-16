@@ -142,8 +142,21 @@ std::size_t Pattern::erase_continuous(ContinuousEvent::Kind kind, std::uint8_t c
     });
 }
 
+void Pattern::set_swing(int percent) noexcept {
+    swing_ = std::clamp(percent, 0, 100);
+}
+
+Tick Pattern::swing_delay(Tick start) const noexcept {
+    if (swing_ <= 0 || ticks_per_beat_ < 4) return 0;
+    const Tick grid = ticks_per_beat_ / 4;
+    if (grid <= 0) return 0;
+    if (start < 0 || (start / grid) % 2 == 0) return 0;
+    return grid * swing_ / 200;
+}
+
 Pattern Pattern::with_length(Tick length) const {
     Pattern resized(length, ticks_per_beat_);
+    resized.swing_ = swing_;
     for (const auto& event : events_)
         if (event.start < length) resized.events_.push_back(event);
     for (const auto& event : continuous_)

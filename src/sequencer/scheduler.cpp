@@ -56,7 +56,7 @@ ScheduledEvents Scheduler::render(
     auto& output = result.notes;
     for (const auto& event : pattern.events()) {
         if (!should_play(event, loop_number, seed)) continue;
-        const Tick start = event.start + event.micro_offset;
+        const Tick start = event.start + event.micro_offset + pattern.swing_delay(event.start);
         // Locks land on the step they belong to, so the value is in place
         // before the note it shapes sounds.
         for (const auto& lock : event.locks)
