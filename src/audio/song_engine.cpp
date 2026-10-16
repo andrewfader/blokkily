@@ -287,6 +287,10 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
     // rather than queued for a callback that is not running.
     if (!compile_into(*arrangements_.front(), song, seed, error, assets, renditions))
         return false;
+    // Nothing renders yet: what a removed lock owes goes straight out first.
+    settle_locks(*arrangements_.front(), {});
+    for (const auto& release : arrangements_.front()->lock_releases)
+        engine::queue_release(*modulation_, release);
     live_ = arrangements_.front().get();
     handoff_.store(handoff_state(no_slot, 0, no_slot), std::memory_order_release);
     song_samples_ = live_->song_samples;
@@ -378,6 +382,31 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     // Automation: strip envelopes and parameter lanes, placed by the same
     // clock (item 3.1).
     engine::compile_automation(target.automation, song, clock, samples, arranged);
+    // What the step locks move: the arrangement's, and a launched cell's on
+    // its track's instrument.
+    target.locked.clear();
+    const auto lock = [&target](ProcessorAddress where, std::int32_t parameter, bool modulation) {
+        const Arrangement::Locked entry{where, parameter, modulation};
+        if (std::find(target.locked.begin(), target.locked.end(), entry) == target.locked.end())
+            target.locked.push_back(entry);
+    };
+    for (std::size_t index = 0; index < arranged.size(); ++index)
+        for (const auto& parameter : arranged[index].parameters)
+            lock({parameter.bus_kind,
+                  parameter.bus_kind == BusKind::track ? static_cast<std::uint32_t>(index)
+                                                       : parameter.bus,
+                  parameter.slot},
+                 parameter.index, parameter.kind == ParameterLock::Kind::modulation);
+    for (std::size_t scene = 0; scene < song.launcher.scenes.size(); ++scene)
+        for (std::size_t track = 0; track < song.tracks.size(); ++track) {
+            const auto& slot = song.launcher.slot(scene, track);
+            if (!slot || slot->pattern >= song.patterns.size()) continue;
+            for (const auto& trigger : song.patterns[slot->pattern].pattern.events())
+                for (const auto& held : trigger.locks)
+                    if (held.slot < 0 && held.bus_kind == BusKind::track)
+                        lock(track_instrument(static_cast<std::uint32_t>(track)),
+                             held.parameter_index, held.kind == ParameterLock::Kind::modulation);
+        }
     // The click's beats, placed by the same clock (item 3.7).
     engine::compile_clicks(target.clicks, song.meter, clock, song.length(), samples);
     // Keys, modulators and the render order (waves 5.1 and 5.2). A target's
@@ -399,6 +428,63 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     target.ticks_per_beat = song.ticks_per_beat();
     target.meter = song.meter;
     return true;
+}
+
+void SongEngine::settle_locks(engine::Arrangement& target,
+                              std::span<const engine::ReleasedSink> carried) {
+    target.lock_releases.clear();
+    const auto locked = [&target](ProcessorAddress where, std::int32_t parameter, bool modulation) {
+        return std::find(target.locked.begin(), target.locked.end(),
+                         engine::Arrangement::Locked{where, parameter, modulation}) !=
+               target.locked.end();
+    };
+    const auto release = [&target](const LockBase& base) {
+        target.lock_releases.push_back(
+            {base.where, base.parameter, true,
+             base.modulation ? PluginEvent::Type::parameter_modulation
+                             : PluginEvent::Type::parameter_value,
+             base.modulation ? 0.0 : base.value});
+    };
+    std::vector<LockBase> kept;
+    // Owed by an arrangement that was never taken: locked again, its value
+    // is still the one to come back to; otherwise it is still owed.
+    for (const auto& owed : carried) {
+        LockBase base{owed.where, owed.parameter,
+                      owed.type == PluginEvent::Type::parameter_modulation, processor(owed.where),
+                      owed.value};
+        if (base.instance == nullptr) continue;
+        if (locked(base.where, base.parameter, base.modulation)) kept.push_back(base);
+        else release(base);
+    }
+    for (const auto& base : lock_bases_) {
+        // A processor replaced since starts again from its own values.
+        if (processor(base.where) != base.instance) continue;
+        const bool already = std::any_of(kept.begin(), kept.end(), [&](const LockBase& other) {
+            return other.where == base.where && other.parameter == base.parameter &&
+                   other.modulation == base.modulation;
+        });
+        if (already) continue;
+        if (locked(base.where, base.parameter, base.modulation)) kept.push_back(base);
+        else release(base);
+    }
+    // A parameter locked for the first time: its value now is what it goes
+    // back to.
+    for (const auto& lock : target.locked) {
+        const bool known = std::any_of(kept.begin(), kept.end(), [&](const LockBase& base) {
+            return base.where == lock.where && base.parameter == lock.parameter &&
+                   base.modulation == lock.modulation;
+        });
+        auto* instance = processor(lock.where);
+        if (known || instance == nullptr) continue;
+        double value = 0.0;
+        if (!lock.modulation) {
+            const auto now = instance->parameter_value(lock.parameter);
+            if (!now) continue;
+            value = *now;
+        }
+        kept.push_back({lock.where, lock.parameter, lock.modulation, instance, value});
+    }
+    lock_bases_ = std::move(kept);
 }
 
 bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* error,
@@ -432,6 +518,12 @@ bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* er
     if (target == no_slot) return fail("no free arrangement slot");
     auto& arranged = *arrangements_[target];
     if (!compile_into(arranged, song, seed, error, assets, renditions)) return false;
+    // An arrangement still queued is about to be replaced unseen: what its
+    // removed locks owed is owed by this one instead.
+    std::vector<engine::ReleasedSink> carried;
+    if (const auto queued = field(state, queued_shift); queued != no_slot && arrangements_[queued])
+        carried = arrangements_[queued]->lock_releases;
+    settle_locks(arranged, carried);
 
     published_clock_ = arranged.clock;
     published_song_samples_.store(arranged.song_samples, std::memory_order_release);
@@ -485,6 +577,8 @@ void SongEngine::take_queued_arrangement(bool seeked) noexcept {
     // A parameter no longer modulated is sent a last modulation of 0, so the
     // plugin does not keep the offset it had.
     if (live_ != nullptr) engine::release_sinks(*modulation_, live_->routing, incoming->routing);
+    // A parameter whose last step lock went is put back where it was.
+    for (const auto& release : incoming->lock_releases) engine::queue_release(*modulation_, release);
     live_ = incoming;
     song_samples_ = incoming->song_samples;
     // Done with the old slot: it is free for the next recompile.
@@ -1066,11 +1160,16 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     // modulates as playback did.
     {
         const auto sample = static_cast<double>(song_position);
-        const double beats = arranged.clock.tick_at(sample) /
-                             static_cast<double>(std::max<Tick>(1, arranged.ticks_per_beat));
+        const double tick = arranged.clock.tick_at(sample);
+        const double per_beat = static_cast<double>(std::max<Tick>(1, arranged.ticks_per_beat));
+        // Bars as the meter map lays them out, a bar of 7/8 as long as it is.
+        const auto bar = arranged.meter.bar_at(static_cast<Tick>(tick));
+        const auto bar_ticks = static_cast<double>(std::max<Tick>(1, arranged.meter.bar_length(bar)));
+        const double bars =
+            bar + (tick - static_cast<double>(arranged.meter.bar_start(bar))) / bar_ticks;
         engine::advance_modulators(*modulation_, arranged.routing,
-                                   {from_timeline, sample / sample_rate_, beats, transport.bpm,
-                                    sample_rate_, frames});
+                                   {from_timeline, sample / sample_rate_, tick / per_beat, bars,
+                                    bar_ticks / per_beat, transport.bpm, sample_rate_, frames});
     }
 
     // Instrument outputs written this chunk are known by this serial.

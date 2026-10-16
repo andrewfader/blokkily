@@ -21,23 +21,26 @@ constexpr const char* shape_names[] = {"SINE", "TRIANGLE", "SAW UP", "SAW DOWN",
 
 // A synced LFO's cycle, in beats (quarter notes), by the name the panel shows.
 // Each note value comes as a triplet (T, two thirds of it), straight, and
-// dotted (., half as long again).
+// dotted (., half as long again). Bars are counted in bars of the meter.
 struct Division {
     const char* name;
     double beats;
+    bool bars = false;
 };
 constexpr Division lfo_division_table[] = {
     {"1/16T", 0.25 * 2.0 / 3.0}, {"1/16", 0.25}, {"1/16.", 0.375},
     {"1/8T", 0.5 * 2.0 / 3.0},   {"1/8", 0.5},   {"1/8.", 0.75},
     {"1/4T", 2.0 / 3.0},         {"1/4", 1.0},   {"1/4.", 1.5},
     {"1/2T", 2.0 * 2.0 / 3.0},   {"1/2", 2.0},   {"1/2.", 3.0},
-    {"1 BAR", 4.0},              {"2 BARS", 8.0}, {"4 BARS", 16.0}};
+    {"1 BAR", 1.0, true},        {"2 BARS", 2.0, true}, {"4 BARS", 4.0, true}};
 
-// The division a cycle of `beats` is, or its beats when it is none of them.
-QString division_name(double beats) {
+// The division a cycle of `beats` (or bars) is, or its count when it is none
+// of them.
+QString division_name(double beats, bool bars) {
     for (const auto& division : lfo_division_table)
-        if (std::abs(division.beats - beats) < 1e-9) return QString::fromLatin1(division.name);
-    return QString("%1 BEATS").arg(beats, 0, 'g', 3);
+        if (division.bars == bars && std::abs(division.beats - beats) < 1e-9)
+            return QString::fromLatin1(division.name);
+    return QString(bars ? "%1 BARS" : "%1 BEATS").arg(beats, 0, 'g', 3);
 }
 
 std::optional<blokkily::BusKind> bus_kind(const QString& name) {
@@ -140,7 +143,8 @@ QVariantList SongModel::modulators() const {
             {"shape", QString::fromLatin1(shape_names[static_cast<std::size_t>(modulator.shape)])},
             {"rateHz", modulator.rate_hz},
             {"synced", modulator.sync_beats > 0.0},
-            {"division", modulator.sync_beats > 0.0 ? division_name(modulator.sync_beats)
+            {"division", modulator.sync_beats > 0.0 ? division_name(modulator.sync_beats,
+                                                                  modulator.sync_in_bars)
                                                     : QString()},
             {"rateText", QString("%1 Hz").arg(modulator.rate_hz, 0, 'f',
                                               modulator.rate_hz < 10.0 ? 2 : 1)},
@@ -267,6 +271,7 @@ void SongModel::setModulatorSync(int modulator, bool synced) {
     if ((found->sync_beats > 0.0) == synced) return;
     checkpoint();
     found->sync_beats = synced ? 1.0 : 0.0;
+    found->sync_in_bars = false;
     emit mixChanged();
     emit modulationChanged();
 }
@@ -276,9 +281,10 @@ void SongModel::setModulatorDivision(int modulator, const QString& division) {
     if (found == nullptr || found->kind != blokkily::Modulator::Kind::lfo) return;
     for (const auto& known : lfo_division_table) {
         if (division != QLatin1String(known.name)) continue;
-        if (found->sync_beats == known.beats) return;
+        if (found->sync_beats == known.beats && found->sync_in_bars == known.bars) return;
         checkpoint();
         found->sync_beats = known.beats;
+        found->sync_in_bars = known.bars;
         emit mixChanged();
         emit modulationChanged();
         return;

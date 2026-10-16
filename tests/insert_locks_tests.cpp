@@ -174,6 +174,61 @@ void instrument_untouched_case() {
                 std::to_string(level_at(left, 6000)));
 }
 
+// Scenario: Removing a lock puts its parameter back
+// features/parameter_lock_restore.feature. The CLAP synth (Level 0.25 of its
+// own) through the CLAP effect (Gain 0.25 of its own), a held key whose step
+// locks both. Each edit is recompiled into the running engine, then heard.
+void removed_restores_case() {
+    Song song;
+    song.patterns = {{"Locks", Pattern(16384, ticks_per_beat)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    song.tracks[0].instrument = {"CLAP", BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", {}};
+    song.tracks[0].inserts = {insert(clap_effect())};
+    Trigger held;
+    held.start = 0;
+    held.duration = 16000;
+    held.musical_data = Note{60, 1.0F};
+    held.locks = {{"Level", 0, 0.9, ParameterLock::Kind::automation, -1},
+                  {"Gain", 0, 0.5, ParameterLock::Kind::automation, 0}};
+    const auto id = song.patterns[0].pattern.add(held);
+    SongEngine engine;
+    build(engine, song);
+    engine.set_playing(true);
+    const auto heard = [&](const char* what) {
+        engine.seek(0);
+        const auto left = render(engine, 12000);
+        std::cerr << what << ": " << level_at(left, 6000) << '\n';
+        return left;
+    };
+    const auto relock = [&](std::vector<ParameterLock> locks) {
+        const auto* step = song.patterns[0].pattern.find(id);
+        require(step != nullptr, "the step is there");
+        auto edited = *step;
+        edited.locks = std::move(locks);
+        require(song.patterns[0].pattern.update(id, edited), "the step takes its new locks");
+        std::string error;
+        require(engine.recompile(song, 0, &error), "the edit recompiles: " + error);
+    };
+    require(plateau(heard("locked"), 2000, 12000, 0.45F), "locked: 0.9 x 0.5");
+
+    // The Gain's value lock becomes a modulation of +0.5: the value lock's
+    // 0.5 goes, and the effect's own 0.25 is what the offset adds to.
+    relock({{"Level", 0, 0.9, ParameterLock::Kind::automation, -1},
+            {"Gain", 0, 0.5, ParameterLock::Kind::modulation, 0}});
+    require(plateau(heard("gain modulated"), 2000, 12000, 0.9F * 0.75F),
+            "the Gain is its own 0.25 plus 0.5: 0.9 x 0.75");
+
+    // Every lock removed, in two edits the callback never sees apart: the
+    // instrument's Level and the effect's Gain are their own values again.
+    relock({{"Level", 0, 0.9, ParameterLock::Kind::automation, -1}});
+    relock({});
+    require(plateau(heard("unlocked"), 2000, 12000, 0.25F * 0.25F),
+            "with no locks the track is 0.25 x 0.25 again, as before it was locked");
+    // And it stays there: nothing is owed twice.
+    require(plateau(heard("again"), 2000, 12000, 0.25F * 0.25F), "and stays there");
+}
+
 // Scenario: Insert locks are bounced as they are heard
 void bounce_case() {
     const auto song = locked_song();
@@ -230,6 +285,99 @@ void project_case() {
             "a song with instrument locks only has no lockslot record");
 }
 
+// A song whose track is heard only through return 0: a steady signal sent
+// pre-fader at 0 dB, the track's own fader all but closed. Return 0 and the
+// master each carry the CLAP effect (Gain 0.25 of their own). The track's
+// steps lock return 0's Gain to 0.5 at 4000 and the master's to 0.75 at 8000.
+Song bus_locked_song() {
+    Song song;
+    song.patterns = {{"Locks", Pattern(16384, ticks_per_beat)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    song.returns = {ReturnBus{}};
+    song.returns[0].inserts = {insert(clap_effect())};
+    song.master_inserts = {insert(clap_effect())};
+    song.tracks[0].mix.gain_db = -120.0;
+    song.tracks[0].sends = {{0, 0.0, true}};
+    auto on_return = locked_step(4000, 0.5);
+    on_return.locks[0].bus_kind = BusKind::ret;
+    auto on_master = locked_step(8000, 0.75);
+    on_master.locks[0].bus_kind = BusKind::master;
+    (void)song.patterns[0].pattern.add(on_return);
+    (void)song.patterns[0].pattern.add(on_master);
+    return song;
+}
+
+double mean(const std::vector<float>& left, std::size_t from, std::size_t to) {
+    double sum = 0.0;
+    for (std::size_t sample = from; sample < to; ++sample) sum += left[sample];
+    return sum / static_cast<double>(to - from);
+}
+
+// Scenario: A step lock can move a return's or the master's insert
+void bus_locks_case() {
+    const auto song = bus_locked_song();
+    std::string why;
+    require(song.consistent(&why), "the song is valid: " + why);
+    float level = 1.0F;
+    const auto left = play(song, &level);
+    const double own = mean(left, 1000, 3500);
+    const double returned = mean(left, 5000, 7500);
+    const double mastered = mean(left, 10000, 16000);
+    std::cerr << "bus locks: " << own << ", " << returned << ", " << mastered << '\n';
+    require(own > 1e-3, "the return is heard through the master");
+    require(std::abs(returned / own - 2.0) < 1e-3,
+            "return A's Gain locked from 0.25 to 0.5 doubles the level");
+    require(std::abs(mastered / own - 6.0) < 1e-3,
+            "and the master's from 0.25 to 0.75 triples it again");
+}
+
+// Scenario: Locks on a return or the master are saved, and go with what they lock
+void bus_locks_model_case() {
+    Project project;
+    project.song = bus_locked_song();
+    const auto text = ProjectFile::serialize(project);
+    require(text.find(" 0 return 0\n") != std::string::npos && text.find(" 0 master\n") != std::string::npos,
+            "each lock names its bus");
+    std::string error;
+    const auto loaded = ProjectFile::parse(text, &error);
+    require(loaded.has_value(), "the project parses back: " + error);
+    require(ProjectFile::serialize(*loaded) == text, "the text round-trips byte for byte");
+    require(loaded->song.patterns[0].pattern.events()[0].locks[0].bus_kind == BusKind::ret &&
+                loaded->song.patterns[0].pattern.events()[1].locks[0].bus_kind == BusKind::master,
+            "the locks come back on the return and the master");
+    const auto count = [](const Song& song, BusKind kind) {
+        std::size_t found = 0;
+        for (const auto& trigger : song.patterns[0].pattern.events())
+            for (const auto& lock : trigger.locks) found += lock.bus_kind == kind ? 1 : 0;
+        return found;
+    };
+    auto song = project.song;
+    require(song.remove_insert(BusKind::master, 0, 0) && count(song, BusKind::master) == 0 &&
+                count(song, BusKind::ret) == 1,
+            "removing the master's effect takes its lock and leaves the return's");
+    song = project.song;
+    song.returns.push_back(ReturnBus{});
+    song.returns[1].inserts = {insert(clap_effect())};
+    auto later = locked_step(12000, 0.3);
+    later.locks[0].bus_kind = BusKind::ret;
+    later.locks[0].bus = 1;
+    (void)song.patterns[0].pattern.add(later);
+    require(song.remove_return(0), "return A is removed");
+    std::size_t moved = 0;
+    for (const auto& trigger : song.patterns[0].pattern.events())
+        for (const auto& lock : trigger.locks)
+            if (lock.bus_kind == BusKind::ret) moved += lock.bus == 0 ? 1 : 100;
+    require(moved == 1, "return A's lock goes and return B's follows it to the first return");
+    require(song.consistent(&error), "and the song is still valid: " + error);
+    auto broken = project.song;
+    auto stray = locked_step(100, 0.3);
+    stray.locks[0].bus_kind = BusKind::ret;
+    stray.locks[0].bus = 4;
+    (void)broken.patterns[0].pattern.add(stray);
+    require(!broken.consistent(), "a lock on a return that does not exist is refused");
+}
+
 // Scenario: Removing an insert takes its locks with it
 void remove_insert_case() {
     auto song = locked_song();
@@ -262,6 +410,9 @@ int main(int argc, char** argv) {
         {"bounce", bounce_case},
         {"project", project_case},
         {"remove_insert", remove_insert_case},
+        {"removed_restores", removed_restores_case},
+        {"bus_locks", bus_locks_case},
+        {"bus_locks_model", bus_locks_model_case},
     };
     if (argc != 2 || !cases.contains(argv[1])) {
         std::cerr << "usage: blokkily_insert_locks_tests <case>\n";

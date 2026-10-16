@@ -870,6 +870,15 @@ std::vector<ParameterInfo> ClapPluginInstance::parameters() const {
     return result;
 }
 
+std::optional<double> ClapPluginInstance::parameter_value(std::int32_t id) const {
+    if (!impl_ || id < 0) return std::nullopt;
+    const auto* params = impl_->extension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+    double value = 0.0;
+    if (!params || !params->get_value(impl_->plugin, static_cast<clap_id>(id), &value))
+        return std::nullopt;
+    return value;
+}
+
 std::size_t ClapPluginInstance::take_parameter_edits(std::span<ParameterEdit> out) noexcept {
     if (!impl_) return 0;
     std::size_t count = 0;

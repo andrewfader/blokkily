@@ -224,6 +224,10 @@ public:
     // of processor `slot` of its track: -1 the instrument, 0.. an insert
     // effect. A step with no lock gains one at 0.5, as automation.
     Q_INVOKABLE void setSelectedLockTarget(int slot, int parameter, const QString& name);
+    // The same, for insert `slot` (0..) of the bus `kind` ("track" the step's
+    // own track, "return" return `bus`, "master" the master bus).
+    Q_INVOKABLE void setSelectedLockTargetOn(const QString& kind, int bus, int slot, int parameter,
+                                             const QString& name);
     Q_INVOKABLE void clearSelectedLock();
     // Locks one parameter on the note that starts on `step`, beside any other
     // locks the step holds: a lock already on the same processor and

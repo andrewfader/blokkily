@@ -54,14 +54,12 @@ constexpr double default_gain = 60.0 / 72.0;
 SamplerInstrument::SamplerInstrument(AudioAssetCache* cache)
     : own_cache_(cache ? nullptr : std::make_unique<AudioAssetCache>()),
       cache_(cache ? cache : own_cache_.get()) {
-    base_.fill(0.0);
-    base_[sampler_parameter::gain] = default_gain;
-    base_[sampler_parameter::tune] = 0.5;
-    base_[sampler_parameter::attack] = 0.5;
-    base_[sampler_parameter::decay] = 0.5;
-    base_[sampler_parameter::sustain] = 0.5;
-    base_[sampler_parameter::release] = 0.5;
-    base_[sampler_parameter::start] = 0.0;
+    for (auto& base : base_) base.store(0.0, std::memory_order_relaxed);
+    base_[sampler_parameter::gain].store(default_gain, std::memory_order_relaxed);
+    for (const auto index : {sampler_parameter::tune, sampler_parameter::attack,
+                             sampler_parameter::decay, sampler_parameter::sustain,
+                             sampler_parameter::release})
+        base_[index].store(0.5, std::memory_order_relaxed);
     modulation_.fill(0.0);
 }
 
@@ -204,6 +202,11 @@ std::uint64_t SamplerInstrument::tail_samples() const noexcept {
     return tail_frames_.load(std::memory_order_relaxed);
 }
 
+std::optional<double> SamplerInstrument::parameter_value(std::int32_t id) const {
+    if (id < 0 || static_cast<std::size_t>(id) >= base_.size()) return std::nullopt;
+    return base_[static_cast<std::size_t>(id)].load(std::memory_order_relaxed);
+}
+
 std::vector<ParameterInfo> SamplerInstrument::parameters() const {
     return {
         {sampler_parameter::gain, "Gain", 0.0, 1.0, default_gain, true},
@@ -239,7 +242,7 @@ bool SamplerInstrument::load_state(std::span<const std::byte> state) {
 
 double SamplerInstrument::parameter(std::int32_t id) const noexcept {
     const auto index = static_cast<std::size_t>(id);
-    return std::clamp(base_[index] + modulation_[index], 0.0, 1.0);
+    return std::clamp(base_[index].load(std::memory_order_relaxed) + modulation_[index], 0.0, 1.0);
 }
 
 void SamplerInstrument::fast_release(Voice& voice) noexcept {
@@ -535,7 +538,7 @@ void SamplerInstrument::process(StereoBlock audio, std::span<const PluginEvent> 
             break;
         case PluginEvent::Type::parameter_value:
             if (event.key_or_parameter >= 0 && index < base_.size())
-                base_[index] = std::clamp(event.value, 0.0, 1.0);
+                base_[index].store(std::clamp(event.value, 0.0, 1.0), std::memory_order_relaxed);
             break;
         case PluginEvent::Type::parameter_modulation:
             if (event.key_or_parameter >= 0 && index < modulation_.size())

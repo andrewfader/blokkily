@@ -129,6 +129,7 @@ void apply_modulation_controls(ModulationPlayback& playback, const Song& song) n
         controls.rate_hz.store(static_cast<float>(modulator.rate_hz), std::memory_order_relaxed);
         controls.sync_beats.store(static_cast<float>(modulator.sync_beats),
                                   std::memory_order_relaxed);
+        controls.sync_in_bars.store(modulator.sync_in_bars, std::memory_order_relaxed);
         controls.value.store(static_cast<float>(std::clamp(modulator.value, 0.0, 1.0)),
                              std::memory_order_relaxed);
         controls.attack_ms.store(static_cast<float>(modulator.attack_ms), std::memory_order_relaxed);
@@ -168,15 +169,17 @@ void advance_modulators(ModulationPlayback& playback, const ArrangementRouting& 
         case Modulator::Kind::lfo: {
             const double rate = controls.rate_hz.load(std::memory_order_relaxed);
             const double sync = controls.sync_beats.load(std::memory_order_relaxed);
+            const bool bars = controls.sync_in_bars.load(std::memory_order_relaxed);
             double phase = state.free_phase;
             if (time.rolling) {
-                phase = sync > 0.0 ? time.beats / sync : time.seconds * rate;
+                phase = sync > 0.0 ? (bars ? time.bars : time.beats) / sync : time.seconds * rate;
                 state.free_phase = phase;
             }
             const auto shape = static_cast<LfoShape>(controls.shape.load(std::memory_order_relaxed));
             state.output = lfo_value(shape, phase);
             if (!time.rolling && time.sample_rate > 0.0) {
-                const double cycles_per_second = sync > 0.0 ? time.bpm / 60.0 / sync : rate;
+                const double beats = bars ? sync * time.beats_per_bar : sync;
+                const double cycles_per_second = sync > 0.0 ? time.bpm / 60.0 / beats : rate;
                 state.free_phase = std::fmod(
                     phase + cycles_per_second * static_cast<double>(time.frames) / time.sample_rate,
                     1.0e6);
@@ -213,7 +216,7 @@ std::size_t modulation_events(ModulationPlayback& playback, const ArrangementRou
     std::size_t count = 0;
     for (auto& released : playback.released) {
         if (!released.pending || !(released.where == where) || count >= out.size()) continue;
-        out[count++] = {PluginEvent::Type::parameter_modulation, 0, released.parameter, 0.0};
+        out[count++] = {released.type, 0, released.parameter, released.value};
         released.pending = false;
     }
     for (const auto& sink : routing.sinks) {
@@ -239,6 +242,15 @@ std::optional<std::uint32_t> sidechain_source(const ArrangementRouting& routing,
     for (const auto& key : routing.keys)
         if (key.where == where) return key.source;
     return std::nullopt;
+}
+
+void queue_release(ModulationPlayback& playback, const ReleasedSink& release) noexcept {
+    for (auto& released : playback.released)
+        if (!released.pending) {
+            released = release;
+            released.pending = true;
+            return;
+        }
 }
 
 void reset_modulation(ModulationPlayback& playback) noexcept {

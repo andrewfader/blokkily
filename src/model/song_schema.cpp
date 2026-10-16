@@ -105,7 +105,8 @@ bool modulator_ok(const Song& song, const Modulator& modulator, std::string* why
     if (modulator.shape > LfoShape::sample_and_hold)
         return refuse(why, "an LFO has an unknown shape");
     if (!in_range(modulator.rate_hz, Modulator::minimum_rate_hz, Modulator::maximum_rate_hz) ||
-        !in_range(modulator.sync_beats, 0.0, Modulator::maximum_sync_beats))
+        !in_range(modulator.sync_beats, 0.0, Modulator::maximum_sync_beats) ||
+        (modulator.sync_in_bars && modulator.sync_beats <= 0.0))
         return refuse(why, "an LFO's rate is out of range");
     if (!in_range(modulator.value, 0.0, 1.0))
         return refuse(why, "a macro's value is outside 0..1");
@@ -219,6 +220,17 @@ bool Song::consistent(std::string* why) const {
         for (const auto& control : named.pattern.continuous())
             if (!Pattern::valid_continuous(control, named.pattern.length()))
                 return refuse(why, "a controller event lies outside its pattern or range");
+    // A lock on a return or the master names an insert of a bus that exists.
+    for (const auto& named : patterns)
+        for (const auto& trigger : named.pattern.events())
+            for (const auto& lock : trigger.locks) {
+                if (lock.bus_kind == BusKind::track) continue;
+                const bool bus_ok = lock.bus_kind == BusKind::ret
+                                        ? lock.bus < returns.size()
+                                        : lock.bus_kind == BusKind::master && lock.bus == 0;
+                if (!bus_ok || lock.slot < 0)
+                    return refuse(why, "a step lock refers to a return or master insert that does not exist");
+            }
     for (const auto& clip : clips)
         if (clip.track >= tracks.size() || clip.pattern >= patterns.size() || clip.start < 0)
             return refuse(why, "a clip refers to a track or pattern that does not exist");
@@ -237,6 +249,8 @@ bool Song::consistent(std::string* why) const {
     }
 
     for (const auto& scene : launcher.scenes) {
+        if (scene.tempo_bpm != 0.0 && !(scene.tempo_bpm >= minimum_bpm && scene.tempo_bpm <= maximum_bpm))
+            return refuse(why, "a scene's tempo is out of range");
         for (std::size_t t = 0; t < scene.cells.size(); ++t) {
             if (scene.cells[t].has_value()) {
                 if (t >= tracks.size() || scene.cells[t]->pattern >= patterns.size())
@@ -409,6 +423,19 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
 }
 
 namespace {
+// Hands every step's locks, in every pattern, to `edit`, which says whether
+// it changed them; a changed step is written back.
+template <typename Edit>
+void edit_locks(Song& song, Edit edit) {
+    for (auto& named : song.patterns) {
+        // A copy: update() may move the events it walks.
+        const std::vector<Trigger> triggers(named.pattern.events().begin(),
+                                            named.pattern.events().end());
+        for (auto trigger : triggers)
+            if (edit(trigger.locks)) (void)named.pattern.update(trigger.id, trigger);
+    }
+}
+
 // Drops what drives the processor at `removed` and moves what drives the
 // processors after it on the same bus down one slot, for every automation
 // lane and modulation target; `on_bus` says whether an address is on the
@@ -479,6 +506,25 @@ bool Song::remove_insert(BusKind kind, std::size_t bus, std::size_t slot) {
                 if (moved) (void)pattern.update(trigger.id, trigger);
             }
         }
+    } else {
+        // A return's or the master's: any track's steps may lock it.
+        edit_locks(*this, [kind, bus, removed = static_cast<std::int32_t>(slot)](
+                              std::vector<ParameterLock>& locks) {
+            const auto here = [&](const ParameterLock& lock) {
+                return lock.bus_kind == kind && lock.bus == bus;
+            };
+            const auto before = locks.size();
+            std::erase_if(locks, [&](const ParameterLock& lock) {
+                return here(lock) && lock.slot == removed;
+            });
+            bool moved = locks.size() != before;
+            for (auto& lock : locks)
+                if (here(lock) && lock.slot > removed) {
+                    --lock.slot;
+                    moved = true;
+                }
+            return moved;
+        });
     }
     return true;
 }
@@ -507,6 +553,20 @@ bool Song::remove_return(std::size_t bus) {
                       [&](const ModulationTarget& target) { return on_return(target.processor); });
         for (auto& target : modulator.targets) later(target.processor);
     }
+    // Step locks on the return go with it; those on later returns follow.
+    edit_locks(*this, [bus](std::vector<ParameterLock>& locks) {
+        const auto before = locks.size();
+        std::erase_if(locks, [bus](const ParameterLock& lock) {
+            return lock.bus_kind == BusKind::ret && lock.bus == bus;
+        });
+        bool moved = locks.size() != before;
+        for (auto& lock : locks)
+            if (lock.bus_kind == BusKind::ret && lock.bus > bus) {
+                --lock.bus;
+                moved = true;
+            }
+        return moved;
+    });
     return true;
 }
 

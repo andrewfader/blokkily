@@ -163,15 +163,18 @@ void compile_automation(ArrangementAutomation& target, const Song& song, const T
         }
     }
 
-    // Step locks on a track's insert effects: one lane per locked parameter
-    // and kind of each insert, a point on each step that locks it. They play
-    // whatever the track's automation mode, as instrument locks do.
+    // Step locks on insert effects - the track's own, a return's or the
+    // master's: one lane per locked parameter and kind of each insert, a
+    // point on each step that locks it, whichever track's step it is. They
+    // play whatever the track's automation mode, as instrument locks do.
     for (std::size_t track = 0; track < arranged.size() && track < tracks; ++track) {
         for (const auto& parameter : arranged[track].parameters) {
             if (parameter.slot < 0) continue;
             const bool modulation = parameter.kind == ParameterLock::Kind::modulation;
-            auto& processor = processor_entry(
-                target, {BusKind::track, static_cast<std::uint32_t>(track), parameter.slot});
+            const auto bus = parameter.bus_kind == BusKind::track
+                                 ? static_cast<std::uint32_t>(track)
+                                 : parameter.bus;
+            auto& processor = processor_entry(target, {parameter.bus_kind, bus, parameter.slot});
             auto lane = std::find_if(processor.lanes.begin(), processor.lanes.end(),
                                      [&](const ParameterLaneTimeline& existing) {
                                          return existing.locks &&

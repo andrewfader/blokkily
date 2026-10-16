@@ -20,7 +20,8 @@ if(BLOKKILY_BUILD_TESTS)
     target_compile_options(blokkily_insert_locks_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_insert_locks_tests blokkily_test_clap blokkily_test_clap_effect)
-    foreach(lock_case heard modulation instrument_untouched bounce project remove_insert)
+    foreach(lock_case heard modulation instrument_untouched bounce project remove_insert
+            removed_restores bus_locks bus_locks_model)
         add_test(NAME insert_locks_${lock_case} COMMAND blokkily_insert_locks_tests ${lock_case})
         set_tests_properties(insert_locks_${lock_case} PROPERTIES
             LABELS "bdd;unit;integration;audio;effects;clap;parameters"

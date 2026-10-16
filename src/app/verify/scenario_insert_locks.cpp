@@ -4,7 +4,9 @@
 // otherwise). A step's lock is pointed at the effect from the rendered
 // inspector's ON and PARAM pickers. Played from that step, through the
 // production render callback, the track is heard at twice the level, the
-// tracker marks the lock as the first effect's, and undo takes it back.
+// tracker marks the lock as the first effect's, and undo takes it back and
+// the effect plays its own Gain again. Then the ON picker points the lock at
+// the master's CLAP effect, heard on the master.
 
 #include "verify/harness.hpp"
 
@@ -147,14 +149,21 @@ void run_insert_locks(VerifyContext& ctx) {
                   << unlocked << ", not twice\n";
     reached("insert locks: the step is heard through the effect at its locked Gain");
 
-    // Each pick is one step of history: undone, the step has no lock, and
-    // redone it is heard at the locked Gain again. (A lock sets its value
-    // from its step on; removing it leaves the effect where it was put, as
-    // removing an instrument lock does.)
+    // Each pick is one step of history: undone, the step has no lock and the
+    // effect is back at its own Gain, and redone it is heard at the locked
+    // Gain again.
     const bool undone_twice = song.undo() && song.undo();
     lay_out();
     check(undone_twice && !pattern.selected().value("hasLock").toBool() &&
           pattern.steps().at(0).toMap().value("lockText").toString() == "---");
+    controller.flushRecompile();
+    const float restored = step_level();
+    details << " | restored " << restored;
+    check(std::abs(restored / unlocked - 1.0F) < 0.02F);
+    if (!(std::abs(restored / unlocked - 1.0F) < 0.02F))
+        std::cerr << "insert locks: with the lock removed the step is heard at " << restored
+                  << ", not its unlocked " << unlocked << '\n';
+    reached("insert locks: removing the lock puts the effect's Gain back");
     check(song.redo() && song.redo());
     lay_out();
     check(pattern.selected().value("lockSlot").toInt() == 0 &&
@@ -163,6 +172,55 @@ void run_insert_locks(VerifyContext& ctx) {
     check(std::abs(redone / unlocked - 2.0F) < 0.02F);
     details << " | redone " << redone;
     reached("insert locks: undo and redo");
+
+    // The master's CLAP effect, offered to every track's steps. The step's
+    // lock is cleared, then pointed at the master's Gain from ON.
+    pattern.clearSelectedLock();
+    check(song.addInsert(BusKind::master, 0,
+                         {"CLAP", parser.value("clap-effect-fixture").toStdString(),
+                          "dev.blokkily.test.effect", {}}));
+    controller.flushRecompile();
+    lay_out();
+    const auto master_level = [&] {
+        controller.seekToStep(0);
+        controller.togglePlayback();
+        float loudest = 0.0F;
+        for (int block = 0; block < 6; ++block) {
+            (void)ctx.pump();
+            if (controller.engine() != nullptr)
+                loudest = std::max(loudest, controller.engine()->master_peak());
+        }
+        controller.togglePlayback();
+        (void)ctx.pump();
+        return loudest;
+    };
+    const float master_own = master_level();
+    details << " | master " << master_own;
+    check(master_own > 1e-4F);
+    show_inspector();
+    QStringList names;
+    for (const auto& choice : song.lockTargetChoices(0)) names << choice.toMap().value("name").toString();
+    qsizetype master_row = -1;
+    for (qsizetype row = 0; row < names.size() && master_row < 0; ++row)
+        if (names[row].startsWith(QStringLiteral("MASTER · FX 1 · "))) master_row = row;
+    check(master_row == 2);
+    pick("lockTarget", static_cast<int>(master_row));
+
+    pick("lockParameter", 0);
+    const auto on_master = pattern.selected();
+    check(on_master.value("lockKind").toString() == "master" &&
+          on_master.value("lockSlot").toInt() == 0 &&
+          on_master.value("lockName").toString() == "Gain");
+    check(target != nullptr && target->property("value").toString() == names.value(master_row));
+    const auto master_text = pattern.steps().at(0).toMap().value("lockText").toString();
+    check(master_text.startsWith("MF1A"));
+    const float master_locked = master_level();
+    details << " | master locked " << master_locked << " (" << master_text.toStdString() << ")";
+    check(std::abs(master_locked / master_own - 2.0F) < 0.02F);
+    if (!(std::abs(master_locked / master_own - 2.0F) < 0.02F))
+        std::cerr << "insert locks: the master locked is heard at " << master_locked << ", not twice "
+                  << master_own << '\n';
+    reached("insert locks: ON points the lock at the master's effect, heard on the master");
 
     controller.seekToStep(0);
     pattern.selectStep(0);

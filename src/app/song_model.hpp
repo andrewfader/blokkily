@@ -152,11 +152,12 @@ class SongModel final : public QObject {
     Q_PROPERTY(QVariantList modulators READ modulators NOTIFY modulationChanged)
     Q_PROPERTY(QStringList lfoShapes READ lfoShapes CONSTANT)
     // The note values a synced LFO's cycle can last, shortest first ("1/16"
-    // ... "4 BARS"; a bar here is four beats).
+    // ... "4 BARS"; a bar is as long as the meter's bar it falls in).
     Q_PROPERTY(QStringList lfoDivisions READ lfoDivisions CONSTANT)
     // The scene launcher (phase 2, wave 6.1; song_model_launcher.cpp). One
-    // row per scene: {index, name, cells: [{track, filled, pattern, name,
-    // repeats, quantization, follow}]}, a cell per track of the song. The
+    // row per scene: {index, name, tempo (0: the song's), tempoText, cells:
+    // [{track, filled, pattern, name, repeats, quantization, follow}]}, a
+    // cell per track of the song. The
     // grid's own quantization (a whole scene's launch, and stops), and the
     // names of the quantizations and follow actions in their menus' order.
     Q_PROPERTY(QVariantList launcherScenes READ launcherScenes NOTIFY arrangementChanged)
@@ -434,6 +435,11 @@ public:
     // What a step lock on `track` can target, in slot order: "INSTRUMENT"
     // (slot -1), then each insert effect as "FX 1 · <name>" (slot 0..).
     Q_INVOKABLE QStringList lockTargets(int track) const;
+    // The same, each as {name, kind, bus, slot}, followed by every return's
+    // inserts ("RETURN A · FX 1 · <name>", kind "return") and the master's
+    // ("MASTER · FX 1 · <name>", kind "master"), which any track's steps can
+    // lock.
+    Q_INVOKABLE QVariantList lockTargetChoices(int track) const;
     Q_INVOKABLE int addReturn();
     Q_INVOKABLE bool removeReturn(int bus);
     // Mixer moves: live on the running engine, never a rebuild.
@@ -641,6 +647,9 @@ public:
     Q_INVOKABLE int addScene();
     Q_INVOKABLE bool removeScene(int scene);
     Q_INVOKABLE bool renameScene(int scene, const QString& name);
+    // The tempo launching the whole scene plays at, clamped to 20..300 BPM;
+    // 0 or less gives the scene the song's own tempo again.
+    Q_INVOKABLE bool setSceneTempo(int scene, double bpm);
     // Puts pattern `pattern` in a cell (keeping the cell's other settings),
     // or empties it.
     Q_INVOKABLE bool setLauncherCell(int scene, int track, int pattern);

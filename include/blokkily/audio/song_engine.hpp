@@ -75,6 +75,7 @@ struct BusPlayback;
 struct InsertChain;
 struct MetronomePlayback;
 struct ModulationPlayback;
+struct ReleasedSink;
 struct LauncherPlayback;
 struct LauncherHandoff;
 struct TestAccess;
@@ -719,6 +720,18 @@ private:
     // The modulators' live controls and what the callback keeps between
     // chunks for them (waves 5.1): allocated with the engine.
     std::unique_ptr<engine::ModulationPlayback> modulation_;
+    // Control thread (features/insert_locks.feature): each
+    // parameter a step lock moves, and the value it had before its first
+    // lock, kept while some lock still moves it.
+    struct LockBase {
+        ProcessorAddress where;
+        std::int32_t parameter = 0;
+        bool modulation = false;
+        const PluginInstance* instance = nullptr;
+        double value = 0.0;
+    };
+    std::vector<LockBase> lock_bases_;
+    void settle_locks(engine::Arrangement& target, std::span<const engine::ReleasedSink> carried);
     // A track's post-fader signal for the output taps, so the track's own
     // buffer stays pre-fader for the sidechain keys and followers that read
     // it after it rendered. Sized by prepare(); callback only.

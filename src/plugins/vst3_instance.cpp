@@ -1024,6 +1024,14 @@ std::vector<ParameterInfo> Vst3PluginInstance::parameters() const {
     });
 }
 
+std::optional<double> Vst3PluginInstance::parameter_value(std::int32_t id) const {
+    // The automation base: what automation or the plugin's own window last
+    // set, the modulation offset kept apart from it.
+    if (!impl_ || !impl_->automation || id < 0 || static_cast<std::size_t>(id) >= impl_->parameter_count)
+        return std::nullopt;
+    return static_cast<double>(impl_->automation[static_cast<std::size_t>(id)].load(std::memory_order_relaxed));
+}
+
 std::size_t Vst3PluginInstance::take_parameter_edits(std::span<ParameterEdit> out) noexcept {
     if (!impl_) return 0;
     std::size_t count = 0;

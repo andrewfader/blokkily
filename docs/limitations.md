@@ -33,11 +33,12 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Parameter locks and routing
 
-- Step locks can target the track's instrument or its insert effects, not a
-  return or the master bus. A launched scene cell plays its instrument's locks
-  only.
-- A step lock sets its parameter from that step on. Removing a lock leaves the
-  parameter where the last lock put it until the project is reloaded.
+- A launched scene cell plays its instrument's locks only; locks on insert
+  effects, the track's, a return's or the master's, are heard from the
+  arrangement.
+- A step lock sets its parameter from that step on. Removing the last lock
+  on a parameter puts back the value it had when it was first locked; a
+  value the producer set while it was locked is not kept.
 - Only the first auxiliary input of a CLAP or VST3 effect receives a sidechain
   key, as a stereo or mono signal. Other sidechain inputs receive silence.
 - VST3 extra buses are used only with a stereo main bus.
@@ -48,7 +49,6 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   synced LFO therefore turns on in the block after its beat.
 - A follower targeting its own track, or a track that the render order cannot
   place after its source, receives the previous block's level.
-- A modulation "bar" is four beats regardless of the song's meter.
 
 ## Arrangement loop
 
@@ -57,7 +57,9 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Scene launcher
 
-- Scenes have no individual tempo settings.
+- A scene's tempo takes effect when the scene is launched, not at the bar
+  where its cells start; it is for playing live and is not printed into the
+  arrangement with REC ARRANGEMENT.
 - Export always renders the arrangement. Live launched tracks must be recorded
   into the arrangement to appear in an export.
 - When a printed take leaves the tail of an earlier clip, that tail does not

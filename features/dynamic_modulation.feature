@@ -46,6 +46,14 @@ Feature: Modulators move plugin parameters while the song plays
     And the fixture receives modulations of +/- the depth
     And after the tempo is edited to 240 BPM and recompiled it turns every 6000 samples
 
+  # dynamic_modulation_lfo_bar_sync
+  Scenario: A bar is as long as the meter says
+    Given a square LFO synced to 1 BAR, aimed at the CLAP synth's Level
+    And a song at 120 BPM in 3/4 for four bars and 7/8 for four more
+    When the song plays
+    Then the level turns every 36000 samples in 3/4 and every 42000 in 7/8, not every 48000 as a four-beat bar would
+    And its cycle starts again with the first bar of 7/8
+
   # dynamic_modulation_macro_live
   Scenario: A macro is turned while the song plays
     Given two macros on the CLAP instrument's Level, one also on a CLAP insert's Gain
@@ -79,6 +87,7 @@ Feature: Modulators move plugin parameters while the song plays
     Given a song with an LFO, a macro, a follower and a keyed compressor
     When it is saved and loaded, or loaded from a file saved before modulation existed
     Then it reads back exactly, and the older file loads with no modulators
+    And a cycle counted in bars keeps its unit, and a file saved before the unit existed loads its 1, 2 and 4 BARS as bars
     And a target on a missing processor, an out-of-range value, a follower of nothing or a doubled target is refused
     And removing an insert or a track takes its targets and moves the rest to where their processors went
 

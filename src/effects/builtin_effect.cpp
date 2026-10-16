@@ -60,6 +60,11 @@ void BuiltinEffect::reset() {
     dirty_.store(true, std::memory_order_relaxed);
 }
 
+std::optional<double> BuiltinEffect::parameter_value(std::int32_t id) const {
+    if (id < 0 || static_cast<std::size_t>(id) >= specs_.size()) return std::nullopt;
+    return base(static_cast<std::size_t>(id));
+}
+
 double BuiltinEffect::base(std::size_t id) const noexcept {
     return id < specs_.size() ? base_[id].load(std::memory_order_relaxed) : 0.0;
 }

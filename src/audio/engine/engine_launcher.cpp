@@ -344,7 +344,7 @@ void compile_launcher(ArrangementLauncher& target, const Song& song, std::uint64
             for (const auto& parameter : rendered.parameters) {
                 // A launched cell plays its instrument's locks only; an
                 // insert's locks are heard from the arrangement.
-                if (parameter.slot >= 0) continue;
+                if (parameter.slot >= 0 || parameter.bus_kind != BusKind::track) continue;
                 const auto type = parameter.kind == ParameterLock::Kind::modulation
                                       ? PluginEvent::Type::parameter_modulation
                                       : PluginEvent::Type::parameter_value;

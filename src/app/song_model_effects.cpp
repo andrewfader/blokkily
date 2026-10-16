@@ -279,6 +279,28 @@ QStringList SongModel::lockTargets(int track) const {
     return targets;
 }
 
+QVariantList SongModel::lockTargetChoices(int track) const {
+    QVariantList choices;
+    const auto add = [&choices](const QString& name, const QString& kind, int bus, int slot) {
+        choices.append(QVariantMap{{"name", name}, {"kind", kind}, {"bus", bus}, {"slot", slot}});
+    };
+    const auto own = lockTargets(track);
+    for (int index = 0; index < own.size(); ++index) add(own[index], "track", track, index - 1);
+    for (std::size_t bus = 0; bus < song_.returns.size(); ++bus) {
+        const auto& inserts = song_.returns[bus].inserts;
+        for (std::size_t index = 0; index < inserts.size(); ++index)
+            add(QString("RETURN %1 · FX %2 · %3")
+                    .arg(return_letter(bus))
+                    .arg(index + 1)
+                    .arg(effectLabel(inserts[index].plugin)),
+                "return", static_cast<int>(bus), static_cast<int>(index));
+    }
+    for (std::size_t index = 0; index < song_.master_inserts.size(); ++index)
+        add(QString("MASTER · FX %1 · %2").arg(index + 1).arg(effectLabel(song_.master_inserts[index].plugin)),
+            "master", 0, static_cast<int>(index));
+    return choices;
+}
+
 bool SongModel::removeInsert(const QString& kind, int bus, int slot) {
     const auto parsed = bus_kind_from(kind);
     if (!parsed) return false;

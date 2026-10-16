@@ -38,6 +38,7 @@ public:
     std::uint64_t tail_samples() const noexcept override;
     bool latency_changed() noexcept override;
     std::vector<ParameterInfo> parameters() const override;
+    std::optional<double> parameter_value(std::int32_t id) const override;
     // Edits the plugin pushed through out_events during process(), or during
     // a main-thread flush while inactive, in the order it pushed them.
     std::size_t take_parameter_edits(std::span<ParameterEdit> out) noexcept override;

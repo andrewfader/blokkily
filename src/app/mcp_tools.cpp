@@ -175,6 +175,9 @@ QJsonObject McpTools::getPattern(const QJsonObject& arguments) const {
             for (const auto& lock : trigger.locks)
                 locks.append(QJsonObject{
                     {"slot", lock.slot},
+                    {"bus", lock.bus_kind == blokkily::BusKind::ret      ? QString("return %1").arg(lock.bus)
+                            : lock.bus_kind == blokkily::BusKind::master ? QString("master")
+                                                                         : QString("track")},
                     {"parameter", lock.parameter_index},
                     {"name", QString::fromStdString(lock.parameter_id)},
                     {"value", lock.value},

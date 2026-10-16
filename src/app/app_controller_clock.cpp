@@ -16,13 +16,17 @@ void AppController::setFollowClock(bool on) {
     while (midi_input_->next_clock_event(stale)) {}
     if (!on && followed_bpm_) {
         followed_bpm_.reset();
-        if (engine_) {
-            engine_->set_tempo_override(std::nullopt);
-            (void)refreshArrangement();
-        }
-        syncTimebase();
+        applyTempoOverride();
     }
     emit clockChanged();
+}
+
+void AppController::applyTempoOverride() {
+    if (engine_ && engine_->tempo_override() != tempoOverride()) {
+        engine_->set_tempo_override(tempoOverride());
+        (void)refreshArrangement();
+    }
+    syncTimebase();
 }
 
 QString AppController::clockStatus() const {
@@ -68,11 +72,7 @@ void AppController::serveClock() {
     const auto bpm = clock_follower_.bpm(latest != 0 ? latest : blokkily::monotonic_ns());
     if (bpm && (!followed_bpm_ || std::abs(*bpm - *followed_bpm_) > 0.05)) {
         followed_bpm_ = std::round(*bpm * 100.0) / 100.0;
-        if (engine_) {
-            engine_->set_tempo_override(followed_bpm_);
-            (void)refreshArrangement();
-        }
-        syncTimebase();
+        applyTempoOverride();
         moved = true;
     }
     if (moved) emit clockChanged();

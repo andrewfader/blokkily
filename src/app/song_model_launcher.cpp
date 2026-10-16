@@ -9,6 +9,7 @@
 #include <QtGlobal>
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <optional>
 
@@ -71,8 +72,12 @@ QVariantList SongModel::launcherScenes() const {
                 {"follow", follow_name(filled ? slot->follow_action : blokkily::FollowAction::none)},
             });
         }
+        const double tempo = launcher.scenes[scene].tempo_bpm;
         rows.push_back(QVariantMap{{"index", static_cast<int>(scene)},
                                    {"name", QString::fromStdString(launcher.scenes[scene].name)},
+                                   {"tempo", tempo},
+                                   {"tempoText", tempo > 0.0 ? QString::number(tempo, 'f', 1)
+                                                             : QStringLiteral("SONG")},
                                    {"cells", cells}});
     }
     return rows;
@@ -114,6 +119,19 @@ bool SongModel::removeScene(int scene) {
     checkpoint();
     (void)song_.launcher.remove_scene(static_cast<std::size_t>(scene));
     notifyStructureChanged();
+    return true;
+}
+
+bool SongModel::setSceneTempo(int scene, double bpm) {
+    if (scene < 0 || static_cast<std::size_t>(scene) >= song_.launcher.scenes.size() ||
+        !std::isfinite(bpm))
+        return false;
+    const double tempo = bpm <= 0.0 ? 0.0 : std::clamp(bpm, blokkily::minimum_bpm, blokkily::maximum_bpm);
+    auto& target = song_.launcher.scenes[static_cast<std::size_t>(scene)].tempo_bpm;
+    if (target == tempo) return true;
+    checkpoint(QString("scene-tempo:%1").arg(scene));
+    target = tempo;
+    announceSong();
     return true;
 }
 

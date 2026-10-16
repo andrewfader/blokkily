@@ -56,10 +56,13 @@ struct SceneSlot {
 };
 
 // One row across the tracks. `cells` is indexed by track and may be shorter
-// than the song's track list: a missing cell is an empty one.
+// than the song's track list: a missing cell is an empty one. `tempo_bpm`,
+// when not 0, is the tempo launching the whole scene plays at, until the
+// launcher is stopped; the song's own tempo map is never edited by it.
 struct Scene {
     std::string name;
     std::vector<std::optional<SceneSlot>> cells;
+    double tempo_bpm = 0.0;
 
     friend bool operator==(const Scene&, const Scene&) = default;
 };

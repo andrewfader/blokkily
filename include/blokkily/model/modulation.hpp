@@ -44,10 +44,13 @@ struct Modulator {
     Kind kind = Kind::lfo;
     std::string name = "LFO";
     // LFO: its shape and speed. `sync_beats` > 0 locks one cycle to that many
-    // beats of the tempo map; 0 runs free at `rate_hz`.
+    // beats of the tempo map; 0 runs free at `rate_hz`. With `sync_in_bars`
+    // it counts bars of the meter map instead, each as long as the bar it
+    // falls in: a bar of 3/4 is three beats, one of 7/8 three and a half.
     LfoShape shape = LfoShape::sine;
     double rate_hz = 1.0;
     double sync_beats = 0.0;
+    bool sync_in_bars = false;
     // Macro: the knob, 0..1.
     double value = 0.0;
     // Follower: the track whose level it follows (after its inserts, before

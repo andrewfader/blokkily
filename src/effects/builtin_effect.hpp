@@ -40,6 +40,7 @@ public:
     std::string format() const override { return std::string(builtin_effect_format); }
     PluginPorts ports() const override { return {2, false}; }
     std::vector<ParameterInfo> parameters() const override;
+    std::optional<double> parameter_value(std::int32_t id) const override;
     void set_transport(const TransportInfo& transport) noexcept override;
     void set_sidechain(StereoBlock sidechain) noexcept override { sidechain_ = sidechain; }
     // Clears every bit of signal state (clear()), keeping the parameters.

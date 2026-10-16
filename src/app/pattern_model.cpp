@@ -130,10 +130,15 @@ QString lock_text(const blokkily::Trigger& trigger) {
     if (trigger.locks.empty()) return QStringLiteral("---");
     const auto& lock = trigger.locks.front();
     // Tracker-style effect column: the insert it locks (F1, F2.. for the
-    // track's first, second effect; nothing for the instrument), its kind,
+    // track's first, second effect, RAF1 for return A's first, MF1 for the
+    // master's first; nothing for the instrument), its kind,
     // parameter index, then the value.
     return QString("%1%2%3%4")
-        .arg(lock.slot >= 0 ? QString("F%1").arg(lock.slot + 1) : QString())
+        .arg(lock.slot < 0 ? QString()
+             : lock.bus_kind == blokkily::BusKind::ret
+                 ? QString("R%1F%2").arg(QChar('A' + static_cast<int>(lock.bus % 26))).arg(lock.slot + 1)
+             : lock.bus_kind == blokkily::BusKind::master ? QString("MF%1").arg(lock.slot + 1)
+                                                          : QString("F%1").arg(lock.slot + 1))
         .arg(lock.kind == blokkily::ParameterLock::Kind::modulation ? "M" : "A")
         .arg(lock.parameter_index, 1, 16)
         .arg(hex2(qRound(lock.value * 127.0)));
@@ -684,9 +689,15 @@ QVariantMap PatternModel::selected() const {
         detail["lockValue"] = lock.value;
         detail["lockModulation"] = lock.kind == blokkily::ParameterLock::Kind::modulation;
         detail["lockSlot"] = lock.slot;
+        detail["lockKind"] = lock.bus_kind == blokkily::BusKind::ret      ? QStringLiteral("return")
+                             : lock.bus_kind == blokkily::BusKind::master ? QStringLiteral("master")
+                                                                          : QStringLiteral("track");
+        detail["lockBus"] = static_cast<int>(lock.bus);
         detail["lockName"] = QString::fromStdString(lock.parameter_id);
     } else {
         detail["lockSlot"] = -1;
+        detail["lockKind"] = QStringLiteral("track");
+        detail["lockBus"] = 0;
         detail["lockName"] = QString();
         detail["lockIndex"] = 0;
         detail["lockValue"] = 0.5;
@@ -1378,8 +1389,10 @@ void PatternModel::setSelectedLock(int index, double value, bool modulation) {
         const auto parameter = std::max(0, index);
         // What the lock targets stays: a turn of its value is not a new lock.
         if (!trigger.locks.empty() && trigger.locks.front().parameter_index == parameter) {
-            auto& lock = trigger.locks.front();
-            trigger.locks = {{lock.parameter_id, parameter, bounded, kind, lock.slot}};
+            auto lock = trigger.locks.front();
+            lock.value = bounded;
+            lock.kind = kind;
+            trigger.locks = {lock};
             return;
         }
         trigger.locks = {{"level", parameter, bounded, kind}};
@@ -1387,10 +1400,22 @@ void PatternModel::setSelectedLock(int index, double value, bool modulation) {
 }
 
 void PatternModel::setSelectedLockTarget(int slot, int parameter, const QString& name) {
-    mutate(selected_step_, [slot, parameter, &name](blokkily::Trigger& trigger) {
+    setSelectedLockTargetOn(QStringLiteral("track"), 0, slot, parameter, name);
+}
+
+void PatternModel::setSelectedLockTargetOn(const QString& kind, int bus, int slot, int parameter,
+                                           const QString& name) {
+    const auto bus_kind = kind == "return"   ? blokkily::BusKind::ret
+                          : kind == "master" ? blokkily::BusKind::master
+                                             : blokkily::BusKind::track;
+    // A return's or the master's insert: there is no instrument there.
+    if (bus_kind != blokkily::BusKind::track && slot < 0) return;
+    mutate(selected_step_, [=, &name](blokkily::Trigger& trigger) {
         blokkily::ParameterLock lock;
         if (!trigger.locks.empty()) lock = trigger.locks.front();
         else lock.value = 0.5;
+        lock.bus_kind = bus_kind;
+        lock.bus = bus_kind == blokkily::BusKind::ret ? static_cast<std::uint32_t>(std::max(0, bus)) : 0;
         lock.slot = std::max(-1, slot);
         lock.parameter_index = std::max(0, parameter);
         lock.parameter_id = name.isEmpty() ? std::string("level") : name.toStdString();
@@ -1408,6 +1433,8 @@ bool PatternModel::lockStep(int step, const blokkily::ParameterLock& lock) {
         const auto same = std::find_if(trigger.locks.begin(), trigger.locks.end(),
                                        [&lock](const blokkily::ParameterLock& held) {
                                            return held.slot == lock.slot &&
+                                                  held.bus_kind == lock.bus_kind &&
+                                                  held.bus == lock.bus &&
                                                   held.parameter_index == lock.parameter_index;
                                        });
         if (same != trigger.locks.end()) *same = lock;

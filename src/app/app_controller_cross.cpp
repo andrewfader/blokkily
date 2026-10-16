@@ -70,8 +70,15 @@ bool AppController::automateInsert(const QString& kind, int bus, int slot, int p
 
 bool AppController::setStepLock(int track, int pattern, int step, int slot, int parameter,
                                 double value, bool modulation) {
+    return setInsertStepLock(track, pattern, step, "track", track, slot, parameter, value,
+                             modulation);
+}
+
+bool AppController::setInsertStepLock(int track, int pattern, int step, const QString& kind,
+                                      int bus, int slot, int parameter, double value,
+                                      bool modulation) {
     if (song_ == nullptr || pattern_ == nullptr || song_->partOf(pattern, track) < 0) return false;
-    const auto where = address("track", track, slot);
+    const auto where = address(kind, kind == "track" ? track : bus, slot);
     const auto* instance = where && engine_ ? engine_->processor(*where) : nullptr;
     if (instance == nullptr) return false;
     for (const auto& info : instance->parameters()) {
@@ -86,7 +93,8 @@ bool AppController::setStepLock(int track, int pattern, int step, int slot, int 
             step, {info.name, parameter, value,
                    modulation ? blokkily::ParameterLock::Kind::modulation
                               : blokkily::ParameterLock::Kind::automation,
-                   slot});
+                   slot, where->kind,
+                   where->kind == blokkily::BusKind::track ? 0U : where->bus});
     }
     return false;
 }

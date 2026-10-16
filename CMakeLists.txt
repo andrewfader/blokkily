@@ -519,7 +519,8 @@ foreach(blokkily_feature
         midi_clock_input
         lv2_hosting
         audio_systems
-        packaging)
+        packaging
+        scene_tempo)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

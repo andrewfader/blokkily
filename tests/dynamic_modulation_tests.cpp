@@ -358,6 +358,63 @@ void lfo_tempo_sync_case() {
               << faster.size() << " at 240\n";
 }
 
+// features/dynamic_modulation.feature: A bar follows the meter. A square LFO
+// synced to one bar over four bars of 3/4 and then four of 7/8, at 120 BPM:
+// the level turns every half bar, 36000 samples apart in 3/4 (a bar of three
+// beats) and 42000 in 7/8 (three and a half), not every 48000 as a bar of
+// four beats would.
+void lfo_bar_sync_case() {
+    constexpr Tick three_four = 1440, seven_eight = 1680;
+    constexpr Tick length = 4 * three_four + 4 * seven_eight;
+    Pattern pattern(length, 480);
+    Trigger trigger;
+    trigger.start = 0;
+    trigger.duration = length - 1;
+    trigger.musical_data = Note{60, 1.0F, 0.0F};
+    (void)pattern.add(trigger);
+    auto song = song_of({std::move(pattern)});
+    song.meter.changes = {{0, 3, 4}, {4, 7, 8}};
+    auto synced = lfo(LfoShape::square, 7.0, track_instrument(0), 0.2);
+    synced.sync_beats = 1.0;
+    synced.sync_in_bars = true;
+    song.modulators = {synced};
+    std::string why;
+    require(song.consistent(&why), "the song is valid: " + why);
+    SongEngine engine;
+    prepare(engine, song);
+    engine.set_playing(true);
+    const std::size_t in_three = 4 * three_four * 50;
+    const std::size_t total = in_three + 4 * seven_eight * 50;
+    const auto out = render(engine, total);
+    const auto turns = [&](std::size_t from, std::size_t to) {
+        std::vector<std::size_t> found;
+        bool high = out.left[from] / centre > 0.25;
+        for (std::size_t index = from + 1; index < to; ++index) {
+            const bool now = out.left[index] / centre > 0.25;
+            if (now != high) found.push_back(index);
+            high = now;
+        }
+        return found;
+    };
+    const auto spaced = [&](const std::vector<std::size_t>& found, double spacing) {
+        if (found.size() < 4) return false;
+        for (std::size_t index = 1; index < found.size(); ++index) {
+            const double gap = static_cast<double>(found[index] - found[index - 1]);
+            if (std::abs(gap - spacing) > static_cast<double>(block)) return false;
+        }
+        return true;
+    };
+    const auto three = turns(1000, in_three - 1000);
+    const auto seven = turns(in_three + 1000, total - 1000);
+    std::cerr << "lfo bar sync: " << three.size() << " turns in 3/4, " << seven.size()
+              << " in 7/8\n";
+    require(spaced(three, 36000.0), "in 3/4 a one-bar square turns every 36000 samples");
+    require(spaced(seven, 42000.0), "in 7/8 it turns every 42000 samples");
+    // The first turn of the 7/8 bars is half of the first such bar in.
+    require(std::abs(static_cast<double>(seven.front()) - (in_three + 42000.0)) <= block,
+            "the cycle restarts with the 7/8 bar");
+}
+
 // features/dynamic_modulation.feature: A macro moves every parameter it
 // targets, scaled to each parameter's range; turning it reaches the running
 // engine without a recompile; modulators on one parameter add up.
@@ -540,6 +597,34 @@ void song_model_case() {
                 !old->song.tracks[1].inserts[1].sidechain,
             "an older project loads without modulation: " + error);
 
+    // A cycle counted in bars saves its unit. A project saved before there
+    // was one has 1, 2 and 4 BARS as 4, 8 and 16 beats: they load as bars.
+    {
+        auto barred = song;
+        barred.modulators[0].sync_beats = 8.0;
+        const auto saved_form = [&] {
+            Project with;
+            with.song = barred;
+            return ProjectFile::serialize(with);
+        };
+        auto beats_form = saved_form();
+        auto loaded = ProjectFile::parse(beats_form, &error);
+        require(loaded && loaded->song.modulators[0].sync_beats == 8.0 &&
+                    !loaded->song.modulators[0].sync_in_bars,
+                "eight beats stay eight beats: " + error);
+        barred.modulators[0].sync_beats = 2.0;
+        barred.modulators[0].sync_in_bars = true;
+        loaded = ProjectFile::parse(saved_form(), &error);
+        require(loaded && loaded->song.modulators == barred.modulators, "two bars round-trip");
+        const auto unit = beats_form.find(" beats\n");
+        require(unit != std::string::npos, "the modulator record ends in its unit");
+        beats_form.erase(unit, 6);
+        loaded = ProjectFile::parse(beats_form, &error);
+        require(loaded && loaded->song.modulators[0].sync_beats == 2.0 &&
+                    loaded->song.modulators[0].sync_in_bars,
+                "an older project's 2 BARS loads as two bars: " + error);
+    }
+
     // The schema refuses what the engine could not play.
     const auto refused = [&](const std::function<void(Song&)>& change, const std::string& what) {
         auto broken = song;
@@ -557,6 +642,10 @@ void song_model_case() {
             "a target on an insert that does not exist");
     refused([](Song& s) { s.modulators[0].targets[0].depth = 1.5; }, "a depth beyond 1");
     refused([](Song& s) { s.modulators[0].rate_hz = 0.0; }, "an LFO that never moves");
+    refused([](Song& s) {
+        s.modulators[0].sync_beats = 0.0;
+        s.modulators[0].sync_in_bars = true;
+    }, "a cycle of no bars");
     refused([](Song& s) { s.modulators[2].source_track = 9; }, "a follower of nothing");
     refused([](Song& s) { s.modulators[0].targets.push_back(s.modulators[0].targets[0]); },
             "one parameter targeted twice by one modulator");
@@ -607,6 +696,7 @@ int main(int argc, char** argv) {
         else if (name == "bounce_matches_playback") bounce_matches_playback_case();
         else if (name == "removed_modulation_releases") removed_modulation_releases_case();
         else if (name == "song_model") song_model_case();
+        else if (name == "lfo_bar_sync") lfo_bar_sync_case();
         else {
             std::cerr << "Unknown case: " << name << "\n";
             return 2;

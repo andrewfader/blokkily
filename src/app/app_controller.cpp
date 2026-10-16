@@ -630,8 +630,9 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     engine_signature_ = {};
 
     auto next = std::make_unique<blokkily::SongEngine>();
-    // A followed clock's tempo carries over to the rebuilt engine.
-    next->set_tempo_override(followed_bpm_);
+    // A followed clock's or a launched scene's tempo carries over to the
+    // rebuilt engine.
+    next->set_tempo_override(tempoOverride());
     std::string error;
     // Each processor is named as it loads, which is what a song with a dozen
     // plugins spends its opening on.
@@ -847,6 +848,12 @@ void AppController::togglePlayback() {
         // Keep the callback alive for note-offs, instrument releases, meters,
         // and the next key played on the stopped transport.
         transport_->stop();
+        // A launched scene's tempo lasts while it plays.
+        if (scene_bpm_) {
+            scene_bpm_.reset();
+            applyTempoOverride();
+            emit launcherChanged();
+        }
         pollMeters();
         // Stopping ends the take: a key still held is written as released,
         // and every automation pass still open is written up to here.
@@ -900,10 +907,11 @@ void AppController::seekToStep(double step) {
 void AppController::syncTimebase() {
     if (song_ == nullptr || transport_ == nullptr) return;
     const auto& song = song_->song();
-    // Following a clock, the playhead counts at the clock's tempo.
-    if (followed_bpm_) {
+    // Following a clock, or playing a scene with a tempo of its own, the
+    // playhead counts at that tempo.
+    if (const auto bpm = tempoOverride()) {
         blokkily::TempoMap followed;
-        followed.points = {blokkily::TempoPoint{0, *followed_bpm_, false}};
+        followed.points = {blokkily::TempoPoint{0, *bpm, false}};
         transport_->setTimebase(followed, song.meter, song.ticks_per_beat());
         return;
     }
@@ -1030,8 +1038,19 @@ void AppController::withEngineStopped(const std::function<void(std::uint64_t tai
     const bool resume_device = audio_output_ && audio_output_->is_running();
     if (audio_output_) audio_output_->stop();
     releaseSoundingNotes();
+    // A bounce is of the song at its own tempo map: a followed clock's or a
+    // launched scene's tempo is for playing live, and comes back after.
+    const auto played_at = engine_->tempo_override();
+    if (played_at) {
+        engine_->set_tempo_override(std::nullopt);
+        (void)refreshArrangement();
+    }
     // Half a second of tail so the last note's release is part of the file.
     work(static_cast<std::uint64_t>(engine_->sample_rate() / 2.0));
+    if (played_at && engine_) {
+        engine_->set_tempo_override(played_at);
+        (void)refreshArrangement();
+    }
     if (resume_device) {
         std::string resume_error;
         if (!audio_output_->start(&resume_error)) {

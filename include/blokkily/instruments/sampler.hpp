@@ -117,6 +117,7 @@ public:
     bool accepts_state_while_running() const noexcept override { return true; }
     std::uint64_t tail_samples() const noexcept override;
     std::vector<ParameterInfo> parameters() const override;
+    std::optional<double> parameter_value(std::int32_t id) const override;
 
     struct Kit;
     struct Zone;
@@ -181,7 +182,8 @@ private:
     std::array<Voice, 16> fading_{};
     std::uint64_t voice_clock_ = 0;
     int program_polyphony_ = 32;
-    std::array<double, sampler_parameter::count> base_{};
+    // Written by the audio thread, read by parameter_value() on another.
+    std::array<std::atomic<double>, sampler_parameter::count> base_{};
     std::array<double, sampler_parameter::count> modulation_{};
     double engine_rate_ = 48000.0;
     std::atomic<std::uint64_t> tail_frames_{0};

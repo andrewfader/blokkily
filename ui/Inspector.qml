@@ -206,15 +206,28 @@ Rectangle {
                 }
             }
             // What the lock moves: the track's instrument or one of its
-            // insert effects, and which of its parameters.
+            // insert effects, a return's or the master's, and which of its
+            // parameters.
             RowLayout {
                 id: lockTargetRow
                 Layout.fillWidth: true; spacing: 6
                 readonly property int slot: patternModel.selected.lockSlot !== undefined
                                             ? patternModel.selected.lockSlot : -1
-                readonly property var targets: songModel.lockTargets(songModel.selectedTrack)
-                readonly property var parameters:
-                    appController.insertParameters("track", songModel.selectedTrack, slot)
+                readonly property string kind: patternModel.selected.lockKind !== undefined
+                                               ? patternModel.selected.lockKind : "track"
+                readonly property int bus: kind === "track" ? songModel.selectedTrack
+                                           : (patternModel.selected.lockBus !== undefined
+                                              ? patternModel.selected.lockBus : 0)
+                readonly property var choices: songModel.lockTargetChoices(songModel.selectedTrack)
+                readonly property var targets: choices.map(choice => choice.name)
+                readonly property var parameters: appController.insertParameters(kind, bus, slot)
+                function chosen() {
+                    for (var i = 0; i < choices.length; ++i)
+                        if (choices[i].kind === kind && choices[i].slot === slot &&
+                                (kind === "track" || choices[i].bus === bus))
+                            return choices[i]
+                    return null
+                }
                 function parameterNames() {
                     var names = []
                     for (var i = 0; i < parameters.length; ++i) names.push(parameters[i].name)
@@ -226,14 +239,15 @@ Rectangle {
                     objectName: "lockTarget"
                     implicitHeight: 22
                     choices: lockTargetRow.targets
-                    value: lockTargetRow.slot + 1 < lockTargetRow.targets.length
-                           ? lockTargetRow.targets[lockTargetRow.slot + 1] : ""
+                    value: lockTargetRow.chosen() ? lockTargetRow.chosen().name : ""
                     onPicked: name => {
-                        const slot = lockTargetRow.targets.indexOf(name) - 1
+                        const choice = lockTargetRow.choices[lockTargetRow.targets.indexOf(name)]
+                        if (!choice) return
                         const parameters =
-                            appController.insertParameters("track", songModel.selectedTrack, slot)
-                        patternModel.setSelectedLockTarget(
-                            slot, parameters.length > 0 ? parameters[0].id : 0,
+                            appController.insertParameters(choice.kind, choice.bus, choice.slot)
+                        patternModel.setSelectedLockTargetOn(
+                            choice.kind, choice.bus, choice.slot,
+                            parameters.length > 0 ? parameters[0].id : 0,
                             parameters.length > 0 ? parameters[0].name : "")
                     }
                 }
@@ -247,8 +261,9 @@ Rectangle {
                     onPicked: name => {
                         for (var i = 0; i < lockTargetRow.parameters.length; ++i)
                             if (lockTargetRow.parameters[i].name === name)
-                                patternModel.setSelectedLockTarget(
-                                    lockTargetRow.slot, lockTargetRow.parameters[i].id, name)
+                                patternModel.setSelectedLockTargetOn(
+                                    lockTargetRow.kind, lockTargetRow.bus, lockTargetRow.slot,
+                                    lockTargetRow.parameters[i].id, name)
                     }
                 }
             }

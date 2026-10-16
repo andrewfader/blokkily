@@ -103,6 +103,7 @@ struct ModulatorControls {
     std::atomic<std::uint8_t> shape{0};
     std::atomic<float> rate_hz{1.0F};
     std::atomic<float> sync_beats{0.0F};
+    std::atomic<bool> sync_in_bars{false};
     std::atomic<float> value{0.0F};
     std::atomic<float> attack_ms{10.0F};
     std::atomic<float> release_ms{120.0F};
@@ -117,11 +118,15 @@ struct ModulatorState {
 };
 
 // A parameter whose modulation went away with a new arrangement: it is sent
-// one last modulation of 0, so the plugin does not keep the offset.
+// one last modulation of 0, so the plugin does not keep the offset. A
+// parameter whose last step lock went away is sent the same way: a value lock
+// the value it had before it was locked, a modulation lock an offset of 0.
 struct ReleasedSink {
     ProcessorAddress where{};
     std::int32_t parameter = 0;
     bool pending = false;
+    PluginEvent::Type type = PluginEvent::Type::parameter_modulation;
+    double value = 0.0;
 };
 
 struct ModulationPlayback {
@@ -129,6 +134,9 @@ struct ModulationPlayback {
     std::array<ModulatorState, maximum_modulators> state{};
     std::array<ReleasedSink, 64> released{};
 };
+
+// Callback: queues `release` to go out with its processor's next events.
+void queue_release(ModulationPlayback& playback, const ReleasedSink& release) noexcept;
 
 // Control thread: compiles the song's keys, modulators and render order.
 // Targets whose processor or parameter the engine does not have send
@@ -151,6 +159,10 @@ struct ChunkTime {
     bool rolling = false;
     double seconds = 0.0;
     double beats = 0.0;
+    // Bars of the meter map: the bar the chunk starts in plus how far into
+    // it, and how many beats that bar lasts.
+    double bars = 0.0;
+    double beats_per_bar = 4.0;
     double bpm = 120.0;
     double sample_rate = 48000.0;
     std::size_t frames = 0;

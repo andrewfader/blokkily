@@ -31,7 +31,9 @@ void write_scene_launcher(const Project& project, WriteContext& context) {
     context.out << "launcher " << static_cast<int>(launcher.quantization) << '\n';
     for (std::size_t s = 0; s < launcher.scenes.size(); ++s) {
         const auto& scene = launcher.scenes[s];
-        context.out << "scene " << s << ' ' << escape(scene.name) << '\n';
+        context.out << "scene " << s << ' ' << escape(scene.name);
+        if (scene.tempo_bpm != 0.0) context.out << ' ' << number(scene.tempo_bpm);
+        context.out << '\n';
         for (std::size_t t = 0; t < scene.cells.size(); ++t) {
             if (!scene.cells[t].has_value()) continue;
             const auto& slot = *scene.cells[t];
@@ -53,11 +55,12 @@ bool parse_launcher(const Fields& fields, ParseContext& context) {
 
 bool parse_scene(const Fields& fields, ParseContext& context) {
     const auto index = fields.integer(1);
-    // An older file may carry a tempo after the name: read, then ignored.
+    // A tempo after the name is the scene's own (0, or none, the song's).
     if (!(fields.count(3) || fields.count(4)) || !index || *index < 0 ||
         *index >= maximum_scenes)
         return context.fail("malformed scene record");
-    if (fields.count(4) && !fields.real(3)) return context.fail("malformed scene record");
+    const auto tempo = fields.count(4) ? fields.real(3) : std::optional<double>{0.0};
+    if (!tempo) return context.fail("malformed scene record");
     std::optional<std::string> name =
         fields.tokens[2] == "\"\"" ? std::optional<std::string>{std::string{}} : fields.text(2);
     if (!name) return context.fail("malformed scene record");
@@ -66,6 +69,7 @@ bool parse_scene(const Fields& fields, ParseContext& context) {
     const auto at = static_cast<std::size_t>(*index);
     if (at >= launcher.scenes.size()) launcher.scenes.resize(at + 1);
     launcher.scenes[at].name = std::move(*name);
+    launcher.scenes[at].tempo_bpm = *tempo;
     return true;
 }
 

@@ -144,6 +144,9 @@ class AppController final : public QObject {
     // is being printed into the arrangement.
     Q_PROPERTY(QVariantList launcherState READ launcherState NOTIFY launcherChanged)
     Q_PROPERTY(bool launcherRecording READ launcherRecording NOTIFY launcherChanged)
+    // The tempo a launched scene is playing at, or 0 while the song's own
+    // tempo plays (features/scene_tempo.feature).
+    Q_PROPERTY(double sceneTempo READ sceneTempo NOTIFY launcherChanged)
     // What the window shows while a song opens, its instruments load or it is
     // exported (load_progress.hpp, features/loading_progress.feature).
     Q_PROPERTY(LoadProgress* progress READ progress CONSTANT)
@@ -584,6 +587,11 @@ public:
     // when there is no such part, note, parameter, or the value is out of range.
     Q_INVOKABLE bool setStepLock(int track, int pattern, int step, int slot, int parameter,
                                  double value, bool modulation = false);
+    // The same, for insert `slot` of bus `kind` ("track" the step's own
+    // track, then `bus` is ignored; "return" return `bus`; "master").
+    Q_INVOKABLE bool setInsertStepLock(int track, int pattern, int step, const QString& kind,
+                                       int bus, int slot, int parameter, double value,
+                                       bool modulation = false);
     Q_INVOKABLE bool clearStepLocks(int track, int pattern, int step);
     // Modulation (phase 2, wave 5.1): every parameter a modulator can aim at
     // on the selected track - its instrument's, then each insert's - as
@@ -642,6 +650,7 @@ public:
     // --- Scene launcher (phase 2, wave 6.1; app_controller_launcher.cpp) ----
     QVariantList launcherState() const { return launcher_state_; }
     bool launcherRecording() const noexcept { return launcher_recording_; }
+    double sceneTempo() const noexcept { return scene_bpm_.value_or(0.0); }
     // Launches a cell, a whole scene, or stops a track or every track, at the
     // quantization the song's grid says. Launching on a stopped transport
     // starts it, and the launch plays from its first block. The grid's edits
@@ -862,6 +871,15 @@ private:
     bool follow_clock_ = false;
     blokkily::ClockFollower clock_follower_;
     std::optional<double> followed_bpm_;
+    // The tempo of the scene launched last, while the launcher plays it
+    // (features/scene_tempo.feature). A followed clock's tempo wins over it.
+    std::optional<double> scene_bpm_;
+    [[nodiscard]] std::optional<double> tempoOverride() const {
+        return followed_bpm_ ? followed_bpm_ : scene_bpm_;
+    }
+    // The engine plays at tempoOverride() from its next arrangement on, and
+    // the transport counts at it.
+    void applyTempoOverride();
     QString learn_target_;
     int learn_index_ = 0;
     QString midi_learn_status_;

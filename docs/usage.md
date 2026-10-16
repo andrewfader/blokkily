@@ -306,7 +306,8 @@ EXT in the SYNC row follows the MIDI clock arriving at the MIDI input:
 Start plays from the top, Continue plays on, Stop stops, a song position
 pointer moves the playhead, and the clock's tempo is the one the song plays
 at (shown beside the chip). The song's own tempo is kept and comes back when
-EXT is turned off. See [the scenarios](../features/midi_clock_input.feature).
+EXT is turned off, and an export renders the song at it. See
+[the scenarios](../features/midi_clock_input.feature).
 
 ## MIDI learn
 
@@ -418,13 +419,16 @@ inserts.
 
 ### Automation and modulation
 
-Automation has OFF / READ / TOUCH / LATCH / WRITE modes. Step locks target the
-track instrument; insert parameters use automation lanes.
+Automation has OFF / READ / TOUCH / LATCH / WRITE modes. A step lock targets
+the track's instrument, one of its insert effects, or an insert of a return or
+the master (ON in the step inspector). Removing a parameter's last lock puts
+it back where it was before it was locked. See
+[the scenarios](../features/insert_locks.feature).
 
 The MODULATION panel under the inspector adds:
 
 - LFOs with sine, triangle, saws, square or random shapes. Set a rate in Hz, or
-  enable SYNC for a note value from 1/16 to 4 bars that follows the tempo map.
+  enable SYNC for a note value from 1/16 to 4 bars that follows the tempo map; a bar is as long as the meter's bar.
   Each note value also comes as a triplet (1/8T) and dotted (1/8.).
 - Macros, each with one 0..1 knob.
 - Envelope followers, measured from a selected track after its inserts and
@@ -520,6 +524,12 @@ previous, first or last cell, choose randomly, or repeat. Launches, stops,
 loop turns and follow actions occur at the exact sample of their boundary.
 A launched track plays its cell instead of its arrangement until the transport
 stops.
+
+Right-click a scene's chip for its row. TEMPO gives the scene a tempo of its
+own, and SONG takes it off again. Launching the scene plays at that tempo
+until STOP ALL or the transport stops. The song's own tempo map stays as it
+is, and an export still renders the song at it. A followed MIDI clock wins
+over a scene's tempo. See [the scenarios](../features/scene_tempo.feature).
 
 With REC ARRANGEMENT enabled, each stretch played from a cell becomes clips
 when it ends, as one undo step. Those clips replay the performed pattern

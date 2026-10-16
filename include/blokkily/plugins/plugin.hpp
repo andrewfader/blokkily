@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -176,6 +177,13 @@ public:
     virtual bool accepts_state_while_running() const noexcept { return false; }
     // The parameters the plugin exposes (main thread).
     virtual std::vector<ParameterInfo> parameters() const { return {}; }
+    // The value parameter `id` holds now, automation's and the producer's
+    // without any modulation offset, in the units parameters() gives; nothing
+    // when the plugin cannot say (main thread).
+    virtual std::optional<double> parameter_value(std::int32_t id) const {
+        (void)id;
+        return std::nullopt;
+    }
     // AUDIO thread, straight after process(): moves the plugin's own
     // parameter edits into `out`, oldest first, and returns how many. Edits
     // that do not fit stay queued for the next call.

@@ -43,7 +43,7 @@ std::vector<TimedPluginEvent> compile_timeline(
     for (const auto& parameter : scheduled.parameters) {
         // A lock on an insert effect is that insert's, compiled into its lanes
         // (engine::compile_insert_locks), never the instrument's.
-        if (parameter.slot >= 0) continue;
+        if (parameter.slot >= 0 || parameter.bus_kind != BusKind::track) continue;
         const auto type = parameter.kind == ParameterLock::Kind::modulation
                               ? PluginEvent::Type::parameter_modulation
                               : PluginEvent::Type::parameter_value;

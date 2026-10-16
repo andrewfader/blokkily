@@ -50,6 +50,18 @@ struct Arrangement {
     ArrangementRouting routing;
     // The scene launcher's grid and the loops its cells play (wave 6.1).
     ArrangementLauncher launcher;
+    // Every parameter a step lock moves, on the arrangement or in a launched
+    // cell; and, filled in by SongEngine::settle_locks, the parameters whose
+    // last lock went away with this arrangement, sent as it is taken so a
+    // removed lock puts its parameter back.
+    struct Locked {
+        ProcessorAddress where;
+        std::int32_t parameter = 0;
+        bool modulation = false;
+        friend bool operator==(const Locked&, const Locked&) = default;
+    };
+    std::vector<Locked> locked;
+    std::vector<ReleasedSink> lock_releases;
 };
 
 } // namespace blokkily::engine

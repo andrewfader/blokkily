@@ -37,6 +37,14 @@ bool AppController::launchScene(int scene) {
     const bool rolling = transport_ != nullptr && transport_->playing();
     if (!engine_ && !rolling) togglePlayback();
     if (!engine_) return false;
+    // A scene with a tempo of its own plays at it, from the arrangement the
+    // launch is taken with; one without keeps the tempo playing.
+    if (const double tempo = song_->song().launcher.scenes[static_cast<std::size_t>(scene)].tempo_bpm;
+        tempo > 0.0) {
+        scene_bpm_ = tempo;
+        applyTempoOverride();
+        emit launcherChanged();
+    }
     const bool queued = engine_->launch_scene(static_cast<std::size_t>(scene));
     countLauncherLosses();
     if (queued && transport_ != nullptr && !transport_->playing()) togglePlayback();
@@ -53,6 +61,12 @@ bool AppController::stopLauncherTrack(int track) {
 bool AppController::stopLauncher() {
     if (!engine_) return false;
     const bool queued = engine_->stop_all_launched();
+    // Stopped, the song plays at its own tempo again.
+    if (scene_bpm_) {
+        scene_bpm_.reset();
+        applyTempoOverride();
+        emit launcherChanged();
+    }
     countLauncherLosses();
     return queued;
 }

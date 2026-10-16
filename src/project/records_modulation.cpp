@@ -65,7 +65,8 @@ void write_modulation(const Project& project, WriteContext& context) {
             << shape_tokens.at(static_cast<std::size_t>(modulator.shape)) << ' '
             << number(modulator.rate_hz) << ' ' << number(modulator.sync_beats) << ' '
             << number(modulator.value) << ' ' << modulator.source_track << ' '
-            << number(modulator.attack_ms) << ' ' << number(modulator.release_ms) << '\n';
+            << number(modulator.attack_ms) << ' ' << number(modulator.release_ms) << ' '
+            << (modulator.sync_in_bars ? "bars" : "beats") << '\n';
         for (const auto& target : modulator.targets)
             out << "modtarget " << m << ' ' << bus_kind_token(target.processor.kind) << ' '
                 << target.processor.bus << ' ' << target.processor.slot << ' '
@@ -119,7 +120,12 @@ bool parse_auxsource(const Fields& fields, ParseContext& context) {
 }
 
 bool parse_modulator(const Fields& fields, ParseContext& context) {
-    if (!fields.count(10)) return context.fail("malformed modulator record");
+    // A modulator saved before sync could count bars has no unit; its "1 BAR",
+    // "2 BARS" and "4 BARS" were 4, 8 and 16 beats, and become bars.
+    if (!fields.count(10) && !fields.count(11)) return context.fail("malformed modulator record");
+    const bool unit_given = fields.count(11);
+    if (unit_given && fields.tokens[10] != "bars" && fields.tokens[10] != "beats")
+        return context.fail("malformed modulator record");
     const auto kind = token_to_enum<Modulator::Kind>(kind_tokens, fields.tokens[1]);
     const auto name = fields.text(2);
     const auto shape = token_to_enum<LfoShape>(shape_tokens, fields.tokens[3]);
@@ -138,6 +144,12 @@ bool parse_modulator(const Fields& fields, ParseContext& context) {
     modulator.shape = *shape;
     modulator.rate_hz = *rate;
     modulator.sync_beats = *sync;
+    if (unit_given) {
+        modulator.sync_in_bars = fields.tokens[10] == "bars";
+    } else if (*sync == 4.0 || *sync == 8.0 || *sync == 16.0) {
+        modulator.sync_beats = *sync / 4.0;
+        modulator.sync_in_bars = true;
+    }
     modulator.value = *value;
     modulator.source_track = static_cast<std::uint32_t>(*source);
     modulator.attack_ms = *attack;

@@ -132,7 +132,10 @@ Rectangle {
                         Chip {
                             objectName: "launchScene" + sceneRow.index
                             width: root.columnWidth; implicitHeight: 34
+                            // A scene with a tempo of its own says it.
                             text: "▶ " + sceneRow.modelData.name
+                                  + (sceneRow.modelData.tempo > 0
+                                     ? " · " + sceneRow.modelData.tempoText : "")
                             accessibleLabel: "Launch " + sceneRow.modelData.name
                             onClicked: appController.launchScene(sceneRow.index)
                             onRightClicked: {
@@ -288,6 +291,46 @@ Rectangle {
                 objectName: "clearCell"; text: "CLEAR"; implicitHeight: 22; accent: Theme.amber
                 onClicked: songModel.clearLauncherCell(root.selectedScene, root.selectedTrack)
             }
+        }
+
+        // The selected scene (right-click its chip): the tempo launching it
+        // plays at, or SONG for the song's own.
+        RowLayout {
+            id: sceneInspector
+            objectName: "sceneInspector"
+            Layout.fillWidth: true; spacing: 6
+            readonly property var scene: root.selectedScene >= 0
+                                         && root.selectedScene < root.scenes.length
+                                         ? root.scenes[root.selectedScene] : null
+            visible: scene !== null && root.selectedTrack < 0
+            // From the scene's own tempo, or the one playing when it has none.
+            function nudged(by) {
+                return (scene !== null && scene.tempo > 0 ? scene.tempo
+                                                          : Math.round(transport.bpm)) + by
+            }
+            SectionLabel { text: sceneInspector.scene !== null ? sceneInspector.scene.name : "" }
+            SectionLabel { text: "TEMPO" }
+            Chip {
+                objectName: "sceneTempoDown"; text: "−"; implicitHeight: 22
+                onClicked: songModel.setSceneTempo(root.selectedScene, sceneInspector.nudged(-1))
+            }
+            Label {
+                objectName: "sceneTempo"
+                text: sceneInspector.scene !== null ? sceneInspector.scene.tempoText : ""
+                color: Theme.ink; font.pixelSize: 11; font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+                Layout.preferredWidth: 44
+            }
+            Chip {
+                objectName: "sceneTempoUp"; text: "+"; implicitHeight: 22
+                onClicked: songModel.setSceneTempo(root.selectedScene, sceneInspector.nudged(1))
+            }
+            Chip {
+                objectName: "sceneTempoSong"; text: "SONG"; implicitHeight: 22
+                on: sceneInspector.scene !== null && sceneInspector.scene.tempo <= 0
+                onClicked: songModel.setSceneTempo(root.selectedScene, 0)
+            }
+            Item { Layout.fillWidth: true }
         }
     }
 }

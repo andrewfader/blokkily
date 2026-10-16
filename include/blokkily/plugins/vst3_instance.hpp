@@ -67,6 +67,7 @@ public:
     std::uint64_t tail_samples() const noexcept override;
     bool latency_changed() noexcept override;
     std::vector<ParameterInfo> parameters() const override;
+    std::optional<double> parameter_value(std::int32_t id) const override;
     // Edits the listeners queued from the plugin's own threads. Producers take
     // a mutex (only try_lock on the audio thread); this consumer never locks.
     std::size_t take_parameter_edits(std::span<ParameterEdit> out) noexcept override;
