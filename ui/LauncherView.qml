@@ -108,12 +108,12 @@ Rectangle {
                     spacing: 4
                     Item { width: root.columnWidth; height: 20 }
                     Repeater {
-                        model: songModel.tracks
+                        model: songModel.trackNames
                         Label {
-                            required property var modelData
+                            required property string modelData
                             required property int index
                             width: root.columnWidth; height: 20
-                            text: modelData.name
+                            text: modelData
                             color: Theme.muted; font.pixelSize: 10; font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
@@ -206,7 +206,7 @@ Rectangle {
                     visible: root.scenes.length > 0
                     Item { width: root.columnWidth; height: 24 }
                     Repeater {
-                        model: songModel.tracks
+                        model: songModel.trackCount
                         Chip {
                             required property int index
                             objectName: "stopTrack" + index
@@ -230,8 +230,8 @@ Rectangle {
             SectionLabel {
                 text: root.selectedScene >= 0 && root.selectedScene < root.scenes.length
                       ? root.scenes[root.selectedScene].name + " · "
-                        + (songModel.tracks[root.selectedTrack] !== undefined
-                           ? songModel.tracks[root.selectedTrack].name : "")
+                        + (songModel.trackNames[root.selectedTrack] !== undefined
+                           ? songModel.trackNames[root.selectedTrack] : "")
                       : ""
             }
             Picker {

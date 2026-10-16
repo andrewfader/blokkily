@@ -81,6 +81,12 @@ void run_long_song(VerifyContext& ctx) {
     // ---------------------------------------------------------------------
     ctx.reached("long_song: mixing it leaves the window's memory where it was");
     const long before = resident_mib();
+    // A strip move re-reads only what shows strips: nothing that draws the
+    // arrangement (patterns, clips, lanes, sections, track names) is
+    // announced, so a fader dragged across a long song stays cheap.
+    int arrangement_announced = 0;
+    const auto counting = QObject::connect(&song, &SongModel::arrangementChanged,
+                                           [&arrangement_announced] { ++arrangement_announced; });
     song.setTrackGain(1, -3.0);
     lay_out();
     song.toggleSolo(2);
@@ -97,6 +103,15 @@ void run_long_song(VerifyContext& ctx) {
     check(cell(0, 40) != nullptr && cell(2, 40) != nullptr &&
           cell(0, 40)->property("color").value<QColor>() == cell(2, 40)->property("color").value<QColor>());
     const long after = resident_mib();
+    if (arrangement_announced != 0)
+        std::cerr << "REGRESSION: five mixer moves announced the arrangement "
+                  << arrangement_announced << " times\n";
+    check(arrangement_announced == 0);
+    // A renamed track is an arrangement change, and every list of names has it.
+    song.renameTrack(4, "RENAMED");
+    lay_out();
+    check(arrangement_announced >= 1 && song.trackNames().value(4) == "RENAMED");
+    QObject::disconnect(counting);
     if (before >= 0) {
         if (after - before >= 150)
             std::cerr << "REGRESSION: five mixer moves on a long song grew the window from " << before

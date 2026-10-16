@@ -145,6 +145,9 @@ Feature: A session can be worked on without fear of losing it
     When the producer moves a fader, solos a track and unsolos it, and mutes and unmutes another
     Then the window's memory grows by less than 150 MB
     And the arrangement draws the solo while it lasts, and stops when it ends
+    And nothing that draws only the arrangement is announced for those moves
+    When a track is renamed
+    Then the arrangement is announced, and the track's name is in every list of names
     When a clip is removed
     Then its bars are drawn empty at once
 

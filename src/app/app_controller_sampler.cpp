@@ -45,7 +45,7 @@ constexpr int first_pad_key = 36;
 void AppController::connectSampler() {
     // The panel reads the selected track's program, so anything that changes
     // the song or the selection may change what it shows.
-    QObject::connect(song_, &SongModel::songChanged, this, &AppController::samplerChanged);
+    QObject::connect(song_, &SongModel::arrangementChanged, this, &AppController::samplerChanged);
     // Undo and redo restore the song, and with it a sampler's earlier program:
     // restoreInstrumentStates gives the running sampler that program, still
     // without rebuilding anything, and the panel reads it back.

@@ -169,12 +169,12 @@ Rectangle {
                                                                               insertRow.index, -1)
                                 }
                                 Instantiator {
-                                    model: songModel.tracks
+                                    model: songModel.trackNames
                                     delegate: MenuItem {
-                                        required property var modelData
+                                        required property string modelData
                                         required property int index
                                         objectName: "sidechainKey" + insertRow.index + "_" + index
-                                        text: "Key from " + modelData.name
+                                        text: "Key from " + modelData
                                         // A track's insert cannot key from its own track.
                                         enabled: !(root.rack.kind === "track" && index === root.rack.bus)
                                         onTriggered: songModel.setInsertSidechain(root.rack.kind, root.rack.bus,

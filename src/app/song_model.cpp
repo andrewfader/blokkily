@@ -141,6 +141,12 @@ int SongModel::bars() const {
     return std::max(minimum_visible_bars, used + 1);
 }
 
+QStringList SongModel::trackNames() const {
+    QStringList names;
+    for (const auto& track : song_.tracks) names.push_back(QString::fromStdString(track.name));
+    return names;
+}
+
 QVariantList SongModel::tracks() const {
     QVariantList rows;
     const bool solo = song_.any_solo();
@@ -368,6 +374,7 @@ void SongModel::announceSong() {
     if (!mix_only_) {
         lanes_cache_.reset();
         bar_layout_cache_.reset();
+        emit arrangementChanged();
     }
     emit songChanged();
 }

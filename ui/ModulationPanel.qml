@@ -98,7 +98,7 @@ Rectangle {
                             objectName: "followerSource" + card.index
                             visible: card.row.kind === "follower"
                             implicitHeight: 22
-                            choices: songModel.tracks.map(track => track.name)
+                            choices: songModel.trackNames
                             value: card.row.sourceName !== undefined ? card.row.sourceName : ""
                             onPicked: function(name) {
                                 const index = choices.indexOf(name)

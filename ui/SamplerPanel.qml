@@ -82,8 +82,8 @@ Rectangle {
             Label {
                 objectName: "samplerTrackName"
                 Layout.fillWidth: true
-                text: songModel.tracks[songModel.selectedTrack] !== undefined
-                      ? songModel.tracks[songModel.selectedTrack].name : ""
+                text: songModel.trackNames[songModel.selectedTrack] !== undefined
+                      ? songModel.trackNames[songModel.selectedTrack] : ""
                 color: Theme.ink; font.bold: true; font.pixelSize: 10
                 font.letterSpacing: 0.8; elide: Text.ElideRight
             }

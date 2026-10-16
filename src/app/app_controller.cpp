@@ -159,7 +159,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         QObject::connect(song_, &SongModel::tuningChanged, this, follow);
         // The devices card names the selected track's instrument, so it is
         // read again whenever the selection or a track changes.
-        QObject::connect(song_, &SongModel::songChanged, this,
+        QObject::connect(song_, &SongModel::arrangementChanged, this,
                          &AppController::activeInstrumentChanged);
         follow();
         connectSampler();
@@ -181,7 +181,8 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
         QObject::connect(transport_, &Transport::changed, this, &AppController::patternPlayheadChanged);
     }
     if (song_)
-        QObject::connect(song_, &SongModel::songChanged, this, &AppController::patternPlayheadChanged);
+        QObject::connect(song_, &SongModel::arrangementChanged, this,
+                         &AppController::patternPlayheadChanged);
     meter_timer_.setInterval(33);
     QObject::connect(&meter_timer_, &QTimer::timeout, this, &AppController::pollMeters);
     // Plugins are served on the main thread while an engine exists: what they

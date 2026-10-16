@@ -25,30 +25,33 @@
 class SongModel final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList tracks READ tracks NOTIFY songChanged)
-    Q_PROPERTY(QVariantList patterns READ patterns NOTIFY songChanged)
-    Q_PROPERTY(QVariantList clips READ clips NOTIFY songChanged)
+    // The tracks' names alone, for lists that show nothing else of a track:
+    // unlike `tracks`, a fader move leaves it as it was.
+    Q_PROPERTY(QStringList trackNames READ trackNames NOTIFY arrangementChanged)
+    Q_PROPERTY(QVariantList patterns READ patterns NOTIFY arrangementChanged)
+    Q_PROPERTY(QVariantList clips READ clips NOTIFY arrangementChanged)
     // The timeline as the arrangement draws it: one lane per track, one entry
     // per bar. A property rather than a lookup call, so the view re-reads it
     // whenever the song changes.
-    Q_PROPERTY(QVariantList lanes READ lanes NOTIFY songChanged)
-    Q_PROPERTY(int trackCount READ trackCount NOTIFY songChanged)
+    Q_PROPERTY(QVariantList lanes READ lanes NOTIFY arrangementChanged)
+    Q_PROPERTY(int trackCount READ trackCount NOTIFY arrangementChanged)
     // The part being edited: the open section's part for the selected track.
-    Q_PROPERTY(int currentPattern READ currentPattern NOTIFY songChanged)
+    Q_PROPERTY(int currentPattern READ currentPattern NOTIFY arrangementChanged)
     // The sections (what the interface calls patterns) and the open one.
-    Q_PROPERTY(QVariantList sections READ sections NOTIFY songChanged)
-    Q_PROPERTY(int currentSection READ currentSection NOTIFY songChanged)
-    Q_PROPERTY(int patternSwing READ patternSwing NOTIFY songChanged)
-    Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY songChanged)
-    Q_PROPERTY(int bars READ bars NOTIFY songChanged)
+    Q_PROPERTY(QVariantList sections READ sections NOTIFY arrangementChanged)
+    Q_PROPERTY(int currentSection READ currentSection NOTIFY arrangementChanged)
+    Q_PROPERTY(int patternSwing READ patternSwing NOTIFY arrangementChanged)
+    Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY arrangementChanged)
+    Q_PROPERTY(int bars READ bars NOTIFY arrangementChanged)
     // Every bar the timeline shows, laid out by the meter map (plan F-A): one
     // entry per bar, {start, ticks, numerator, denominator, x0, x1}, where
     // start and ticks are song ticks and x0..x1 is the bar's share of the
     // shown song, from 0 to 1. Clips, the ruler and automation lanes take
     // their geometry from here, so a 7/8 bar is drawn 7/8 as wide as a 4/4 one.
-    Q_PROPERTY(QVariantList barLayout READ barLayout NOTIFY songChanged)
+    Q_PROPERTY(QVariantList barLayout READ barLayout NOTIFY arrangementChanged)
     // The tempo lane: every point of the tempo map, {at, bpm, ramp}, in tick
     // order. The first is always at tick 0.
-    Q_PROPERTY(QVariantList tempoPoints READ tempoPoints NOTIFY songChanged)
+    Q_PROPERTY(QVariantList tempoPoints READ tempoPoints NOTIFY arrangementChanged)
     Q_PROPERTY(double masterGainDb READ masterGainDb NOTIFY mixChanged)
     Q_PROPERTY(double masterPeak READ masterPeak NOTIFY metersChanged)
     // Each track's meter, as the fraction of its bar to light. Kept apart from
@@ -69,7 +72,7 @@ class SongModel final : public QObject {
     Q_PROPERTY(QVariantList versions READ versionRows NOTIFY versionsChanged)
     // The song now, in the figures a version row is compared by: {bpm,
     // tracks, patterns, notes}.
-    Q_PROPERTY(QVariantMap songFigures READ songFigures NOTIFY songChanged)
+    Q_PROPERTY(QVariantMap songFigures READ songFigures NOTIFY arrangementChanged)
     // The tuning and scale the whole session is written in. Every editor, the
     // keyboards, and the engine read these, so nothing on screen can be in a
     // different key from the notes it is editing.
@@ -91,15 +94,15 @@ class SongModel final : public QObject {
     Q_PROPERTY(int missingAudioFiles READ missingAudioFiles NOTIFY audioClipsChanged)
     // How many tracks are armed. With none, what is played goes to the
     // selected track (decision 4).
-    Q_PROPERTY(int armedCount READ armedCount NOTIFY songChanged)
+    Q_PROPERTY(int armedCount READ armedCount NOTIFY arrangementChanged)
     // How many inputs the audio device offers (item 3.2): the choices a
     // strip's input chip steps through. Two when the device has fewer.
     Q_PROPERTY(int audioInputChannels READ audioInputChannels NOTIFY inputChanged)
     // Effects (item 2.4). The rack is the insert chain being edited: the
     // selected track's, a return's, or the master's, as
     // {kind, bus, title, inserts: [{index, name, format, bypass}]}.
-    Q_PROPERTY(QVariantMap rack READ rack NOTIFY songChanged)
-    Q_PROPERTY(bool masterRacked READ masterRacked NOTIFY songChanged)
+    Q_PROPERTY(QVariantMap rack READ rack NOTIFY arrangementChanged)
+    Q_PROPERTY(bool masterRacked READ masterRacked NOTIFY arrangementChanged)
     // One row per return bus: {index, letter, name, gainDb, gainText, pan,
     // mute, inserts, racked, peakFraction}.
     Q_PROPERTY(QVariantList returns READ returns NOTIFY songChanged)
@@ -115,8 +118,8 @@ class SongModel final : public QObject {
     // selected track, as the lane editor draws them: {index, name, kind,
     // minimum, maximum, points: [{at, value}]}, `at` in song ticks. The
     // lane the editor shows is `selectedLane` (-1 when the track has none).
-    Q_PROPERTY(QVariantList automationLanes READ automationLanes NOTIFY songChanged)
-    Q_PROPERTY(int selectedLane READ selectedLane NOTIFY songChanged)
+    Q_PROPERTY(QVariantList automationLanes READ automationLanes NOTIFY arrangementChanged)
+    Q_PROPERTY(int selectedLane READ selectedLane NOTIFY arrangementChanged)
     // The modes a track's automation can be in, in the order a click steps
     // through them.
     Q_PROPERTY(QStringList automationModes READ automationModes CONSTANT)
@@ -137,7 +140,7 @@ class SongModel final : public QObject {
     // (lfo|macro|follower), name, shape, rateHz, rateText, value, valueText,
     // sourceTrack, sourceName, targets: [{index, kind, bus, slot, parameter,
     // place, depth, depthText}]}.
-    Q_PROPERTY(int modulatorCount READ modulatorCount NOTIFY songChanged)
+    Q_PROPERTY(int modulatorCount READ modulatorCount NOTIFY arrangementChanged)
     Q_PROPERTY(QVariantList modulators READ modulators NOTIFY modulationChanged)
     Q_PROPERTY(QStringList lfoShapes READ lfoShapes CONSTANT)
     // The note values a synced LFO's cycle can last, shortest first ("1/16"
@@ -148,8 +151,8 @@ class SongModel final : public QObject {
     // repeats, quantization, follow}]}, a cell per track of the song. The
     // grid's own quantization (a whole scene's launch, and stops), and the
     // names of the quantizations and follow actions in their menus' order.
-    Q_PROPERTY(QVariantList launcherScenes READ launcherScenes NOTIFY songChanged)
-    Q_PROPERTY(QString launcherQuantization READ launcherQuantization NOTIFY songChanged)
+    Q_PROPERTY(QVariantList launcherScenes READ launcherScenes NOTIFY arrangementChanged)
+    Q_PROPERTY(QString launcherQuantization READ launcherQuantization NOTIFY arrangementChanged)
     Q_PROPERTY(QStringList launchQuantizations READ launchQuantizations CONSTANT)
     Q_PROPERTY(QStringList followActions READ followActions CONSTANT)
 
@@ -161,6 +164,7 @@ public:
     explicit SongModel(QObject* parent = nullptr);
 
     QVariantList tracks() const;
+    QStringList trackNames() const;
     QVariantList patterns() const;
     QVariantList clips() const;
     QVariantList lanes() const;
@@ -618,6 +622,11 @@ public:
 
 signals:
     void songChanged();
+    // songChanged for anything but a fader, pan, mute or solo move. What
+    // carries no strip readout is notified by this, so a fader dragged across
+    // a full song no longer re-reads every pattern, clip and section into the
+    // interface on each pointer move.
+    void arrangementChanged();
     // Raised only when the arrangement itself changed, so the audio engine is
     // rebuilt for a new clip or instrument but not for a fader move.
     void structureChanged();

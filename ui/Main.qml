@@ -500,8 +500,8 @@ ApplicationWindow {
                         // Whose part of the pattern the editors below show.
                         Label {
                             objectName: "patternStem"
-                            text: songModel.tracks[songModel.selectedTrack] !== undefined
-                                  ? "· " + songModel.tracks[songModel.selectedTrack].name : ""
+                            text: songModel.trackNames[songModel.selectedTrack] !== undefined
+                                  ? "· " + songModel.trackNames[songModel.selectedTrack] : ""
                             color: Theme.acid; font.pixelSize: 11; font.bold: true
                             font.letterSpacing: 0.5
                         }
