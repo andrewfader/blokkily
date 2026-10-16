@@ -96,5 +96,10 @@ std::unique_ptr<PluginInstance> make_delay();
 std::unique_ptr<PluginInstance> make_reverb();
 std::unique_ptr<PluginInstance> make_compressor();
 std::unique_ptr<PluginInstance> make_limiter();
+std::unique_ptr<PluginInstance> make_filter();
+std::unique_ptr<PluginInstance> make_saturation();
+std::unique_ptr<PluginInstance> make_chorus();
+std::unique_ptr<PluginInstance> make_flanger();
+std::unique_ptr<PluginInstance> make_gate();
 
 } // namespace blokkily::effects

@@ -1,5 +1,6 @@
 Feature: Built-in effects and effect plugins shape the sound they are given
-  Blokkily's own EQ, delay, reverb, compressor and limiter process a track's audio in
+  Blokkily's own EQ, delay, reverb, compressor, limiter, filter, saturation,
+  chorus, flanger and gate process a track's audio in
   place behind the same PluginInstance boundary as CLAP and VST3 plugins, and
   the suite builds a real CLAP effect and a real VST3 effect whose work can be
   read off the rendered audio. Each scenario is proved from rendered samples
@@ -121,3 +122,44 @@ Feature: Built-in effects and effect plugins shape the sound they are given
     Then just after the burst the tone is still turned down
     And 100 ms later most of the reduction has gone
     And a second later the tone is untouched
+
+  # builtin_filter_response
+  Scenario: The filter cuts, passes and peaks where it is told to
+    Given the built-in filter as a 1 kHz low-pass
+    Then 100 Hz passes within 0.3 dB, 4 kHz is 20 dB down and 8 kHz 9 dB further
+    And as a high-pass it passes 10 kHz and cuts 250 Hz
+    And as a band-pass it passes 1 kHz at unity and cuts 100 Hz and 10 kHz
+    And resonance 0.8 peaks the cutoff by more than 10 dB
+    When the cutoff jumps from 300 Hz to 20 kHz under a 3 kHz tone
+    Then the tone swells in over milliseconds rather than stepping in
+
+  # builtin_saturation_harmonics
+  Scenario: Saturation rounds a driven tone off with odd harmonics
+    Given the built-in saturation
+    Then a quiet tone with no drive gains no harmonics
+    When a tone is driven 24 dB into it
+    Then its third harmonic is within 20 dB of it, it gains no even ones, and it never passes full scale
+    And at mix 0 the signal passes untouched
+
+  # builtin_chorus_sweeps
+  Scenario: The chorus sweeps a delayed copy around its delay
+    Given the built-in chorus at 1 Hz, 3 ms deep around 12 ms, mix 0.5
+    When impulses are played through it
+    Then each copy returns between 9 and 15 ms later, sweeping through most of that
+    And the right channel's sweep is offset from the left's
+    And at mix 0 the signal passes untouched
+
+  # builtin_flanger_feedback
+  Scenario: The flanger feeds its copy back
+    Given the built-in flanger at its defaults with the sweep stopped
+    When an impulse is played through it
+    Then it returns every 2 ms, each time 0.6 of the last, and the tail covers it
+
+  # builtin_gate_opens_and_closes
+  Scenario: The gate shuts out what is under its threshold
+    Given the built-in gate at -40 dB
+    When a loud tone stops, a hum 50 dB down plays, and the tone returns
+    Then the tone passes untouched, the hum is shut out, and the gate opens again
+    And it holds open for a moment after the tone stops
+    And a -70 dB threshold lets the hum through, and a -12 dB range only ducks it 12 dB
+    And keyed, it opens on the key rather than the signal

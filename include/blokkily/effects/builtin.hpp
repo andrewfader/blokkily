@@ -1,7 +1,8 @@
 #pragma once
 
 // The effects Blokkily provides itself (plan item 1.8): a three-band EQ, a
-// delay, a reverb and a compressor. Each is a PluginInstance like any plugin:
+// delay, a reverb, a compressor, a limiter, a filter, saturation, a chorus, a
+// flanger and a gate. Each is a PluginInstance like any plugin:
 // it processes the block IN PLACE (the track signal in, the effect out),
 // takes parameter_value and parameter_modulation events at their sample
 // offsets, reports its tail, and saves and loads its parameters as state. The
@@ -93,6 +94,53 @@ enum Parameter : std::int32_t {
     ceiling_dbtp = 0, // -12..0, -1
     release_ms = 1,   // 1..1000, 60
     gain_db = 2,      // 0..24, 0: drive into the ceiling
+};
+}
+
+// A resonant 12 dB/octave state-variable filter. The cutoff glides over a
+// few milliseconds, so it can be swept without zipper noise.
+namespace filter {
+enum Parameter : std::int32_t {
+    mode = 0,      // 0 low-pass, 1 high-pass, 2 band-pass (unity at its centre); 0
+    cutoff_hz = 1, // 20..20000, 1000
+    resonance = 2, // 0..1, 0.1: 0 is no peak, 1 a strong one
+    mix = 3,       // 0..1, 1
+};
+}
+
+// Soft tanh saturation with antiderivative anti-aliasing.
+namespace saturation {
+enum Parameter : std::int32_t {
+    drive_db = 0,  // 0..36, 12
+    mix = 1,       // 0..1, 1
+    output_db = 2, // -24..6, -6
+};
+}
+
+// A modulated delay mixed with the dry signal, the right channel's LFO a
+// quarter turn behind. "chorus" and "flanger" share these parameters and
+// differ in their defaults: chorus 0.8 Hz, 3 ms deep around 12 ms, no
+// feedback; flanger 0.25 Hz, 1.5 ms deep around 2 ms, feedback 0.6.
+namespace chorus {
+enum Parameter : std::int32_t {
+    rate_hz = 0,  // 0.01..10
+    depth_ms = 1, // 0..10
+    delay_ms = 2, // 0.5..30
+    feedback = 3, // -0.95..0.95
+    mix = 4,      // 0..1, 0.5
+};
+}
+
+// A noise gate with hold, hysteresis (it closes 3 dB under the threshold)
+// and a range: how far it turns the signal down when closed. Keyed, it
+// listens to the sidechain.
+namespace gate {
+enum Parameter : std::int32_t {
+    threshold_db = 0, // -80..0, -40
+    attack_ms = 1,    // 0.01..50, 0.5
+    hold_ms = 2,      // 0..500, 20
+    release_ms = 3,   // 5..2000, 100
+    range_db = 4,     // -80..0, -80
 };
 }
 

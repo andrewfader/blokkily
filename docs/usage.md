@@ -318,8 +318,12 @@ owns its instrument and channel strip, with gain in decibels, constant-power
 pan, mute, solo and a peak meter. Mixer changes reach the running engine
 without rebuilding the graph or interrupting playback.
 
-The FX browser adds CLAP, VST3 or built-in EQ, delay, reverb, compressor and
-limiter inserts to a track, return or master rack. The limiter belongs last on
+The FX browser adds CLAP, VST3 or built-in inserts to a track, return or
+master rack. The built-ins are EQ Three, Delay, Reverb, Compressor, Limiter,
+Filter (resonant low-, high- or band-pass, MODE 0, 1 or 2, whose cutoff
+glides so an LFO can sweep it), Saturation (tanh drive, anti-aliased),
+Chorus, Flanger and Gate (with hold, hysteresis, a range for ducking rather
+than shutting, and a sidechain key). The limiter belongs last on
 the master: it keeps every peak, including those between samples, under its
 ceiling (-1 dBTP unless set otherwise), and leaves quieter audio untouched;
 GAIN drives the mix into it. Sends are post-fader and pre-pan.

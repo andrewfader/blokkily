@@ -16,6 +16,11 @@ constexpr Entry entries[] = {
     {"reverb", "Reverb", effects::make_reverb},
     {"compressor", "Compressor", effects::make_compressor},
     {"limiter", "Limiter", effects::make_limiter},
+    {"filter", "Filter", effects::make_filter},
+    {"saturation", "Saturation", effects::make_saturation},
+    {"chorus", "Chorus", effects::make_chorus},
+    {"flanger", "Flanger", effects::make_flanger},
+    {"gate", "Gate", effects::make_gate},
 };
 } // namespace
 

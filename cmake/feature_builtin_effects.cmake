@@ -15,7 +15,11 @@ target_sources(blokkily_core PRIVATE
     src/effects/delay.cpp
     src/effects/reverb.cpp
     src/effects/compressor.cpp
-    src/effects/limiter.cpp)
+    src/effects/limiter.cpp
+    src/effects/filter.cpp
+    src/effects/saturation.cpp
+    src/effects/chorus.cpp
+    src/effects/gate.cpp)
 
 if(BLOKKILY_BUILD_TESTS)
     # The CLAP effect fixture: input delayed 64 samples (its reported latency)
@@ -64,6 +68,11 @@ if(BLOKKILY_BUILD_TESTS)
             limiter_ceiling
             limiter_transparent
             limiter_release
+            filter_response
+            saturation_harmonics
+            chorus_sweeps
+            flanger_feedback
+            gate_opens_and_closes
             determinism
             interface
             clap_effect

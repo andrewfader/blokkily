@@ -754,8 +754,9 @@ void builtin_catalog() {
             require(entry.slot.format == builtin_effect_format, "built-ins use their own format");
             effects.push_back(entry.slot.identifier);
         }
-    require(effects == std::vector<std::string>{"eq3", "delay", "reverb", "compressor", "limiter"},
-            "EQ, delay, reverb, compressor and limiter are listed as effects, in order");
+    require(effects == std::vector<std::string>{"eq3", "delay", "reverb", "compressor", "limiter",
+                                                "filter", "saturation", "chorus", "flanger", "gate"},
+            "every built-in is listed as an effect, in order");
     require(is_internal_format(std::string(builtin_effect_format)), "the format is registered");
     for (const auto& identifier : effects) {
         std::string error;

@@ -15,6 +15,7 @@
 #include "blokkily/plugins/clap_instance.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -324,6 +325,11 @@ void determinism() {
         {"reverb", {{30011, value_event(reverb::size, 0.9)}, {50003, modulation_event(reverb::width, -0.5)}}},
         {"compressor", {{30011, value_event(compressor::threshold_db, -30.0)}, {50003, modulation_event(compressor::ratio, 4.0)}}},
         {"limiter", {{0, value_event(limiter::gain_db, 9.0)}, {30011, value_event(limiter::ceiling_dbtp, -3.0)}, {50003, modulation_event(limiter::release_ms, 200.0)}}},
+        {"filter", {{30011, value_event(filter::cutoff_hz, 400.0)}, {50003, modulation_event(filter::resonance, 0.5)}}},
+        {"saturation", {{30011, value_event(saturation::drive_db, 30.0)}, {50003, modulation_event(saturation::mix, -0.5)}}},
+        {"chorus", {{30011, value_event(chorus::rate_hz, 3.0)}, {50003, modulation_event(chorus::depth_ms, 2.0)}}},
+        {"flanger", {{30011, value_event(chorus::feedback, -0.7)}, {50003, modulation_event(chorus::delay_ms, 3.0)}}},
+        {"gate", {{30011, value_event(gate::threshold_db, -6.0)}, {50003, modulation_event(gate::range_db, 40.0)}}},
     };
     for (const auto& info : builtin_effects()) {
         const auto& events = moves.at(info.identifier);
@@ -458,13 +464,203 @@ void limiter_release() {
     require(std::abs(settled - decibels(0.25)) < 0.05, "a second later the tone is untouched");
 }
 
+// ------------------------------------------- Filter, saturation, chorus ----
+
+// The gain, in dB, `identifier` set by `settings` gives a sine at `frequency`.
+double gain_db(const char* identifier, const std::vector<Timed>& settings, double frequency) {
+    auto effect = builtin(identifier);
+    const auto input = sine(frequency, 0.25, 72000);
+    const auto output = render(*effect, input, 256, settings);
+    const double in = probe::goertzel_energy(window(input.left, 24000, 72000), rate, frequency);
+    const double out = probe::goertzel_energy(window(output.left, 24000, 72000), rate, frequency);
+    return 10.0 * std::log10(out / in);
+}
+
+void filter_response() {
+    const auto low = [](double hz, std::vector<Timed> extra = {}) {
+        extra.push_back({0, value_event(filter::mode, 0.0)});
+        return gain_db("filter", extra, hz);
+    };
+    const auto high = [](double hz) { return gain_db("filter", {{0, value_event(filter::mode, 1.0)}}, hz); };
+    const auto band = [](double hz) { return gain_db("filter", {{0, value_event(filter::mode, 2.0)}}, hz); };
+    // Low-pass at 1 kHz: the bass passes, 12 dB an octave falls away above.
+    std::cout << "filter low-pass: 100 Hz " << low(100) << ", 4 kHz " << low(4000) << ", 8 kHz " << low(8000) << " dB\n";
+    require(std::abs(low(100)) < 0.3, "a low-pass passes what is well under its cutoff");
+    require(low(4000) < -20.0 && low(8000) < low(4000) - 9.0, "and falls about 12 dB an octave above it");
+    // High-pass is the mirror.
+    require(std::abs(high(10000)) < 0.5 && high(250) < -20.0, "a high-pass passes the top and cuts the bottom");
+    // Band-pass is unity at its centre and falls either side.
+    require(std::abs(band(1000)) < 0.3 && band(100) < -15.0 && band(10000) < -15.0,
+            "a band-pass passes its centre at unity and cuts either side");
+    // Resonance raises a peak at the cutoff.
+    const double peak = low(1000, {{0, value_event(filter::resonance, 0.8)}});
+    std::cout << "filter resonance 0.8 at the cutoff: " << peak << " dB\n";
+    require(peak > 10.0, "resonance peaks the cutoff");
+    // A moved cutoff glides: a 3 kHz tone under a 300 Hz cutoff that jumps to
+    // 20 kHz swells in over milliseconds instead of stepping in at once.
+    auto sweep = builtin("filter");
+    const auto input = sine(3000.0, 0.5, 9600);
+    const auto output = render(*sweep, input, 256, {{0, value_event(filter::cutoff_hz, 300.0)},
+                                                    {4800, value_event(filter::cutoff_hz, 20000.0)}});
+    const double before = probe::peak(window(output.left, 4000, 4800));
+    const double one_ms = probe::peak(window(output.left, 4800 + 24, 4800 + 72));
+    const double later = probe::peak(window(output.left, 4800 + 1200, 4800 + 1500));
+    std::cout << "filter glide: " << before << " before, " << one_ms << " a millisecond on, " << later << " 25 ms on\n";
+    require(before < 0.02, "under a 300 Hz cutoff the 3 kHz tone is far down");
+    require(one_ms < 0.4, "a millisecond after the jump it is still on its way up");
+    require(later > 0.45, "25 ms after the jump it is through");
+}
+
+void saturation_harmonics() {
+    // A quiet tone with no drive comes through nearly clean.
+    auto clean = builtin("saturation");
+    const auto quiet = render(*clean, sine(1000.0, 0.01, 48000),
+                              256, {{0, value_event(saturation::drive_db, 0.0)},
+                                    {0, value_event(saturation::output_db, 0.0)}});
+    const double fundamental = probe::goertzel_energy(window(quiet.left, 4800, 48000), rate, 1000.0);
+    const double third_quiet = probe::goertzel_energy(window(quiet.left, 4800, 48000), rate, 3000.0);
+    require(10.0 * std::log10(third_quiet / fundamental) < -60.0, "a quiet undriven tone gains no harmonics");
+    // Driven hard, the tone gains odd harmonics and its peaks are held.
+    auto driven = builtin("saturation");
+    const auto loud = render(*driven, sine(1000.0, 0.5, 48000), 256,
+                             {{0, value_event(saturation::drive_db, 24.0)},
+                              {0, value_event(saturation::output_db, 0.0)}});
+    const auto measured = window(loud.left, 4800, 48000);
+    const double f1 = probe::goertzel_energy(measured, rate, 1000.0);
+    const double f2 = probe::goertzel_energy(measured, rate, 2000.0);
+    const double f3 = probe::goertzel_energy(measured, rate, 3000.0);
+    std::cout << "saturation: 3rd " << 10.0 * std::log10(f3 / f1) << " dB, 2nd " << 10.0 * std::log10(f2 / f1 + 1e-30) << " dB\n";
+    require(10.0 * std::log10(f3 / f1) > -20.0, "a driven tone gains a strong third harmonic");
+    require(10.0 * std::log10(f2 / f1 + 1e-30) < -80.0, "the symmetric curve adds no even harmonics");
+    require(probe::peak(measured) <= 1.0F, "the curve never exceeds full scale");
+    // Mix 0 is the dry signal untouched.
+    auto dry = builtin("saturation");
+    const auto input = test_signal(9600);
+    const auto out = render(*dry, input, 256, {{0, value_event(saturation::mix, 0.0)}});
+    require(same_bits(out, input), "mix 0 passes the dry signal untouched");
+}
+
+// Where each impulse's copy comes back, in samples after the impulse.
+std::vector<double> copy_delays(const Stereo& output, const std::vector<std::size_t>& impulses,
+                                const std::vector<float>& channel) {
+    std::vector<double> delays;
+    for (const auto at : impulses) {
+        // The copy is the loudest thing between 1 and 40 ms after the dry hit.
+        std::size_t best = at + 1;
+        for (std::size_t frame = at + 1; frame < at + 1920 && frame < output.size(); ++frame)
+            if (std::abs(channel[frame]) > std::abs(channel[best])) best = frame;
+        delays.push_back(static_cast<double>(best - at));
+    }
+    return delays;
+}
+
+void chorus_sweeps() {
+    // Impulses every 100 ms through a chorus at 1 Hz, 3 ms deep around 12 ms.
+    auto chorus = builtin("chorus");
+    Stereo input(96000);
+    std::vector<std::size_t> impulses;
+    for (std::size_t at = 2400; at < 94000; at += 4800) {
+        impulses.push_back(at);
+        input.left[at] = input.right[at] = 1.0F;
+    }
+    const auto output = render(*chorus, input, 256, {{0, value_event(chorus::rate_hz, 1.0)}});
+    const auto left = copy_delays(output, impulses, output.left);
+    const auto right = copy_delays(output, impulses, output.right);
+    const auto [lo, hi] = std::minmax_element(left.begin(), left.end());
+    std::cout << "chorus copy delay " << *lo / rate * 1000.0 << " to " << *hi / rate * 1000.0 << " ms\n";
+    require(*lo >= (12.0 - 3.0) / 1000.0 * rate - 2 && *hi <= (12.0 + 3.0) / 1000.0 * rate + 2,
+            "the copy stays within the sweep around the delay");
+    require(*hi - *lo > 2.0 / 1000.0 * rate, "the delay sweeps through most of its depth");
+    require(left != right, "the right channel's sweep is offset from the left's");
+    // Dry half, copy half at mix 0.5: the dry impulse is at 0.5.
+    require(std::abs(output.left[impulses[0]] - 0.5F) < 1e-6F, "mix 0.5 keeps half the dry signal");
+    // Mix 0 is dry.
+    auto off = builtin("chorus");
+    const auto signal = test_signal(9600);
+    require(same_bits(render(*off, signal, 256, {{0, value_event(chorus::mix, 0.0)}}), signal),
+            "mix 0 passes the dry signal untouched");
+}
+
+void flanger_feedback() {
+    // A flanger at its defaults (2 ms delay, feedback 0.6) with the sweep
+    // stopped: an impulse comes back again and again, each 0.6 of the last.
+    auto flanger = builtin("flanger");
+    Stereo input(9600);
+    input.left[100] = input.right[100] = 1.0F;
+    const auto output = render(*flanger, input, 256, {{0, value_event(chorus::depth_ms, 0.0)}});
+    const std::size_t delay = 96; // 2 ms
+    const double first = output.left[100 + delay];
+    const double second = output.left[100 + 2 * delay];
+    const double third = output.left[100 + 3 * delay];
+    std::cout << "flanger echoes " << first << ", " << second << ", " << third << '\n';
+    require(std::abs(first - 0.5) < 1e-3 && std::abs(second / first - 0.6) < 1e-3 &&
+                std::abs(third / second - 0.6) < 1e-3,
+            "feedback returns the copy at 2 ms intervals, each 0.6 of the last");
+    require(flanger->tail_samples() >= 18 * delay, "its tail covers the echoes to -80 dB");
+}
+
+// ---------------------------------------------------------------- Gate ----
+
+void gate_opens_and_closes() {
+    // A loud tone, then a hum 50 dB down, then the tone again.
+    Stereo input(96000);
+    const auto loud = sine(500.0, 0.5, 96000);
+    const auto hum = sine(500.0, 0.0016, 96000);
+    for (std::size_t frame = 0; frame < input.size(); ++frame) {
+        const bool tone = frame < 24000 || frame >= 72000;
+        input.left[frame] = input.right[frame] = tone ? loud.left[frame] : hum.left[frame];
+    }
+    auto gate = builtin("gate");
+    const auto output = render(*gate, input, 256);
+    const auto db = [&](std::size_t from, std::size_t to) {
+        return decibels(probe::rms(window(output.left, from, to)) / probe::rms(window(input.left, from, to)));
+    };
+    std::cout << "gate: tone " << db(4800, 24000) << " dB, hum " << db(48000, 72000) << " dB, tone again "
+              << db(74400, 96000) << " dB\n";
+    require(std::abs(db(4800, 24000)) < 0.01, "an open gate leaves the tone untouched");
+    require(db(48000, 72000) < -70.0, "the hum under the threshold is shut out");
+    require(std::abs(db(74400, 96000)) < 0.01, "the tone opens it again");
+    // Hold: just after the tone stops, the gate is still open.
+    require(std::abs(output.left[24000 + 240] - input.left[24000 + 240]) < 1e-6F,
+            "the gate holds open 5 ms after the level drops");
+    // A lower threshold lets the hum through; a shallower range only ducks it.
+    auto low = builtin("gate");
+    const auto passed = render(*low, input, 256, {{0, value_event(gate::threshold_db, -70.0)}});
+    require(std::abs(decibels(probe::rms(window(passed.left, 48000, 72000)) /
+                              probe::rms(window(input.left, 48000, 72000)))) < 0.01,
+            "a hum over a -70 dB threshold passes");
+    auto duck = builtin("gate");
+    const auto ducked = render(*duck, input, 256, {{0, value_event(gate::range_db, -12.0)}});
+    const double ducked_db = decibels(probe::rms(window(ducked.left, 48000, 72000)) /
+                                      probe::rms(window(input.left, 48000, 72000)));
+    require(std::abs(ducked_db + 12.0) < 0.1, "a -12 dB range turns the hum down 12 dB, got " + number(ducked_db));
+    // Keyed, the gate opens on the key, not on the signal.
+    auto keyed = builtin("gate");
+    Stereo quiet(9600);
+    const auto hum_short = sine(500.0, 0.0016, 9600);
+    quiet.left = hum_short.left;
+    quiet.right = hum_short.right;
+    Stereo key(9600);
+    for (std::size_t frame = 4800; frame < 9600; ++frame) key.left[frame] = key.right[frame] = 0.5F;
+    Stereo keyed_out = quiet;
+    for (std::size_t start = 0; start < quiet.size(); start += 256) {
+        const std::size_t frames = std::min<std::size_t>(256, quiet.size() - start);
+        keyed->set_sidechain({std::span(key.left).subspan(start, frames), std::span(key.right).subspan(start, frames)});
+        keyed->process({std::span(keyed_out.left).subspan(start, frames),
+                        std::span(keyed_out.right).subspan(start, frames)}, {});
+    }
+    require(probe::peak(window(keyed_out.left, 1000, 4800)) < 1e-6F, "with the key silent the hum is shut out");
+    require(std::abs(keyed_out.left[9000] - quiet.left[9000]) < 1e-7F, "the key opens it");
+}
+
 // ------------------------------------------------ Interface and state -----
 
 void builtin_interface() {
     const auto list = builtin_effects();
     std::string names;
     for (const auto& info : list) names += info.identifier + ";";
-    require(names == "eq3;delay;reverb;compressor;limiter;", "the built-ins are listed in order, got " + names);
+    require(names == "eq3;delay;reverb;compressor;limiter;filter;saturation;chorus;flanger;gate;",
+            "the built-ins are listed in order, got " + names);
     require(create_builtin_effect("no-such-effect") == nullptr, "an unknown built-in is refused");
     const std::map<std::string, std::string> parameters{
         {"eq3", "Low Gain;Low Freq;Mid Gain;Mid Freq;Mid Q;High Gain;High Freq;"},
@@ -472,6 +668,11 @@ void builtin_interface() {
         {"reverb", "Size;Damping;Width;Mix;"},
         {"compressor", "Threshold;Ratio;Attack;Release;Makeup;"},
         {"limiter", "Ceiling;Release;Gain;"},
+        {"filter", "Mode;Cutoff;Resonance;Mix;"},
+        {"saturation", "Drive;Mix;Output;"},
+        {"chorus", "Rate;Depth;Delay;Feedback;Mix;"},
+        {"flanger", "Rate;Depth;Delay;Feedback;Mix;"},
+        {"gate", "Threshold;Attack;Hold;Release;Range;"},
     };
     // Only the lookahead limiter delays its signal, and says by how much.
     const std::map<std::string, bool> latent{{"limiter", true}};
@@ -669,6 +870,11 @@ const std::map<std::string, std::function<void()>> cases{
     {"limiter_ceiling", limiter_ceiling},
     {"limiter_transparent", limiter_transparent},
     {"limiter_release", limiter_release},
+    {"filter_response", filter_response},
+    {"saturation_harmonics", saturation_harmonics},
+    {"chorus_sweeps", chorus_sweeps},
+    {"flanger_feedback", flanger_feedback},
+    {"gate_opens_and_closes", gate_opens_and_closes},
     {"determinism", determinism},
     {"interface", builtin_interface},
     {"clap_effect", clap_effect_fixture},

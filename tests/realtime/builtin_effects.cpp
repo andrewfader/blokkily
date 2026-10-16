@@ -77,12 +77,19 @@ BLOKKILY_REALTIME_CASE(builtin_effects) {
         std::int32_t parameter;
         double low, high;
     };
-    const std::array<Move, 6> moves{{{"eq3", eq3::mid_gain_db, -9.0, 9.0},
+    const std::array<Move, 11> moves{{{"eq3", eq3::mid_gain_db, -9.0, 9.0},
                                      {"delay", delay::time_ms, 50.0, 400.0},
                                      {"delay", delay::sync, 0.0, 1.0},
                                      {"reverb", reverb::size, 0.2, 0.9},
                                      {"compressor", compressor::threshold_db, -30.0, -10.0},
-                                     {"limiter", limiter::ceiling_dbtp, -12.0, -6.0}}};
+                                     {"limiter", limiter::ceiling_dbtp, -12.0, -6.0},
+                                     {"filter", filter::cutoff_hz, 200.0, 2000.0},
+                                     {"saturation", saturation::drive_db, 6.0, 24.0},
+                                     {"chorus", chorus::rate_hz, 0.5, 5.0},
+                                     {"flanger", chorus::feedback, -0.8, 0.8},
+                                     // A threshold either side of the tone's peak, so it
+                                     // opens and closes.
+                                     {"gate", gate::threshold_db, -10.0, -2.0}}};
     for (const auto& move : moves) {
         auto effect = create_builtin_effect(move.identifier);
         require(effect != nullptr, std::string("built-in ") + move.identifier + " must exist");

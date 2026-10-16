@@ -101,12 +101,23 @@ void run_effects(VerifyContext& ctx) {
     const auto near = [](float actual, float expected, float relative = 0.01F) {
         return std::abs(actual - expected) <= relative * std::abs(expected);
     };
-    // The browser row showing the entry named `name`, as rendered.
+    // The browser row showing the entry named `name`, as rendered: the list
+    // is scrolled to it first, as a producer scrolls to find it, since a list
+    // longer than the rail only makes the rows on screen.
     const auto browser_row = [&](const QString& name) -> QQuickItem* {
         const auto rows = controller.browserPlugins();
         for (int row = 0; row < rows.size(); ++row)
-            if (rows.at(row).toMap().value("name").toString() == name)
-                return ctx.named(QString("browserRow%1").arg(row));
+            if (rows.at(row).toMap().value("name").toString() == name) {
+                if (auto* list = ctx.named("pluginBrowser")) {
+                    constexpr int contain = 4; // ListView.Contain
+                    QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, row),
+                                              Q_ARG(int, contain));
+                    QCoreApplication::processEvents();
+                    (void)ctx.window->grabWindow();
+                }
+                auto* item = ctx.named(QString("browserRow%1").arg(row));
+                return VerifyContext::usable(item, 60, 18) ? item : nullptr;
+            }
         return nullptr;
     };
     const auto kinds_listed = [&](const QString& kind) {
