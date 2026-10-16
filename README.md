@@ -24,7 +24,7 @@ Each [release](https://github.com/andrewfader/blokkily/releases/latest)
 carries packages built and tested by CI:
 
 - **Linux:** `blokkily-<version>-Linux.tar.gz` (or `.tar.xz`), built on Arch
-  Linux. It expects Qt 6, FluidSynth, RtAudio, RtMidi, libsndfile,
+  Linux. It expects Qt 6, FluidSynth, RtAudio, RtMidi, JACK, libsndfile,
   libsamplerate and Rubber Band from the system.
 - **Windows:** `blokkily-<version>-Windows-x64-setup.exe`, an installer with a
   Start-menu entry and an uninstaller, or `blokkily-<version>-Windows-x64.zip`
@@ -50,7 +50,8 @@ have not been checked there yet.
 ## Build and run
 
 You need CMake 3.25+, Qt 6.5+, plus FluidSynth, RtAudio, RtMidi, libsndfile,
-libsamplerate and Rubber Band 4 (found through pkg-config). JUCE and the CLAP
+libsamplerate and Rubber Band 4 (found through pkg-config), and on Linux
+libjack (JACK or PipeWire's JACK). JUCE and the CLAP
 headers are vendored under `third_party/`, so clone with `--recursive`.
 
 The verification tests need a SoundFont. CMake looks for `basic.sf2`,
@@ -85,13 +86,14 @@ keeps the layout consistent across desktops.
 
 - Edit notes and chords in any of the three synchronized editors. Patterns
   support inversions, strum, swing, microtiming, probability, ratchets, loop
-  conditions and parameter locks. Edits are heard during playback without
+  conditions and parameter locks, which can also move an insert on a return
+  or the master bus. Edits are heard during playback without
   stopping it.
 - Arrange named patterns and audio clips on a multi-track timeline, with tempo
   steps, ramps and meter changes. LOOP wraps playback between IN and OUT on
   the arrangement; an export still writes the whole song. The scene launcher
-  lets you perform patterns live and record the performance into the
-  arrangement.
+  lets you perform patterns live, give a scene its own tempo, and record the
+  performance into the arrangement.
 - Play and record with a MIDI controller or the on-screen piano, isomorphic
   grids, fretboards and chord pads. Tunings and scales include microtonal
   options. A session with no instruments uses an installed SoundFont by
@@ -103,6 +105,9 @@ keeps the layout consistent across desktops.
   resonant filter, saturation, chorus, flanger and gate),
   sends, returns, sidechains, auxiliary outputs, automation and modulation.
   Plugin latency is compensated in playback and export.
+- On Linux, play through ALSA, PulseAudio or JACK. Blokkily drives JACK (and
+  PipeWire's JACK) directly, at whatever block size the server runs. See
+  [audio system](docs/usage.md#audio-system).
 - Warp audio clips to follow the tempo, or stretch and pitch-shift them.
 - Play hardware synths and drum machines from a track through a MIDI output,
   and send them MIDI clock, or follow another machine's clock.
@@ -126,13 +131,11 @@ recording workflows.
 
 ## Current limitations
 
-Blokkily is experimental. MPE
-support varies by instrument format.
-Large unwarped audio clips can stream from disk; warped clips and sampler
-samples still load into memory. On Linux, plugin editor windows need X11, or
-Wayland with XWayland or a CLAP plugin's own Wayland support. Export always
-renders the arrangement, so record a launcher performance into it before
-exporting.
+Blokkily is experimental. MPE support varies by instrument format. Large
+unwarped audio clips can stream from disk; warped clips and sampler samples
+still load into memory. On Linux, plugin editor windows need X11, or Wayland
+with XWayland or a CLAP plugin's own Wayland support. Export always renders
+the arrangement, so record a launcher performance into it before exporting.
 
 The [limitations reference](docs/limitations.md) covers these restrictions and
 others, including sidechains, modulation timing, sampler editing and stems.
