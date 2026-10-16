@@ -50,7 +50,7 @@ jobs:
             alsa-lib freetype2 libx11 libxext libxi libxrandr libxinerama \
             libxcursor libxrender libxcomposite \
             freewheeling ttf-dejavu fontconfig ffmpeg \
-            desktop-file-utils shared-mime-info
+            desktop-file-utils shared-mime-info libxml2
 
       - name: Configure Git safe directory
         run: git config --global --add safe.directory '*'

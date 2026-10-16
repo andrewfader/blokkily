@@ -2,7 +2,10 @@
 # metadata installed with the app, an AppImage script and a Flatpak manifest
 # under packaging/, and a check that they agree.
 
-if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
+# AppStream, AppImage and Flatpak are Linux packaging, and the check reuses
+# desktop-file-validate from feature_open_from_desktop.cmake, so it runs
+# where that one does.
+if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI AND UNIX AND NOT APPLE)
     find_program(BLOKKILY_XMLLINT xmllint REQUIRED)
     find_program(BLOKKILY_BASH bash REQUIRED)
     add_test(NAME packaging_metadata COMMAND ${CMAKE_COMMAND}
