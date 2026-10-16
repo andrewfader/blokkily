@@ -225,7 +225,8 @@ stopped or playing. Its keys map to degrees of the song's tuning and scale, as
 on the on-screen piano.
 
 Each track's R button arms notes and audio. Its input controls choose MIDI
-channels or audio-device inputs and monitoring. With no track armed, the
+channels or audio-device inputs and monitoring (see
+[Audio recording](#audio-recording)). With no track armed, the
 selected track records. The on-screen keyboards and tracker can also record
 while the song plays.
 
@@ -266,6 +267,52 @@ per-note channel for SoundFont and VST3. See
 
 CLICK follows the tempo and meter. CI counts in up to four bars without moving
 the song. Exports exclude the click unless + CLICK is enabled.
+
+## Audio recording
+
+Any track can record from the audio device's inputs into audio clips. On its
+mixer strip, the input chip below R says what the track records. A click steps
+it from MIDI through the inputs, each pair followed by its two inputs alone
+(IN 1-2, IN 1, IN 2, IN 3-4 and so on), and a right click steps back. The
+monitor chip beside it says when the input is heard through the track:
+
+| Chip | Input heard |
+| --- | --- |
+| MON AUTO | while the track is armed, even with the song stopped |
+| MON | always, armed or not |
+| MON OFF | never |
+
+The chip lights while the input is actually heard. A monitored input follows
+the track's pan and mute; a mono input is heard on both sides. A bounce or
+export never hears it.
+
+To record a take:
+
+1. Choose the input and arm the track with R. With no track armed, the
+   selected audio track records.
+2. Arm the transport's record button (Ctrl+R) and press Play.
+3. Press Stop. The take becomes a clip on the track.
+
+The clip is placed where you heard the song, not where the input received it.
+It is moved earlier by the device's round trip, the plugin latency on the way
+out, and the song's record offset (the `record-offset` line of the project
+file, in samples; the window has no control for it yet). With PUNCH, only what
+is played between IN and OUT is kept. With LOOP, each pass is a take of the
+same bars (see [Punch and comping](#punch-and-comping)). The audio clips and
+the notes of one pass are one undo step. The status line reports the takes
+recorded, and any input frames dropped when the disk could not keep up.
+Dropping frames splits the take rather than stalling playback.
+
+Takes are WAV files, one per track, holding the chosen inputs exactly as
+played. Before the first save they are written to a temporary folder of the
+session's own. Saving moves them into `<project>.audio/` beside the project.
+
+The device opens duplex only while some track takes audio input. If the server
+refuses inputs it plays output only, and nothing is recorded. See
+[the scenarios](../features/audio_input.feature).
+
+To record what Blokkily itself plays, use RESAMPLE or STEM (see
+[Export, resampling and stems](#export-resampling-and-stems)).
 
 ## Exporting
 
