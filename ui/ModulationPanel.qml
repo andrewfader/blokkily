@@ -106,6 +106,19 @@ Rectangle {
                             }
                         }
                         Item { Layout.fillWidth: true }
+                        // A macro can be learned to a hardware knob: LEARN,
+                        // then turn it. Right-click forgets it.
+                        Chip {
+                            objectName: "learnMacro" + card.index
+                            visible: card.row.kind === "macro"
+                            readonly property string bound:
+                                (appController.midiLearnStatus, appController.midiBindingFor("macro", card.index))
+                            text: bound !== "" ? bound : "LEARN"
+                            implicitHeight: 20; accent: Theme.amber
+                            on: appController.midiLearning
+                            onClicked: appController.learnMidi("macro", card.index)
+                            onRightClicked: appController.forgetMidiBindings("macro", card.index)
+                        }
                         Chip {
                             objectName: "addTarget" + card.index
                             text: "+ TARGET"; implicitHeight: 20; accent: card.accent

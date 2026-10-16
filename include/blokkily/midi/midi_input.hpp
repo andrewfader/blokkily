@@ -39,6 +39,14 @@ struct TunedKey {
     float cents = 0.0F;
 };
 using KeyMap = std::array<TunedKey, 128>;
+// A controller a port delivered (features/midi_learn.feature), for the
+// control thread: MIDI learn binds one to a mixer control or a macro.
+struct ControlChange {
+    std::uint8_t channel = 0;    // 0-based
+    std::uint8_t controller = 0; // 0..119; the sustain pedal and the RPN pair are not offered
+    std::uint8_t value = 0;
+};
+
 // Every key sounds itself: the twelve equal semitones a MIDI keyboard assumes.
 [[nodiscard]] KeyMap identity_key_map() noexcept;
 
@@ -136,6 +144,10 @@ public:
     [[nodiscard]] std::uint64_t notes_received() const noexcept;
     [[nodiscard]] int last_key() const noexcept;
     [[nodiscard]] int last_velocity() const noexcept;
+    // The next controller the port delivered, oldest first, for the control
+    // thread. The feed holds the last 256; a busy knob between two reads
+    // loses its oldest moves, never its latest position.
+    bool next_control_change(ControlChange& change) noexcept;
     // Whether the sustain pedal (CC 64) is currently pressed on `channel`.
     [[nodiscard]] bool is_sustain_active(std::uint8_t channel = 0) const noexcept;
 

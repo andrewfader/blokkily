@@ -274,6 +274,16 @@ note stands still, with the master bounce as its sound. It is 1280 x 720 at
 `BLOKKILY_FFMPEG` naming one). See
 [the export scenarios](../features/export_formats.feature).
 
+## MIDI learn
+
+Right-click a mixer strip and choose MIDI learn gain, pan, mute or solo,
+then move a knob, fader or button on your controller: that controller now
+moves the control. A macro card's LEARN chip does the same for the macro
+(right-click it to forget), and since a macro can aim at any plugin
+parameter, that is how a knob reaches a synth's cutoff. Escape cancels a
+learn; Forget MIDI controls unbinds a strip. Bindings are saved with the
+song. See [the scenarios](../features/midi_learn.feature).
+
 ## Outboard gear and MIDI clock
 
 The MIDI OUT row under MIDI IN gives the selected track a MIDI output port in

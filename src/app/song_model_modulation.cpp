@@ -181,6 +181,14 @@ bool SongModel::removeModulator(int modulator) {
     if (modulatorAt(modulator) == nullptr) return false;
     checkpoint();
     song_.modulators.erase(song_.modulators.begin() + modulator);
+    // A controller bound to the removed macro is let go; the rest follow.
+    using Target = blokkily::MidiBinding::Target;
+    std::erase_if(song_.midi_bindings, [modulator](const auto& binding) {
+        return binding.target == Target::macro && binding.index == static_cast<std::uint32_t>(modulator);
+    });
+    for (auto& binding : song_.midi_bindings)
+        if (binding.target == Target::macro && binding.index > static_cast<std::uint32_t>(modulator))
+            --binding.index;
     notifyStructureChanged();
     return true;
 }

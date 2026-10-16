@@ -240,6 +240,21 @@ ApplicationWindow {
         MenuItem { text: "Solo"; onTriggered: songModel.toggleSolo(trackMenu.target) }
         MenuItem { text: "Delete"; enabled: songModel.trackCount > 1
             onTriggered: songModel.deleteTrack(trackMenu.target) }
+        MenuSeparator {}
+        // The next hardware controller moved is bound to the control.
+        MenuItem { objectName: "learnGain"; text: "MIDI learn gain"
+            onTriggered: appController.learnMidi("gain", trackMenu.target) }
+        MenuItem { objectName: "learnPan"; text: "MIDI learn pan"
+            onTriggered: appController.learnMidi("pan", trackMenu.target) }
+        MenuItem { objectName: "learnMute"; text: "MIDI learn mute"
+            onTriggered: appController.learnMidi("mute", trackMenu.target) }
+        MenuItem { objectName: "learnSolo"; text: "MIDI learn solo"
+            onTriggered: appController.learnMidi("solo", trackMenu.target) }
+        MenuItem { objectName: "forgetMidi"; text: "Forget MIDI controls"
+            onTriggered: {
+                for (const target of ["gain", "pan", "mute", "solo"])
+                    appController.forgetMidiBindings(target, trackMenu.target)
+            } }
     }
 
     FileDialog {
@@ -321,6 +336,8 @@ ApplicationWindow {
                onActivated: appController.toggleRecord() }
     Shortcut { sequence: "Ctrl+Shift+S"; onActivated: saveProjectDialog.open() }
     Shortcut { sequence: "Ctrl+E"; onActivated: exportDialog.open() }
+    Shortcut { sequence: "Escape"; enabled: appController.midiLearning
+               onActivated: appController.cancelMidiLearn() }
     // A text field keeps its own undo; everywhere else undo is the song's.
     Shortcut { sequence: StandardKey.Undo; enabled: !root.typing
                onActivated: songModel.undo() }

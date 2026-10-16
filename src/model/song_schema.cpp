@@ -336,6 +336,17 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
 
     tracks.erase(tracks.begin() + static_cast<std::ptrdiff_t>(index));
     launcher.remove_track(index);
+    // A controller bound to the removed track is let go; the rest follow
+    // their tracks.
+    const auto on_track = [](const MidiBinding& binding) {
+        return binding.target != MidiBinding::Target::master_gain &&
+               binding.target != MidiBinding::Target::macro;
+    };
+    std::erase_if(midi_bindings, [&](const MidiBinding& binding) {
+        return on_track(binding) && binding.index == index;
+    });
+    for (auto& binding : midi_bindings)
+        if (on_track(binding)) binding.index = static_cast<std::uint32_t>(moved(binding.index));
     std::erase_if(clips, [index](const Clip& clip) { return clip.track == index; });
     for (auto& clip : clips) clip.track = moved(clip.track);
     // Its part of every section goes with it.

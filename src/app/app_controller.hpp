@@ -383,6 +383,26 @@ public:
     Q_INVOKABLE bool recoverSession(const QString& id);
     // Lets an abandoned song go.
     Q_INVOKABLE bool discardRecovery(const QString& id);
+    // --- MIDI learn (app_controller_midi_learn.cpp) --------------------------
+    // What learning is waiting for, or what it last did ("CC 74 · CH 1 →
+    // Lead gain"), for the status line.
+    Q_PROPERTY(QString midiLearnStatus READ midiLearnStatus NOTIFY midiLearnChanged)
+    Q_PROPERTY(bool midiLearning READ midiLearning NOTIFY midiLearnChanged)
+    QString midiLearnStatus() const { return midi_learn_status_; }
+    bool midiLearning() const { return !learn_target_.isEmpty(); }
+    // The next controller moved is bound to `target` ("gain", "pan", "mute",
+    // "solo" of track `index`; "master"; "macro" modulator `index`), in place
+    // of whatever it or that control was bound to. False for a control the
+    // song does not have.
+    Q_INVOKABLE bool learnMidi(const QString& target, int index);
+    Q_INVOKABLE void cancelMidiLearn();
+    // Unbinds the control; how many bindings went. One step of history.
+    Q_INVOKABLE int forgetMidiBindings(const QString& target, int index);
+    // "CC 74 · CH 1" for a bound control, "" otherwise.
+    Q_INVOKABLE QString midiBindingFor(const QString& target, int index) const;
+    // Learns and follows the controllers the MIDI input delivered since the
+    // last call. The meter poll calls it; a gate may call it to settle.
+    Q_INVOKABLE void serveControlChanges();
     // --- Stems and the scope video (app_controller_export.cpp) ---------------
     // Bounces every track, then every return, to a file of its own in
     // `directory` ("01 Bass.wav"): each bus after its inserts, fader and pan,
@@ -627,6 +647,7 @@ signals:
     void launcherChanged();
     void scanProgressChanged();
     void recoveriesChanged();
+    void midiLearnChanged();
     // Another launch handed this window a project to open (open_channel.hpp).
     // The window asks about unsaved work, then opens it.
     void openRequested(const QString& path);
@@ -781,6 +802,10 @@ private:
     QString project_status_ = "Not saved";
     QString project_detail_ = "No project on disk";
     QString export_status_ = "Not exported";
+    QString describeControl(const QString& target, int index) const;
+    QString learn_target_;
+    int learn_index_ = 0;
+    QString midi_learn_status_;
     std::unique_ptr<RecoveryStore> recovery_;
     QTimer autosave_timer_;
     // What was last written, so an unchanged song is not written again.

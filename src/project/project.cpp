@@ -30,6 +30,7 @@ std::span<const RecordModule* const> record_modules() {
         &clip_warp_records(),
         &scene_launcher_records(),
         &modulation_records(),
+        &midi_learn_records(),
         &continuous_records(),
         &expression_records(),
         &sections_records(),

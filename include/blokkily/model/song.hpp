@@ -1,6 +1,7 @@
 #pragma once
 
 #include "blokkily/model/arpeggiator.hpp"
+#include "blokkily/model/midi_learn.hpp"
 
 #include "blokkily/model/loop.hpp"
 #include "blokkily/model/metronome.hpp"
@@ -404,6 +405,9 @@ struct Song {
     // LFOs, macros and envelope followers, and the parameters each moves
     // (modulation.hpp). At most maximum_modulators.
     std::vector<Modulator> modulators;
+    // Hardware controllers bound to mixer controls and macros (midi_learn.hpp),
+    // at most one binding per channel and controller.
+    std::vector<MidiBinding> midi_bindings;
 
     [[nodiscard]] Pattern& pattern(std::size_t index = 0) { return patterns.at(index).pattern; }
     [[nodiscard]] const Pattern& pattern(std::size_t index = 0) const {

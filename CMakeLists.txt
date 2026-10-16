@@ -498,7 +498,8 @@ foreach(blokkily_feature
         autosave
         open_in_running_window
         quantize_humanize
-        arpeggiator)
+        arpeggiator
+        midi_learn)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

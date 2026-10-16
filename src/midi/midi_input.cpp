@@ -63,6 +63,8 @@ struct MidiInput::Impl {
     // key to find out. Written by the producer; read by release_pending().
     std::atomic<bool> any_owed{false};
     InputQueue queue;
+    // Controllers for the control thread (MIDI learn). Lossy when full.
+    SpscQueue<ControlChange, 256> controls;
     std::atomic<std::uint64_t> received{0};
     // The MPE zone: written by the control thread (set_mpe) or by the
     // producer (an MPE Configuration Message), read by the producer.
@@ -361,6 +363,10 @@ bool MidiInput::inject(std::span<const std::uint8_t> message, std::uint64_t time
     return true;
 }
 
+bool MidiInput::next_control_change(ControlChange& change) noexcept {
+    return impl_->controls.pop(change);
+}
+
 void MidiInput::receive(std::span<const std::uint8_t> message, std::uint64_t time_ns) noexcept {
     if (!impl_->open.load(std::memory_order_acquire)) return;
     impl_->stamp = time_ns;
@@ -384,6 +390,12 @@ void MidiInput::receive(std::span<const std::uint8_t> message, std::uint64_t tim
             // A member's own setup is the zone's, not a controller's.
             if (impl_->member(channel)) return;
         }
+        // Every ordinary controller is also offered to the control thread,
+        // which binds and follows the learned ones. Not the pedal, the RPN
+        // pair or the channel-mode messages.
+        if (kind == 0xB0 && first < 120 && first != 64 && first != 6 && first != 100 &&
+            first != 101 && first != 38)
+            (void)impl_->controls.push({channel, first, second});
         if (impl_->member(channel)) {
             // MPE: a member channel's bend, CC 74 and pressure belong to the
             // note it holds (per-note expression); they are remembered, so a

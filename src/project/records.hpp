@@ -133,6 +133,8 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& swing_records();
 // Track arpeggiators: arp (records_arpeggiator.cpp).
 [[nodiscard]] const RecordModule& arpeggiator_records();
+// MIDI learn bindings: midi_learn (records_midi_learn.cpp).
+[[nodiscard]] const RecordModule& midi_learn_records();
 // Clip warp (item 3.6): clipwarp, after the audio clips it names
 // (records_clip_warp.cpp).
 [[nodiscard]] const RecordModule& clip_warp_records();

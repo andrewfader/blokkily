@@ -319,6 +319,7 @@ void AppController::pollMeters() {
     // read off it until the load is over.
     if (!engine_ || song_ == nullptr || progress_.pumping()) return;
     drainTake();
+    serveControlChanges();
     pollCountIn();
     pollLauncher();
     const auto received = midi_input_->notes_received();

@@ -167,4 +167,12 @@ ColumnLayout {
 
     Label { Layout.fillWidth: true; text: appController.status; color: Theme.muted
         wrapMode: Text.Wrap; font.pixelSize: 11 }
+    // MIDI learn: what it waits for, or what it bound last.
+    Label {
+        objectName: "midiLearnStatus"
+        Layout.fillWidth: true; visible: text !== ""
+        text: appController.midiLearnStatus
+        color: appController.midiLearning ? Theme.amber : Theme.muted
+        wrapMode: Text.Wrap; font.pixelSize: 11; font.bold: appController.midiLearning
+    }
 }
