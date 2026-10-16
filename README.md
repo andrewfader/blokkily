@@ -100,7 +100,7 @@ keeps the layout consistent across desktops.
   Plugin latency is compensated in playback and export.
 - Warp audio clips to follow the tempo, or stretch and pitch-shift them.
 - Play hardware synths and drum machines from a track through a MIDI output,
-  and send them MIDI clock.
+  and send them MIDI clock, or follow another machine's clock.
 - Record audio and MIDI (including MPE and poly pressure), with a metronome and
   count-in. Resample a bus or bounce stems. Export the arrangement
   as 16-bit, 24-bit or 32-bit float WAVE, MP3 or Ogg Vorbis through the same
@@ -121,7 +121,7 @@ recording workflows.
 
 ## Current limitations
 
-Blokkily is experimental. MIDI clock input is not implemented. MPE
+Blokkily is experimental. MPE
 support varies by instrument format.
 Large unwarped audio clips can stream from disk; warped clips and sampler
 samples still load into memory. On Linux, plugin editor windows need X11, or

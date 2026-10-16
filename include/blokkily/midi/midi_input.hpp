@@ -1,6 +1,7 @@
 #pragma once
 
 #include "blokkily/audio/event_queue.hpp"
+#include "blokkily/midi/clock_follower.hpp"
 
 #include <array>
 #include <atomic>
@@ -148,6 +149,10 @@ public:
     // thread. The feed holds the last 256; a busy knob between two reads
     // loses its oldest moves, never its latest position.
     bool next_control_change(ControlChange& change) noexcept;
+    // The next clock event the port delivered (Clock, Start, Stop, Continue,
+    // Song Position Pointer), stamped with when it arrived, for the control
+    // thread (features/midi_clock_input.feature). Lossy when full.
+    bool next_clock_event(ClockEvent& event) noexcept;
     // Whether the sustain pedal (CC 64) is currently pressed on `channel`.
     [[nodiscard]] bool is_sustain_active(std::uint8_t channel = 0) const noexcept;
 

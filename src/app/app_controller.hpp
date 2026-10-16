@@ -18,6 +18,7 @@
 #include "blokkily/audio/take_writer.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/midi/midi_input.hpp"
+#include "blokkily/midi/clock_follower.hpp"
 #include "blokkily/midi/midi_output.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
 #include "blokkily/sequencer/take.hpp"
@@ -403,6 +404,20 @@ public:
     // Learns and follows the controllers the MIDI input delivered since the
     // last call. The meter poll calls it; a gate may call it to settle.
     Q_INVOKABLE void serveControlChanges();
+    // --- Following an external MIDI clock (app_controller_clock.cpp) -------
+    // While on, the MIDI input's clock moves the transport (Start plays from
+    // the top, Continue plays on, Stop stops, a Song Position Pointer moves
+    // the playhead) and its tempo is the one the song plays at; the song's
+    // own tempo map is kept, unused, until it is switched off.
+    Q_PROPERTY(bool followClock READ followClock WRITE setFollowClock NOTIFY clockChanged)
+    // "123.4 BPM" while a clock is followed, "WAITING" before its first beat.
+    Q_PROPERTY(QString clockStatus READ clockStatus NOTIFY clockChanged)
+    bool followClock() const noexcept { return follow_clock_; }
+    void setFollowClock(bool on);
+    QString clockStatus() const;
+    // Follows what the clock sent since the last call. The meter poll calls
+    // it; a gate may call it to settle.
+    Q_INVOKABLE void serveClock();
     // --- Stems and the scope video (app_controller_export.cpp) ---------------
     // Bounces every track, then every return, to a file of its own in
     // `directory` ("01 Bass.wav"): each bus after its inserts, fader and pan,
@@ -670,6 +685,7 @@ signals:
     void scanProgressChanged();
     void recoveriesChanged();
     void midiLearnChanged();
+    void clockChanged();
     // Another launch handed this window a project to open (open_channel.hpp).
     // The window asks about unsaved work, then opens it.
     void openRequested(const QString& path);
@@ -825,6 +841,9 @@ private:
     QString project_detail_ = "No project on disk";
     QString export_status_ = "Not exported";
     QString describeControl(const QString& target, int index) const;
+    bool follow_clock_ = false;
+    blokkily::ClockFollower clock_follower_;
+    std::optional<double> followed_bpm_;
     QString learn_target_;
     int learn_index_ = 0;
     QString midi_learn_status_;

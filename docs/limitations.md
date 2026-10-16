@@ -8,9 +8,12 @@ in the [usage guide](usage.md).
 - VST3 instruments receive per-note pitch only within a two-semitone channel
   bend. SoundFonts have no CC 74 timbre response unless the SF2 maps it. The
   sampler supports per-note pitch only.
-- MIDI clock input is not supported: Blokkily can send clock but not follow
-  it. A track played through a MIDI output sends no microtonal retuning, and
-  the clock port is not saved with the song.
+- Following an external clock follows its tempo and its Start, Stop,
+  Continue and position; it does not phase-lock to every tick, so over a long
+  take the two can drift by a few milliseconds. A tempo change is followed a
+  beat of ticks after it is played. A track played through a MIDI output
+  sends no microtonal retuning, and the clock port is not saved with the
+  song.
 - The built-in sampler ignores poly pressure.
 
 MIDI file exchange also omits plugin state, parameter automation, per-note

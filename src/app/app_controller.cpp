@@ -320,6 +320,7 @@ void AppController::pollMeters() {
     if (!engine_ || song_ == nullptr || progress_.pumping()) return;
     drainTake();
     serveControlChanges();
+    serveClock();
     pollCountIn();
     pollLauncher();
     const auto received = midi_input_->notes_received();
@@ -629,6 +630,8 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     engine_signature_ = {};
 
     auto next = std::make_unique<blokkily::SongEngine>();
+    // A followed clock's tempo carries over to the rebuilt engine.
+    next->set_tempo_override(followed_bpm_);
     std::string error;
     // Each processor is named as it loads, which is what a song with a dozen
     // plugins spends its opening on.
@@ -895,6 +898,13 @@ void AppController::seekToStep(double step) {
 void AppController::syncTimebase() {
     if (song_ == nullptr || transport_ == nullptr) return;
     const auto& song = song_->song();
+    // Following a clock, the playhead counts at the clock's tempo.
+    if (followed_bpm_) {
+        blokkily::TempoMap followed;
+        followed.points = {blokkily::TempoPoint{0, *followed_bpm_, false}};
+        transport_->setTimebase(followed, song.meter, song.ticks_per_beat());
+        return;
+    }
     transport_->setTimebase(song.tempo, song.meter, song.ticks_per_beat());
 }
 

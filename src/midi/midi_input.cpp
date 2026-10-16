@@ -65,6 +65,8 @@ struct MidiInput::Impl {
     InputQueue queue;
     // Controllers for the control thread (MIDI learn). Lossy when full.
     SpscQueue<ControlChange, 256> controls;
+    // Clock events for the control thread. Lossy when full.
+    SpscQueue<ClockEvent, 1024> clock;
     std::atomic<std::uint64_t> received{0};
     // The MPE zone: written by the control thread (set_mpe) or by the
     // producer (an MPE Configuration Message), read by the producer.
@@ -255,9 +257,11 @@ bool MidiInput::open(std::size_t index, std::string* error) {
                 usable.push_back(candidate);
         if (index >= usable.size()) return fail("no MIDI input at that position");
         const auto chosen = usable[index];
-        // SysEx, timing and active sensing are not notes; asking the backend to
-        // drop them keeps a clocked controller from filling the callback.
-        port->ignoreTypes(true, true, true);
+        // SysEx and active sensing are not notes, and are dropped by the
+        // backend. Timing (clock, start, stop) is let through for following
+        // an external clock; receive() hands it to the control thread
+        // without it ever reaching the callback's queue.
+        port->ignoreTypes(true, false, true);
         port->setCallback(port_callback, this);
         port->openPort(chosen, "Blokkily input");
         if (!port->isPortOpen()) return fail("the MIDI port refused to open");
@@ -367,9 +371,30 @@ bool MidiInput::next_control_change(ControlChange& change) noexcept {
     return impl_->controls.pop(change);
 }
 
+bool MidiInput::next_clock_event(ClockEvent& event) noexcept {
+    return impl_->clock.pop(event);
+}
+
 void MidiInput::receive(std::span<const std::uint8_t> message, std::uint64_t time_ns) noexcept {
     if (!impl_->open.load(std::memory_order_acquire)) return;
     impl_->stamp = time_ns;
+    // The clock's messages are for the control thread, which follows them.
+    if (!message.empty() && message[0] >= 0xF2) {
+        const auto at = time_ns != 0 ? time_ns : monotonic_ns();
+        switch (message[0]) {
+        case 0xF8: (void)impl_->clock.push({ClockEvent::Kind::tick, at, 0}); return;
+        case 0xFA: (void)impl_->clock.push({ClockEvent::Kind::start, at, 0}); return;
+        case 0xFB: (void)impl_->clock.push({ClockEvent::Kind::resume, at, 0}); return;
+        case 0xFC: (void)impl_->clock.push({ClockEvent::Kind::stop, at, 0}); return;
+        case 0xF2:
+            if (message.size() >= 3)
+                (void)impl_->clock.push({ClockEvent::Kind::position, at,
+                                         static_cast<std::uint16_t>((message[1] & 0x7FU) |
+                                                                    ((message[2] & 0x7FU) << 7))});
+            return;
+        default: break;
+        }
+    }
     // Releases the queue had no room for go before anything newer.
     impl_->retry_owed();
     if (message.size() >= 2) {

@@ -503,7 +503,8 @@ foreach(blokkily_feature
         comping_and_punch
         note_expression_editing
         sampler_editing
-        track_freeze)
+        track_freeze
+        midi_clock_input)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

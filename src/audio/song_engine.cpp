@@ -338,7 +338,11 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     if (!song.tempo.valid()) return fail("invalid tempo map");
     if (!song.consistent()) return fail("song refers to a track or pattern that does not exist");
 
-    TickClock clock(song.tempo, song.ticks_per_beat(), sample_rate_);
+    // An external clock's tempo, when one is followed, in place of the map.
+    TempoMap followed;
+    if (tempo_override_)
+        followed.points = {TempoPoint{0, std::clamp(*tempo_override_, minimum_bpm, maximum_bpm), false}};
+    TickClock clock(tempo_override_ ? followed : song.tempo, song.ticks_per_beat(), sample_rate_);
     const double length = clock.sample_at(song.length());
     if (!std::isfinite(length) || length < 0.5 ||
         length >= static_cast<double>(std::numeric_limits<std::int64_t>::max()))

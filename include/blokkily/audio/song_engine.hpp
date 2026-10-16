@@ -124,6 +124,12 @@ public:
     // returned by process(). All buses still render normally.
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
+    // An external clock's tempo (features/midi_clock_input.feature): while
+    // set, the next prepare() or recompile() places the song at this one
+    // tempo instead of its own tempo map, which is left as it is. Control
+    // thread; takes effect with the next compile.
+    void set_tempo_override(std::optional<double> bpm) noexcept { tempo_override_ = bpm; }
+    [[nodiscard]] std::optional<double> tempo_override() const noexcept { return tempo_override_; }
     // --- Disk streaming (wave 4.2) -------------------------------------------
     // Audio clips whose asset is streamed (AudioAsset::streamed) play from
     // disk through a ring per clip, filled by `threads` background threads
@@ -495,6 +501,7 @@ private:
     std::atomic<SampleRing*> output_capture_{nullptr};
     OutputTap capture_source_;
     std::optional<OutputTap> bounce_tap_;
+    std::optional<double> tempo_override_;
     std::vector<float> tap_left_, tap_right_;
     friend struct engine::TestAccess;
     using Arrangement = engine::Arrangement;

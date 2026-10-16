@@ -210,6 +210,28 @@ ColumnLayout {
                 onPicked: name => appController.setMidiClockPort(name === "OFF" ? "" : name)
             }
         }
+        // Following another machine's clock, from the MIDI input: its Start,
+        // Stop and position move the transport, and its tempo is played.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            SectionLabel { text: "SYNC"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            Chip {
+                objectName: "followClock"
+                text: "EXT"; implicitHeight: 22
+                accessibleLabel: "Follow an external MIDI clock"
+                accent: Theme.blue
+                on: appController.followClock
+                onClicked: appController.followClock = !appController.followClock
+            }
+            Label {
+                objectName: "clockStatus"
+                Layout.fillWidth: true; Layout.minimumWidth: 0
+                text: appController.clockStatus
+                color: appController.clockStatus.indexOf("BPM") > 0 ? Theme.blue : Theme.muted
+                font.pixelSize: 9; font.family: Theme.mono; font.bold: true
+                elide: Text.ElideRight
+            }
+        }
         // The selected track's arpeggiator: the notes it holds play one at a
         // time on the grid, before its instrument hears them.
         readonly property var arp: songModel.arpeggiators[songModel.selectedTrack] || ({})

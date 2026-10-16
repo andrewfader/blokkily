@@ -287,6 +287,14 @@ note stands still, with the master bounce as its sound. It is 1280 x 720 at
 `BLOKKILY_FFMPEG` naming one). See
 [the export scenarios](../features/export_formats.feature).
 
+## Following an external clock
+
+EXT in the SYNC row follows the MIDI clock arriving at the MIDI input:
+Start plays from the top, Continue plays on, Stop stops, a song position
+pointer moves the playhead, and the clock's tempo is the one the song plays
+at (shown beside the chip). The song's own tempo is kept and comes back when
+EXT is turned off. See [the scenarios](../features/midi_clock_input.feature).
+
 ## MIDI learn
 
 Right-click a mixer strip and choose MIDI learn gain, pan, mute or solo,
