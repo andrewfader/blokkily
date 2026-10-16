@@ -242,17 +242,19 @@ ToolBar {
             objectName: "viewSwitcher"
             spacing: 2
             Repeater {
-                model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS", "LAUNCH", "VERSIONS", "NOTES"]
+                model: ["ALL", "STEP", "TRACKER", "PIANO", "SCORE", "KEYS", "LAUNCH", "VERSIONS", "NOTES"]
                 Chip {
                     required property var modelData
                     objectName: "view" + modelData
                     readonly property var shortNames: ({
                         "ALL": "ALL", "STEP": "STEP", "TRACKER": "TRK", "PIANO": "ROLL",
-                        "KEYS": "KEYS", "LAUNCH": "LNCH", "VERSIONS": "VERS", "NOTES": "NOTE"
+                        "SCORE": "SCORE", "KEYS": "KEYS", "LAUNCH": "LNCH",
+                        "VERSIONS": "VERS", "NOTES": "NOTE"
                     })
                     readonly property var shortestNames: ({
                         "ALL": "ALL", "STEP": "STP", "TRACKER": "TRK", "PIANO": "ROL",
-                        "KEYS": "KEY", "LAUNCH": "LNC", "VERSIONS": "VER", "NOTES": "NTS"
+                        "SCORE": "SCR", "KEYS": "KEY", "LAUNCH": "LNC",
+                        "VERSIONS": "VER", "NOTES": "NTS"
                     })
                     readonly property string shown: root.narrow ? shortestNames[modelData]
                                                   : root.cramped ? shortNames[modelData] : modelData

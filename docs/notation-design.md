@@ -78,6 +78,36 @@ shows only the pattern's notes; measure filling is a view concern for later.
   Add `features/notation.feature` (Given/When/Then) mapping to the screenshot
   test.
 
+### As built (2026-10-16, Task E)
+
+- Shipped as `ui/ScoreView.qml` + `src/app/score_model.{hpp,cpp}` (a
+  `QObject` projection, not a `QQuickItem`): the model re-spells the pattern
+  through `to_staff()` on every `patternChanged` and hands QML a flat
+  `objects` list (notes/rests with staff position, accidental, value, dots,
+  ties, lyrics) plus clef/key/time furniture. The Canvas draws with Bravura
+  glyphs positioned from measured font metrics (`ui/Smufl.js`, 43 glyphs —
+  the metadata JSON 404'd upstream, so metrics were measured from the font
+  with fontTools instead).
+- Font extends the repo's existing fonts mechanism: `resources/fonts/Bravura.otf`
+  (+ `Bravura-OFL.txt`) in the `blokkily_fonts` `qt_add_resources` block,
+  loaded via `FontLoader` from `qrc:/fonts/Bravura.otf`. Fallback shapes +
+  one `console.warn` when the font is absent, per the plan.
+- The view switcher gains a SCORE chip (`view === "SCORE"`); ALL shows the
+  score beside tracker and piano roll. Clef picker covers the full 11-clef
+  roster; key picker -7..+7; CHANT chip toggles the unmetered staff.
+- Tests: `features/score_view.feature` + `bdd_score` gate
+  (`cmake/feature_score.cmake`, `src/app/verify/scenario_score.cpp`) with
+  inspected screenshots (treble, French violin, 3 sharps, chant).
+- v1 coverage gaps (documented follow-ups, not regressions): read-only (no
+  note editing); even horizontal spacing (no proportional engraving); no
+  internal barlines (final barline only); no beaming (flags for 8ths+); ties
+  drawn as canvas curves but not visually exercised (the verify driver can't
+  set note durations); lyrics follow `NotationNote.lyric` but the bridge
+  never populates it from the pattern yet; key-signature accidental
+  placement is a readable zigzag approximation, not Gould's exact tables;
+  very low/high notes get full ledger-line stacks (no automatic clef
+  suggestion).
+
 ## Lyrics
 
 `NotationNote.lyric` holds one syllable; `-` continues a melisma, `_` extends.

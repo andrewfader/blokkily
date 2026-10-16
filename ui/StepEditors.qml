@@ -25,6 +25,7 @@ ColumnLayout {
     readonly property int entryBase: (entryOctave + 1) * 12
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
+    readonly property bool showScore: view === "ALL" || view === "SCORE"
     // Where the keyboard goes back to after a click in an editor.
     property Item focusHome: null
     // A pitch written onto a step: the window writes and sounds it.
@@ -348,7 +349,7 @@ ColumnLayout {
         Layout.fillWidth: true; Layout.fillHeight: true
         Layout.minimumHeight: 250
         orientation: Qt.Horizontal
-        visible: root.showTracker || root.showRoll
+        visible: root.showTracker || root.showRoll || root.showScore
 
         Rectangle {
             id: trackerPanel
@@ -1424,6 +1425,15 @@ ColumnLayout {
                     }
                 }
             }
+        }
+
+        // The score: a fourth projection of the canonical pattern, drawn as
+        // true staff notation. Read-only for v1; it observes the pattern.
+        ScoreView {
+            visible: root.showScore
+            SplitView.fillWidth: root.view === "SCORE"
+            SplitView.preferredWidth: 420
+            SplitView.minimumWidth: 300
         }
     }
 }

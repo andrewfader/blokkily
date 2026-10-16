@@ -161,11 +161,16 @@ if(BLOKKILY_BUILD_GUI)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 Network
         OPTIONAL_COMPONENTS QuickShapes)
     qt_standard_project_setup(REQUIRES 6.5)
-    qt_policy(SET QTP0004 NEW)
+    # QTP0004 only exists in Qt 6.8+; older Qt keeps its default behavior.
+    if(Qt6_VERSION VERSION_GREATER_EQUAL "6.8")
+        qt_policy(SET QTP0004 NEW)
+    endif()
     qt_add_executable(blokkily
         src/app/gui_main.cpp
         src/app/pattern_model.cpp
         src/app/pattern_model.hpp
+        src/app/score_model.cpp
+        src/app/score_model.hpp
         src/app/transport.cpp
         src/app/transport.hpp
         src/app/app_controller.cpp
@@ -186,6 +191,7 @@ if(BLOKKILY_BUILD_GUI)
         src/app/verify/scenario_default.cpp
         src/app/verify/scenario_midi.cpp
         src/app/verify/scenario_guide.cpp
+        src/app/verify/scenario_score.cpp
         src/guide/guide_controller.cpp
         src/guide/guide_controller.hpp
     )
@@ -213,6 +219,8 @@ if(BLOKKILY_BUILD_GUI)
         ui/Blokkily.qml
         ui/Tutorial.qml
         ui/guide/GuideOverlay.qml
+        ui/ScoreView.qml
+        ui/Smufl.js
     )
     foreach(qml_file IN LISTS BLOKKILY_QML_FILES)
         get_filename_component(qml_name "${qml_file}" NAME)
@@ -246,7 +254,8 @@ if(BLOKKILY_BUILD_GUI)
             resources/fonts/IBMPlexSans-Regular.ttf
             resources/fonts/IBMPlexSans-Bold.ttf
             resources/fonts/JetBrainsMono-Regular.ttf
-            resources/fonts/JetBrainsMono-Bold.ttf)
+            resources/fonts/JetBrainsMono-Bold.ttf
+            resources/fonts/Bravura.otf)
     set_source_files_properties(ui/guide/lessons/first-beat.json
         PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/first-beat.json")
     set_source_files_properties(ui/guide/lessons/triads.json
@@ -539,21 +548,6 @@ if(BLOKKILY_BUILD_TESTS)
             LABELS "bdd;e2e;integration;clap;plugins;project;scan"
             ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV};BLOKKILY_SCAN_TIMEOUT_MS=1500;BLOKKILY_SCAN_CACHE=${CMAKE_BINARY_DIR}/artifacts/scan-cache.txt"
             TIMEOUT 120)
-
-        # The floating guide: mascot + bubble on screen, narration on a note
-        # add, spotlight ring round the play button, a lesson advancing on its
-        # check, and a guide action attributed to the guide. Screenshots:
-        # guide-overlay.png (narration) and guide-lesson.png (lesson step).
-        add_test(NAME bdd_guide
-            COMMAND blokkily --verify --scenario guide
-                --clap-fixture $<TARGET_FILE:blokkily_test_clap>
-                --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
-                --soundfont-fixture ${BLOKKILY_TEST_SF2}
-                --screenshot ${CMAKE_BINARY_DIR}/artifacts/guide-overlay.png)
-        set_tests_properties(bdd_guide PROPERTIES
-            LABELS "bdd;e2e;integration;screenshot;guide"
-            ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
-            TIMEOUT 120)
     endif()
 endif()
 
@@ -600,7 +594,9 @@ foreach(blokkily_feature
         sequencer_fidelity
         insert_locks
         tutorial
+        guide
         mcp
+        score
         long_song
         versions
         loading_progress

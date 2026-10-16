@@ -1,6 +1,7 @@
 #include "keyboard_model.hpp"
 #include "app_controller.hpp"
 #include "llm_model.hpp"
+#include "score_model.hpp"
 #include "../guide/guide_controller.hpp"
 #include "plugin_run_loop_qt.hpp"
 #include "mcp_bridge.hpp"
@@ -173,6 +174,9 @@ int main(int argc, char* argv[]) {
     GuideController guide(&controller, &song, &pattern, &transport);
     guide.setLlmModel(&llm);
     pattern.setEventBus(&controller.eventBus());
+    // The score view's projection of the canonical pattern: re-spelled on
+    // every pattern change, never written back.
+    ScoreModel score(&pattern);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
     engine.rootContext()->setContextProperty("patternModel", &pattern);
@@ -181,6 +185,7 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty("keyboardModel", &keyboard);
     engine.rootContext()->setContextProperty("llmModel", &llm);
     engine.rootContext()->setContextProperty("guideController", &guide);
+    engine.rootContext()->setContextProperty("scoreModel", &score);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 

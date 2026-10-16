@@ -23,10 +23,10 @@ ApplicationWindow {
     font.family: Theme.sans
     font.pixelSize: 12
 
-    // STEP / TRACKER / PIANO focus one editor; ALL keeps every projection on
-    // screen at once, which is the point of the instrument. LAUNCH shows the
-    // scene launcher in the editors' place, VERSIONS the song's saved
-    // versions and NOTES its notes.
+    // STEP / TRACKER / PIANO / SCORE focus one editor; ALL keeps every
+    // projection on screen at once, which is the point of the instrument.
+    // LAUNCH shows the scene launcher in the editors' place, VERSIONS the
+    // song's saved versions and NOTES its notes.
     property string view: "ALL"
     // Bit depth the next bounce is written at.
     property string exportDepth: "PCM24"
@@ -39,6 +39,7 @@ ApplicationWindow {
     property bool exportClick: false
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
+    readonly property bool showScore: view === "ALL" || view === "SCORE"
 
     // Which octave the tracker's note keys write in. A tracker is played from
     // the letter keys, and the letter keys only span two octaves, so the octave
