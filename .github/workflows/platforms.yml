@@ -162,7 +162,7 @@ jobs:
         shell: bash
     steps:
       - name: Install dependencies
-        run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
+        run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband ffmpeg
 
       - name: Check out repository
         uses: actions/checkout@v4

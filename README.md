@@ -51,7 +51,8 @@ headers are vendored under `third_party/`, so clone with `--recursive`.
 The verification tests need a SoundFont. CMake looks for `basic.sf2`,
 `TimGM6mb.sf2` or `FluidR3_GM.sf2` in `/usr/share/fweelin`,
 `/usr/share/sounds/sf2` and `/usr/share/soundfonts`; otherwise pass
-`-DBLOKKILY_TEST_SF2=/path/to/bank.sf2`.
+`-DBLOKKILY_TEST_SF2=/path/to/bank.sf2`. They also need `ffmpeg` on `PATH`
+to check the scope video export, and configuring fails without it.
 
 ```sh
 cmake -S . -B build -G Ninja

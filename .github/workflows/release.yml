@@ -58,7 +58,7 @@ jobs:
             fluidsynth rtaudio rtmidi libsndfile libsamplerate rubberband \
             alsa-lib freetype2 libx11 libxext libxi libxrandr libxinerama \
             libxcursor libxrender libxcomposite \
-            freewheeling ttf-dejavu fontconfig
+            freewheeling ttf-dejavu fontconfig ffmpeg
 
       - name: Configure Git safe directory
         run: git config --global --add safe.directory '*'
@@ -316,7 +316,7 @@ jobs:
       # copies whole QML import trees, so the qt meta-formula would put Qt 3D,
       # WebEngine's PDF and the rest of Qt into the bundle.
       - name: Install dependencies
-        run: brew install ninja pkgconf qtbase qtdeclarative qtshadertools qtsvg qttools fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband
+        run: brew install ninja pkgconf qtbase qtdeclarative qtshadertools qtsvg qttools fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband ffmpeg
 
       - name: Check out repository
         uses: actions/checkout@v4
