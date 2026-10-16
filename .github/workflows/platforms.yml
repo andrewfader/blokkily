@@ -74,6 +74,11 @@ jobs:
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
+      # The scope video export test encodes through ffmpeg, and CMake will
+      # not configure the test suite without it.
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress > /dev/null
+
       - name: Fetch test SoundFont
         run: |
           curl -fsSL --retry 5 --retry-all-errors -o basic.sf2 "$TEST_SF2_URL"
