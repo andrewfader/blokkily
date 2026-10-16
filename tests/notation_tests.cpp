@@ -143,6 +143,21 @@ void test_key_signature() {
     require(spelled_name(KeySignature(-3).major_tonic()) == "Eb4", "-3 flats is Eb major");
     require(spelled_name(KeySignature(6).major_tonic()) == "F#4", "6 sharps is F# major");
     require(spelled_name(KeySignature(0).minor_tonic()) == "A4", "C major's relative is A minor");
+    // Regression: the flat-side tonic tables were shifted by one (2026-10-16).
+    // Every flat key's major and minor tonic, -7..0.
+    require(spelled_name(KeySignature(-7).major_tonic()) == "Cb4", "-7 flats is Cb major");
+    require(spelled_name(KeySignature(-6).major_tonic()) == "Gb4", "-6 flats is Gb major");
+    require(spelled_name(KeySignature(-5).major_tonic()) == "Db4", "-5 flats is Db major");
+    require(spelled_name(KeySignature(-4).major_tonic()) == "Ab4", "-4 flats is Ab major");
+    require(spelled_name(KeySignature(-2).major_tonic()) == "Bb4", "-2 flats is Bb major");
+    require(spelled_name(KeySignature(-1).major_tonic()) == "F4", "-1 flat is F major");
+    require(spelled_name(KeySignature(-7).minor_tonic()) == "Ab4", "-7 flats is Ab minor");
+    require(spelled_name(KeySignature(-6).minor_tonic()) == "Eb4", "-6 flats is Eb minor");
+    require(spelled_name(KeySignature(-5).minor_tonic()) == "Bb4", "-5 flats is Bb minor");
+    require(spelled_name(KeySignature(-4).minor_tonic()) == "F4", "-4 flats is F minor");
+    require(spelled_name(KeySignature(-3).minor_tonic()) == "C4", "-3 flats is C minor");
+    require(spelled_name(KeySignature(-2).minor_tonic()) == "G4", "-2 flats is G minor");
+    require(spelled_name(KeySignature(-1).minor_tonic()) == "D4", "-1 flat is D minor");
     require(d_major.label() == "D major", "key label");
 }
 
@@ -152,14 +167,14 @@ void test_spelling() {
     require(spelled_name(spell(66, d_major)) == "F#4", "F# in D major, not Gb");
     require(spelled_name(spell(61, d_major)) == "C#4", "C# in D major");
     const KeySignature f_major(-1);
-    require(spelled_name(spell(70, f_major)) == "Bb3", "Bb in F major, not A#");
+    require(spelled_name(spell(70, f_major)) == "Bb4", "Bb in F major, not A#");
     require(spelled_name(spell(61, f_major)) == "Db4", "Db in F major");
     const KeySignature c_major(0);
     require(spelled_name(spell(61, c_major)) == "C#4", "C major breaks ties sharp-side");
     require(spelled_name(spell(60, c_major)) == "C4", "C4 is C4");
     // The key's own altered spellings win, even the exotic ones.
     require(spelled_name(spell(60, KeySignature(7))) == "B#3", "C# major spells 60 as B#");
-    require(spelled_name(spell(60, KeySignature(-7))) == "Cb4", "Cb major spells 60 as Cb");
+    require(spelled_name(spell(60, KeySignature(-7))) == "C4", "Cb major spells 60 as C natural");
     require(spelled_name(spell(61, KeySignature(-7))) == "Db4", "Cb major spells 61 as Db");
     bool threw = false;
     try { (void)spell(-1, c_major); } catch (const std::invalid_argument&) { threw = true; }
@@ -178,10 +193,10 @@ void test_durations() {
     require(ticks(NoteDuration{NoteValue::Half, 1}, tpb) == 1440, "dotted half is 1440");
     require(ticks(NoteDuration{NoteValue::Quarter, 2}, tpb) == 840,
             "double-dotted quarter is 840");
-    const auto dotted_half = single_from_ticks(720, tpb);
-    require(dotted_half.has_value() && dotted_half->value == NoteValue::Half &&
-                dotted_half->dots == 1,
-            "720 ticks is a dotted half");
+    const auto dotted_quarter = single_from_ticks(720, tpb);
+    require(dotted_quarter.has_value() && dotted_quarter->value == NoteValue::Quarter &&
+                dotted_quarter->dots == 1,
+            "720 ticks is a dotted quarter");
     require(!single_from_ticks(500, tpb).has_value(), "500 ticks is not exact");
     const auto chain = from_ticks(720, tpb);
     require(chain.size() == 1 && chain[0].dots == 1, "720 ties to one dotted half");
@@ -246,7 +261,7 @@ void test_pattern_bridge() {
     Pattern pattern(1920, tpb);
     Trigger melody;
     melody.start = 0;
-    melody.duration = 720; // dotted half
+    melody.duration = 720; // dotted quarter
     melody.musical_data = Note{62, 0.9F, 0.0F, 0.0}; // D4
     (void)pattern.add(melody);
     Trigger chord;
@@ -262,11 +277,11 @@ void test_pattern_bridge() {
     const KeySignature key(2); // D major
     const Staff staff = to_staff(pattern, key, Clef(ClefKind::Treble), tpb);
     require(staff.measures.size() == 1, "one measure");
-    require(staff.measures[0].objects.size() == 4, "dotted half + three chord voices");
+    require(staff.measures[0].objects.size() == 4, "dotted quarter + three chord voices");
     const auto* first = std::get_if<NotationNote>(&staff.measures[0].objects[0]);
     require(first != nullptr && spelled_name(first->spelled) == "D4", "D4 spelled in D major");
-    require(first->duration.dots == 1 && first->duration.value == NoteValue::Half,
-            "720 ticks is a dotted half");
+    require(first->duration.dots == 1 && first->duration.value == NoteValue::Quarter,
+            "720 ticks is a dotted quarter");
     require(!first->tie_start && !first->tie_end, "single value ties neither way");
     require(first->velocity == 0.9F, "velocity survives to_staff");
     // The chord's third voice is A4; check one tied chain while here.

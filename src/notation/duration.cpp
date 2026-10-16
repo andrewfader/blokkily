@@ -41,7 +41,16 @@ std::vector<NoteDuration> from_ticks(Tick duration, Tick ticks_per_beat) {
     Tick remaining = ((duration + unit / 2) / unit) * unit; // nearest grid
     if (remaining == 0) remaining = unit;
     std::vector<NoteDuration> chain;
-    const auto cands = candidates(ticks_per_beat);
+    // For tied chains, prefer ties over dotted wholes/breves: a dotted whole
+    // (6 beats) rarely fits a measure, so break it into whole + half, etc.
+    // Dots are still allowed on half notes and smaller.
+    const auto all_cands = candidates(ticks_per_beat);
+    std::vector<std::pair<NoteValue, int>> cands;
+    for (const auto& [value, dots] : all_cands) {
+        const int v = static_cast<int>(value);
+        if (dots > 0 && v <= 0) continue; // no dotted whole/breve in chains
+        cands.emplace_back(value, dots);
+    }
     while (remaining > 0) {
         bool placed = false;
         for (const auto& [value, dots] : cands) {

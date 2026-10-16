@@ -73,6 +73,7 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat) {
     struct Pending {
         Tick start = 0;
         SpelledPitch spelled{};
+        int voice = 1;
         Tick duration_ticks = 0;
         float velocity = 0.8F;
         double cents = 0.0;
@@ -98,6 +99,10 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat) {
 
     Tick cursor = 0;
     Pending pending;
+    // For polyphonic round-trip: increasing voice numbers indicate simultaneous
+    // notes (a chord). Track the start of the current simultaneous group.
+    Tick group_start = 0;
+    int prev_voice = 0;
 
     const auto flush = [&](Pending& p) {
         if (!p.open) return;
@@ -121,21 +126,40 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat) {
                 cursor += ticks(rest->duration, ticks_per_beat);
             } else if (const auto* note = std::get_if<NotationNote>(&object)) {
                 const Tick d = ticks(note->duration, ticks_per_beat);
-                if (note->tie_end && pending.open) {
+                // A tie continues the open chain only when it is the same
+                // pitch and voice: a tie_end on another note is its own note
+                // (e.g. a tie carried in from a previous system), never part
+                // of this chain.
+                const bool continues =
+                    note->tie_end && pending.open && note->voice == pending.voice &&
+                    note->spelled.step == pending.spelled.step &&
+                    note->spelled.accidental == pending.spelled.accidental &&
+                    note->spelled.octave == pending.spelled.octave;
+                if (continues) {
                     pending.duration_ticks += d;
                     cursor += d;
                     if (!note->tie_start) flush(pending);
                 } else {
                     flush(pending); // defensive: a tie chain must not overlap
+                    // Increasing voice numbers = simultaneous notes (chord).
+                    // Use the group start time; otherwise use the cursor.
+                    const Tick start_tick =
+                        (prev_voice != 0 && note->voice > prev_voice) ? group_start : cursor;
+                    if (!(prev_voice != 0 && note->voice > prev_voice)) {
+                        group_start = cursor;
+                    }
                     if (note->tie_start) {
-                        pending = {cursor, note->spelled, d, note->velocity,
-                                   note->cents, true};
+                        pending = {start_tick, note->spelled, note->voice, d,
+                                   note->velocity, note->cents, true};
                     } else {
-                        Pending single{cursor, note->spelled, d, note->velocity,
-                                       note->cents, true};
+                        Pending single{start_tick, note->spelled, note->voice, d,
+                                       note->velocity, note->cents, true};
                         flush(single);
                     }
-                    cursor += d;
+                    if (!(prev_voice != 0 && note->voice > prev_voice)) {
+                        cursor += d;
+                    }
+                    prev_voice = note->voice;
                 }
             }
         }

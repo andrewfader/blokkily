@@ -440,33 +440,31 @@ std::string write(const Score& score) {
                 }
             }
 
-            // One (staff, voice) group after another, rewound with <backup>.
+            // One staff group after another, rewound with <backup> for grand
+            // staves. Events keep the model's flat time order inside a staff:
+            // the model is a single timeline per staff (to_pattern walks it
+            // sequentially and ignores voice for timing), so regrouping by
+            // voice would move notes in time and break the round trip. Voice
+            // survives as a label on each note.
             struct Group {
                 int staff_number;
-                int voice;
                 std::vector<StaffObject> events;
             };
             std::vector<Group> groups;
             for (std::size_t s = 0; s < part.staves.size(); ++s) {
                 const Staff& staff = part.staves[s];
                 if (m >= staff.measures.size()) continue;
-                for (const auto& event : staff.measures[m].objects) {
-                    const int voice = std::holds_alternative<Rest>(event)
-                                          ? 1
-                                          : std::get<NotationNote>(event).voice;
-                    auto it = std::find_if(groups.begin(), groups.end(),
-                                           [&](const Group& g) {
-                                               return g.staff_number ==
-                                                          static_cast<int>(s + 1) &&
-                                                      g.voice == voice;
-                                           });
-                    if (it == groups.end()) {
-                        groups.push_back(
-                            {static_cast<int>(s + 1), voice, {event}});
-                    } else {
-                        it->events.push_back(event);
-                    }
+                auto it = std::find_if(groups.begin(), groups.end(),
+                                       [&](const Group& g) {
+                                           return g.staff_number ==
+                                                  static_cast<int>(s + 1);
+                                       });
+                if (it == groups.end()) {
+                    groups.push_back({static_cast<int>(s + 1), {}});
+                    it = groups.end() - 1;
                 }
+                for (const auto& event : staff.measures[m].objects)
+                    it->events.push_back(event);
             }
 
             long long previous_total = 0;
@@ -488,7 +486,7 @@ std::string write(const Score& score) {
                 for (std::size_t e = 0; e < group.events.size(); ++e) {
                     const auto& event = group.events[e];
                     if (const auto* rest = std::get_if<Rest>(&event)) {
-                        write_rest(xml_measure, *rest, group.voice, multi_staff,
+                        write_rest(xml_measure, *rest, 1, multi_staff,
                                    group.staff_number);
                         previous_total += duration_divisions(rest->duration);
                     } else {
@@ -624,18 +622,39 @@ Score parse(const std::string& xml) {
             }
 
             bool pending_extend_text = false;
-            for (const auto xml_note : xml_measure.children("note")) {
+            // The measure's musical time in divisions. <backup> rewinds it
+            // (multi-voice / multi-staff measures), <forward> advances it;
+            // events are collected with their time and interleaved by it, so
+            // a voice that was backed up lands at its musical position.
+            struct TimedObject {
+                long long time = 0;
+                long long seq = 0;
+                std::size_t staff_index = 0;
+                StaffObject object{};
+            };
+            std::vector<TimedObject> timed;
+            long long now = 0;
+            long long seq = 0;
+            for (const auto xml_child : xml_measure.children()) {
+                const std::string_view child_name = xml_child.name();
+                if (child_name == "backup") {
+                    const long long back =
+                        xml_child.child("duration").text().as_llong(0);
+                    now = std::max<long long>(0, now - back);
+                    continue;
+                }
+                if (child_name == "forward") {
+                    now += xml_child.child("duration").text().as_llong(0);
+                    continue;
+                }
+                if (child_name != "note") continue; // attributes, barlines...
+                const auto xml_note = xml_child;
                 if (xml_note.child("grace")) continue; // v1: grace notes skipped
                 const int staff_number = xml_note.child("staff")
                                              ? xml_note.child("staff").text().as_int(1)
                                              : 1;
                 const std::size_t staff_index =
                     static_cast<std::size_t>(std::max(1, staff_number)) - 1;
-                ensure_staff(staff_index);
-                Staff& staff = part.staves[staff_index];
-                while (staff.measures.size() <= measure_index)
-                    staff.measures.push_back(Measure{});
-                Measure& measure = staff.measures[measure_index];
 
                 const int voice = xml_note.child("voice")
                                       ? xml_note.child("voice").text().as_int(1)
@@ -664,33 +683,38 @@ Score parse(const std::string& xml) {
                 if (xml_note.child("rest")) {
                     Rest rest;
                     rest.duration = duration_value;
-                    (void)voice; // rests keep the group's voice implicitly
-                    measure.objects.emplace_back(std::move(rest));
+                    (void)voice; // rests keep their position implicitly
+                    timed.push_back({now, seq++, staff_index, std::move(rest)});
+                    now += duration;
                     pending_extend_text = false;
                     continue;
                 }
 
                 NotationNote note;
+                bool pitched_ok = false;
                 if (const auto unpitched = xml_note.child("unpitched")) {
                     const std::string step = unpitched.child_value("display-step");
-                    if (step.empty()) continue;
-                    note.spelled.step = step_from_letter(step[0]);
-                    note.spelled.accidental = static_cast<Accidental>(0);
-                    note.spelled.octave =
-                        unpitched.child("display-octave").text().as_int(4);
+                    if (!step.empty()) {
+                        note.spelled.step = step_from_letter(step[0]);
+                        note.spelled.accidental = static_cast<Accidental>(0);
+                        note.spelled.octave =
+                            unpitched.child("display-octave").text().as_int(4);
+                        pitched_ok = true;
+                    }
                 } else if (const auto pitch = xml_note.child("pitch")) {
                     const std::string step = pitch.child_value("step");
-                    if (step.empty()) continue;
-                    note.spelled.step = step_from_letter(step[0]);
-                    const int alter = pitch.child("alter")
-                                          ? pitch.child("alter").text().as_int(0)
-                                          : 0;
-                    note.spelled.accidental =
-                        static_cast<Accidental>(std::clamp(alter, -2, 2));
-                    note.spelled.octave = pitch.child("octave").text().as_int(4);
-                } else {
-                    continue; // neither pitch, unpitched nor rest: skip
+                    if (!step.empty()) {
+                        note.spelled.step = step_from_letter(step[0]);
+                        const int alter = pitch.child("alter")
+                                              ? pitch.child("alter").text().as_int(0)
+                                              : 0;
+                        note.spelled.accidental =
+                            static_cast<Accidental>(std::clamp(alter, -2, 2));
+                        note.spelled.octave = pitch.child("octave").text().as_int(4);
+                        pitched_ok = true;
+                    }
                 }
+                if (!pitched_ok) continue; // neither pitch, unpitched nor rest: skip
                 note.duration = duration_value;
                 note.tie_start = has_tie(xml_note, "start");
                 note.tie_end = has_tie(xml_note, "stop");
@@ -715,7 +739,24 @@ Score parse(const std::string& xml) {
                 }
                 // <chord/> tones import as sequential notes in v1 (documented).
 
-                measure.objects.emplace_back(std::move(note));
+                timed.push_back({now, seq++, staff_index, std::move(note)});
+                now += duration;
+            }
+            // The model's measure holds one timeline: interleave by musical
+            // time, keeping document order for simultaneous events.
+            std::stable_sort(timed.begin(), timed.end(),
+                             [](const TimedObject& a, const TimedObject& b) {
+                                 if (a.staff_index != b.staff_index)
+                                     return a.staff_index < b.staff_index;
+                                 return a.time < b.time;
+                             });
+            for (auto& t : timed) {
+                ensure_staff(t.staff_index);
+                Staff& staff = part.staves[t.staff_index];
+                while (staff.measures.size() <= measure_index)
+                    staff.measures.push_back(Measure{});
+                staff.measures[measure_index].objects.emplace_back(
+                    std::move(t.object));
             }
             ++measure_index;
         }

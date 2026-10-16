@@ -10,7 +10,6 @@ SpelledPitch spell(int midi_key, const KeySignature& key) {
     if (midi_key < 0 || midi_key > 127)
         throw std::invalid_argument("MIDI key must be in [0, 127]");
     const int pc = midi_key % 12;
-    const int octave = midi_key / 12 - 1;
 
     struct Candidate {
         Step step;
@@ -25,10 +24,19 @@ SpelledPitch spell(int midi_key, const KeySignature& key) {
         }
     }
 
+    // Octave for a (step, accidental) such that to_midi() round-trips.
+    // to_midi: midi = (octave+1)*12 + step_semi + acc
+    //   => octave = (midi - step_semi - acc)/12 - 1
+    auto octave_for = [&](Step step, Accidental acc) {
+        const int step_semi = step_semitones(step);
+        const int acc_i = static_cast<int>(acc);
+        return (midi_key - step_semi - acc_i) / 12 - 1;
+    };
+
     // The key's own spelling of this pitch class wins outright.
     for (const auto& c : candidates)
         if (key.accidental_for(c.step) == c.accidental)
-            return SpelledPitch{c.step, c.accidental, octave};
+            return SpelledPitch{c.step, c.accidental, octave_for(c.step, c.accidental)};
 
     // Fewest accidentals; ties go sharp-side in sharp keys and C major,
     // flat-side in flat keys.
@@ -49,7 +57,8 @@ SpelledPitch spell(int midi_key, const KeySignature& key) {
             if (c_sharp == sharp_side && b_sharp != sharp_side) best = &c;
         }
     }
-    return SpelledPitch{best->step, best->accidental, octave};
+    return SpelledPitch{best->step, best->accidental,
+                        octave_for(best->step, best->accidental)};
 }
 
 } // namespace blokkily::notation

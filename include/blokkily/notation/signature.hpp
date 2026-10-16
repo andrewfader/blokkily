@@ -40,18 +40,18 @@ public:
 
     // The major and relative-minor tonics, spelled as the key spells them.
     [[nodiscard]] SpelledPitch major_tonic() const noexcept {
-        constexpr Step steps[15] = {Step::C, Step::F, Step::B, Step::E, Step::A,
-                                    Step::D, Step::G, Step::C, Step::G, Step::D,
+        constexpr Step steps[15] = {Step::C, Step::G, Step::D, Step::A, Step::E,
+                                    Step::B, Step::F, Step::C, Step::G, Step::D,
                                     Step::A, Step::E, Step::B, Step::F, Step::C};
         constexpr Accidental accs[15] = {Accidental::Flat,  Accidental::Flat,
                                          Accidental::Flat,  Accidental::Flat,
                                          Accidental::Flat,  Accidental::Flat,
-                                         Accidental::Flat,  Accidental::Natural,
+                                         Accidental::Natural, Accidental::Natural,
                                          Accidental::Natural, Accidental::Natural,
                                          Accidental::Natural, Accidental::Natural,
                                          Accidental::Natural, Accidental::Sharp,
                                          Accidental::Sharp};
-        // index by fifths+7: -7..-1 -> Cb..Gb, 0 -> C, 1..7 -> G..C#
+        // index by fifths+7: -7..-1 -> Cb..F, 0 -> C, 1..7 -> G..C#
         return SpelledPitch{steps[fifths_ + 7], accs[fifths_ + 7], 4};
     }
 
@@ -60,9 +60,9 @@ public:
                                     Step::G, Step::D, Step::A, Step::E, Step::B,
                                     Step::F, Step::C, Step::G, Step::D, Step::A};
         constexpr Accidental accs[15] = {Accidental::Flat,  Accidental::Flat,
-                                         Accidental::Flat,  Accidental::Flat,
-                                         Accidental::Flat,  Accidental::Flat,
                                          Accidental::Flat,  Accidental::Natural,
+                                         Accidental::Natural, Accidental::Natural,
+                                         Accidental::Natural, Accidental::Natural,
                                          Accidental::Natural, Accidental::Natural,
                                          Accidental::Sharp,   Accidental::Sharp,
                                          Accidental::Sharp,   Accidental::Sharp,
