@@ -18,8 +18,10 @@ if(BLOKKILY_BUILD_TESTS)
         juce::juce_audio_utils juce::juce_recommended_config_flags)
     # JUCE's LV2 manifest helper takes CommandLineToArgvW from windows.h,
     # which leaves shellapi.h out under the WIN32_LEAN_AND_MEAN every target
-    # here is built with.
+    # here is built with. The helper defines UNICODE itself before including
+    # windows.h, so the forced include needs it too or TCHAR becomes char.
     if(MSVC AND TARGET juce_lv2_helper)
+        target_compile_definitions(juce_lv2_helper PRIVATE UNICODE _UNICODE)
         target_compile_options(juce_lv2_helper PRIVATE /FIwindows.h /FIshellapi.h)
     endif()
     # The bundle is the directory the plugin's module is built into.
