@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(blokkily VERSION 0.1.19 LANGUAGES C CXX)
+project(blokkily VERSION 0.1.20 LANGUAGES C CXX)
 
 # Rebuilds across many worktrees are dominated by JUCE and Qt, so use ccache
 # whenever it is installed; it is never required. An explicit launcher given
