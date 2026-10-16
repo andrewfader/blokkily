@@ -192,7 +192,10 @@ void run_mcp(VerifyContext& ctx) {
                                  "place_section", "transport",
                                  "list_plugins", "set_instrument", "list_parameters",
                                  "set_parameter", "set_soundfont_preset", "screenshot",
-                                 "describe", "call", "get_property", "analyze_render"})
+                                 "describe", "call", "get_property", "analyze_render",
+                                 "get_score", "set_clef", "set_key_signature",
+                                 "set_time_signature", "export_musicxml", "import_musicxml",
+                                 "guide_events", "guide_lesson", "guide_ask"})
         check(names.contains(QLatin1String(expected)));
 
     // ---------------------------------------------------------------------
@@ -737,6 +740,170 @@ void run_mcp(VerifyContext& ctx) {
         check(!isError(next.tool("get_session")));
         check(next.close());
     }
+    ctx.reached("mcp: the agent reads a part as staff notation");
+    // A known part: three quarter notes, replacing whatever the earlier
+    // scenarios left behind.
+    check(!isError(agent.tool("write_notes",
+                              {{"track", 0},
+                               {"section", 0},
+                               {"replace", true},
+                               {"notes",
+                                QJsonArray{QJsonObject{{"step", 0}, {"key", "C4"}, {"length", 4}},
+                                           QJsonObject{{"step", 4}, {"key", "E4"}, {"length", 4}},
+                                           QJsonObject{{"step", 8},
+                                                       {"key", "G4"},
+                                                       {"length", 4}}}}})));
+    const auto score_result = agent.tool("get_score", {{"track", 0}, {"section", 0}});
+    check(!isError(score_result));
+    const auto score = score_result.value("structuredContent").toObject();
+    check(score.value("clef").toString() == "Treble");
+    check(score.value("key").toObject().value("fifths").toInt() == 0);
+    check(score.value("time").toString() == "4/4");
+    QStringList spelled;
+    QStringList values;
+    for (const auto& note : score.value("notes").toArray()) {
+        spelled << note.toObject().value("spelled").toString();
+        values << note.toObject().value("value").toString();
+    }
+    check(spelled == QStringList({"C4", "E4", "G4"}));
+    check(values == QStringList({"quarter", "quarter", "quarter"}));
+    check(!score.value("musicxml").toString().isEmpty());
+    check(score.value("musicxml").toString().contains("<score-partwise"));
+    check(score.value("musicxml").toString().contains("<step>C</step>"));
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent dresses the score in another clef, key and meter");
+    check(!isError(
+        agent.tool("set_clef", {{"track", 0}, {"section", 0}, {"clef", "Bass"}})));
+    check(!isError(agent.tool("set_key_signature", {{"section", 0}, {"fifths", -2}})));
+    check(!isError(
+        agent.tool("set_time_signature", {{"section", 0}, {"beats", 3}, {"unit", 4}})));
+    const auto dressed =
+        agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(dressed.value("clef").toString() == "Bass");
+    check(dressed.value("key").toObject().value("fifths").toInt() == -2);
+    check(dressed.value("key").toObject().value("label").toString() == "Bb major");
+    check(dressed.value("time").toString() == "3/4");
+    // The E4 is spelled Eb in two flats, and sits somewhere else on bass lines.
+    QStringList respelled;
+    for (const auto& note : dressed.value("notes").toArray())
+        respelled << note.toObject().value("spelled").toString();
+    check(respelled == QStringList({"C4", "Eb4", "G4"}));
+    check(isError(agent.tool("set_clef", {{"clef", "Treble-8vb"}})));
+    check(isError(agent.tool("set_key_signature", {{"fifths", 8}})));
+    check(isError(agent.tool("set_time_signature", {{"beats", 3}, {"unit", 3}})));
+    const auto still =
+        agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(still.value("clef").toString() == "Bass" &&
+          still.value("key").toObject().value("fifths").toInt() == -2 &&
+          still.value("time").toString() == "3/4");
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent exports MusicXML and reads it back");
+    const QString score_file = exports.filePath("mcp-score.musicxml");
+    const auto exported_score =
+        agent.tool("export_musicxml", {{"section", 0}, {"path", score_file}})
+            .value("structuredContent")
+            .toObject();
+    check(exported_score.value("path").toString() == score_file);
+    check(exported_score.value("parts").toInt() >= 1);
+    check(exported_score.value("readBackNotes").toInt() ==
+          exported_score.value("notes").toInt());
+    // The file on disk parses to the notes the pattern holds.
+    QFile written_file(score_file);
+    check(written_file.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString disk_xml = QString::fromUtf8(written_file.readAll());
+    check(disk_xml.contains("<score-partwise"));
+    // Clear the part, import with replace, read the notes back, undo it all.
+    check(!isError(agent.tool("write_notes",
+                              {{"track", 0}, {"section", 0}, {"replace", true}, {"notes", QJsonArray{}}})));
+    const auto imported =
+        agent.tool("import_musicxml",
+                   {{"track", 0}, {"section", 0}, {"replace", true}, {"path", score_file}})
+            .value("structuredContent")
+            .toObject();
+    check(imported.value("written").toInt() == 3 && imported.value("refused").toInt() == 0);
+    const auto back =
+        agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    QList<int> back_keys;
+    for (const auto& note : back.value("notes").toArray())
+        back_keys << note.toObject().value("key").toInt();
+    std::sort(back_keys.begin(), back_keys.end());
+    check(back_keys == QList<int>({60, 64, 67}));
+    check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+    const auto undone =
+        agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(undone.value("notes").toArray().isEmpty());
+    // One bad document is refused without touching the song.
+    check(isError(agent.tool("import_musicxml", {{"xml", "this is not xml <"}})));
+    check(isError(agent.tool("import_musicxml", {{"path", exports.filePath("missing.musicxml")}})));
+    check(isError(agent.tool("import_musicxml", {})));
+    const auto untouched =
+        agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(untouched.value("notes").toArray().isEmpty());
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the guide narrates what the agent did");
+    check(!isError(agent.tool("write_notes",
+                              {{"track", 0},
+                               {"section", 0},
+                               {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", "C4"}}}}})));
+    const auto feed =
+        agent.tool("guide_events", {{"count", 5}}).value("structuredContent").toObject();
+    const auto events = feed.value("events").toArray();
+    check(!events.isEmpty());
+    const auto last = events.last().toObject();
+    check(last.value("source").toString() == "mcp");
+    check(last.value("kind").toString() == "note_added");
+    check(!last.value("narration").toString().isEmpty());
+    check(last.value("narration").toString().contains("agent", Qt::CaseInsensitive));
+    // The producer's own transport move is attributed to the user, not the agent.
+    controller.togglePlayback();
+    VerifyContext::settle(20);
+    const auto feed2 =
+        agent.tool("guide_events", {{"count", 5}}).value("structuredContent").toObject();
+    const auto events2 = feed2.value("events").toArray();
+    check(!events2.isEmpty());
+    const auto last2 = events2.last().toObject();
+    check(last2.value("source").toString() == "user");
+    check(last2.value("kind").toString() == "transport_started");
+    controller.togglePlayback();
+    VerifyContext::settle(20);
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent walks a guide lesson and asks it a question");
+    const auto lessons =
+        agent.tool("guide_lesson", {{"action", "list"}}).value("structuredContent").toObject();
+    QStringList lesson_ids;
+    for (const auto& lesson : lessons.value("lessons").toArray())
+        lesson_ids << lesson.toObject().value("id").toString();
+    check(lesson_ids.contains("first-beat"));
+    const auto started = agent.tool("guide_lesson", {{"action", "start"}, {"id", "first-beat"}})
+                             .value("structuredContent")
+                             .toObject();
+    check(started.value("active").toBool());
+    check(started.value("step").toInt() == 0);
+    check(started.value("steps").toInt() > 1);
+    const auto stepped = agent.tool("guide_lesson", {{"action", "next"}})
+                             .value("structuredContent")
+                             .toObject();
+    check(stepped.value("step").toInt() == 1);
+    const auto backed = agent.tool("guide_lesson", {{"action", "back"}})
+                            .value("structuredContent")
+                            .toObject();
+    check(backed.value("step").toInt() == 0);
+    check(agent.tool("guide_lesson", {{"action", "stop"}})
+              .value("structuredContent")
+              .toObject()
+              .value("active") == QJsonValue(false));
+    check(isError(agent.tool("guide_lesson", {{"action", "start"}, {"id", "no-such-lesson"}})));
+    check(isError(agent.tool("guide_lesson", {{"action", "dance"}})));
+    const auto triad =
+        agent.tool("guide_ask", {{"question", "what is a triad"}}).value("structuredContent").toObject();
+    check(triad.value("source").toString() == "guide");
+    check(triad.value("answer").toString().contains("third", Qt::CaseInsensitive));
+    check(isError(agent.tool("guide_ask", {{"question", "   "}})));
+    check(isError(agent.tool("guide_ask", {})));
 
     // ---------------------------------------------------------------------
     ctx.reached("mcp: without a window the bridge still answers, and says why calls fail");

@@ -1,6 +1,7 @@
 #include "song_model.hpp"
 
 #include "blokkily/audio/mixer.hpp"
+#include "blokkily/notation/clef.hpp"
 
 #include <QFileInfo>
 #include <QtGlobal>
@@ -89,4 +90,53 @@ void SongModel::toggleAutoScale() {
     song_.auto_scale = !song_.auto_scale;
     emit tuningChanged();
     announceSong();
+}
+
+namespace {
+
+// The clef name as notationSettings/setNotationSettings takes it, or empty
+// when the name does not name one of the eleven clefs.
+QString canonicalClef(const QString& name) {
+    for (int kind = 0; kind <= static_cast<int>(blokkily::notation::ClefKind::Percussion); ++kind) {
+        const auto clef = blokkily::notation::Clef(static_cast<blokkily::notation::ClefKind>(kind));
+        if (QString::fromUtf8(clef.name()).compare(name, Qt::CaseInsensitive) == 0)
+            return QString::fromUtf8(clef.name());
+    }
+    return {};
+}
+
+}  // namespace
+
+QVariantMap SongModel::notationSettings(int track, int section) const {
+    const auto it = notation_settings_.find({track, section});
+    const NotationSettings settings = it == notation_settings_.end() ? NotationSettings{} : it->second;
+    return {{"clef", settings.clef},
+            {"keyFifths", settings.key_fifths},
+            {"timeBeats", settings.time_beats},
+            {"timeUnit", settings.time_unit},
+            {"unmetered", settings.unmetered}};
+}
+
+void SongModel::setNotationSettings(int track, int section, const QVariantMap& settings) {
+    NotationSettings current;
+    const auto it = notation_settings_.find({track, section});
+    if (it != notation_settings_.end()) current = it->second;
+    if (settings.contains("clef")) {
+        const QString clef = canonicalClef(settings.value("clef").toString());
+        if (!clef.isEmpty()) current.clef = clef;
+    }
+    if (settings.contains("keyFifths")) {
+        const int fifths = settings.value("keyFifths").toInt();
+        if (fifths >= -7 && fifths <= 7) current.key_fifths = fifths;
+    }
+    if (settings.contains("timeBeats") || settings.contains("timeUnit")) {
+        const int beats = settings.value("timeBeats", current.time_beats).toInt();
+        const int unit = settings.value("timeUnit", current.time_unit).toInt();
+        if (beats >= 1 && (unit == 1 || unit == 2 || unit == 4 || unit == 8 || unit == 16 || unit == 32)) {
+            current.time_beats = beats;
+            current.time_unit = unit;
+        }
+    }
+    if (settings.contains("unmetered")) current.unmetered = settings.value("unmetered").toBool();
+    notation_settings_[{track, section}] = current;
 }

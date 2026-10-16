@@ -223,6 +223,15 @@ public:
     QString rootName() const;
     bool autoScale() const noexcept { return song_.auto_scale; }
 
+    // Staff-notation view settings for the score projection
+    // (feature/staff-notation). The clef is per track part of a section — a
+    // piano's two hands read two clefs — while the key and meter are per
+    // section. Session-scoped: they are not written to the project file (v1),
+    // and they follow section/track indices. `clef` is the conventional
+    // English name ("Treble", "Bass", "Alto", "French violin", ...).
+    Q_INVOKABLE QVariantMap notationSettings(int track, int section) const;
+    Q_INVOKABLE void setNotationSettings(int track, int section, const QVariantMap& settings);
+
     Q_INVOKABLE void selectTrack(int track);
     // Opens pattern `pattern`: its section, with its track selected, so it is
     // the part the editors show.
@@ -779,6 +788,16 @@ private:
     // show rather than rebuilding every projection per pointer move.
     void emitMixMove();
     bool mix_only_ = false;
+    // Staff-notation view settings per (track, section), for the score
+    // projection (feature/staff-notation). Session-scoped, not saved.
+    struct NotationSettings {
+        QString clef = QStringLiteral("Treble");
+        int key_fifths = 0;
+        int time_beats = 4;
+        int time_unit = 4;
+        bool unmetered = false;
+    };
+    std::map<std::pair<int, int>, NotationSettings> notation_settings_;
     // The arrangement's projections, built once per change to the song's
     // structure (lanes(), barLayout()). Every songChanged and timebaseChanged
     // goes out through these, which drop them first.

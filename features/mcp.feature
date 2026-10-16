@@ -134,6 +134,49 @@ Feature: An agent drives Blokkily over MCP
     When the agent closes the bridge's standard input
     Then the bridge exits cleanly
 
+  Scenario: The tools list names the notation and guide tools
+    When the agent lists the tools
+    Then it names get_score, set_clef, set_key_signature, set_time_signature, export_musicxml, import_musicxml, guide_events, guide_lesson and guide_ask
+
+  Scenario: The agent reads a part as staff notation
+    Given the CLAP track plays C4, E4 and G4 as quarter notes
+    When the agent calls get_score
+    Then it reads the notes spelled C4, E4 and G4 with quarter values and a MusicXML document naming the pattern
+
+  Scenario: The agent dresses the score in another clef, key and meter
+    When the agent sets the clef to Bass, the key to 2 flats and the meter to 3/4
+    Then get_score reads the clef Bass, the key Bb major and the meter 3/4
+    And a bad clef name, a key of 8 fifths, or a meter of 3/3 is refused and the score is unchanged
+
+  Scenario: The agent exports MusicXML and reads it back
+    Given the CLAP track plays C4, E4 and G4 as quarter notes
+    When the agent exports the pattern to a MusicXML file
+    Then the file parses back to the same notes the engine renders
+    When the agent clears the part and imports the file back with replace
+    Then get_pattern reads C4, E4 and G4 again
+    And one UNDO takes the import back
+
+  Scenario: A bad MusicXML import is refused without changing the song
+    When the agent imports text that is not MusicXML
+    Then the call is answered as an error and the pattern is unchanged
+
+  Scenario: The guide narrates what the agent did
+    When the agent writes a note with write_notes
+    Then guide_events names the agent as the source and explains the note in the guide's voice
+    When the producer plays the transport from the window
+    Then guide_events names the user as the source of the transport event
+
+  Scenario: The agent walks a guide lesson and asks it a question
+    When the agent lists the guide's lessons
+    Then it reads "Your first beat" among them
+    When it starts that lesson
+    Then the lesson is active on its first step
+    When it steps forward and back, then stops
+    Then the lesson is no longer active
+    When it asks the guide what a triad is
+    Then the answer names three notes a third apart
+    And asking with no question is refused
+
   Scenario: A second Blokkily never takes the socket from one that is busy
     Given a Blokkily serving MCP whose window is too busy to accept connections
     When a second Blokkily starts and tries to serve the same socket
