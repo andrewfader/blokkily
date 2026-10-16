@@ -966,33 +966,12 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
     const auto format = depth == "PCM16"  ? blokkily::WaveFormat::pcm16
                       : depth == "PCM24"  ? blokkily::WaveFormat::pcm24
                                           : blokkily::WaveFormat::float32;
-    // The bounce is of the song as it is now, edits of this turn included,
-    // with every warped clip's rendition in it.
-    flushRecompile();
     const LoadProgress::Scope exporting(
         progress_, QStringLiteral("EXPORTING %1").arg(QFileInfo(local_path(path)).fileName().toUpper()));
-    progress_.report(-1.0, QStringLiteral("FINISHING WARPED CLIPS"));
-    waitForWarpRenders();
-    std::string error;
-    const bool resume_device = audio_output_ && audio_output_->is_running();
-    if (audio_output_) audio_output_->stop();
-    releaseSoundingNotes();
-    // Half a second of tail so the last note's release is part of the file.
-    const auto tail = static_cast<std::uint64_t>(engine_->sample_rate() / 2.0);
     blokkily::BounceOptions options;
     options.include_metronome = withClick;
-    options.progress = bounceProgress(engine_->sample_rate());
-    const auto report = bounce_song(*engine_, local_path(path).toStdString(), format,
-                                    tail, options, &error);
-    if (resume_device) {
-        std::string resume_error;
-        if (!audio_output_->start(&resume_error)) {
-            engine_->set_playing(false);
-            if (transport_) transport_->stop();
-            status_ = QString("Audio restart failed · %1").arg(QString::fromStdString(resume_error));
-            emit statusChanged();
-        }
-    }
+    std::string error;
+    const auto report = bounceThroughEngine(local_path(path).toStdString(), format, options, &error);
     if (!report) {
         export_status_ = QString("Export failed · %1").arg(QString::fromStdString(error));
         emit exportStatusChanged();
@@ -1006,6 +985,33 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
                          .arg(report->clipped ? " · CLIPPED" : "");
     emit exportStatusChanged();
     return true;
+}
+
+std::optional<blokkily::BounceReport> AppController::bounceThroughEngine(
+    const std::filesystem::path& file, blokkily::WaveFormat format,
+    blokkily::BounceOptions options, std::string* error) {
+    // The bounce is of the song as it is now, edits of this turn included,
+    // with every warped clip's rendition in it.
+    flushRecompile();
+    progress_.report(-1.0, QStringLiteral("FINISHING WARPED CLIPS"));
+    waitForWarpRenders();
+    const bool resume_device = audio_output_ && audio_output_->is_running();
+    if (audio_output_) audio_output_->stop();
+    releaseSoundingNotes();
+    // Half a second of tail so the last note's release is part of the file.
+    const auto tail = static_cast<std::uint64_t>(engine_->sample_rate() / 2.0);
+    options.progress = bounceProgress(engine_->sample_rate());
+    auto report = bounce_song(*engine_, file, format, tail, options, error);
+    if (resume_device) {
+        std::string resume_error;
+        if (!audio_output_->start(&resume_error)) {
+            engine_->set_playing(false);
+            if (transport_) transport_->stop();
+            status_ = QString("Audio restart failed · %1").arg(QString::fromStdString(resume_error));
+            emit statusChanged();
+        }
+    }
+    return report;
 }
 
 std::function<void(std::uint64_t, std::uint64_t)> AppController::bounceProgress(double rate) {

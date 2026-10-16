@@ -14,7 +14,7 @@ Feature: An agent drives Blokkily over MCP
     Given Blokkily is running with one CLAP track
     When an agent starts `blokkily --mcp` and initializes
     Then it is answered with the protocol version it asked for and a tools capability
-    And tools/list names get_session, get_pattern, write_notes, transport, list_plugins, set_instrument, list_parameters, set_parameter, set_soundfont_preset, screenshot, describe, call and get_property
+    And tools/list names get_session, get_pattern, write_notes, transport, list_plugins, set_instrument, list_parameters, set_parameter, set_soundfont_preset, screenshot, describe, call, get_property and analyze_render
 
   Scenario: The agent reads the session
     When the agent calls get_session
@@ -70,6 +70,20 @@ Feature: An agent drives Blokkily over MCP
     When the agent calls set_soundfont_preset for bank 0, program 0
     Then the track's state names that bank and program, and a note on it is heard soloed
     And a preset the file does not hold, or a track that is not a SoundFont, is refused
+
+  Scenario: The agent measures what it made
+    Given the CLAP track plays sines on C4 and G4 beside the SoundFont track
+    When the agent calls analyze_render with no arguments
+    Then it reads the master's integrated loudness, a true peak no lower than the sample peak, and band shares that sum to 1
+    And the render runs the song's length plus the export's half second of tail
+    When it calls analyze_render for track 0
+    Then the low-mid band holds most of that track's energy and the centroid sits near its notes
+    When it exports the song and calls analyze_render with that file
+    Then the file measures as the render did, because both came from the one engine
+    When it lowers track 0's fader by 6 dB and measures the track again
+    Then the track reads 6 LU quieter and its true peak 6 dB lower, and UNDO puts the fader back
+    And a track or return that does not exist, a track and a file together, or a missing file is refused
+    And measuring leaves the transport stopped where it was
 
   Scenario: Without a window the bridge still answers, and says why calls fail
     Given nothing is listening on the bridge's socket and it may not start Blokkily

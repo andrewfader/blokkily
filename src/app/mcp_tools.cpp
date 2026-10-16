@@ -89,6 +89,7 @@ QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
     if (name == "set_parameter") return setParameter(arguments);
     if (name == "set_soundfont_preset") return setSoundFontPreset(arguments);
     if (name == "screenshot") return screenshot();
+    if (name == "analyze_render") return analyzeRender(arguments);
     if (name == "describe") return describe(arguments);
     if (name == "call") return invoke(arguments);
     if (name == "get_property") return getProperty(arguments);
@@ -301,6 +302,21 @@ QJsonObject McpTools::setInstrument(const QJsonObject& arguments) {
     if (!controller_.selectInstrument(plugin))
         return failure(QStringLiteral("The instrument could not be loaded: %1").arg(controller_.status()));
     return jsonResult(pick(song_.tracks().at(track).toMap(), {"index", "name", "instrument"}));
+}
+
+QJsonObject McpTools::analyzeRender(const QJsonObject& arguments) {
+    const bool track = arguments.contains("track");
+    const bool bus = arguments.contains("return");
+    const bool file = arguments.contains("file");
+    if (int(track) + int(bus) + int(file) > 1)
+        return failure(QStringLiteral("Analyze one of track, return or file, or none for the master."));
+    const auto analysis =
+        file ? controller_.analyzeAudioFile(arguments.value("file").toString())
+        : track ? controller_.analyzeRender(QStringLiteral("track"), arguments.value("track").toInt(-1))
+        : bus ? controller_.analyzeRender(QStringLiteral("return"), arguments.value("return").toInt(-1))
+              : controller_.analyzeRender(QStringLiteral("master"), 0);
+    if (analysis.contains("error")) return failure(analysis.value("error").toString());
+    return jsonResult(QJsonObject::fromVariantMap(analysis));
 }
 
 QJsonObject McpTools::listParameters(const QJsonObject& arguments) const {

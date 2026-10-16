@@ -36,6 +36,7 @@ private:
     QJsonObject setParameter(const QJsonObject& arguments);
     QJsonObject setSoundFontPreset(const QJsonObject& arguments);
     QJsonObject screenshot() const;
+    QJsonObject analyzeRender(const QJsonObject& arguments);
     QJsonObject describe(const QJsonObject& arguments) const;
     QJsonObject invoke(const QJsonObject& arguments);
     QJsonObject getProperty(const QJsonObject& arguments) const;

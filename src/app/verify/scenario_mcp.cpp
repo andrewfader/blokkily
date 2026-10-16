@@ -10,6 +10,7 @@
 #include "mcp_tools.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QImage>
@@ -19,6 +20,7 @@
 #include <QLocalSocket>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include <algorithm>
@@ -178,7 +180,7 @@ void run_mcp(VerifyContext& ctx) {
     for (const char* expected : {"get_session", "get_pattern", "write_notes", "transport",
                                  "list_plugins", "set_instrument", "list_parameters",
                                  "set_parameter", "set_soundfont_preset", "screenshot",
-                                 "describe", "call", "get_property"})
+                                 "describe", "call", "get_property", "analyze_render"})
         check(names.contains(QLatin1String(expected)));
 
     // ---------------------------------------------------------------------
@@ -285,7 +287,11 @@ void run_mcp(VerifyContext& ctx) {
             varies = image.pixel(x, y) != image.pixel(0, 0);
     check(varies);
     // The agent's own picture is the gate's evidence.
-    if (ctx.parser.isSet("screenshot")) check(image.save(ctx.parser.value("screenshot")));
+    // Its folder is made here: run first in a fresh build, no other gate has.
+    if (ctx.parser.isSet("screenshot")) {
+        QDir{}.mkpath(QFileInfo(ctx.parser.value("screenshot")).absolutePath());
+        check(image.save(ctx.parser.value("screenshot")));
+    }
     check(!agent.stray());
 
     // ---------------------------------------------------------------------
@@ -458,6 +464,68 @@ void run_mcp(VerifyContext& ctx) {
     check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "toggleSolo"}, {"args", QJsonArray{1}}})));
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent measures what it made");
+    // The fixture's Tone plays a sine at each note's pitch: C4 and G4 here
+    // (E4's level is locked to 0), both in the low mids.
+    check(!isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "tone"}, {"value", 1}})));
+    const auto analyze = [&agent](const QJsonObject& arguments) {
+        return agent.tool("analyze_render", arguments).value("structuredContent").toObject();
+    };
+    const auto share_of = [](const QJsonObject& analysis, const QString& name) {
+        for (const auto& entry : analysis.value("bands").toArray())
+            if (entry.toObject().value("name").toString() == name)
+                return entry.toObject().value("share").toDouble();
+        return -1.0;
+    };
+    const auto mix = analyze({});
+    const double mix_lufs = mix.value("integratedLufs").toDouble(1.0);
+    check(mix.value("source").toString() == "master");
+    check(mix.value("integratedLufs").isDouble() && mix_lufs > -40.0 && mix_lufs < 0.0);
+    check(mix.value("truePeakDbtp").toDouble() >= mix.value("samplePeakDbfs").toDouble() - 0.01);
+    double shares = 0.0;
+    for (const auto& entry : mix.value("bands").toArray()) shares += entry.toObject().value("share").toDouble();
+    check(mix.value("bands").toArray().size() == 7 && std::abs(shares - 1.0) < 0.01);
+    // The song's length and the export's half second of tail.
+    const double song_seconds =
+        static_cast<double>(controller.engine()->song_samples()) / controller.engine()->sample_rate();
+    check(std::abs(mix.value("seconds").toDouble() - (song_seconds + 0.5)) < 0.01);
+    const auto lead = analyze({{"track", 0}});
+    const double lead_lufs = lead.value("integratedLufs").toDouble(1.0);
+    const double lead_low_mid = share_of(lead, "lowMid");
+    check(lead.value("source").toString() == "track 0" && lead.value("integratedLufs").isDouble());
+    check(lead_low_mid > 0.8);
+    check(lead.value("spectralCentroidHz").toDouble() > 200.0 &&
+          lead.value("spectralCentroidHz").toDouble() < 700.0);
+    // A file the agent exported reads as the render it measured: one engine.
+    const QTemporaryDir exports;
+    const QString exported = exports.filePath("measured.wav");
+    check(textOf(agent.tool("call", {{"object", "appController"},
+                                     {"method", "exportAudioFile"},
+                                     {"args", QJsonArray{exported}}})) == "true");
+    const auto from_file = analyze({{"file", exported}});
+    check(from_file.value("integratedLufs").isDouble() &&
+          std::abs(from_file.value("integratedLufs").toDouble() - mix_lufs) < 0.011);
+    check(std::abs(from_file.value("truePeakDbtp").toDouble() - mix.value("truePeakDbtp").toDouble()) < 0.011);
+    // The fader is heard in the measurement: 6 dB down is 6 LU quieter.
+    check(!isError(agent.tool("call", {{"object", "songModel"},
+                                       {"method", "setTrackGain"},
+                                       {"args", QJsonArray{0, -6}}})));
+    const auto quieter = analyze({{"track", 0}});
+    const double fader_drop = lead_lufs - quieter.value("integratedLufs").toDouble(1.0);
+    check(std::abs(fader_drop - 6.0) < 0.1);
+    check(std::abs(lead.value("truePeakDbtp").toDouble() - quieter.value("truePeakDbtp").toDouble() - 6.0) < 0.1);
+    check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+    check(std::abs(song.song().tracks.at(0).mix.gain_db) < 1e-9);
+    // Measuring changes nothing: the transport stays where it was.
+    check(!ctx.transport.playing());
+    // Refusals.
+    check(isError(agent.tool("analyze_render", {{"track", 9}})));
+    check(isError(agent.tool("analyze_render",
+                             {{"return", static_cast<int>(song.song().returns.size())}})));
+    check(isError(agent.tool("analyze_render", {{"track", 0}, {"file", exported}})));
+    check(isError(agent.tool("analyze_render", {{"file", exports.filePath("missing.wav")}})));
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: without a window the bridge still answers, and says why calls fail");
     {
         Agent alone(socket + "-nobody", false);
@@ -552,7 +620,9 @@ void run_mcp(VerifyContext& ctx) {
     details << " | tools=" << names.size() << " | heard after write " << after
             << " | level lane 0 -> " << held_at_zero << ", 0.25 -> " << held_up
             << " | set_parameter 0 -> " << set_to_zero << ", 0.25 -> " << set_up
-            << " | soundfont preset heard " << soundfont_heard;
+            << " | soundfont preset heard " << soundfont_heard << " | mix " << mix_lufs
+            << " LUFS, lead " << lead_lufs << " LUFS, lowMid share " << lead_low_mid
+            << ", fader -6 dB -> " << fader_drop << " LU";
     ctx.finish(details.str());
 }
 

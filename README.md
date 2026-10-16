@@ -109,7 +109,8 @@ keeps the layout consistent across desktops.
   in one undo step.
 - Ask the LLM composition assistant for a phrase. Review its proposal before
   applying it; each generation is one undo step. An MCP bridge also lets agents
-  control the running application.
+  control the running application and measure what they render (loudness,
+  true peak, band energy).
 
 See the [usage guide](docs/usage.md) for controls, keyboard shortcuts and
 recording workflows.

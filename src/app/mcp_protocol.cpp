@@ -165,6 +165,19 @@ QJsonArray toolDefinitions() {
                      {"program", integer("0 to 127.")}},
                     {"bank", "program"})),
         tool("screenshot", "A PNG of the Blokkily window as it is drawn now.", schema({})),
+        tool("analyze_render",
+             "Renders the song through the same engine as an export and measures what it hears: "
+             "integrated loudness (LUFS, BS.1770 gated), loudest 400 ms and 3 s, loudness range, "
+             "sample and true peak, RMS, crest factor, clipped samples, left/right correlation, "
+             "spectral centroid, and each band's level and share of the energy (sub 20-60 Hz, "
+             "bass 60-250, lowMid 250-500, mid 500-2k, highMid 2-4k, presence 4-6k, air 6-20k). "
+             "With no arguments it measures the master mix; with track or return, that bus alone "
+             "after its inserts, fader and pan; with file, a WAVE file already written, such as "
+             "a reference mix. Silent levels read null. Changes nothing in the song.",
+             schema({{"track", integer("Measure this track's bus alone.")},
+                     {"return", integer("Measure this return bus alone.")},
+                     {"file", QJsonObject{{"type", "string"},
+                                          {"description", "Measure this WAVE file instead of rendering."}}}})),
         tool("describe",
              "Every method and property the window's controls use, for `call` and "
              "`get_property`. Covers what the purpose-built tools do not: the mixer, effects, "
@@ -198,7 +211,8 @@ QString instructions() {
         "modulation) to lock a parameter on one note (slot -1 the instrument, 0.. an insert), "
         "songModel.undo(), appController.saveProjectFile(path), "
         "appController.exportAudioFile(path)). Every edit can be undone. screenshot shows the "
-        "window.");
+        "window. analyze_render measures how the mix sounds: loudness, peaks and where the "
+        "energy sits.");
 }
 
 QJsonObject textResult(const QString& text, bool error) {

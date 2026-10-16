@@ -11,6 +11,7 @@
 #include "blokkily/plugins/vst3_instance.hpp"
 #include "blokkily/project/project.hpp"
 #include "blokkily/audio/audio_asset.hpp"
+#include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/clip_warp.hpp"
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
@@ -357,6 +358,16 @@ public:
     // metronome is left out unless `withClick` asks for it (item 3.7).
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
                                      bool withClick = false);
+    // --- Render analysis (app_controller_analysis.cpp) -----------------------
+    // Bounces the arrangement exactly as exportAudioFile does, reads the file
+    // back and measures it (blokkily/audio/analysis.hpp): loudness, peaks,
+    // stereo image and the energy in each band. `kind` "master" measures the
+    // mix; "track" or "return" measures that bus alone, after its inserts,
+    // fader and pan. A map with "error" when there is nothing to render.
+    Q_INVOKABLE QVariantMap analyzeRender(const QString& kind = "master", int bus = 0);
+    // The same measurements of a WAVE file already written: an earlier
+    // export, or a reference mix to compare against.
+    Q_INVOKABLE QVariantMap analyzeAudioFile(const QString& path) const;
     // --- Clip warp (app_controller_warp.cpp) ---------------------------------
     int warpRendersPending() const noexcept { return warp_pending_; }
     QString warpStatus() const { return warp_status_; }
@@ -794,6 +805,12 @@ private:
     bool oweDuringLoad(bool rebuild);
     // An export's progress callback (bounce.hpp), reporting into the open load.
     std::function<void(std::uint64_t, std::uint64_t)> bounceProgress(double rate);
+    // Stops the device, bounces through the engine with half a second of
+    // tail, and starts the device again: what exportAudioFile and
+    // analyzeRender both render through.
+    std::optional<blokkily::BounceReport> bounceThroughEngine(
+        const std::filesystem::path& file, blokkily::WaveFormat format,
+        blokkily::BounceOptions options, std::string* error);
     bool follow_playback_ = true;
     // Opens the pattern under the playhead on the selected track (followPlayback).
     void followPlayhead();

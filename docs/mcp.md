@@ -39,10 +39,28 @@ Blokkily can connect.
 | `set_parameter` | Set a synth preset or knob by name |
 | `set_soundfont_preset` | Set a General MIDI bank and program |
 | `screenshot` | Capture the window |
+| `analyze_render` | Measure the mix, a track, a return or a WAVE file: loudness, peaks, stereo image, band energy |
 | `describe`, `call`, `get_property` | Access methods and properties used by the interface |
 
 The generic tools cover mixer controls, effects, automation, clips, tempo,
 tuning, saving, exporting and undo.
+
+## Measuring a render
+
+`analyze_render` renders the song through the same engine as an export, reads
+the file back and reports what an engineer would read off meters:
+
+- integrated loudness in LUFS (ITU-R BS.1770-4, gated), the loudest 400 ms and
+  3 s and where that 3 s starts, and the loudness range (EBU Tech 3342)
+- sample peak, true peak (4x oversampled), RMS, crest factor and clipped samples
+- left/right correlation and the spectral centroid
+- each band's level and share of the energy: `sub` 20-60 Hz, `bass` 60-250,
+  `lowMid` 250-500, `mid` 500-2k, `highMid` 2-4k, `presence` 4-6k, `air` 6-20k
+
+With no arguments it measures the master. `track` or `return` measures that bus
+alone, after its inserts, fader and pan. `file` measures a WAVE file that is
+already written, such as an earlier export or a reference mix. Levels of
+silence are `null`. Measuring does not change the song.
 
 ## Environment variables
 
