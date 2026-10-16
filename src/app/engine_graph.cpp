@@ -72,6 +72,16 @@ GraphSignature graph_signature(const Song& song) {
     signature.processors.reserve(song.tracks.size());
     for (std::size_t track = 0; track < song.tracks.size(); ++track) {
         const auto bus = static_cast<std::uint32_t>(track);
+        // A frozen track's instrument and inserts are in its freeze clip:
+        // their slots stay, empty, so nothing is loaded for them.
+        if (song.tracks[track].frozen) {
+            signature.processors.emplace_back(track_instrument(bus), ProcessorIdentity{});
+            for (std::size_t slot = 0; slot < song.tracks[track].inserts.size(); ++slot)
+                signature.processors.emplace_back(
+                    ProcessorAddress{BusKind::track, bus, static_cast<std::int32_t>(slot)},
+                    ProcessorIdentity{});
+            continue;
+        }
         signature.processors.emplace_back(track_instrument(bus),
                                           identity_of(song.tracks[track].instrument));
         list_chain(signature, song.tracks[track].inserts, BusKind::track, bus);

@@ -56,7 +56,7 @@ Rectangle {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: modelData.instrument
+                    text: (modelData.frozen ? "FROZEN · " : "") + modelData.instrument
                           + (modelData.inserts > 0 ? " · " + modelData.inserts + " FX" : "")
                     color: modelData.fed ? Theme.blue
                          : modelData.hasInstrument ? Theme.muted : "#5c626e"
@@ -104,6 +104,18 @@ Rectangle {
                 onRightClicked: songModel.cycleAutomationMode(root.trackIndex, -1)
             }
             Item { Layout.fillWidth: true }
+            // FRZ renders the instrument and inserts to audio and stops
+            // loading them; again brings them back.
+            Chip {
+                objectName: "freeze" + root.trackIndex
+                implicitWidth: 40; implicitHeight: 24
+                text: "FRZ"; accent: Theme.blue
+                accessibleLabel: root.modelData.frozen ? "Unfreeze the track" : "Freeze the track"
+                on: root.modelData.frozen === true
+                enabled: root.modelData.frozen === true || root.modelData.hasInstrument === true
+                         || root.modelData.inserts > 0
+                onClicked: appController.toggleFreeze(root.trackIndex)
+            }
             // A multi-output instrument (wave 5.2): each aux output it
             // declares can be broken out to a mixer channel of its own.
             Chip {

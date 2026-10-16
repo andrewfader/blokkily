@@ -5,6 +5,7 @@
 
 namespace blokkily {
 bool SongEngine::valid_tap(OutputTap source) const noexcept {
+    if (source.pre_fader && source.kind != BusKind::track) return false;
     switch (source.kind) {
     case BusKind::track: return source.bus < tracks_.size();
     case BusKind::ret: return source.bus < buses_->returns.size();

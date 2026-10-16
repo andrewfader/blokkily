@@ -27,6 +27,7 @@ std::span<const RecordModule* const> record_modules() {
         &loop_records(),
         &swing_records(),
         &comping_records(),
+        &freeze_records(),
         &arpeggiator_records(),
         &clip_warp_records(),
         &scene_launcher_records(),
@@ -91,7 +92,7 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
 
     Project project;
     project_io::ParseContext context{project, static_cast<int>(*version), base_dir, error,
-                                     {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
+                                     {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
 
     while (std::getline(stream, line)) {
         if (line.empty()) continue;

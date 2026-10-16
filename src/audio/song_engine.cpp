@@ -1142,6 +1142,9 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         // rest of the chunk.
         engine::follow_track(*modulation_, arranged.routing, static_cast<std::uint32_t>(index),
                              buffer, sample_rate_);
+        // The pre-fader tap a freeze renders.
+        tap_output({BusKind::track, static_cast<std::uint32_t>(index), true}, buffer, song_position,
+                   from_timeline);
         // 9. The strip gain for this chunk: the static gain, or the
         // automation envelope's ramp times the solo gate.
         auto ramp = engine::chunk_strip_gain(

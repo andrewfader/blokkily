@@ -210,6 +210,8 @@ QVariantList SongModel::tracks() const {
                              (track.input.monitor == blokkily::TrackInput::Monitor::automatic &&
                               track.input.armed));
         row["inserts"] = static_cast<int>(track.inserts.size());
+        // Frozen: its instrument and inserts play from a render.
+        row["frozen"] = track.frozen;
         rows.push_back(row);
     }
     return rows;

@@ -85,6 +85,9 @@ struct ParseContext {
     // clips and the loop are in.
     std::vector<AudioClipId> comped_out;
     bool punch = false;
+    // Track freeze as read (records_freeze.cpp).
+    std::vector<std::size_t> frozen_tracks;
+    std::vector<AudioClipId> freeze_clips;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -139,6 +142,8 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& arpeggiator_records();
 // Comped-out takes and punch: comped_out, punch (records_comping.cpp).
 [[nodiscard]] const RecordModule& comping_records();
+// Frozen tracks and their renders: frozen, freeze_clip (records_freeze.cpp).
+[[nodiscard]] const RecordModule& freeze_records();
 // MIDI learn bindings: midi_learn (records_midi_learn.cpp).
 [[nodiscard]] const RecordModule& midi_learn_records();
 // Clip warp (item 3.6): clipwarp, after the audio clips it names

@@ -212,6 +212,10 @@ struct Track {
     std::optional<InstrumentOutput> source{};
     // Notes held on the track arpeggiated before its instrument hears them.
     Arpeggiator arp;
+    // Frozen (features/track_freeze.feature): the track plays its freeze
+    // clip - its instrument and inserts rendered to audio - and they are
+    // not loaded; its fader, pan, sends and mutes still apply.
+    bool frozen = false;
 };
 
 // One part of a section: the notes one track plays in it. `section` and
@@ -348,6 +352,9 @@ struct AudioClip {
     // A take kept but not played: another take of the same bars was chosen
     // over it (comping.hpp).
     bool comped_out = false;
+    // The render of a frozen track: plays while its track is frozen, and
+    // the track's other clips (already in it) do not.
+    bool freeze = false;
 
     friend bool operator==(const AudioClip&, const AudioClip&) = default;
 };

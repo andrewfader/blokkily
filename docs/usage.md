@@ -331,6 +331,13 @@ timing, and durations are capped at the section length.
 MIDI exchange omits plugin state, parameter automation, per-note expression,
 audio clips and microtonal retuning. Use project files to back up a session.
 
+## Freezing a track
+
+FRZ on a mixer strip renders the track's instrument and inserts to audio
+and plays that instead, unloading them to save processing; the fader, pan,
+sends, mute and solo still apply. FRZ again (or undo) brings them back as
+they were. See [the scenarios](../features/track_freeze.feature).
+
 ## Punch and comping
 
 PUNCH, beside LOOP, IN and OUT, records only what is played between IN and

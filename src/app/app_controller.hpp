@@ -566,6 +566,13 @@ public:
     bool outputRecordingArmed() const { return output_source_.has_value(); }
     Q_INVOKABLE void toggleRackOutputRecording();
     Q_INVOKABLE bool bounceRackInPlace(bool muteSource = false);
+    // Track freeze (app_controller_freeze.cpp): the track's instrument and
+    // inserts rendered pre-fader to a freeze clip that plays instead, so they
+    // are not loaded; fader, pan, sends and mutes still apply. One step of
+    // history each. Unfreeze brings them back as they were.
+    Q_INVOKABLE bool freezeTrack(int track);
+    Q_INVOKABLE bool unfreezeTrack(int track);
+    Q_INVOKABLE bool toggleFreeze(int track);
     void startOutputTake();
     void finishOutputTake();
     bool openProcessorEditor(blokkily::ProcessorAddress where);

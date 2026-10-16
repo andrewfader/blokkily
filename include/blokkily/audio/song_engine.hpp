@@ -104,6 +104,9 @@ class StreamPool;
 struct OutputTap {
     BusKind kind = BusKind::master;
     std::uint32_t bus = 0;
+    // A track's signal after its inserts and before its fader and pan: what
+    // a freeze renders (features/track_freeze.feature). Tracks only.
+    bool pre_fader = false;
     friend bool operator==(const OutputTap&, const OutputTap&) = default;
 };
 

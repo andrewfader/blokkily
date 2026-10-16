@@ -60,6 +60,12 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 - When a printed take leaves the tail of an earlier clip, that tail does not
   chase a controller value set before its trim.
 
+## Track freeze
+
+- A frozen track's render runs to the end of its tail, so a frozen song
+  lasts until that tail ends. Notes and lanes edited while a track is frozen
+  are heard only once it is unfrozen.
+
 ## Output recording
 
 - Output recording selects one bus per pass. Bounce additional racks to build
