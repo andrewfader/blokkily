@@ -546,6 +546,7 @@ void AppController::newProject() {
     project_status_ = "New session";
     project_detail_ = "Not saved yet";
     song_->markSaved();
+    forgetAutosave();
     emit projectStatusChanged();
 }
 
@@ -1284,6 +1285,7 @@ bool AppController::saveProject(const QString& path) {
     if (valid) {
         project_path_ = path;
         song_->markSaved();
+        forgetAutosave();
     }
     project_status_ = valid ? "Saved" : "Save failed";
     project_detail_ = valid ? QString("%1 · %2 track%3")
@@ -1305,6 +1307,13 @@ bool AppController::loadProject(const QString& path) {
         emit projectStatusChanged();
         return false;
     }
+    installProject(std::move(*project), path);
+    song_->markSaved();
+    forgetAutosave();
+    return true;
+}
+
+void AppController::installProject(blokkily::Project project, const QString& path) {
     if (audio_output_) audio_output_->stop();
     forgetSoundingNotes();
     takes_.clear();
@@ -1313,18 +1322,17 @@ bool AppController::loadProject(const QString& path) {
     // The audio the last song played is let go unless the next one plays it.
     clip_assets_.clear();
     assets_->purge_unused();
-    const auto tracks = project->song.tracks.size();
+    const auto tracks = project.song.tracks.size();
     // The project's folder is known before its instruments are created, so a
     // sample named relative to it is found by the first engine built for it.
     project_path_ = path;
     replacing_ = true;
-    song_->replace(std::move(project->song));
+    song_->replace(std::move(project.song));
     replacing_ = false;
-    song_->setVersions(std::move(project->versions));
+    song_->setVersions(std::move(project.versions));
     // Patterns as the producer sees them: sections, not one per track.
     const auto patterns = song_->song().sections.size();
     if (pattern_ != nullptr) pattern_->refresh();
-    song_->markSaved();
     project_status_ = QString("Restored from disk");
     project_detail_ = QString("%1 pattern%2 · %3 track%4")
                           .arg(patterns).arg(patterns == 1 ? "" : "s")
@@ -1333,5 +1341,4 @@ bool AppController::loadProject(const QString& path) {
     // Built once, here: replacing the song used to build it as well, which
     // activated every plugin of the song twice.
     (void)rebuildEngine();
-    return true;
 }

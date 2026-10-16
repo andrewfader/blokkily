@@ -27,12 +27,14 @@
 #include "engine_graph.hpp"
 #include "plugin_windows.hpp"
 #include "recompile_coalescer.hpp"
+#include "recovery.hpp"
 
 #include <QByteArray>
 #include <QObject>
 #include <QProcess>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QTimer>
 #include <QVariant>
 #include <QVariantMap>
@@ -144,6 +146,11 @@ class AppController final : public QObject {
     // What the window shows while a song opens, its instruments load or it is
     // exported (load_progress.hpp, features/loading_progress.feature).
     Q_PROPERTY(LoadProgress* progress READ progress CONSTANT)
+    // Songs a window that did not close normally left unsaved, newest first:
+    // {id, project, title, saved}. The window offers each back at launch.
+    Q_PROPERTY(QVariantList recoveries READ recoveries NOTIFY recoveriesChanged)
+    // When the open song was last autosaved, for the project card.
+    Q_PROPERTY(QString autosaveStatus READ autosaveStatus NOTIFY autosaveStatusChanged)
     // How far the plugin scan has got, 0 to 1, or negative when none is running.
     Q_PROPERTY(double scanProgress READ scanProgress NOTIFY scanProgressChanged)
 
@@ -360,6 +367,21 @@ public:
     // then ignored); any other is a WAV.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
                                      bool withClick = false);
+    // --- Autosave and crash recovery (app_controller_recovery.cpp) -----------
+    // Keeps an unsaved song in `directory` (recovery.hpp) every `interval_ms`
+    // while it has changes, and finds what earlier windows left there. An
+    // empty directory leaves both off.
+    void startAutosave(const QString& directory, int interval_ms);
+    QVariantList recoveries() const;
+    QString autosaveStatus() const { return autosave_status_; }
+    // Writes the recovery copy now if the song has unsaved changes, and
+    // removes it if it has none. False only when writing failed.
+    Q_INVOKABLE bool autosaveNow();
+    // Opens an abandoned song in place of the open one, unsaved, as the
+    // project it was (Ctrl+S saves it there), and removes its entry.
+    Q_INVOKABLE bool recoverSession(const QString& id);
+    // Lets an abandoned song go.
+    Q_INVOKABLE bool discardRecovery(const QString& id);
     // --- Stems and the scope video (app_controller_export.cpp) ---------------
     // Bounces every track, then every return, to a file of its own in
     // `directory` ("01 Bass.wav"): each bus after its inserts, fader and pan,
@@ -603,6 +625,8 @@ signals:
     void countInChanged();
     void launcherChanged();
     void scanProgressChanged();
+    void recoveriesChanged();
+    void autosaveStatusChanged();
 
 private:
     struct ImportResult;
@@ -753,6 +777,16 @@ private:
     QString project_status_ = "Not saved";
     QString project_detail_ = "No project on disk";
     QString export_status_ = "Not exported";
+    std::unique_ptr<RecoveryStore> recovery_;
+    QTimer autosave_timer_;
+    // What was last written, so an unchanged song is not written again.
+    QByteArray last_autosave_;
+    QString autosave_status_;
+    // A song read from a file (or a recovery copy) becomes the open one, as
+    // the project at `path`.
+    void installProject(blokkily::Project project, const QString& path);
+    // The song is on disk as it stands, or was let go: no recovery copy.
+    void forgetAutosave();
     QString project_path_;
     SongModel* song_ = nullptr;
     PatternModel* pattern_ = nullptr;

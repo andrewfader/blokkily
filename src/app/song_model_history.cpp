@@ -128,6 +128,12 @@ void SongModel::markSaved() {
     emit historyChanged();
 }
 
+void SongModel::markUnsaved() {
+    // An id no state ever has.
+    saved_id_ = next_id_++;
+    emit historyChanged();
+}
+
 void SongModel::clearHistory() {
     undo_.clear();
     redo_.clear();

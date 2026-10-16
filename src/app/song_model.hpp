@@ -479,6 +479,9 @@ public:
     Q_INVOKABLE void endGesture();
     // The song on disk now matches the song in memory.
     void markSaved();
+    // The song in memory is not on disk (a recovered copy): it is dirty until
+    // it is saved, whatever its history says.
+    void markUnsaved();
     // A new or freshly opened session has no history to go back through.
     void clearHistory();
     // Makes `song` the one being edited, from its first section and track,

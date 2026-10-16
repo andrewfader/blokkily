@@ -27,6 +27,16 @@
 #include <optional>
 #include <string_view>
 
+namespace {
+
+// How often unsaved work is copied aside: $BLOKKILY_AUTOSAVE_MS, else 30 s.
+int autosave_ms() {
+    bool ok = false;
+    const int configured = qEnvironmentVariableIntValue("BLOKKILY_AUTOSAVE_MS", &ok);
+    return ok && configured > 0 ? configured : 30000;
+}
+
+} // namespace
 
 int main(int argc, char* argv[]) {
     // `blokkily --mcp` is the agent's end of MCP: it needs no window, no
@@ -180,6 +190,10 @@ int main(int argc, char* argv[]) {
                                                 controller, keyboard, llm,
                                                 verification_output);
         context.opened_size = opened;
+        // Recovery is the user's own folder; a gate uses it only when it
+        // names one of its own.
+        if (!qEnvironmentVariable("BLOKKILY_RECOVERY_DIR").isEmpty())
+            controller.startAutosave(RecoveryStore::default_directory(), autosave_ms());
         // A gate that names a project opens it as a launch does, before the
         // scenario runs.
         if (!launch_file.isEmpty())
@@ -193,6 +207,9 @@ int main(int argc, char* argv[]) {
         // sound until a plugin has been hunted down is not one a producer can
         // sit down at, so every track without an instrument is given the
         // machine's General MIDI bank before anything else happens.
+        // Unsaved work is copied aside while it is worked on, and whatever a
+        // window that crashed left behind is offered back.
+        controller.startAutosave(RecoveryStore::default_directory(), autosave_ms());
         // A song opened at launch brings its own instruments, so the bank
         // is only loaded when there is none, or the song cannot be read.
         QTimer::singleShot(0, &controller, [&controller, launch_file] {

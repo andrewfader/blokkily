@@ -455,6 +455,16 @@ Ctrl+S saves to the current project file. Ctrl+Shift+S asks for a new file. A do
 in the window title marks unsaved changes. Opening a file, starting a new
 session or closing the window asks before discarding unsaved work.
 
+While a song has unsaved changes it is copied aside every 30 seconds. If
+Blokkily crashes, is killed or loses power, the next launch offers the song
+back: RECOVER opens it as it was, unsaved, as the project it came from (so
+Ctrl+S saves it there); DISCARD lets it go. Saving, opening or starting a
+song, or closing normally, removes the copy. Copies live in Blokkily's data
+folder (`~/.local/share/Blokkily/Blokkily/recovery` on Linux), or in
+`BLOKKILY_RECOVERY_DIR`; `BLOKKILY_AUTOSAVE_MS` changes the interval.
+Recordings of a song never saved stay in their temporary folder, which the
+system may clear on reboot. See [the scenarios](../features/autosave.feature).
+
 `blokkily song.blok` opens that project at launch, and so does
 double-clicking a `.blok` in GNOME Files, COSMIC Files or any file manager
 that follows the freedesktop standards. Installing puts the desktop entry in

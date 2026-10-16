@@ -494,7 +494,8 @@ foreach(blokkily_feature
         versions
         loading_progress
         export_formats
-        open_from_desktop)
+        open_from_desktop
+        autosave)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

@@ -103,6 +103,58 @@ ApplicationWindow {
         onRejected: root.pendingDiscard = null
     }
 
+    // A song a window left unsaved when it did not close normally (a crash,
+    // a kill, a power cut) is offered back, newest first, one at a time.
+    readonly property var recovery: appController.recoveries.length > 0
+                                    ? appController.recoveries[0] : null
+    Popup {
+        id: recoveryPopup
+        objectName: "recoveryPopup"
+        anchors.centerIn: parent
+        modal: true; focus: true
+        closePolicy: Popup.NoAutoClose
+        padding: 16
+        visible: root.recovery !== null
+        background: Rectangle { color: Theme.panel; border.color: Theme.amber; radius: 6 }
+        onClosed: noteEntry.forceActiveFocus()
+        ColumnLayout {
+            spacing: 10
+            SectionLabel { text: "RECOVER UNSAVED WORK" }
+            Label {
+                objectName: "recoveryMessage"
+                Layout.preferredWidth: 320
+                wrapMode: Text.Wrap
+                color: Theme.ink; font.pixelSize: 13
+                text: root.recovery === null ? "" :
+                      "“" + (root.recovery.title || "Untitled") + "” was not saved when "
+                      + "Blokkily last closed. It was autosaved " + root.recovery.saved + "."
+            }
+            Label {
+                Layout.preferredWidth: 320
+                visible: root.recovery !== null && root.recovery.project !== ""
+                text: root.recovery === null ? "" : root.recovery.project
+                color: Theme.muted; font.pixelSize: 10; elide: Text.ElideMiddle
+            }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 6
+                Item { Layout.fillWidth: true }
+                Chip {
+                    objectName: "discardRecoveryButton"
+                    text: "DISCARD"
+                    onClicked: appController.discardRecovery(root.recovery.id)
+                }
+                Chip {
+                    objectName: "recoverButton"
+                    text: "RECOVER"; accent: Theme.amber; on: true
+                    onClicked: {
+                        var id = root.recovery.id
+                        root.whenDiscarded(function() { appController.recoverSession(id) })
+                    }
+                }
+            }
+        }
+    }
+
     // Names a pattern or a track. One field serves both, because renaming is
     // the same act whichever lane it happens in.
     Popup {
