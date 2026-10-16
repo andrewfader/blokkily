@@ -150,6 +150,7 @@ void AppController::toggleRecord() {
                             : QStringLiteral("Recording off");
     emit statusChanged();
     emit recordChanged();
+    emitBusEvent(blokkily::guide::EventKind::recording_toggled, "");
 }
 
 bool AppController::recordingLive() const noexcept {

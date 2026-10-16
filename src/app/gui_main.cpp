@@ -1,6 +1,7 @@
 #include "keyboard_model.hpp"
 #include "app_controller.hpp"
 #include "llm_model.hpp"
+#include "../guide/guide_controller.hpp"
 #include "plugin_run_loop_qt.hpp"
 #include "mcp_bridge.hpp"
 #include "mcp_server.hpp"
@@ -166,6 +167,10 @@ int main(int argc, char* argv[]) {
     // drives the same ask → propose → apply path with bytes it controls.
     if (parser.isSet("verify"))
         llm.setBackendForTesting(std::make_unique<blokkily::llm::ScriptedBackend>());
+    // The floating guide: narration feed, mascot overlay, lessons, Q&A. The
+    // pattern's note edits feed the same bus the controller's commands do.
+    GuideController guide(&controller, &song, &pattern, &transport);
+    pattern.setEventBus(&controller.eventBus());
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
     engine.rootContext()->setContextProperty("patternModel", &pattern);
@@ -173,6 +178,7 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty("transport", &transport);
     engine.rootContext()->setContextProperty("keyboardModel", &keyboard);
     engine.rootContext()->setContextProperty("llmModel", &llm);
+    engine.rootContext()->setContextProperty("guideController", &guide);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 

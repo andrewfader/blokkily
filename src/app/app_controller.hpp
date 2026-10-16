@@ -23,6 +23,7 @@
 #include "blokkily/instruments/sampler_program.hpp"
 #include "blokkily/sequencer/take.hpp"
 #include "blokkily/sequencer/automation_take.hpp"
+#include "blokkily/guide/event_bus.hpp"
 
 #include "editor_gestures.hpp"
 #include "engine_graph.hpp"
@@ -167,6 +168,12 @@ public:
     QString status() const { return status_; }
     LoadProgress* progress() noexcept { return &progress_; }
     double scanProgress() const;
+    // The narration feed: every mutating command below appends an AppEvent
+    // here (source=user for the window's own controls; the guide's action
+    // dispatcher stamps source=guide through setNextEventSource; the MCP
+    // server stamps source=mcp the same way).
+    blokkily::guide::EventBus& eventBus() noexcept { return event_bus_; }
+    void setNextEventSource(blokkily::guide::EventSource source) { next_source_ = source; }
     // Everything the browser can offer: what the scan found, then what the
     // application provides itself (the built-in effects), each entry with
     // its format and kind.
@@ -718,6 +725,13 @@ signals:
 
 private:
     struct ImportResult;
+    // Appends to event_bus_ with the pending source (usually the user), then
+    // resets the pending source. One line per mutating command; no behavior
+    // change.
+    void emitBusEvent(blokkily::guide::EventKind kind, const std::string& label,
+                      const std::string& detail = "");
+    blokkily::guide::EventBus event_bus_;
+    blokkily::guide::EventSource next_source_ = blokkily::guide::EventSource::user;
     // Decodes the audio every clip of the song plays, at `rate`, through the
     // asset store; flags the files that are missing on the song model.
     blokkily::AudioAssets clipAssets(double rate);

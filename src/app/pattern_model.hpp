@@ -3,6 +3,7 @@
 #include "song_model.hpp"
 
 #include "blokkily/model/pattern.hpp"
+#include "blokkily/guide/event_bus.hpp"
 
 #include <QAbstractListModel>
 #include <QVariant>
@@ -83,6 +84,12 @@ public:
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+
+    // The narration feed (see AppController::eventBus): the guide's action
+    // dispatcher stamps source=guide through setNextEventSource; the window's
+    // own edits stay source=user.
+    void setEventBus(blokkily::guide::EventBus* bus) { bus_ = bus; }
+    void setNextEventSource(blokkily::guide::EventSource source) { next_source_ = source; }
 
     QVariantList steps() const;
     QVariantList stemRows() const;
@@ -277,4 +284,11 @@ private:
     std::optional<int> roll_low_;
     int roll_span_ = 0;
     int roll_pattern_ = -1;
+    // The narration feed (see AppController::eventBus): note edits append
+    // here. The guide's action dispatcher stamps source=guide through the
+    // setter; the window's own edits stay source=user.
+    blokkily::guide::EventBus* bus_ = nullptr;
+    blokkily::guide::EventSource next_source_ = blokkily::guide::EventSource::user;
+    void emitBusEvent(blokkily::guide::EventKind kind, const std::string& label,
+                      const std::string& detail = "");
 };

@@ -403,8 +403,22 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     // (item 3.2). A server that refuses it - a capture device at another rate,
     // one that is busy - still gets an output-only stream: playing never
     // depends on recording being possible.
+    // RtAudio 4.1.2 reports failures by throwing RtAudioError rather than
+    // returning a status code: translate that into the open/fallback flow.
     unsigned int frames = requested_frames;
-    auto result = RTAUDIO_INVALID_USE;
+    std::string open_error;
+    const auto try_open = [&](RtAudio::StreamParameters* in) {
+        try {
+            impl_->audio->openStream(&parameters, in, RTAUDIO_FLOAT32, sample_rate,
+                                     &frames, &Impl::callback, impl_.get(), &options);
+            return true;
+        } catch (const RtAudioError& e) {
+            open_error = e.getMessage();
+            if (impl_->audio->isStreamOpen()) impl_->audio->closeStream();
+            return false;
+        }
+    };
+    bool opened = false;
     const auto input_device = impl_->want_input ? impl_->audio->getDefaultInputDevice() : 0U;
     const auto input_info = input_device != 0 ? impl_->audio->getDeviceInfo(input_device)
                                               : RtAudio::DeviceInfo{};
@@ -416,23 +430,19 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
         // its pair on an interface with several.
         input.nChannels = std::min(input_info.inputChannels, 8U);
         input.firstChannel = 0;
-        result = impl_->audio->openStream(&parameters, &input, RTAUDIO_FLOAT32, sample_rate,
-                                          &frames, &Impl::callback, impl_.get(), &options);
-        if (result == RTAUDIO_NO_ERROR) {
+        if (try_open(&input)) {
+            opened = true;
             impl_->input_channels = input.nChannels;
             impl_->info.input_device = input_info.name;
-        } else if (impl_->audio->isStreamOpen()) {
-            impl_->audio->closeStream();
         }
     }
-    if (result != RTAUDIO_NO_ERROR) {
+    if (!opened) {
         frames = requested_frames;
-        result = impl_->audio->openStream(&parameters, nullptr, RTAUDIO_FLOAT32, sample_rate,
-                                          &frames, &Impl::callback, impl_.get(), &options);
+        opened = try_open(nullptr);
     }
     requested_frames = frames;
-    if (result != RTAUDIO_NO_ERROR) {
-        if (error) *error = impl_->audio->getErrorText();
+    if (!opened) {
+        if (error) *error = open_error;
         return false;
     }
     impl_->info.input_channels = impl_->input_channels;
@@ -440,7 +450,24 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     impl_->info.round_trip_frames = impl_->round_trip;
     // openStream writes the block size it actually negotiated back into
     // requested_frames, which is rarely what was asked for.
-    impl_->info.api = RtAudio::getApiDisplayName(impl_->audio->getCurrentApi());
+    // RtAudio 4.1.2 has no getApiDisplayName (a 5.x addition): name the API
+    // from its enum directly.
+    const auto api_display_name = [](RtAudio::Api api) {
+        switch (api) {
+            case RtAudio::LINUX_ALSA: return "ALSA";
+            case RtAudio::LINUX_PULSE: return "PulseAudio";
+            case RtAudio::LINUX_OSS: return "OSS";
+            case RtAudio::UNIX_JACK: return "JACK";
+            case RtAudio::MACOSX_CORE: return "CoreAudio";
+            case RtAudio::WINDOWS_WASAPI: return "WASAPI";
+            case RtAudio::WINDOWS_ASIO: return "ASIO";
+            case RtAudio::WINDOWS_DS: return "DirectSound";
+            case RtAudio::RTAUDIO_DUMMY: return "Dummy";
+            case RtAudio::UNSPECIFIED:
+            default: return "Unspecified";
+        }
+    };
+    impl_->info.api = api_display_name(impl_->audio->getCurrentApi());
     impl_->info.device = impl_->audio->getDeviceInfo(parameters.deviceId).name;
     // The server decides the rate, not the caller: a device locked to 44.1 kHz
     // opens at the nearest rate it supports, and a song prepared for the rate
@@ -465,10 +492,14 @@ bool RtAudioOutput::start(std::string* error) {
         if (error) *error = "audio system '" + impl_->missing_api + "' is not available in this build";
         return false;
     }
-    const auto result = impl_->audio->startStream();
-    if (result == RTAUDIO_NO_ERROR) return true;
-    if (error) *error = impl_->audio->getErrorText();
-    return false;
+    // RtAudio 5.x throws RtAudioError instead of returning a status code.
+    try {
+        impl_->audio->startStream();
+        return true;
+    } catch (const RtAudioError& e) {
+        if (error) *error = e.getMessage();
+        return false;
+    }
 }
 
 void RtAudioOutput::stop() noexcept {
