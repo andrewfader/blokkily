@@ -21,7 +21,7 @@ Feature: A scene can carry its own tempo
     Given the CLAP synth playing a key for the first half of each 4/4 bar, the song at 120 BPM, as the arrangement and as SCENE 1's cell
     When the scene's row is opened from its chip and + and - are clicked
     Then the tempo goes to 121 and back to 120 from SONG
-    And given 150 BPM the row shows 150.0 in full and the chip says so
+    And given 150 BPM the row shows 150.0 in full and the chip says so, its label not cut short
     When the scene is launched from its chip
     Then the transport counts at 150 BPM and the song is placed at it, without its tempo map being edited or the song made dirty
     And the bars are heard 76800 samples apart, not the 96000 of the song's own tempo

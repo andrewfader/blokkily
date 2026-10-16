@@ -84,6 +84,12 @@ void run_scene_tempo(VerifyContext& ctx) {
     check(shown && VerifyContext::reads_whole(shown, "150.0"));
     auto* chip = ctx.named("launchScene0");
     check(chip && chip->property("text").toString().endsWith("· 150.0"));
+    // And the chip's label has room for it, not "▶ SCENE 1 · 15...".
+    QQuickItem* chip_label = nullptr;
+    if (chip)
+        for (auto* child : chip->childItems())
+            if (child->property("text") == chip->property("text")) chip_label = child;
+    check(chip_label && VerifyContext::reads_whole(chip_label, chip->property("text").toString()));
     ctx.reached("scene tempo: the scene row sets the tempo, shown on its chip");
 
     // The song at its own tempo, exported before the scene plays.

@@ -32,6 +32,8 @@ Rectangle {
                                         && selectedTrack < scenes[selectedScene].cells.length
                                         ? scenes[selectedScene].cells[selectedTrack] : null
     readonly property int columnWidth: 128
+    // The scene chips' column: room for "▶ SCENE 12 · 150.5".
+    readonly property int sceneColumnWidth: 176
 
     function stateOf(track) {
         const all = appController.launcherState
@@ -106,7 +108,7 @@ Rectangle {
                 // Track names over their columns.
                 Row {
                     spacing: 4
-                    Item { width: root.columnWidth; height: 20 }
+                    Item { width: root.sceneColumnWidth; height: 20 }
                     Repeater {
                         model: songModel.trackNames
                         Label {
@@ -131,7 +133,7 @@ Rectangle {
                         spacing: 4
                         Chip {
                             objectName: "launchScene" + sceneRow.index
-                            width: root.columnWidth; implicitHeight: 34
+                            width: root.sceneColumnWidth; implicitHeight: 34
                             // A scene with a tempo of its own says it.
                             text: "▶ " + sceneRow.modelData.name
                                   + (sceneRow.modelData.tempo > 0
@@ -207,7 +209,7 @@ Rectangle {
                 Row {
                     spacing: 4
                     visible: root.scenes.length > 0
-                    Item { width: root.columnWidth; height: 24 }
+                    Item { width: root.sceneColumnWidth; height: 24 }
                     Repeater {
                         model: songModel.trackCount
                         Chip {
