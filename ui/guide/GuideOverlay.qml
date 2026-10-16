@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 // The floating guide overlay: the Blokkily mascot (ui/Blokkily.qml, Andrew's
 // Mooninite-style sprite), a speech bubble, a spotlight ring
@@ -155,7 +156,7 @@ Item {
             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 14 }
             spacing: 8
 
-            Row {
+            RowLayout {
                 width: parent.width
                 spacing: 8
                 Label {

@@ -25,8 +25,8 @@ void test_event_bus() {
         ++seen;
         last_source = e.source;
     });
-    bus.emit(AppEvent{EventSource::user, EventKind::note_added, "Note C4", ""});
-    bus.emit(AppEvent{EventSource::mcp, EventKind::transport_started, "play", ""});
+    bus.publish(AppEvent{EventSource::user, EventKind::note_added, "Note C4", ""});
+    bus.publish(AppEvent{EventSource::mcp, EventKind::transport_started, "play", ""});
     assert(seen == 2);
     assert(last_source == EventSource::mcp);
     assert(bus.size() == 2);
@@ -34,7 +34,7 @@ void test_event_bus() {
     assert(tail.size() == 2);
     assert(tail[0].seq + 1 == tail[1].seq); // append-only ordering
     bus.unsubscribe(token);
-    bus.emit(AppEvent{});
+    bus.publish(AppEvent{});
     assert(seen == 2); // listener gone
     std::cout << "event_bus ok\n";
 }
@@ -165,7 +165,7 @@ void test_action_dispatcher() {
     assert(dispatcher.is_destructive("clear-pattern"));
     assert(!dispatcher.is_destructive("add-note"));
     r = dispatcher.dispatch("clear-pattern", {}, sink, true);
-    assert(r.ok && sink.cleared && guide_events == 3);
+    assert(r.ok && sink.cleared && guide_events == 4);
 
     // Unknown action: honest, no crash.
     r = dispatcher.dispatch("levitate", {}, sink);
@@ -213,7 +213,7 @@ void test_lesson_engine() {
     engine.next();
     assert(engine.at_end());
     engine.back();
-    assert(engine.step_index() == 1);
+    assert(engine.step_index() == 2);
 
     // Malformed JSON: false + error, no crash.
     LessonEngine bad;

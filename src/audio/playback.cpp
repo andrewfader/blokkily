@@ -19,6 +19,52 @@
 
 namespace blokkily {
 
+namespace {
+// RtAudio 5.x added RtAudio::getApiName(), getApiDisplayName() and
+// getCompiledApiByName(); the RtAudio 4.1.2 this tree builds against predates
+// them. These local equivalents use the same names 5.x uses, so the behavior
+// is identical whichever RtAudio compiles this file.
+std::string rtaudio_api_name(RtAudio::Api api) {
+    switch (api) {
+        case RtAudio::UNSPECIFIED: return "unspecified";
+        case RtAudio::LINUX_ALSA: return "alsa";
+        case RtAudio::LINUX_PULSE: return "pulse";
+        case RtAudio::LINUX_OSS: return "oss";
+        case RtAudio::UNIX_JACK: return "jack";
+        case RtAudio::MACOSX_CORE: return "core";
+        case RtAudio::WINDOWS_WASAPI: return "wasapi";
+        case RtAudio::WINDOWS_ASIO: return "asio";
+        case RtAudio::WINDOWS_DS: return "ds";
+        case RtAudio::RTAUDIO_DUMMY: return "dummy";
+        default: return "unspecified";
+    }
+    return "unspecified";
+}
+std::string rtaudio_api_display_name(RtAudio::Api api) {
+    switch (api) {
+        case RtAudio::UNSPECIFIED: return "Unspecified";
+        case RtAudio::LINUX_ALSA: return "ALSA";
+        case RtAudio::LINUX_PULSE: return "PulseAudio";
+        case RtAudio::LINUX_OSS: return "OSS";
+        case RtAudio::UNIX_JACK: return "JACK";
+        case RtAudio::MACOSX_CORE: return "Core Audio";
+        case RtAudio::WINDOWS_WASAPI: return "WASAPI";
+        case RtAudio::WINDOWS_ASIO: return "ASIO";
+        case RtAudio::WINDOWS_DS: return "DirectSound";
+        case RtAudio::RTAUDIO_DUMMY: return "Dummy";
+        default: return "Unspecified";
+    }
+    return "Unspecified";
+}
+RtAudio::Api rtaudio_compiled_api_by_name(const std::string& name) {
+    std::vector<RtAudio::Api> apis;
+    RtAudio::getCompiledApi(apis);
+    for (const auto api : apis)
+        if (rtaudio_api_name(api) == name) return api;
+    return RtAudio::UNSPECIFIED;
+}
+} // namespace
+
 RealtimePlayback::RealtimePlayback(std::unique_ptr<PluginInstance> instrument)
     : instrument_(std::move(instrument)) {}
 
@@ -249,7 +295,7 @@ bool RtAudioOutput::Impl::open_jack(std::string* error) {
     }
     round_trip = latency_of(jack, playback.front(), JackPlaybackLatency) +
                  (input_channels > 0 ? latency_of(jack, capture.front(), JackCaptureLatency) : 0);
-    info.api = RtAudio::getApiDisplayName(RtAudio::UNIX_JACK);
+    info.api = rtaudio_api_display_name(RtAudio::UNIX_JACK);
     info.device = device_of(playback.front());
     info.input_device = input_channels > 0 ? device_of(capture.front()) : std::string{};
     info.input_channels = input_channels;
@@ -316,7 +362,7 @@ RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::mak
     impl_->deterministic = mode == Mode::deterministic;
     if (impl_->deterministic) return;
 #if BLOKKILY_HAVE_JACK
-    if (api == RtAudio::getApiName(RtAudio::UNIX_JACK)) {
+    if (api == rtaudio_api_name(RtAudio::UNIX_JACK)) {
         impl_->use_jack = true;
         return;
     }
@@ -325,7 +371,7 @@ RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::mak
         impl_->audio = std::make_unique<RtAudio>();
         return;
     }
-    const auto chosen = RtAudio::getCompiledApiByName(api);
+    const auto chosen = rtaudio_compiled_api_by_name(api);
     if (chosen == RtAudio::UNSPECIFIED) {
         impl_->missing_api = api;
         return;
@@ -343,7 +389,7 @@ std::vector<RtAudioOutput::AudioSystem> RtAudioOutput::audio_systems() {
     std::vector<AudioSystem> systems;
     for (const auto api : apis) {
         if (api == RtAudio::RTAUDIO_DUMMY) continue;
-        systems.push_back({RtAudio::getApiName(api), RtAudio::getApiDisplayName(api)});
+        systems.push_back({rtaudio_api_name(api), rtaudio_api_display_name(api)});
     }
     return systems;
 }

@@ -48,6 +48,10 @@ public:
     QString backendName() const;
     QString backendKey() const { return backend_name_; }
     QStringList backendNames() const { return backend_names_; }
+    // The live backend the prompt bar answers through (Ollama by default).
+    // The floating guide borrows it for theory Q&A when its own LLM client
+    // is not configured; null when no backend is built.
+    blokkily::llm::LlmBackend* backend() const noexcept { return backend_.get(); }
 
     // Sends a line to the model. The answer arrives as a proposal; nothing
     // is written until applyProposal().

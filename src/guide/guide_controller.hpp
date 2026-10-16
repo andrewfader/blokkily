@@ -28,6 +28,7 @@ class AppController;
 class SongModel;
 class PatternModel;
 class Transport;
+class LlmModel;
 
 class GuideController final : public QObject {
     Q_OBJECT
@@ -70,7 +71,9 @@ public:
     bool asking() const { return asking_; }
     bool confirmVisible() const { return confirm_visible_; }
     QString confirmText() const { return confirm_text_; }
-    bool llmEnabled() const { return llm_.enabled(); }
+    // True when the guide can ask a model: its own configured client, or the
+    // prompt bar's shared backend.
+    bool llmEnabled() const;
 
     // The guide says something unprompted (tours, greetings).
     Q_INVOKABLE void say(const QString& title, const QString& text,
@@ -81,6 +84,13 @@ public:
 
     // Free-form question: rules first, LLM when enabled and the rules miss.
     Q_INVOKABLE void askQuestion(const QString& question);
+
+    // Synchronous narration of the last `count` bus events, for MCP and other
+    // tools: [{source, kind, label, narration}]. No UI side effects.
+    Q_INVOKABLE QVariantList narratedEvents(int count);
+    // The rule-based answer to a question, without UI side effects (unlike
+    // askQuestion, which shows the bubble and may consult the LLM).
+    Q_INVOKABLE QString ruleAnswer(const QString& question);
 
     // Lessons.
     Q_INVOKABLE void startLesson(const QString& id);
@@ -98,6 +108,11 @@ public:
     Q_INVOKABLE void setNarrateEnabled(bool on);
     Q_INVOKABLE void configureLlm(const QString& endpoint, const QString& key);
     Q_INVOKABLE void clearLlm();
+
+    // The prompt bar's LlmModel, whose backend (Ollama local by default) the
+    // guide borrows for theory Q&A when its own LLM client is not configured.
+    // Set once by the application; null until then.
+    void setLlmModel(LlmModel* model);
 
 signals:
     void guideEnabledChanged();
@@ -123,6 +138,7 @@ private:
     SongModel* song_;
     PatternModel* pattern_;
     Transport* transport_;
+    LlmModel* llm_model_ = nullptr;
 
     blokkily::guide::Narrator narrator_;
     blokkily::guide::LlmClient llm_;

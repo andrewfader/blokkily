@@ -169,7 +169,9 @@ int main(int argc, char* argv[]) {
         llm.setBackendForTesting(std::make_unique<blokkily::llm::ScriptedBackend>());
     // The floating guide: narration feed, mascot overlay, lessons, Q&A. The
     // pattern's note edits feed the same bus the controller's commands do.
+    // Theory questions the rules miss borrow the prompt bar's backend.
     GuideController guide(&controller, &song, &pattern, &transport);
+    guide.setLlmModel(&llm);
     pattern.setEventBus(&controller.eventBus());
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
@@ -200,7 +202,7 @@ int main(int argc, char* argv[]) {
     }
 
     McpTools mcp_tools(song, pattern, controller, transport,
-                       qobject_cast<QQuickWindow*>(engine.rootObjects().front()));
+                       qobject_cast<QQuickWindow*>(engine.rootObjects().front()), &guide);
     McpServer mcp_server(mcp_tools);
     QObject::connect(controller.progress(), &LoadProgress::holdRequests, &mcp_server,
                      &McpServer::setHeld);

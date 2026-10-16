@@ -2,7 +2,7 @@
 
 namespace blokkily::guide {
 
-void EventBus::emit(AppEvent event) {
+void EventBus::publish(AppEvent event) {
     std::vector<Listener> listeners;
     {
         std::lock_guard lock(mutex_);

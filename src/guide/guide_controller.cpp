@@ -1,6 +1,8 @@
 #include "guide_controller.hpp"
 
+#include "../llm/llm_backend.hpp"
 #include "app_controller.hpp"
+#include "llm_model.hpp"
 #include "pattern_model.hpp"
 #include "song_model.hpp"
 #include "transport.hpp"
@@ -18,6 +20,7 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -96,8 +99,6 @@ private:
     PatternModel* pattern_;
 };
 
-QStringList splitMeter(const QString& meter) { return meter.split('/'); }
-
 } // namespace
 
 GuideController::GuideController(AppController* controller, SongModel* song,
@@ -165,19 +166,15 @@ GuideController::GuideController(AppController* controller, SongModel* song,
 blokkily::guide::SongSnapshot GuideController::snapshot() const {
     blokkily::guide::SongSnapshot snap;
     snap.pattern_steps = pattern_->stepCount();
-    snap.note_count = pattern_->eventCount();
+    snap.note_count = pattern_->rowCount();
     snap.tempo_bpm = transport_->bpm();
     snap.playing = transport_->playing();
     snap.scale_name = song_->scaleName().toStdString();
     snap.tuning_name = song_->tuningName().toStdString();
     snap.root_name = song_->rootName().toStdString();
     snap.track_count = song_->trackCount();
-    const auto parts = splitMeter(transport_->meter());
-    if (!parts.isEmpty()) {
-        bool ok = false;
-        const int beats = parts.front().toInt(&ok);
-        if (ok && beats > 0) snap.beats_per_bar = beats;
-    }
+    const auto meter = transport_->meter().meter_in(0);
+    if (meter.numerator > 0) snap.beats_per_bar = meter.numerator;
     return snap;
 }
 
@@ -193,10 +190,11 @@ void GuideController::onBusEvent(const blokkily::guide::AppEvent& event) {
     // Lessons watch every event, narrated or not.
     if (lesson_active_ && lessons_.check_event(event)) {
         if (lessons_.at_end()) {
-            showBubble("LESSON COMPLETE",
-                       "Nicely done — \"" + lessons_.lesson().title +
-                           "\" is finished. The technique is yours now.",
-                       "guide");
+            showBubble(QStringLiteral("LESSON COMPLETE"),
+                       QStringLiteral("Nicely done — \"") +
+                           QString::fromStdString(lessons_.lesson().title) +
+                           QStringLiteral("\" is finished. The technique is yours now."),
+                       QStringLiteral("guide"));
             lesson_active_ = false;
             clearSpotlight();
         } else {
@@ -245,9 +243,29 @@ void GuideController::clearSpotlight() {
     emit spotlightChanged();
 }
 
+QVariantList GuideController::narratedEvents(int count) {
+    QVariantList events;
+    if (count <= 0) return events;
+    const auto tail = controller_->eventBus().tail(static_cast<std::size_t>(std::min(count, 50)));
+    const auto snapshot = this->snapshot();
+    for (const auto& event : tail) {
+        const std::string narration = narrator_.describe(event, snapshot);
+        if (narration.empty()) continue;
+        events.append(QVariantMap{{"source", QString::fromStdString(blokkily::guide::to_string(event.source))},
+                                  {"kind", QString::fromStdString(blokkily::guide::to_string(event.kind))},
+                                  {"label", QString::fromStdString(event.label)},
+                                  {"narration", QString::fromStdString(narration)}});
+    }
+    return events;
+}
+
+QString GuideController::ruleAnswer(const QString& question) {
+    return QString::fromStdString(narrator_.answer_question(question.toStdString(), snapshot()));
+}
+
 void GuideController::askQuestion(const QString& question) {
     if (!guide_enabled_ || question.trimmed().isEmpty()) return;
-    controller_->eventBus().emit(blokkily::guide::AppEvent{
+    controller_->eventBus().publish(blokkily::guide::AppEvent{
         blokkily::guide::EventSource::user, blokkily::guide::EventKind::question_asked,
         question.toStdString(), ""});
     const std::string ruled =
@@ -256,29 +274,56 @@ void GuideController::askQuestion(const QString& question) {
         showBubble("", QString::fromStdString(ruled), "guide");
         return;
     }
-    if (!llm_.enabled()) {
-        showBubble("", "I don't have a rule for that one yet — and my LLM help is off. "
-                       "Turn it on in the guide's settings and I'll ask a model.",
-                   "guide");
+    if (llm_.enabled()) {
+        asking_ = true;
+        emit askingChanged();
+        llm_.ask(question.toStdString(), sessionContext(),
+                 [this](const std::string& answer) {
+                     asking_ = false;
+                     emit askingChanged();
+                     showBubble("", QString::fromStdString(answer), "llm");
+                 },
+                 [this](const std::string& error) {
+                     asking_ = false;
+                     emit askingChanged();
+                     // Graceful fallback, per design: the rules still work.
+                     showBubble("", "The model didn't answer (" +
+                                        QString::fromStdString(error) +
+                                        "). I can still help from my built-in theory — ask me about triads, cadences or scales.",
+                                "guide");
+                 });
         return;
     }
-    asking_ = true;
-    emit askingChanged();
-    llm_.ask(question.toStdString(), sessionContext(),
-             [this](const std::string& answer) {
-                 asking_ = false;
-                 emit askingChanged();
-                 showBubble("", QString::fromStdString(answer), "llm");
-             },
-             [this](const std::string& error) {
-                 asking_ = false;
-                 emit askingChanged();
-                 // Graceful fallback, per design: the rules still work.
-                 showBubble("", "The model didn't answer (" +
-                                    QString::fromStdString(error) +
-                                    "). I can still help from my built-in theory — ask me about triads, cadences or scales.",
-                            "guide");
-             });
+    // No guide-specific LLM configured: borrow the prompt bar's backend
+    // (Ollama local by default — no key needed). Same question, same session
+    // context, answered as the model rather than the guide.
+    blokkily::llm::LlmBackend* shared =
+        llm_model_ != nullptr ? llm_model_->backend() : nullptr;
+    if (shared != nullptr) {
+        asking_ = true;
+        emit askingChanged();
+        blokkily::llm::Request request;
+        request.systemPrompt =
+            QStringLiteral("You are the floating guide in Blokkily, a pattern-first DAW. "
+                           "Answer the producer's music-theory or composition question briefly, "
+                           "in plain language, with one concrete musical example. No markdown tables.");
+        request.context = QString::fromStdString(sessionContext());
+        request.prompt = question;
+        shared->complete(request, [this](blokkily::llm::Reply reply) {
+            asking_ = false;
+            emit askingChanged();
+            if (reply.ok && !reply.text.isEmpty())
+                showBubble("", reply.text, "llm");
+            else
+                showBubble("", "The model didn't answer (" + reply.error +
+                                     "). I can still help from my built-in theory — ask me about triads, cadences or scales.",
+                           "guide");
+        });
+        return;
+    }
+    showBubble("", "I don't have a rule for that one yet — and my LLM help is off. "
+                   "Turn it on in the guide's settings and I'll ask a model.",
+               "guide");
 }
 
 void GuideController::loadLessons() {
@@ -468,5 +513,15 @@ void GuideController::clearLlm() {
     endpoint_.clear();
     api_key_.clear();
     llm_.clear();
+    emit llmChanged();
+}
+
+bool GuideController::llmEnabled() const {
+    if (llm_.enabled()) return true;
+    return llm_model_ != nullptr && llm_model_->backend() != nullptr;
+}
+
+void GuideController::setLlmModel(LlmModel* model) {
+    llm_model_ = model;
     emit llmChanged();
 }

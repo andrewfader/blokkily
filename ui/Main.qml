@@ -463,6 +463,14 @@ ApplicationWindow {
         focusHome: noteEntry
     }
 
+    // The always-on floating guide. Same overlay layer as the tour, above the
+    // header, so it can point at the transport as well as the panels. It is
+    // drawn nothing while disabled; the GUIDE chip in the transport bar
+    // toggles it.
+    GuideOverlay {
+        parent: root.Overlay.overlay
+    }
+
     // A song opening, its instruments loading, an export: the window shows
     // how far it has got, above everything else, tour included.
     LoadingOverlay { parent: root.Overlay.overlay }

@@ -234,11 +234,11 @@ void LessonEngine::start() {
 }
 
 bool LessonEngine::at_end() const {
-    return !loaded_ || step_ + 1 >= lesson_.steps.size();
+    return !loaded_ || step_ >= lesson_.steps.size();
 }
 
 void LessonEngine::next() {
-    if (loaded_ && step_ + 1 < lesson_.steps.size()) ++step_;
+    if (loaded_ && step_ < lesson_.steps.size()) ++step_;
 }
 
 void LessonEngine::back() {

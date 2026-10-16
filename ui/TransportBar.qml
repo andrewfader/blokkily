@@ -294,5 +294,12 @@ ToolBar {
                      : root.narrow ? "SCAN" : root.tight ? "RESCAN" : "RESCAN PLUGINS"
                accessibleLabel: "Rescan plugins"
                onClicked: appController.rescanPlugins() }
+        // The floating guide: Blokkily narrates what happens, answers
+        // questions and teaches. Lit while it is on; a press toggles it.
+        Chip { objectName: "guideButton"
+               text: "GUIDE"
+               accessibleLabel: "Guide: the floating assistant"
+               on: guideController.guideEnabled
+               onClicked: guideController.guideEnabled = !guideController.guideEnabled }
     }
 }

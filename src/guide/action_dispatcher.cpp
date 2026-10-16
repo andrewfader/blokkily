@@ -62,7 +62,7 @@ DispatchResult ActionDispatcher::dispatch(const std::string& id, const Args& arg
     }
     const auto emit_done = [&](const std::string& label) {
         AppEvent event{EventSource::guide, EventKind::guide_action, label, ""};
-        bus_.emit(event);
+        bus_.publish(event);
         result.ok = true;
         result.message = label;
     };
