@@ -178,6 +178,14 @@ public:
     // other edit.
     void notifyRecorded();
 
+    // Quantize and humanize (blokkily/model/groove.hpp) the open part, every
+    // step of it, as one step of history. `gridTicks` is 120 for sixteenths,
+    // 240 eighths, 480 beats; strength 0..1. Humanize moves each step up to
+    // `timingTicks` (at most 59) and each velocity up to `velocity`, from
+    // `seed`. Each returns how many steps it changed.
+    Q_INVOKABLE int quantizePattern(int gridTicks, double strength = 1.0);
+    Q_INVOKABLE int humanizePattern(int timingTicks, double velocity, int seed);
+
     // Step inspector edits. Each one rewrites the selected trigger in place, so
     // every projection updates from the same change.
     Q_INVOKABLE void transposeSelected(int semitones);

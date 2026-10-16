@@ -592,6 +592,7 @@ ApplicationWindow {
                         }
                         PatternLength {}
                         PatternSwing {}
+                        PatternGroove {}
                         Rectangle {
                             implicitWidth: 52; implicitHeight: 18; radius: 3
                             color: "transparent"; border.color: Theme.line

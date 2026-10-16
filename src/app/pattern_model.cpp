@@ -1,5 +1,7 @@
 #include "pattern_model.hpp"
 
+#include "blokkily/model/groove.hpp"
+
 #include <QString>
 #include <QVariantMap>
 
@@ -1272,6 +1274,21 @@ bool PatternModel::clearStepLocks(int step) {
     if (triggerAt(step) == nullptr) return false;
     mutate(step, [](blokkily::Trigger& trigger) { trigger.locks.clear(); });
     return true;
+}
+
+int PatternModel::quantizePattern(int gridTicks, double strength) {
+    auto edited = pattern();
+    const auto result = blokkily::quantize_pattern(edited, gridTicks, strength, ticks_per_step);
+    if (result.changed > 0) replace(std::move(edited));
+    return result.changed;
+}
+
+int PatternModel::humanizePattern(int timingTicks, double velocity, int seed) {
+    auto edited = pattern();
+    const auto result = blokkily::humanize_pattern(edited, timingTicks, static_cast<float>(velocity),
+                                                   static_cast<std::uint32_t>(seed), ticks_per_step);
+    if (result.changed > 0) replace(std::move(edited));
+    return result.changed;
 }
 
 void PatternModel::replace(blokkily::Pattern replacement) {

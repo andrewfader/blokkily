@@ -496,7 +496,8 @@ foreach(blokkily_feature
         export_formats
         open_from_desktop
         autosave
-        open_in_running_window)
+        open_in_running_window
+        quantize_humanize)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

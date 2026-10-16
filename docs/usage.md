@@ -94,6 +94,12 @@ If any track already has an instrument, the loader leaves all tracks
 alone, including empty ones. With no installed SoundFont, load an instrument
 from the browser to hear notes.
 
+QUANT in the pattern header moves every step of the open part onto the grid
+it shows; a right click picks 1/16, 1/8 or 1/4, and Shift-click moves the
+steps halfway there. HUMAN loosens every step's timing (up to 8 ticks) and
+velocity (up to 0.08), differently each time. Each is one undo step. See
+[the scenarios](../features/quantize_humanize.feature).
+
 ## Arranging a song
 
 The arrangement sits above the editors, with one lane per track and one cell
