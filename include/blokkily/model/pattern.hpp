@@ -21,6 +21,14 @@ public:
     [[nodiscard]] std::span<const Trigger> events() const noexcept { return events_; }
     [[nodiscard]] Tick length() const noexcept { return length_; }
     [[nodiscard]] Tick ticks_per_beat() const noexcept { return ticks_per_beat_; }
+    // How far even sixteenths are delayed when this pattern plays, 0 to 100.
+    // 0 is straight; 100 delays them by half a sixteenth. The editors keep
+    // the grid; the scheduler applies the delay.
+    [[nodiscard]] int swing() const noexcept { return swing_; }
+    void set_swing(int percent) noexcept;
+    // Ticks to add to a trigger that starts at `start` (the grid, before
+    // micro-timing) so an even sixteenth is late by `swing()`.
+    [[nodiscard]] Tick swing_delay(Tick start) const noexcept;
 
     // Controller movements (wave 4.1), sorted by tick; several on one tick
     // keep the order they were written in. A value of the same controller
@@ -50,6 +58,7 @@ private:
 
     Tick length_;
     Tick ticks_per_beat_;
+    int swing_ = 0;
     EventId next_id_ = 1;
     std::vector<Trigger> events_;
     std::vector<ContinuousEvent> continuous_;

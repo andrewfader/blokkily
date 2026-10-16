@@ -37,6 +37,7 @@ class SongModel final : public QObject {
     // The sections (what the interface calls patterns) and the open one.
     Q_PROPERTY(QVariantList sections READ sections NOTIFY songChanged)
     Q_PROPERTY(int currentSection READ currentSection NOTIFY songChanged)
+    Q_PROPERTY(int patternSwing READ patternSwing NOTIFY songChanged)
     Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY songChanged)
     Q_PROPERTY(int bars READ bars NOTIFY songChanged)
     // Every bar the timeline shows, laid out by the meter map (plan F-A): one
@@ -227,6 +228,11 @@ public:
     // many as the timeline holds), every part of it. Steps past the new end
     // are dropped; one step of history.
     Q_INVOKABLE bool setPatternSteps(int steps);
+    // How far even sixteenths of the open pattern are delayed when they
+    // play, 0 to 100. Every part of the section takes the same value. One
+    // step of history; the engine is rebuilt so playback hears it.
+    int patternSwing() const;
+    Q_INVOKABLE bool setPatternSwing(int percent);
     // Section and track housekeeping. A copy of the open section, every
     // track's part of it, is how a variation is started; clearing empties
     // every part; deleting takes section `section` with its parts and clips.

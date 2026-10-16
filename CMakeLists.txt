@@ -473,6 +473,7 @@ foreach(blokkily_feature
         clip_warp
         metronome
         arrangement_loop
+        pattern_swing
         sidechain
         scene_launcher
         wave2_fixes
