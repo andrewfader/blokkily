@@ -291,6 +291,15 @@ note stands still, with the master bounce as its sound. It is 1280 x 720 at
 `BLOKKILY_FFMPEG` naming one). See
 [the export scenarios](../features/export_formats.feature).
 
+## Audio system
+
+AUDIO in the device rail chooses the audio system: ALSA, PulseAudio, or
+JACK - which is also how PipeWire is reached through its JACK interface, as
+a client called Blokkily that any patchbay can route - or AUTO, RtAudio's own
+choice. It is remembered between launches, and `BLOKKILY_AUDIO_API=jack`
+(or `alsa`, `pulse`) overrides it for one run. See
+[the scenarios](../features/audio_systems.feature).
+
 ## Following an external clock
 
 EXT in the SYNC row follows the MIDI clock arriving at the MIDI input:

@@ -86,6 +86,8 @@ void RealtimePlayback::process(StereoBlock output) noexcept {
 
 struct RtAudioOutput::Impl {
     std::unique_ptr<RtAudio> audio;
+    // The audio system asked for that this build does not have.
+    std::string missing_api;
     bool deterministic = false;
     unsigned int negotiated_rate = 0;
     bool running = false;
@@ -146,6 +148,36 @@ RtAudioOutput::RtAudioOutput(Mode mode, unsigned int negotiated_rate)
     impl_->negotiated_rate = negotiated_rate;
     if (!impl_->deterministic) impl_->audio = std::make_unique<RtAudio>();
 }
+RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::make_unique<Impl>()) {
+    impl_->deterministic = mode == Mode::deterministic;
+    if (impl_->deterministic) return;
+    if (api.empty()) {
+        impl_->audio = std::make_unique<RtAudio>();
+        return;
+    }
+    const auto chosen = RtAudio::getCompiledApiByName(api);
+    if (chosen == RtAudio::UNSPECIFIED) {
+        impl_->missing_api = api;
+        return;
+    }
+    impl_->audio = std::make_unique<RtAudio>(chosen);
+}
+
+RtAudioOutput::Mode RtAudioOutput::mode() const noexcept {
+    return impl_->deterministic ? Mode::deterministic : Mode::device;
+}
+
+std::vector<RtAudioOutput::AudioSystem> RtAudioOutput::audio_systems() {
+    std::vector<RtAudio::Api> apis;
+    RtAudio::getCompiledApi(apis);
+    std::vector<AudioSystem> systems;
+    for (const auto api : apis) {
+        if (api == RtAudio::RTAUDIO_DUMMY) continue;
+        systems.push_back({RtAudio::getApiName(api), RtAudio::getApiDisplayName(api)});
+    }
+    return systems;
+}
+
 RtAudioOutput::~RtAudioOutput() {
     stop();
     if (impl_->audio && impl_->audio->isStreamOpen()) impl_->audio->closeStream();
@@ -165,6 +197,10 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
         impl_->info.buffer_frames = requested_frames;
         return true;
     }
+    if (!impl_->audio) {
+        if (error) *error = "audio system '" + impl_->missing_api + "' is not available in this build";
+        return false;
+    }
     if (impl_->audio->getDeviceCount() == 0) {
         if (error) *error = "no audio output device found";
         return false;
@@ -175,6 +211,8 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     parameters.firstChannel = 0;
     RtAudio::StreamOptions options;
     options.flags = RTAUDIO_NONINTERLEAVED | RTAUDIO_MINIMIZE_LATENCY;
+    // What JACK (and PipeWire's JACK) list the client as in a patchbay.
+    options.streamName = "Blokkily";
     impl_->source = &source;
     impl_->input_channels = 0;
     impl_->info.input_device.clear();
@@ -237,6 +275,10 @@ bool RtAudioOutput::start(std::string* error) {
         impl_->running = is_open();
         return impl_->running;
     }
+    if (!impl_->audio) {
+        if (error) *error = "audio system '" + impl_->missing_api + "' is not available in this build";
+        return false;
+    }
     const auto result = impl_->audio->startStream();
     if (result == RTAUDIO_NO_ERROR) return true;
     if (error) *error = impl_->audio->getErrorText();
@@ -245,16 +287,18 @@ bool RtAudioOutput::start(std::string* error) {
 
 void RtAudioOutput::stop() noexcept {
     if (impl_->deterministic) impl_->running = false;
-    else if (impl_->audio->isStreamRunning()) (void)impl_->audio->stopStream();
+    else if (impl_->audio && impl_->audio->isStreamRunning()) (void)impl_->audio->stopStream();
 }
 void RtAudioOutput::rebind(AudioSource& source) noexcept {
     if (impl_) impl_->source = &source;
 }
 bool RtAudioOutput::is_open() const noexcept {
-    return impl_->deterministic ? impl_->source != nullptr : impl_->audio->isStreamOpen();
+    return impl_->deterministic ? impl_->source != nullptr
+                                : impl_->audio != nullptr && impl_->audio->isStreamOpen();
 }
 bool RtAudioOutput::is_running() const noexcept {
-    return impl_->deterministic ? impl_->running : impl_->audio->isStreamRunning();
+    return impl_->deterministic ? impl_->running
+                                : impl_->audio != nullptr && impl_->audio->isStreamRunning();
 }
 bool RtAudioOutput::pump(std::span<float> stereo) noexcept {
     if (!impl_->deterministic || !is_running() || stereo.empty() || stereo.size() % 2 != 0)
@@ -335,7 +379,7 @@ bool RtAudioOutput::opened_for_input(bool wanted) const noexcept {
 void RtAudioOutput::close() noexcept {
     if (impl_->deterministic) return;
     stop();
-    if (impl_->audio->isStreamOpen()) impl_->audio->closeStream();
+    if (impl_->audio && impl_->audio->isStreamOpen()) impl_->audio->closeStream();
     impl_->input_channels = 0;
     impl_->round_trip = 0;
     impl_->info = {};

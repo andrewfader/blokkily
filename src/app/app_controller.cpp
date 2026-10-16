@@ -661,7 +661,9 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     if (audio_output_ && !audio_output_->opened_for_input(wants_input)) audio_output_->close();
     if (!audio_output_ || !audio_output_->is_open()) {
         auto output = audio_output_ ? std::move(audio_output_)
-                                    : std::make_unique<blokkily::RtAudioOutput>();
+                                    : std::make_unique<blokkily::RtAudioOutput>(
+                                          blokkily::RtAudioOutput::Mode::device,
+                                          audioSystem().toStdString());
         output->set_input_wanted(wants_input);
         std::string device_error;
         // Nothing is rendering yet: the stream is opened, not started, so the

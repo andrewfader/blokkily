@@ -505,7 +505,8 @@ foreach(blokkily_feature
         sampler_editing
         track_freeze
         midi_clock_input
-        lv2_hosting)
+        lv2_hosting
+        audio_systems)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

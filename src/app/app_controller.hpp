@@ -404,6 +404,19 @@ public:
     // Learns and follows the controllers the MIDI input delivered since the
     // last call. The meter poll calls it; a gate may call it to settle.
     Q_INVOKABLE void serveControlChanges();
+    // --- The audio system (app_controller_audio_system.cpp) ----------------
+    // [{name, display}]: AUTO first, then each system this build can open.
+    Q_PROPERTY(QVariantList audioSystems READ audioSystems CONSTANT)
+    // The chosen system's name, "" for RtAudio's own choice.
+    Q_PROPERTY(QString audioSystem READ audioSystem NOTIFY audioSystemChanged)
+    // What the open device is: "Jack · 48000 Hz · 256".
+    Q_PROPERTY(QString audioDevice READ audioDevice NOTIFY audioSystemChanged)
+    QVariantList audioSystems() const;
+    QString audioSystem() const;
+    QString audioDevice() const;
+    // Remembers the system and reopens the device on it. False for one this
+    // build does not have.
+    Q_INVOKABLE bool setAudioSystem(const QString& name);
     // --- Following an external MIDI clock (app_controller_clock.cpp) -------
     // While on, the MIDI input's clock moves the transport (Start plays from
     // the top, Continue plays on, Stop stops, a Song Position Pointer moves
@@ -688,6 +701,7 @@ signals:
     void recoveriesChanged();
     void midiLearnChanged();
     void clockChanged();
+    void audioSystemChanged();
     // Another launch handed this window a project to open (open_channel.hpp).
     // The window asks about unsaved work, then opens it.
     void openRequested(const QString& path);
@@ -843,6 +857,8 @@ private:
     QString project_detail_ = "No project on disk";
     QString export_status_ = "Not exported";
     QString describeControl(const QString& target, int index) const;
+    // Chosen this session; null until then (the setting holds the last).
+    QString audio_system_;
     bool follow_clock_ = false;
     blokkily::ClockFollower clock_follower_;
     std::optional<double> followed_bpm_;

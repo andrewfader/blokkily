@@ -65,6 +65,20 @@ public:
     // open() reports regardless of the request, the way a device locked to
     // 44.1 kHz answers a request for 48 kHz.
     explicit RtAudioOutput(Mode mode = Mode::device, unsigned int negotiated_rate = 0);
+    // A device on one audio system (features/audio_systems.feature): "alsa",
+    // "pulse", "jack" (JACK, or PipeWire through its JACK interface) ...; empty
+    // lets RtAudio choose, as before. A system this build or machine does
+    // not have makes open() fail and say so.
+    RtAudioOutput(Mode mode, const std::string& api);
+    struct AudioSystem {
+        std::string name;    // what RtAudioOutput takes: "alsa", "jack", ...
+        std::string display; // what a person reads: "ALSA", "Jack", ...
+    };
+    // The audio systems this build can open, in RtAudio's order of
+    // preference.
+    [[nodiscard]] static std::vector<AudioSystem> audio_systems();
+    // How it was made: a real device, or the deterministic pump.
+    [[nodiscard]] Mode mode() const noexcept;
     ~RtAudioOutput();
     RtAudioOutput(const RtAudioOutput&) = delete;
     RtAudioOutput& operator=(const RtAudioOutput&) = delete;

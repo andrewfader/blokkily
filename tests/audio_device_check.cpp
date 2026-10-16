@@ -80,11 +80,14 @@ blokkily::Song two_track_song() {
 
 int main(int argc, char** argv) {
     std::string clap_path;
+    std::string api;
     double seconds = 1.5;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--clap-fixture" && index + 1 < argc) clap_path = argv[++index];
         else if (argument == "--seconds" && index + 1 < argc) seconds = std::atof(argv[++index]);
+        // One audio system rather than RtAudio's choice (features/audio_systems.feature).
+        else if (argument == "--api" && index + 1 < argc) api = argv[++index];
     }
     if (clap_path.empty()) {
         std::fprintf(stderr, "audio-device-check: --clap-fixture is required\n");
@@ -114,7 +117,7 @@ int main(int argc, char** argv) {
     }
 
     TappedSource tapped(engine);
-    blokkily::RtAudioOutput output(blokkily::RtAudioOutput::Mode::device);
+    blokkily::RtAudioOutput output(blokkily::RtAudioOutput::Mode::device, api);
     std::string device_error;
     if (!output.open(tapped, static_cast<unsigned int>(sample_rate), maximum_block,
                      &device_error)) {

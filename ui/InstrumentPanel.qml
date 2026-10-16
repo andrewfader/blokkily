@@ -211,6 +211,28 @@ ColumnLayout {
                 onPicked: name => appController.setMidiClockPort(name === "OFF" ? "" : name)
             }
         }
+        // The audio system the device is opened on: JACK is also how
+        // PipeWire's JACK interface is reached.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            SectionLabel { text: "AUDIO"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            Picker {
+                objectName: "audioSystem"
+                Layout.fillWidth: true; Layout.minimumWidth: 60
+                implicitHeight: 22
+                readonly property var systems: appController.audioSystems
+                choices: systems.map(function(system) { return system.display })
+                value: {
+                    for (var i = 0; i < systems.length; ++i)
+                        if (systems[i].name === appController.audioSystem) return systems[i].display
+                    return "AUTO"
+                }
+                onPicked: function(display) {
+                    for (var i = 0; i < systems.length; ++i)
+                        if (systems[i].display === display) appController.setAudioSystem(systems[i].name)
+                }
+            }
+        }
         // Following another machine's clock, from the MIDI input: its Start,
         // Stop and position move the transport, and its tempo is played.
         RowLayout {
