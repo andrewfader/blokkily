@@ -2,10 +2,20 @@
 
 #include <fluidsynth.h>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -23,6 +33,119 @@ constexpr double quiet_seconds = 0.25;
 // list their devices (PortAudio and ALSA probe every card). The synth here
 // only ever renders into the host's buffers, so it registers none: that was a
 // tenth of a second per SoundFont track, every time one was created.
+// A FluidSynth built with OpenMP sizes the team that renders a bank's voices
+// from the thread count in force where the bank was loaded: every core,
+// unless told otherwise. Each 64-frame block then woke a worker on every core
+// and waited for all of them, on the audio thread, which cost twice the CPU
+// of rendering alone and left the workers spinning. A bank is loaded with one
+// thread instead, so it renders on the thread that asks for audio. The
+// runtime is FluidSynth's own, found among the loaded libraries, so this
+// changes the setting it reads; without one there is nothing to change.
+class OneOpenMpThread {
+public:
+    OneOpenMpThread() {
+        if (set_ == nullptr || get_ == nullptr) return;
+        previous_ = get_();
+        set_(1);
+    }
+    ~OneOpenMpThread() {
+        if (previous_ > 0) set_(previous_);
+    }
+    OneOpenMpThread(const OneOpenMpThread&) = delete;
+    OneOpenMpThread& operator=(const OneOpenMpThread&) = delete;
+
+private:
+    using Set = void (*)(int);
+    using Get = int (*)();
+    static void* find(const char* name) {
+#if defined(_WIN32)
+        for (const auto* runtime : {L"libgomp-1.dll", L"libomp.dll", L"vcomp140.dll"})
+            if (auto* module = GetModuleHandleW(runtime))
+                return reinterpret_cast<void*>(GetProcAddress(module, name));
+        return nullptr;
+#else
+        return dlsym(RTLD_DEFAULT, name);
+#endif
+    }
+    static inline const Set set_ = reinterpret_cast<Set>(find("omp_set_num_threads"));
+    static inline const Get get_ = reinterpret_cast<Get>(find("omp_get_max_threads"));
+    int previous_ = 0;
+};
+
+// Whether a voice of this bank can ever feed FluidSynth's reverb or chorus.
+// Every renderer runs both effects on every block it plays, whatever reaches
+// them, and on a bank that sends them nothing that was seven tenths of the
+// track's processing spent on silence. A voice sends to one only through a
+// send generator (15 chorus, 16 reverb) or a modulator aimed at one, both
+// listed in the bank's pdta chunk, or through the default CC 91/93
+// modulators, which a controller message raises (see process()). Anything
+// unreadable, or a modulator linked onward to one that may be a send, is
+// taken to send, so the effects stay on.
+bool bank_may_send_to_effects(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    const auto read_u32 = [&](std::uint32_t& value) {
+        std::array<unsigned char, 4> bytes{};
+        if (!file.read(reinterpret_cast<char*>(bytes.data()), 4)) return false;
+        value = bytes[0] | (bytes[1] << 8U) | (bytes[2] << 16U) |
+                (static_cast<std::uint32_t>(bytes[3]) << 24U);
+        return true;
+    };
+    std::array<char, 4> id{};
+    std::uint32_t size = 0;
+    if (!file.read(id.data(), 4) || std::memcmp(id.data(), "RIFF", 4) != 0 || !read_u32(size) ||
+        !file.read(id.data(), 4) || std::memcmp(id.data(), "sfbk", 4) != 0)
+        return true;
+    std::vector<unsigned char> pdta;
+    while (pdta.empty() && file.read(id.data(), 4) && read_u32(size)) {
+        const auto next = static_cast<std::streamoff>(file.tellg()) + size + (size & 1U);
+        std::array<char, 4> kind{};
+        if (std::memcmp(id.data(), "LIST", 4) == 0 && size >= 4 && file.read(kind.data(), 4) &&
+            std::memcmp(kind.data(), "pdta", 4) == 0) {
+            pdta.resize(size - 4);
+            if (!file.read(reinterpret_cast<char*>(pdta.data()),
+                           static_cast<std::streamsize>(pdta.size())))
+                return true;
+        }
+        file.seekg(next);
+    }
+    if (pdta.empty()) return true;
+    const auto u16 = [&](std::size_t at) {
+        return static_cast<std::uint16_t>(pdta[at] | (pdta[at + 1] << 8U));
+    };
+    const auto is_send = [](std::uint16_t generator) { return generator == 15 || generator == 16; };
+    bool generators = false;
+    bool modulators = false;
+    for (std::size_t at = 0; at + 8 <= pdta.size();) {
+        const std::string sub(reinterpret_cast<const char*>(&pdta[at]), 4);
+        const std::size_t length = u16(at + 4) | (static_cast<std::size_t>(u16(at + 6)) << 16U);
+        const std::size_t begin = at + 8;
+        if (begin + length > pdta.size()) return true;
+        if (sub == "pgen" || sub == "igen") {
+            generators = true;
+            for (std::size_t record = begin; record + 4 <= begin + length; record += 4)
+                if (is_send(u16(record)) && static_cast<std::int16_t>(u16(record + 2)) > 0)
+                    return true;
+        } else if (sub == "pmod" || sub == "imod") {
+            modulators = true;
+            for (std::size_t record = begin; record + 10 <= begin + length; record += 10) {
+                const auto destination = u16(record + 2);
+                const auto amount = static_cast<std::int16_t>(u16(record + 4));
+                if (amount != 0 && (is_send(destination) || (destination & 0x8000U) != 0))
+                    return true;
+            }
+        }
+        at = begin + length + (length & 1U);
+    }
+    return !(generators && modulators);
+}
+
+// A controller that can raise a voice's reverb or chorus send: the default
+// modulators' CC 91 and 93, or a parameter number (NRPN) setting a generator.
+bool controller_may_send_to_effects(int controller) {
+    return controller == 91 || controller == 93 || controller == 6 || controller == 38 ||
+           (controller >= 96 && controller <= 99);
+}
+
 void register_no_audio_drivers() {
     static std::once_flag once;
     std::call_once(once, [] {
@@ -67,8 +190,18 @@ bool SoundFontSynth::rebuild(double sample_rate) {
         renderer.quiet = 0;
         renderer.running = false;
     }
+    effects_on_ = true;   // FluidSynth makes a synth with both effects on
     fresh_ = true;
     return true;
+}
+
+void SoundFontSynth::set_effects(bool on) noexcept {
+    for (auto& renderer : renderers_) {
+        if (!renderer.synth) continue;
+        (void)fluid_synth_reverb_on(renderer.synth.get(), -1, on ? 1 : 0);
+        (void)fluid_synth_chorus_on(renderer.synth.get(), -1, on ? 1 : 0);
+    }
+    effects_on_ = on;
 }
 
 void SoundFontSynth::forget_notes() noexcept {
@@ -85,6 +218,7 @@ bool SoundFontSynth::load_into(Renderer& renderer, const std::filesystem::path& 
     if (!renderer.synth) return false;
     if (fluid_synth_get_sfont(renderer.synth.get(), 0) != nullptr && path_ == path) return true;
     const auto utf8 = path.string();
+    const OneOpenMpThread one_thread;
     return fluid_synth_sfload(renderer.synth.get(), utf8.c_str(), 1) != FLUID_FAILED;
 }
 
@@ -124,6 +258,7 @@ bool SoundFontSynth::load(const std::filesystem::path& path) {
     }
     if (std::find(loaded.begin(), loaded.end(), 0) != loaded.end()) return false;
     path_ = path;
+    set_effects(bank_may_send_to_effects(path));
     // The bank a project asked for may not be in the file it was pointed at —
     // a percussion bank is missing from most single-instrument SoundFonts. The
     // file is still loaded, so it falls back to the first General MIDI program
@@ -400,6 +535,8 @@ void SoundFontSynth::process(StereoBlock audio,
             const auto first = static_cast<int>((raw >> 8) & 0x7FU);
             const auto second = static_cast<int>((raw >> 16) & 0x7FU);
             if (kind == 0xE0) wheel_ = first | (second << 7);
+            if (kind == 0xB0 && !effects_on_ && controller_may_send_to_effects(first))
+                set_effects(true);
             for (auto& renderer : renderers_) {
                 auto* synth = renderer.synth.get();
                 if (kind == 0xA0) {

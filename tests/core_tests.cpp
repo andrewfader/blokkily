@@ -110,9 +110,144 @@ double sounded_frequency(PluginInstance& instrument, std::int16_t key, double ce
     return estimate_frequency(left, sample_rate,
                               440.0 * std::pow(2.0, (key - 69 + cents / 100.0) / 12.0));
 }
+#ifdef BLOKKILY_TEST_SF2_PATH
+// A copy of a real bank with every reverb and chorus send taken out: each
+// send generator's amount, and each modulator aimed at a send, set to zero.
+std::filesystem::path bank_without_effect_sends(const std::filesystem::path& source,
+                                                const std::filesystem::path& copy) {
+    std::ifstream in(source, std::ios::binary);
+    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)),
+                                     std::istreambuf_iterator<char>());
+    const auto u16 = [&](std::size_t at) {
+        return static_cast<std::size_t>(bytes[at] | (bytes[at + 1] << 8U));
+    };
+    const auto u32 = [&](std::size_t at) { return u16(at) | (u16(at + 2) << 16U); };
+    std::size_t edited = 0;
+    for (std::size_t at = 12; at + 12 <= bytes.size();) {
+        const std::size_t size = u32(at + 4);
+        if (std::memcmp(&bytes[at], "LIST", 4) == 0 && std::memcmp(&bytes[at + 8], "pdta", 4) == 0)
+            for (std::size_t sub = at + 12; sub + 8 <= at + 8 + size;) {
+                const std::size_t length = u32(sub + 4);
+                const bool generators = std::memcmp(&bytes[sub], "pgen", 4) == 0 ||
+                                        std::memcmp(&bytes[sub], "igen", 4) == 0;
+                const bool modulators = std::memcmp(&bytes[sub], "pmod", 4) == 0 ||
+                                        std::memcmp(&bytes[sub], "imod", 4) == 0;
+                const std::size_t stride = generators ? 4 : 10;
+                if (generators || modulators)
+                    for (std::size_t record = sub + 8; record + stride <= sub + 8 + length;
+                         record += stride) {
+                        const auto target = u16(record + (generators ? 0 : 2));
+                        if (target == 15 || target == 16 || (modulators && (target & 0x8000U))) {
+                            bytes[record + (generators ? 2 : 4)] = 0;
+                            bytes[record + (generators ? 3 : 5)] = 0;
+                            ++edited;
+                        }
+                    }
+                sub += 8 + length + (length & 1U);
+            }
+        at += 8 + size + (size & 1U);
+    }
+    assert(edited > 0);
+    std::ofstream(copy, std::ios::binary)
+        .write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return copy;
+}
+
+// One held note and its release, as the left channel heard it; `chorus`
+// first raises the track's chorus depth (CC 93) to full.
+std::vector<float> render_soundfont_note(const std::filesystem::path& bank, bool chorus) {
+    SoundFontSynth synth;
+    assert(synth.load(bank));
+    assert(synth.activate(48000.0, 1, 512));
+    std::vector<float> heard;
+    std::vector<float> left(512), right(512);
+    for (int block = 0; block < 64; ++block) {
+        std::vector<PluginEvent> events;
+        if (block == 0 && chorus)
+            events.push_back({PluginEvent::Type::midi_raw, 0,
+                              static_cast<std::int32_t>(0xB0U | (93U << 8U) | (127U << 16U)), 0.0});
+        if (block == 0) events.push_back({PluginEvent::Type::note_on, 0, 60, 1.0});
+        if (block == 24) events.push_back({PluginEvent::Type::note_off, 0, 60, 0.0});
+        synth.process({left, right}, events);
+        heard.insert(heard.end(), left.begin(), left.end());
+    }
+    return heard;
+}
+
+// Each renderer runs FluidSynth's reverb and chorus only for a bank that can
+// send to them, so a bank that does is still heard through its effects, and
+// a bank that does not takes them as soon as a controller asks.
+void soundfont_effects_follow_the_bank() {
+    const auto dry_bank = bank_without_effect_sends(
+        BLOKKILY_TEST_SF2_PATH,
+        std::filesystem::temp_directory_path() / "blokkily-no-effect-sends.sf2");
+    const auto with_sends = render_soundfont_note(BLOKKILY_TEST_SF2_PATH, false);
+    const auto without_sends = render_soundfont_note(dry_bank, false);
+    const auto raised = render_soundfont_note(dry_bank, true);
+    const auto energy = [](const std::vector<float>& audio) {
+        double sum = 0.0;
+        for (const auto sample : audio) sum += static_cast<double>(sample) * sample;
+        return sum;
+    };
+    const auto difference = [](const std::vector<float>& a, const std::vector<float>& b) {
+        double sum = 0.0;
+        for (std::size_t index = 0; index < a.size(); ++index)
+            sum += static_cast<double>(a[index] - b[index]) * (a[index] - b[index]);
+        return sum;
+    };
+    assert(energy(without_sends) > 0.0);
+    // The bank's own chorus send is heard: it differs from the dry copy by
+    // more than rounding.
+    assert(difference(with_sends, without_sends) > 1e-6 * energy(without_sends));
+    // CC 93 on a bank with no sends of its own still brings the chorus in.
+    assert(difference(raised, without_sends) > 1e-6 * energy(without_sends));
+    std::filesystem::remove(dry_bank);
+}
+#endif
+
+#if defined(BLOKKILY_TEST_SF2_PATH) && defined(__linux__)
+std::size_t running_threads() {
+    std::size_t count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task")) {
+        (void)entry;
+        ++count;
+    }
+    return count;
+}
+
+// A SoundFont renders on the thread that asks for audio. A FluidSynth built
+// with OpenMP otherwise sized its voice-rendering team from the core count
+// where the bank loaded, and woke a worker on every core for every 64-frame
+// block of the audio thread's work; the workers outlived the bank. Checked
+// first, before anything else in the suite has loaded a bank.
+void soundfont_renders_on_the_calling_thread() {
+    const auto before = running_threads();
+    {
+        SoundFontSynth synth;
+        assert(synth.load(BLOKKILY_TEST_SF2_PATH));
+        assert(synth.activate(48000.0, 1, 512));
+        std::vector<float> left(512), right(512);
+        float peak = 0.0F;
+        for (int block = 0; block < 32; ++block) {
+            const PluginEvent note{PluginEvent::Type::note_on, 0,
+                                   static_cast<std::int16_t>(48 + block), 1.0};
+            synth.process({left, right}, std::span{&note, 1});
+            for (const auto sample : left) peak = std::max(peak, std::abs(sample));
+        }
+        assert(peak > 0.0F);
+    }
+    assert(running_threads() == before);
+}
+#endif
 } // namespace
 
 int main() {
+#if defined(BLOKKILY_TEST_SF2_PATH) && defined(__linux__)
+    soundfont_renders_on_the_calling_thread();
+#endif
+#ifdef BLOKKILY_TEST_SF2_PATH
+    soundfont_effects_follow_the_bank();
+#endif
     const auto catalog_dir = std::filesystem::temp_directory_path() /
                              "blokkily-soundfont-catalog-test";
     std::filesystem::create_directories(catalog_dir / "nested");

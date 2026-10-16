@@ -74,6 +74,10 @@ private:
     bool load_into(Renderer& renderer, const std::filesystem::path& path);
     bool select_in(Renderer& renderer, int bank, int program);
     void forget_notes() noexcept;
+    // Turns every renderer's reverb and chorus on or off. Off only for a bank
+    // none of whose voices can send to them, until a controller that could
+    // raise a send arrives; then on until the bank is loaded again.
+    void set_effects(bool on) noexcept;
     // The renderer that sounds a note starting at the current frame.
     std::size_t choose_renderer() noexcept;
     // Adds `frames` of every running renderer into the output from `offset`.
@@ -106,6 +110,7 @@ private:
     // Built and not yet played: activating at the same rate need not build
     // the renderers again.
     bool fresh_ = false;
+    bool effects_on_ = true;
     int bank_ = 0;
     int program_ = 0;
 };
