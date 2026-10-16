@@ -256,7 +256,10 @@ BOUNCE (Ctrl+E) writes the whole arrangement through the playback engine. The
 WAV / MP3 / OGG chips choose the file type; 16, 24 and F32 set a WAV's depth
 and are out of play for MP3 and Ogg Vorbis, which are encoded at high VBR
 quality. A file name ending in `.mp3` or `.ogg` is encoded as such whichever
-chip is lit.
+chip is lit. DITHER (on unless turned off) adds TPDF dither when a WAV is
+written at 16 or 24 bits, so quiet fades and tails keep their sound rather
+than breaking up; the same mix still writes the same bytes. See
+[the dither scenarios](../features/dither.feature).
 
 STEMS asks for a folder and writes every track, then every return, as a file
 of its own in the chosen type: `01 Lead.wav`, `02 Bass.wav`, ... Each is the

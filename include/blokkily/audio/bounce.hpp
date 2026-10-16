@@ -56,6 +56,9 @@ struct BounceOptions {
     // The file's container. WAV is written at the bounce's WaveFormat; MP3
     // and Ogg Vorbis encode the same samples and ignore it.
     ExportContainer container = ExportContainer::wav;
+    // TPDF dither when a WAV is written at 16 or 24 bits (WaveWriter::
+    // set_dither). The same mix still writes the same bytes.
+    bool dither = false;
 };
 
 [[nodiscard]] std::optional<BounceReport> bounce_song(

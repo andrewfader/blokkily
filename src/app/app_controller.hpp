@@ -365,8 +365,9 @@ public:
     // metronome is left out unless `withClick` asks for it (item 3.7).
     // A path ending .mp3 or .ogg is encoded as MP3 or Ogg Vorbis (the depth is
     // then ignored); any other is a WAV.
+    // `dither` adds TPDF dither when a WAV is written at 16 or 24 bits.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
-                                     bool withClick = false);
+                                     bool withClick = false, bool dither = false);
     // --- Autosave and crash recovery (app_controller_recovery.cpp) -----------
     // Keeps an unsaved song in `directory` (recovery.hpp) every `interval_ms`
     // while it has changes, and finds what earlier windows left there. An
@@ -388,7 +389,7 @@ public:
     // all the length of the master bounce and aligned with it. `format` is
     // "WAV", "MP3" or "OGG"; `depth` is the WAV's.
     Q_INVOKABLE bool exportTrackFiles(const QString& directory, const QString& format = "WAV",
-                                      const QString& depth = "PCM24");
+                                      const QString& depth = "PCM24", bool dither = false);
     // An oscilloscope video (corrscope's kind) of the song: every track's
     // waveform in a lane of its own and the master's beneath them, with the
     // master bounce as its sound, encoded by ffmpeg as H.264 and AAC.

@@ -63,6 +63,8 @@ struct AudioFileWriter::Impl {
 };
 
 AudioFileWriter::AudioFileWriter() : impl_(std::make_unique<Impl>()) {}
+
+void AudioFileWriter::set_dither(bool on) noexcept { impl_->wave.set_dither(on); }
 AudioFileWriter::~AudioFileWriter() { (void)close(); }
 
 bool AudioFileWriter::open(const std::filesystem::path& file, std::uint32_t sample_rate,

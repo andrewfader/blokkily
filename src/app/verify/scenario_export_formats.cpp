@@ -152,6 +152,51 @@ void run_export_formats(VerifyContext& ctx) {
     }
     ctx.reached("export formats: MP3 and Ogg hold the engine's render");
 
+    // DITHER, on unless turned off, for a 16- or 24-bit WAV; out of play for
+    // a float file or a lossy one.
+    auto* dither = ctx.named("exportDitherButton");
+    check(VerifyContext::usable(dither, 50, 12));
+    check(ctx.window->property("exportDither").toBool());
+    check(dither && !dither->isEnabled()); // MP3 is chosen
+    for (const char* name : {"exportFormatWAV", "exportDepthPCM16"}) {
+        auto* chip = ctx.named(name);
+        if (chip) ctx.click_at(chip, {chip->width() / 2, chip->height() / 2}, Qt::LeftButton);
+        layout();
+    }
+    check(dither && dither->isEnabled() && dither->property("on").toBool());
+    if (dither) ctx.click_at(dither, {dither->width() / 2, dither->height() / 2}, Qt::LeftButton);
+    layout();
+    check(!ctx.window->property("exportDither").toBool());
+    if (dither) ctx.click_at(dither, {dither->width() / 2, dither->height() / 2}, Qt::LeftButton);
+    layout();
+    check(ctx.window->property("exportDither").toBool());
+    // A dithered 16-bit export is the float mix plus half a step of noise;
+    // undithered it is the mix rounded.
+    const auto error_rms = [&](const QString& file) {
+        const auto read = blokkily::decode_audio_file(file.toStdString(), &error);
+        check(read.has_value() && wav.has_value());
+        if (!read || !wav) return 0.0;
+        double square = 0.0;
+        for (std::size_t i = 0; i < wav->left.size(); ++i) {
+            const double e = (static_cast<double>(read->left[i]) - wav->left[i]) * 32768.0;
+            square += e * e;
+        }
+        return std::sqrt(square / static_cast<double>(wav->left.size()));
+    };
+    check(c.exportAudioFile(stem_base + "-16-dithered.wav", "PCM16", false, true));
+    check(c.exportStatus().endsWith("dithered"));
+    check(c.exportAudioFile(stem_base + "-16-plain.wav", "PCM16", false, false));
+    check(!c.exportStatus().contains("dithered"));
+    const double dithered_rms = error_rms(stem_base + "-16-dithered.wav");
+    const double plain_rms = error_rms(stem_base + "-16-plain.wav");
+    std::cerr << "16-bit error: dithered " << dithered_rms << ", plain " << plain_rms << " steps rms\n";
+    check(dithered_rms > 0.4 && dithered_rms < 0.6 && plain_rms < 0.35);
+    auto* f32 = ctx.named("exportDepthFLOAT32");
+    if (f32) ctx.click_at(f32, {f32->width() / 2, f32->height() / 2}, Qt::LeftButton);
+    layout();
+    check(dither && !dither->isEnabled());
+    ctx.reached("export formats: DITHER dithers a 16-bit WAV, and only that");
+
     // Stems: one file per track, named after it, each its own bus.
     const QString stems_dir = stem_base + "-stems";
     QDir(stems_dir).removeRecursively();

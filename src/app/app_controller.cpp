@@ -959,7 +959,8 @@ bool AppController::importMidiFile(const QString& path) {
     return true;
 }
 
-bool AppController::exportAudioFile(const QString& path, const QString& depth, bool withClick) {
+bool AppController::exportAudioFile(const QString& path, const QString& depth, bool withClick,
+                                    bool dither) {
     if (!engine_) {
         export_status_ = "Load an instrument before exporting";
         emit exportStatusChanged();
@@ -975,6 +976,7 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
     // The file's extension chooses its container: .mp3 and .ogg are
     // encoded, anything else is a WAV at the chosen depth.
     options.container = blokkily::container_for_path(local_path(path).toStdString());
+    options.dither = dither;
     std::string error;
     const auto report = bounceThroughEngine(local_path(path).toStdString(), format, options, &error);
     if (!report) {
@@ -988,6 +990,9 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
                               0, 'f', 1)
                          .arg(blokkily::linear_to_db(report->peak), 0, 'f', 1)
                          .arg(report->clipped ? " · CLIPPED" : "");
+    if (options.dither && options.container == blokkily::ExportContainer::wav &&
+        format != blokkily::WaveFormat::float32)
+        export_status_ += " · dithered";
     emit exportStatusChanged();
     return true;
 }

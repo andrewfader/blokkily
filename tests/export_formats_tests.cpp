@@ -4,6 +4,7 @@
 #include "blokkily/audio/audio_file.hpp"
 #include "blokkily/audio/bounce.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -109,10 +110,112 @@ void require_same_audio(const DecodedAudio& reference, const DecodedAudio& lossy
     }
 }
 
+// --- Dither ----------------------------------------------------------------
+
+// Writes `left` (both channels) as a 16-bit WAV, dithered or not, and reads
+// it back.
+std::vector<float> through_16_bits(const std::filesystem::path& file, const std::vector<float>& left,
+                                   bool dither) {
+    WaveWriter writer;
+    writer.set_dither(dither);
+    std::string error;
+    require(writer.open(file, 48000, WaveFormat::pcm16, &error), error);
+    require(writer.write(left, left, &error), error);
+    require(writer.close(&error), error);
+    const auto wave = read_wave(file, &error);
+    require(wave.has_value(), error);
+    std::vector<float> read(wave->frames);
+    for (std::size_t i = 0; i < read.size(); ++i) read[i] = wave->interleaved[2 * i];
+    return read;
+}
+
+std::vector<float> sine(double hz, double amplitude, std::size_t frames) {
+    std::vector<float> samples(frames);
+    for (std::size_t i = 0; i < frames; ++i)
+        samples[i] = static_cast<float>(amplitude * std::sin(2.0 * 3.141592653589793 * hz * static_cast<double>(i) / 48000.0));
+    return samples;
+}
+
+double energy(const std::vector<float>& samples, double hz) {
+    // Goertzel over the whole buffer, scaled so a sine of amplitude A gives A^2.
+    const double w = 2.0 * std::cos(2.0 * 3.141592653589793 * hz / 48000.0);
+    double s1 = 0.0, s2 = 0.0;
+    for (const float x : samples) {
+        const double s0 = x + w * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    const double power = s1 * s1 + s2 * s2 - w * s1 * s2;
+    return 4.0 * power / (static_cast<double>(samples.size()) * samples.size());
+}
+
+void dither_cases(const std::string& test, const std::filesystem::path& directory) {
+    constexpr double step = 1.0 / 32768.0;
+    if (test == "dither_quiet") {
+        // A tone at a third of a step: rounded plainly it is silence; dithered
+        // it survives at its level under a little hiss.
+        const auto tone = sine(1000.0, step / 3.0, 48000);
+        const auto plain = through_16_bits(directory / "plain.wav", tone, false);
+        const auto dithered = through_16_bits(directory / "dithered.wav", tone, true);
+        const double wanted = energy(tone, 1000.0);
+        std::cout << "quiet tone: plain " << energy(plain, 1000.0) / wanted << ", dithered "
+                  << energy(dithered, 1000.0) / wanted << " of its energy\n";
+        require(std::all_of(plain.begin(), plain.end(), [](float x) { return x == 0.0F; }),
+                "undithered, a tone under a step rounds to silence");
+        require(std::abs(energy(dithered, 1000.0) / wanted - 1.0) < 0.25,
+                "dithered, the tone comes through at its level");
+        // The added noise is TPDF: mean 0, about half a step RMS.
+        double sum = 0.0, square = 0.0;
+        for (std::size_t i = 0; i < tone.size(); ++i) {
+            const double error = (static_cast<double>(dithered[i]) - tone[i]) / step;
+            sum += error;
+            square += error * error;
+        }
+        const double mean = sum / static_cast<double>(tone.size());
+        const double rms = std::sqrt(square / static_cast<double>(tone.size()));
+        std::cout << "dither error mean " << mean << " rms " << rms << " steps\n";
+        require(std::abs(mean) < 0.02 && rms > 0.45 && rms < 0.55, "the noise is TPDF: mean 0, half a step RMS");
+    } else if (test == "dither_distortion") {
+        // A tone 1.3 steps high: rounded plainly its error repeats with it,
+        // as harmonics (distortion); dithered the error is noise, spread thin.
+        const auto tone = sine(997.0, 1.3 * step, 48000);
+        const auto error_harmonic = [&](const std::vector<float>& written) {
+            std::vector<float> error(written.size());
+            for (std::size_t i = 0; i < written.size(); ++i) error[i] = written[i] - tone[i];
+            double harmonics = 0.0;
+            for (int h = 2; h <= 7; ++h) harmonics += energy(error, 997.0 * h);
+            return harmonics;
+        };
+        const double plain = error_harmonic(through_16_bits(directory / "plain.wav", tone, false));
+        const double dithered = error_harmonic(through_16_bits(directory / "dithered.wav", tone, true));
+        std::cout << "harmonics of the error: plain " << plain << ", dithered " << dithered << '\n';
+        require(dithered < plain / 30.0, "dither turns the rounding's distortion into noise");
+    } else if (test == "dither_deterministic") {
+        const auto music = sine(440.0, 0.3, 24000);
+        const auto first = through_16_bits(directory / "first.wav", music, true);
+        const auto second = through_16_bits(directory / "second.wav", music, true);
+        require(first == second, "the same mix writes the same samples");
+        // A float file is never dithered.
+        WaveWriter writer;
+        writer.set_dither(true);
+        std::string error;
+        require(writer.open(directory / "float.wav", 48000, WaveFormat::float32, &error) &&
+                    writer.write(music, music, &error) && writer.close(&error), error);
+        const auto wave = read_wave(directory / "float.wav", &error);
+        require(wave.has_value(), error);
+        for (std::size_t i = 0; i < music.size(); ++i)
+            require(wave->interleaved[2 * i] == music[i], "a float file is the mix exactly");
+    }
+}
+
 void run(const std::string& test) {
     const auto directory = std::filesystem::path(BLOKKILY_EXPORT_WORK) / test;
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
+    if (test.rfind("dither_", 0) == 0 && test != "dither_bounce") {
+        dither_cases(test, directory);
+        return;
+    }
     auto song = make_song();
     SongEngine engine;
     prepare(engine, song);
@@ -139,6 +242,27 @@ void run(const std::string& test) {
         require(decode(directory / "again.wav").left == reference.left,
                 "an encoded export leaves the next export unchanged");
         (void)again;
+    } else if (test == "dither_bounce") {
+        // A dithered 16-bit bounce is the float bounce plus half a step of
+        // noise, and a second one is the same bytes.
+        const auto bounced = [&](const char* name) {
+            std::string error;
+            BounceOptions options;
+            options.dither = true;
+            require(bounce_song(engine, directory / name, WaveFormat::pcm16, 4800, options, &error).has_value(), error);
+            return decode(directory / name);
+        };
+        const auto first = bounced("first16.wav");
+        const auto second = bounced("second16.wav");
+        require(first.left == second.left && first.right == second.right, "dithered bounces repeat exactly");
+        double square = 0.0;
+        for (std::size_t i = 0; i < reference.left.size(); ++i) {
+            const double error = (static_cast<double>(first.left[i]) - reference.left[i]) * 32768.0;
+            square += error * error;
+        }
+        const double rms = std::sqrt(square / static_cast<double>(reference.left.size()));
+        std::cout << "dithered bounce error " << rms << " steps rms\n";
+        require(rms > 0.4 && rms < 0.6, "the dithered bounce is the mix plus half a step of noise");
     } else if (test == "extension") {
         require(container_for_path("a/b.MP3") == ExportContainer::mp3, ".MP3 is MP3");
         require(container_for_path("x.ogg") == ExportContainer::ogg, ".ogg is Ogg");

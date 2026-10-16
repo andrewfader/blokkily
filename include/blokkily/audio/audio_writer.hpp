@@ -41,6 +41,9 @@ public:
     [[nodiscard]] bool write(std::span<const float> left, std::span<const float> right,
                              std::string* error = nullptr);
     [[nodiscard]] bool close(std::string* error = nullptr);
+    // TPDF dither for a 16- or 24-bit WAV (WaveWriter::set_dither). The lossy
+    // encoders take floats and ignore it. Set before open().
+    void set_dither(bool on) noexcept;
 
 private:
     struct Impl;

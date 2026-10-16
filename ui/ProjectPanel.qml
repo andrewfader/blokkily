@@ -11,6 +11,9 @@ ColumnLayout {
     property string exportDepth: "PCM24"
     // WAV, MP3 or OGG: what a bounce and a stem export are written as.
     property string exportFormat: "WAV"
+    // Whether a 16- or 24-bit WAV is dithered, owned by the window.
+    property bool exportDither: true
+    signal exportDitherToggled()
     // Whether the next bounce has the metronome in it, owned by the window.
     property bool exportClick: false
     signal newRequested()
@@ -81,6 +84,17 @@ ColumnLayout {
         Layout.fillWidth: true; spacing: 4
         SectionLabel { text: "EXPORT" }
         Item { Layout.fillWidth: true }
+        // Dither applies to a 16- or 24-bit WAV; a float or lossy file has
+        // nothing to round.
+        Chip {
+            objectName: "exportDitherButton"
+            implicitWidth: 64; implicitHeight: 14
+            text: "DITHER"
+            accent: Theme.amber
+            on: root.exportDither
+            enabled: root.exportFormat === "WAV" && root.exportDepth !== "FLOAT32"
+            onClicked: root.exportDitherToggled()
+        }
         Chip {
             objectName: "exportClickButton"
             implicitWidth: 64; implicitHeight: 14

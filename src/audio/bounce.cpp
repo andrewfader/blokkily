@@ -25,6 +25,7 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
 
     if (options.source && !engine.valid_tap(*options.source)) return fail("invalid output source");
     AudioFileWriter writer;
+    writer.set_dither(options.dither);
     std::string writer_error;
     if (!writer.open(file, static_cast<std::uint32_t>(std::llround(engine.sample_rate())),
                      options.container, format, &writer_error))

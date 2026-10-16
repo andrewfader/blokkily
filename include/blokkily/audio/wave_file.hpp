@@ -29,11 +29,20 @@ public:
                              std::string* error = nullptr);
     [[nodiscard]] bool close(std::string* error = nullptr);
     [[nodiscard]] std::uint64_t frames() const noexcept { return frames_; }
+    // TPDF dither for the integer formats (features/dither.feature): before a
+    // sample is rounded to 16 or 24 bits, triangular noise of +-1 step is
+    // added, so a fade or a reverb tail quieter than a step stays a sound
+    // with a little hiss under it instead of breaking into distortion. The
+    // noise comes from a generator seeded alike for every file, so the same
+    // mix writes the same bytes. Float files are never dithered. Off unless
+    // asked for; set before the first write.
+    void set_dither(bool on) noexcept { dither_ = on; }
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::uint64_t frames_ = 0;
+    bool dither_ = false;
 };
 
 struct WaveData {

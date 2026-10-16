@@ -69,6 +69,17 @@ struct WaveWriter::Impl {
     std::ofstream out;
     WaveFormat format = WaveFormat::float32;
     std::uint32_t sample_rate = 48000;
+    // The dither's generator (xorshift32), reseeded by open().
+    std::uint32_t noise = 0x2545F491U;
+    // A uniform value in [0, 1).
+    double uniform() noexcept {
+        noise ^= noise << 13;
+        noise ^= noise >> 17;
+        noise ^= noise << 5;
+        return static_cast<double>(noise) / 4294967296.0;
+    }
+    // Triangular noise of +-`step`: the difference of two uniform values.
+    float tpdf(double step) noexcept { return static_cast<float>((uniform() - uniform()) * step); }
 };
 
 WaveWriter::WaveWriter() : impl_(std::make_unique<Impl>()) {}
@@ -84,6 +95,7 @@ bool WaveWriter::open(const std::filesystem::path& file, std::uint32_t sample_ra
     if (!impl_->out) return fail(error, "cannot open wave file for writing");
     impl_->format = format;
     impl_->sample_rate = sample_rate;
+    impl_->noise = 0x2545F491U;
     frames_ = 0;
 
     const std::uint16_t bits = bits_per_sample(format);
@@ -116,11 +128,14 @@ bool WaveWriter::write(std::span<const float> left, std::span<const float> right
                 impl_->out.write(bytes.data(), bytes.size());
                 break;
             }
-            case WaveFormat::pcm16:
-                put16(impl_->out, static_cast<std::uint16_t>(quantize(sample, 32767)));
+            case WaveFormat::pcm16: {
+                const float dithered = dither_ ? sample + impl_->tpdf(1.0 / 32768.0) : sample;
+                put16(impl_->out, static_cast<std::uint16_t>(quantize(dithered, 32767)));
                 break;
+            }
             case WaveFormat::pcm24: {
-                const auto value = static_cast<std::uint32_t>(quantize(sample, 8388607));
+                const float dithered = dither_ ? sample + impl_->tpdf(1.0 / 8388608.0) : sample;
+                const auto value = static_cast<std::uint32_t>(quantize(dithered, 8388607));
                 const std::array<char, 3> bytes{static_cast<char>(value & 0xFF),
                                                 static_cast<char>((value >> 8) & 0xFF),
                                                 static_cast<char>((value >> 16) & 0xFF)};

@@ -32,6 +32,8 @@ ApplicationWindow {
     property string exportDepth: "PCM24"
     // The file a bounce or stem export is written as: WAV, MP3 or OGG.
     property string exportFormat: "WAV"
+    // Whether a 16- or 24-bit WAV is dithered (on, as mastering expects).
+    property bool exportDither: true
     // Whether the next bounce has the metronome in it (off: the click is a
     // guide, not part of the mix).
     property bool exportClick: false
@@ -268,13 +270,13 @@ ApplicationWindow {
         fileMode: FileDialog.SaveFile
         defaultSuffix: root.exportFormat.toLowerCase()
         onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth,
-                                                  root.exportClick)
+                                                  root.exportClick, root.exportDither)
     }
     FolderDialog {
         id: exportStemsDialog
         title: "Export every track as a file of its own"
         onAccepted: appController.exportTrackFiles(selectedFolder.toString(), root.exportFormat,
-                                                   root.exportDepth)
+                                                   root.exportDepth, root.exportDither)
     }
     FileDialog {
         id: exportScopeDialog
@@ -539,6 +541,8 @@ ApplicationWindow {
                     exportDepth: root.exportDepth
                     onExportDepthPicked: depth => root.exportDepth = depth
                     exportFormat: root.exportFormat
+                    exportDither: root.exportDither
+                    onExportDitherToggled: root.exportDither = !root.exportDither
                     onExportFormatPicked: format => root.exportFormat = format
                     onExportStemsRequested: exportStemsDialog.open()
                     onExportScopeRequested: exportScopeDialog.open()

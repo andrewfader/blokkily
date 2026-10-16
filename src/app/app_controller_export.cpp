@@ -43,7 +43,7 @@ std::optional<std::vector<float>> mono_of(const std::filesystem::path& file, std
 } // namespace
 
 bool AppController::exportTrackFiles(const QString& directory, const QString& format,
-                                     const QString& depth) {
+                                     const QString& depth, bool dither) {
     if (!engine_ || !song_) {
         export_status_ = "Load an instrument before exporting";
         emit exportStatusChanged();
@@ -55,6 +55,7 @@ bool AppController::exportTrackFiles(const QString& directory, const QString& fo
         progress_, QStringLiteral("EXPORTING STEMS TO %1").arg(QFileInfo(folder).fileName().toUpper()));
     blokkily::BounceOptions options;
     options.container = container;
+    options.dither = dither;
     std::string error;
     std::optional<std::vector<blokkily::StemFile>> stems;
     withEngineStopped([&](std::uint64_t tail) {
