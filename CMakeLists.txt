@@ -219,6 +219,10 @@ if(BLOKKILY_BUILD_GUI)
         DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
     install(FILES resources/blokkily.desktop
         DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+    # The .blok type the desktop entry claims. A package's post-install runs
+    # update-mime-database and update-desktop-database, as for any MIME type.
+    install(FILES resources/blokkily-mime.xml
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/mime/packages" RENAME blokkily.xml)
 endif()
 
 # Headless tests and offscreen gates must not reach whatever display the
@@ -489,7 +493,8 @@ foreach(blokkily_feature
         long_song
         versions
         loading_progress
-        export_formats)
+        export_formats
+        open_from_desktop)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

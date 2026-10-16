@@ -455,6 +455,17 @@ Ctrl+S saves to the current project file. Ctrl+Shift+S asks for a new file. A do
 in the window title marks unsaved changes. Opening a file, starting a new
 session or closing the window asks before discarding unsaved work.
 
+`blokkily song.blok` opens that project at launch, and so does
+double-clicking a `.blok` in GNOME Files, COSMIC Files or any file manager
+that follows the freedesktop standards. Installing puts the desktop entry in
+`share/applications` and the project type in `share/mime/packages`; for an
+install into `~/.local`, run
+`update-mime-database ~/.local/share/mime` and
+`update-desktop-database ~/.local/share/applications` once afterwards (a
+package does this itself). A file that cannot be read leaves a new song open
+and says so on the project card. Each file opened this way starts its own
+window. See [the scenarios](../features/open_from_desktop.feature).
+
 Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes edits to steps, strokes, clips,
 tracks, patterns, faders and tuning. A phrase-drawing or fader drag is one undo
 step, rather than one per pointer movement.

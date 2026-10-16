@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Blokkily project type, so a file manager opens .blok files in
+     Blokkily (resources/blokkily.desktop claims it). A project is text that
+     begins "blokkily-project"; the magic finds one that has lost its name. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-blokkily-project">
+    <comment>Blokkily project</comment>
+    <sub-class-of type="text/plain"/>
+    <generic-icon name="audio-x-generic"/>
+    <glob pattern="*.blok"/>
+    <magic priority="80">
+      <match type="string" offset="0" value="blokkily-project "/>
+    </magic>
+  </mime-type>
+</mime-info>

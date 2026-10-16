@@ -92,7 +92,13 @@ int main(int argc, char* argv[]) {
     parser.addOption({"mcp", "Speak MCP on stdin and stdout for an agent, driving the running "
                               "Blokkily (starting it when none is running)."});
     parser.addOption({"mcp-socket", "During verification, serve MCP on this socket.", "path"});
+    // What the desktop hands over when a .blok is opened from the file
+    // manager (resources/blokkily.desktop: Exec=blokkily %f), or a path or
+    // file:// URL typed after the command.
+    parser.addPositionalArgument("project", "A Blokkily project (.blok) to open.", "[project]");
     parser.process(app);
+    const QStringList launch_files = parser.positionalArguments();
+    const QString launch_file = launch_files.isEmpty() ? QString() : launch_files.front();
 
     // Plugins' timers, watched descriptors and JUCE's message queue are served
     // by the application's own event loop (item 2.6). Installed before any
@@ -174,6 +180,12 @@ int main(int argc, char* argv[]) {
                                                 controller, keyboard, llm,
                                                 verification_output);
         context.opened_size = opened;
+        // A gate that names a project opens it as a launch does, before the
+        // scenario runs.
+        if (!launch_file.isEmpty())
+            QTimer::singleShot(0, &controller, [&controller, launch_file] {
+                (void)controller.loadProjectFile(launch_file);
+            });
         blokkily::verify::schedule(context, parser.value("scenario"));
         return app.exec();
     } else {
@@ -181,8 +193,11 @@ int main(int argc, char* argv[]) {
         // sound until a plugin has been hunted down is not one a producer can
         // sit down at, so every track without an instrument is given the
         // machine's General MIDI bank before anything else happens.
-        QTimer::singleShot(0, &controller, [&controller] {
-            (void)controller.loadDefaultInstrument();
+        // A song opened at launch brings its own instruments, so the bank
+        // is only loaded when there is none, or the song cannot be read.
+        QTimer::singleShot(0, &controller, [&controller, launch_file] {
+            if (launch_file.isEmpty() || !controller.loadProjectFile(launch_file))
+                (void)controller.loadDefaultInstrument();
         });
         // Discovery begins automatically on every normal launch and never
         // delays the window: candidates are described by a helper process, one
