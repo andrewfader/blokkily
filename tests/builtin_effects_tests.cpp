@@ -10,6 +10,7 @@
 
 #include "support/audio_probe.hpp"
 
+#include "blokkily/audio/analysis.hpp"
 #include "blokkily/effects/builtin.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
 #include "blokkily/plugins/vst3_instance.hpp"
@@ -322,6 +323,7 @@ void determinism() {
         {"delay", {{30011, value_event(delay::time_ms, 100.0)}, {50003, modulation_event(delay::feedback, 0.3)}}},
         {"reverb", {{30011, value_event(reverb::size, 0.9)}, {50003, modulation_event(reverb::width, -0.5)}}},
         {"compressor", {{30011, value_event(compressor::threshold_db, -30.0)}, {50003, modulation_event(compressor::ratio, 4.0)}}},
+        {"limiter", {{0, value_event(limiter::gain_db, 9.0)}, {30011, value_event(limiter::ceiling_dbtp, -3.0)}, {50003, modulation_event(limiter::release_ms, 200.0)}}},
     };
     for (const auto& info : builtin_effects()) {
         const auto& events = moves.at(info.identifier);
@@ -350,26 +352,136 @@ void determinism() {
     }
 }
 
+// ------------------------------------------------------------- Limiter ----
+
+double true_peak_dbtp(const Stereo& signal, std::size_t from, std::size_t to) {
+    std::vector<float> interleaved;
+    for (std::size_t frame = from; frame < to; ++frame) {
+        interleaved.push_back(signal.left[frame]);
+        interleaved.push_back(signal.right[frame]);
+    }
+    return analyze_audio(interleaved, 2, rate).true_peak_dbtp;
+}
+
+// A tone at a quarter of the rate, a quarter-cycle off its samples, peaks 3
+// dB higher between the samples than on them: a sample-peak limiter lets it
+// through, a true-peak one must not.
+Stereo intersample_tone(double amplitude, std::size_t frames) {
+    Stereo signal(frames);
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const auto sample = static_cast<float>(
+            amplitude * std::sin(std::numbers::pi / 2.0 * static_cast<double>(frame) + std::numbers::pi / 4.0));
+        signal.left[frame] = sample;
+        signal.right[frame] = -sample;
+    }
+    return signal;
+}
+
+void limiter_ceiling() {
+    // Music-like material driven 12 dB into a -1 dBTP ceiling, then an
+    // inter-sample tone, then silence: the limiter hears the song stop, as
+    // it does at the end of an export, rather than the measurement ringing
+    // against a cut it never saw.
+    auto limiter = builtin("limiter");
+    auto input = test_signal(100800);
+    const auto inter = intersample_tone(0.6, 96000);
+    for (std::size_t frame = 48000; frame < input.size(); ++frame) {
+        input.left[frame] = frame < 96000 ? inter.left[frame] : 0.0F;
+        input.right[frame] = frame < 96000 ? inter.right[frame] : 0.0F;
+    }
+    const double before = true_peak_dbtp(input, 0, input.size());
+    const auto output = render(*limiter, input, 256, {{0, value_event(limiter::gain_db, 12.0)}});
+    const double after = true_peak_dbtp(output, 0, output.size());
+    std::cout << "limiter: " << before + 12.0 << " dBTP driven in, " << after << " dBTP out\n";
+    require(before + 12.0 > 3.0, "the drive pushes the signal well over full scale");
+    require(after <= -1.0 + 0.05, "nothing passes the -1 dBTP ceiling, got " + number(after));
+    require(after > -1.5, "the limiter holds the level at the ceiling, not far under it");
+    // The inter-sample tone alone, whose samples sit 3 dB under its peaks.
+    auto again = builtin("limiter");
+    auto alone = intersample_tone(0.95, 52800);
+    for (std::size_t frame = 48000; frame < alone.size(); ++frame) alone.left[frame] = alone.right[frame] = 0.0F;
+    const auto tone = render(*again, alone, 256);
+    require(true_peak_dbtp(tone, 0, tone.size()) <= -1.0 + 0.05,
+            "a peak between samples is held under the ceiling too");
+    // A lower ceiling is obeyed as well.
+    auto low = builtin("limiter");
+    const auto lowered = render(*low, input, 97, {{0, value_event(limiter::ceiling_dbtp, -6.0)},
+                                                 {0, value_event(limiter::gain_db, 6.0)}});
+    require(true_peak_dbtp(lowered, 0, lowered.size()) <= -6.0 + 0.05, "a -6 dBTP ceiling holds");
+}
+
+void limiter_transparent() {
+    // Under the ceiling the limiter is a pure delay of its reported latency.
+    auto limiter = builtin("limiter");
+    const auto latency = limiter->latency_samples();
+    require(latency > 0 && latency < 200, "the lookahead is reported as latency: " + number(latency));
+    const auto input = test_signal(48000);
+    Stereo quiet(input.size());
+    for (std::size_t frame = 0; frame < input.size(); ++frame) {
+        quiet.left[frame] = input.left[frame] * 0.5F;
+        quiet.right[frame] = input.right[frame] * 0.5F;
+    }
+    const auto output = render(*limiter, quiet, 256);
+    for (std::size_t frame = 0; frame < latency; ++frame)
+        require(output.left[frame] == 0.0F, "the lookahead starts silent");
+    for (std::size_t frame = latency; frame < output.size(); ++frame)
+        require(output.left[frame] == quiet.left[frame - latency] &&
+                    output.right[frame] == quiet.right[frame - latency],
+                "a signal under the ceiling passes bit for bit at frame " + number(frame));
+}
+
+void limiter_release() {
+    // A loud burst, then a quiet tone: the gain comes back to unity at the
+    // release time's pace, not at once and not never.
+    auto limiter = builtin("limiter");
+    Stereo input(96000);
+    const auto loud = sine(1000.0, 2.0, 4800);
+    const auto quiet = sine(1000.0, 0.25, 96000);
+    for (std::size_t frame = 0; frame < input.size(); ++frame) {
+        input.left[frame] = frame < 4800 ? loud.left[frame] : quiet.left[frame];
+        input.right[frame] = input.left[frame];
+    }
+    const auto output = render(*limiter, input, 256, {{0, value_event(limiter::release_ms, 100.0)}});
+    const auto latency = limiter->latency_samples();
+    const auto level_db = [&](std::size_t from) {
+        return decibels(probe::peak(window(output.left, from + latency, from + latency + 480)));
+    };
+    const auto level_db_short = [&](std::size_t from) {
+        return decibels(probe::peak(window(output.left, from + latency, from + latency + 48)));
+    };
+    const double just_after = level_db_short(4800 + 240);
+    const double later = level_db(4800 + 4800);   // 100 ms on
+    const double settled = level_db(4800 + 48000); // a second on
+    std::cout << "limiter release: " << just_after << ", " << later << ", " << settled << " dBFS\n";
+    require(just_after < decibels(0.25) - 5.0, "right after the burst the gain is still down");
+    require(later > just_after + 3.0, "100 ms later it has come most of the way back");
+    require(std::abs(settled - decibels(0.25)) < 0.05, "a second later the tone is untouched");
+}
+
 // ------------------------------------------------ Interface and state -----
 
 void builtin_interface() {
     const auto list = builtin_effects();
     std::string names;
     for (const auto& info : list) names += info.identifier + ";";
-    require(names == "eq3;delay;reverb;compressor;", "the built-ins are listed in order, got " + names);
-    require(create_builtin_effect("flanger") == nullptr, "an unknown built-in is refused");
+    require(names == "eq3;delay;reverb;compressor;limiter;", "the built-ins are listed in order, got " + names);
+    require(create_builtin_effect("no-such-effect") == nullptr, "an unknown built-in is refused");
     const std::map<std::string, std::string> parameters{
         {"eq3", "Low Gain;Low Freq;Mid Gain;Mid Freq;Mid Q;High Gain;High Freq;"},
         {"delay", "Time;Feedback;Mix;Sync;Beats;"},
         {"reverb", "Size;Damping;Width;Mix;"},
         {"compressor", "Threshold;Ratio;Attack;Release;Makeup;"},
+        {"limiter", "Ceiling;Release;Gain;"},
     };
+    // Only the lookahead limiter delays its signal, and says by how much.
+    const std::map<std::string, bool> latent{{"limiter", true}};
     for (const auto& info : list) {
         auto effect = create_builtin_effect(info.identifier);
         require(effect->format() == builtin_effect_format, "a built-in's format is Built-in");
         require(effect->ports().audio_inputs == 2 && !effect->ports().note_input,
                 info.identifier + " takes stereo audio and no notes");
-        require(effect->latency_samples() == 0, info.identifier + " adds no latency");
+        if (!latent.contains(info.identifier))
+            require(effect->latency_samples() == 0, info.identifier + " adds no latency");
         std::string listed;
         std::int32_t expected_id = 0;
         for (const auto& parameter : effect->parameters()) {
@@ -554,6 +666,9 @@ const std::map<std::string, std::function<void()>> cases{
     {"delay_tempo_sync", delay_tempo_sync},
     {"reverb_tail", reverb_tail},
     {"compressor_level", compressor_level},
+    {"limiter_ceiling", limiter_ceiling},
+    {"limiter_transparent", limiter_transparent},
+    {"limiter_release", limiter_release},
     {"determinism", determinism},
     {"interface", builtin_interface},
     {"clap_effect", clap_effect_fixture},

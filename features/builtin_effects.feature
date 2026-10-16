@@ -1,5 +1,5 @@
 Feature: Built-in effects and effect plugins shape the sound they are given
-  Blokkily's own EQ, delay, reverb and compressor process a track's audio in
+  Blokkily's own EQ, delay, reverb, compressor and limiter process a track's audio in
   place behind the same PluginInstance boundary as CLAP and VST3 plugins, and
   the suite builds a real CLAP effect and a real VST3 effect whose work can be
   read off the rendered audio. Each scenario is proved from rendered samples
@@ -99,3 +99,25 @@ Feature: Built-in effects and effect plugins shape the sound they are given
     When a thousand blocks are processed with parameter moves, modulation and tempo changes
     Then no audio-thread call allocates or frees
     And each still sounds and has changed the tone it was given
+
+  # builtin_limiter_ceiling
+  Scenario: The limiter holds every peak under its ceiling, between samples too
+    Given the built-in limiter at a -1 dBTP ceiling with 12 dB of drive
+    When music-like material and a tone whose peaks fall between its samples are played through it
+    Then the 4x-oversampled true peak of what comes out is no higher than -1 dBTP
+    And it is held at the ceiling, not far under it
+    And a -6 dBTP ceiling is obeyed as well
+
+  # builtin_limiter_transparent
+  Scenario: Under the ceiling the limiter only delays
+    Given the built-in limiter, which reports its lookahead as latency
+    When a signal that never reaches the ceiling is played through it
+    Then the output is the input, bit for bit, that many samples later
+
+  # builtin_limiter_release
+  Scenario: The limiter lets go at its release time
+    Given the built-in limiter with a 100 ms release
+    When a loud burst is followed by a quiet tone
+    Then just after the burst the tone is still turned down
+    And 100 ms later most of the reduction has gone
+    And a second later the tone is untouched

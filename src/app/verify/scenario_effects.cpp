@@ -11,6 +11,7 @@
 #include "verify/harness.hpp"
 
 #include "blokkily/audio/mixer.hpp"
+#include "blokkily/effects/builtin.hpp"
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/plugins/dynamic_library.hpp"
 
@@ -141,12 +142,14 @@ void run_effects(VerifyContext& ctx) {
     check(click(effect_chip));
     lay_out();
     auto* browser = ctx.named("pluginBrowser");
-    check(controller.browserKind() == "effect" && controller.browserTotal() == 5 &&
+    // The CLAP effect fixture and every built-in.
+    const int effects = 1 + static_cast<int>(blokkily::builtin_effects().size());
+    check(controller.browserKind() == "effect" && controller.browserTotal() == effects &&
           kinds_listed("effect") && browser != nullptr &&
-          browser->property("count").toInt() == 5);
-    check(browser_row("Blokkily Test Effect") != nullptr && browser_row("EQ Three") != nullptr &&
-          browser_row("Delay") != nullptr && browser_row("Reverb") != nullptr &&
-          browser_row("Compressor") != nullptr);
+          browser->property("count").toInt() == effects);
+    check(browser_row("Blokkily Test Effect") != nullptr);
+    for (const auto& builtin : blokkily::builtin_effects())
+        check(browser_row(QString::fromStdString(builtin.name)) != nullptr);
     reached("effects: the browser lists effects, built-ins included");
 
     // 2. The rack is on screen at a usable size, pointed at track 0.

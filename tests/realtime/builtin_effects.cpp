@@ -77,11 +77,12 @@ BLOKKILY_REALTIME_CASE(builtin_effects) {
         std::int32_t parameter;
         double low, high;
     };
-    const std::array<Move, 5> moves{{{"eq3", eq3::mid_gain_db, -9.0, 9.0},
+    const std::array<Move, 6> moves{{{"eq3", eq3::mid_gain_db, -9.0, 9.0},
                                      {"delay", delay::time_ms, 50.0, 400.0},
                                      {"delay", delay::sync, 0.0, 1.0},
                                      {"reverb", reverb::size, 0.2, 0.9},
-                                     {"compressor", compressor::threshold_db, -30.0, -10.0}}};
+                                     {"compressor", compressor::threshold_db, -30.0, -10.0},
+                                     {"limiter", limiter::ceiling_dbtp, -12.0, -6.0}}};
     for (const auto& move : moves) {
         auto effect = create_builtin_effect(move.identifier);
         require(effect != nullptr, std::string("built-in ") + move.identifier + " must exist");

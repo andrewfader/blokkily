@@ -94,7 +94,7 @@ keeps the layout consistent across desktops.
 - Load CLAP, VST3 and SoundFont instruments, or use the keyed and drum samplers.
   CLAP and VST3 plugins open their own editors, embedded in a Blokkily window
   on Linux, macOS and Windows.
-- Mix with inserts (including the built-in EQ, delay, reverb and compressor),
+- Mix with inserts (including the built-in EQ, delay, reverb, compressor and true-peak limiter),
   sends, returns, sidechains, auxiliary outputs, automation and modulation.
   Plugin latency is compensated in playback and export.
 - Warp audio clips to follow the tempo, or stretch and pitch-shift them.

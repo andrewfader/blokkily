@@ -13,6 +13,7 @@
 #include "processor_factory.hpp"
 #include "support/audio_probe.hpp"
 
+#include "blokkily/audio/analysis.hpp"
 #include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/audio/song_engine.hpp"
@@ -432,6 +433,48 @@ void bounce_trims_latency() {
     require(std::abs(left[4000 + 12000]) > 0.01F, "the delay's echo is where it belongs");
 }
 
+// Scenario: A limiter on the master keeps the export under its ceiling
+void master_limiter() {
+    auto song = song_of(1, 24000);
+    song.master_inserts = {insert(builtin("limiter"))};
+    // Hits far over full scale on a steady bed.
+    Impulses hits{{0, 6000, 12000, 18000}, 3.0F};
+    const auto bounce_of = [&](const Song& which, const char* name, std::uint32_t* latency) {
+        SongEngine engine;
+        build(engine, which);
+        engine::TestAccess::set_test_source(engine, 0, impulse_source, &hits);
+        if (latency != nullptr) *latency = engine.output_latency();
+        const auto file = std::filesystem::path(BLOKKILY_TEST_ARTIFACTS) / name;
+        std::filesystem::create_directories(file.parent_path());
+        std::string error;
+        require(bounce_song(engine, file, WaveFormat::float32, 4800, &error).has_value(),
+                "the bounce is written: " + error);
+        auto wave = read_wave(file, &error);
+        require(wave.has_value(), "the bounce reads back: " + error);
+        return *wave;
+    };
+    std::uint32_t latency = 0;
+    const auto limited = bounce_of(song, "master-limiter.wav", &latency);
+    auto open = song;
+    open.master_inserts[0].bypass = true;
+    const auto unlimited = bounce_of(open, "master-unlimited.wav", nullptr);
+    require(latency > 0, "the limiter's lookahead is compensated on the master");
+    const auto measure = [](const WaveData& wave) {
+        return analyze_audio(wave.interleaved, 2, rate).true_peak_dbtp;
+    };
+    std::cout << "master limiter: " << measure(unlimited) << " dBTP open, " << measure(limited)
+              << " dBTP limited, latency " << latency << '\n';
+    require(measure(unlimited) > 6.0, "without it the hits are far over full scale");
+    require(measure(limited) <= -1.0 + 0.05, "with it the file stays under -1 dBTP");
+    require(limited.frames == unlimited.frames, "the lookahead adds nothing to the file's length");
+    // The hits land where they do without the limiter: the lookahead is
+    // trimmed from the front of the export.
+    for (const std::size_t at : {std::size_t{0}, std::size_t{6000}, std::size_t{12000}})
+        require(std::abs(limited.interleaved[2 * at]) > 0.5F &&
+                    std::abs(unlimited.interleaved[2 * at]) > 1.0F,
+                "a hit sounds on its own sample in both files");
+}
+
 // Scenario: A tempo-synced delay follows a tempo change
 void tempo_synced_delay() {
     auto song = song_of(1, 96000);
@@ -711,8 +754,8 @@ void builtin_catalog() {
             require(entry.slot.format == builtin_effect_format, "built-ins use their own format");
             effects.push_back(entry.slot.identifier);
         }
-    require(effects == std::vector<std::string>{"eq3", "delay", "reverb", "compressor"},
-            "EQ, delay, reverb and compressor are listed as effects, in order");
+    require(effects == std::vector<std::string>{"eq3", "delay", "reverb", "compressor", "limiter"},
+            "EQ, delay, reverb, compressor and limiter are listed as effects, in order");
     require(is_internal_format(std::string(builtin_effect_format)), "the format is registered");
     for (const auto& identifier : effects) {
         std::string error;
@@ -722,7 +765,7 @@ void builtin_catalog() {
                 identifier + " is created by the factory as an effect: " + error);
     }
     std::string error;
-    require(create_processor(builtin("flanger"), {}, &error) == nullptr && !error.empty(),
+    require(create_processor(builtin("no-such-effect"), {}, &error) == nullptr && !error.empty(),
             "an unknown built-in is refused with a reason");
 }
 
@@ -735,6 +778,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"master_insert", master_insert},
     {"project_records", project_records},
     {"bounce_trims_latency", bounce_trims_latency},
+    {"master_limiter", master_limiter},
     {"tempo_synced_delay", tempo_synced_delay},
     {"transport_per_chunk", transport_per_chunk},
     {"graph_signature", graph_signature_rules},

@@ -14,7 +14,8 @@ target_sources(blokkily_core PRIVATE
     src/effects/eq3.cpp
     src/effects/delay.cpp
     src/effects/reverb.cpp
-    src/effects/compressor.cpp)
+    src/effects/compressor.cpp
+    src/effects/limiter.cpp)
 
 if(BLOKKILY_BUILD_TESTS)
     # The CLAP effect fixture: input delayed 64 samples (its reported latency)
@@ -60,6 +61,9 @@ if(BLOKKILY_BUILD_TESTS)
             delay_tempo_sync
             reverb_tail
             compressor_level
+            limiter_ceiling
+            limiter_transparent
+            limiter_release
             determinism
             interface
             clap_effect

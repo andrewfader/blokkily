@@ -46,6 +46,7 @@ if(BLOKKILY_BUILD_TESTS)
         blokkily_test_clap_effect blokkily_test_vst3_effect_VST3)
     foreach(effects_case
             insert_chain
+            master_limiter
             bypass_live
             sends_and_returns
             solo_safe_returns

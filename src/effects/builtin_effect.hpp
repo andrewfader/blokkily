@@ -95,5 +95,6 @@ std::unique_ptr<PluginInstance> make_eq3();
 std::unique_ptr<PluginInstance> make_delay();
 std::unique_ptr<PluginInstance> make_reverb();
 std::unique_ptr<PluginInstance> make_compressor();
+std::unique_ptr<PluginInstance> make_limiter();
 
 } // namespace blokkily::effects

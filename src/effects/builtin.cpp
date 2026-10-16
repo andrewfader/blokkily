@@ -15,6 +15,7 @@ constexpr Entry entries[] = {
     {"delay", "Delay", effects::make_delay},
     {"reverb", "Reverb", effects::make_reverb},
     {"compressor", "Compressor", effects::make_compressor},
+    {"limiter", "Limiter", effects::make_limiter},
 };
 } // namespace
 

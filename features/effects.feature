@@ -217,3 +217,10 @@ Feature: Effects process tracks, returns and the master, in time with one anothe
     When the application's plugin service runs once
     Then each effect's on_main_thread has run exactly once
     And in the real application the effect on track 0 is served both directly and by the timer
+
+  # effects_master_limiter
+  Scenario: A limiter on the master keeps the export under its ceiling
+    Given a song whose hits are far over full scale
+    When it is exported with the built-in limiter on the master, and again with it bypassed
+    Then the open file peaks above +6 dBTP and the limited one at no more than -1 dBTP
+    And the lookahead is compensated: both files are as long, and every hit is on its own sample

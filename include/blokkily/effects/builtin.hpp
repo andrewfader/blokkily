@@ -27,7 +27,7 @@ namespace blokkily {
 inline constexpr std::string_view builtin_effect_format = "Built-in";
 
 struct BuiltinEffectInfo {
-    std::string identifier; // "eq3", "delay", "reverb", "compressor"
+    std::string identifier; // "eq3", "delay", "reverb", "compressor", ...
     std::string name;       // what a browser shows
 };
 
@@ -82,6 +82,17 @@ enum Parameter : std::int32_t {
     attack_ms = 2,    // 0.1..200, 10
     release_ms = 3,   // 5..2000, 100
     makeup_db = 4,    // 0..24, 0
+};
+}
+
+// A lookahead true-peak limiter for the master bus: nothing the 4x-
+// oversampled output passes through rises above the ceiling. Below it the
+// signal is untouched. Its lookahead is reported as latency.
+namespace limiter {
+enum Parameter : std::int32_t {
+    ceiling_dbtp = 0, // -12..0, -1
+    release_ms = 1,   // 1..1000, 60
+    gain_db = 2,      // 0..24, 0: drive into the ceiling
 };
 }
 
