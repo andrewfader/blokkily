@@ -5,6 +5,7 @@
 #include "mcp_bridge.hpp"
 #include "mcp_server.hpp"
 #include "mcp_tools.hpp"
+#include "open_channel.hpp"
 #include "verify/harness.hpp"
 
 #include "../llm/scripted_backend.hpp"
@@ -106,9 +107,22 @@ int main(int argc, char* argv[]) {
     // manager (resources/blokkily.desktop: Exec=blokkily %f), or a path or
     // file:// URL typed after the command.
     parser.addPositionalArgument("project", "A Blokkily project (.blok) to open.", "[project]");
+    parser.addOption({"new-window", "Open the project in a window of its own, even when Blokkily "
+                                    "is already running."});
     parser.process(app);
     const QStringList launch_files = parser.positionalArguments();
     const QString launch_file = launch_files.isEmpty() ? QString() : launch_files.front();
+
+    // A file opened while Blokkily runs goes to the window already open
+    // (open_channel.hpp), which asks before it replaces unsaved work. A gate
+    // takes part only on a channel of its own naming.
+    const bool verifying = parser.isSet("verify");
+    const bool use_open_channel = !parser.isSet("new-window") &&
+        (!verifying || !qEnvironmentVariable("BLOKKILY_OPEN_SOCKET").isEmpty());
+    const QString open_socket = open_channel::socketPath();
+    if (!verifying && use_open_channel && !launch_file.isEmpty() &&
+        open_channel::forward(open_socket, open_channel::absoluteFile(launch_file)))
+        return 0;
 
     // Plugins' timers, watched descriptors and JUCE's message queue are served
     // by the application's own event loop (item 2.6). Installed before any
@@ -160,6 +174,23 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty("llmModel", &llm);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
+
+    open_channel::Server open_server;
+    if (use_open_channel) {
+        QString why;
+        if (open_server.listen(open_socket, &why)) {
+            auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().front());
+            QObject::connect(&open_server, &open_channel::Server::fileRequested, &controller,
+                             [&controller, window](const QString& path) {
+                                 if (window != nullptr) {
+                                     window->show();
+                                     window->raise();
+                                     window->requestActivate();
+                                 }
+                                 emit controller.openRequested(path);
+                             });
+        }
+    }
 
     McpTools mcp_tools(song, pattern, controller, transport,
                        qobject_cast<QQuickWindow*>(engine.rootObjects().front()));

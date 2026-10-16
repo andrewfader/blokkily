@@ -103,6 +103,15 @@ ApplicationWindow {
         onRejected: root.pendingDiscard = null
     }
 
+    // A .blok opened from the desktop while this window runs comes here
+    // rather than to a window of its own.
+    Connections {
+        target: appController
+        function onOpenRequested(path) {
+            root.whenDiscarded(function() { appController.loadProjectFile(path) })
+        }
+    }
+
     // A song a window left unsaved when it did not close normally (a crash,
     // a kill, a power cut) is offered back, newest first, one at a time.
     readonly property var recovery: appController.recoveries.length > 0

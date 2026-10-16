@@ -473,8 +473,10 @@ install into `~/.local`, run
 `update-mime-database ~/.local/share/mime` and
 `update-desktop-database ~/.local/share/applications` once afterwards (a
 package does this itself). A file that cannot be read leaves a new song open
-and says so on the project card. Each file opened this way starts its own
-window. See [the scenarios](../features/open_from_desktop.feature).
+and says so on the project card. While Blokkily runs, a file opened this way
+goes to the window already open, which comes forward and asks before
+replacing unsaved work; `blokkily --new-window song.blok` opens one of its
+own instead. See [the scenarios](../features/open_from_desktop.feature).
 
 Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes edits to steps, strokes, clips,
 tracks, patterns, faders and tuning. A phrase-drawing or fader drag is one undo

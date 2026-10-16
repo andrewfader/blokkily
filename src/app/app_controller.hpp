@@ -626,6 +626,9 @@ signals:
     void launcherChanged();
     void scanProgressChanged();
     void recoveriesChanged();
+    // Another launch handed this window a project to open (open_channel.hpp).
+    // The window asks about unsaved work, then opens it.
+    void openRequested(const QString& path);
     void autosaveStatusChanged();
 
 private:
