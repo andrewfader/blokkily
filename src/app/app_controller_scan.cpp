@@ -34,13 +34,15 @@ using app_detail::plugin_entry;
 void AppController::scanPlugins() {
     beginScan(blokkily::ClapCatalog::system_paths(),
               blokkily::Vst3PluginInstance::system_paths(),
-              blokkily::SoundFontCatalog::system_paths());
+              blokkily::SoundFontCatalog::system_paths(), false,
+              blokkily::Vst3PluginInstance::lv2_system_paths());
 }
 
 void AppController::rescanPlugins() {
     beginScan(blokkily::ClapCatalog::system_paths(),
               blokkily::Vst3PluginInstance::system_paths(),
-              blokkily::SoundFontCatalog::system_paths(), true);
+              blokkily::SoundFontCatalog::system_paths(), true,
+              blokkily::Vst3PluginInstance::lv2_system_paths());
 }
 
 QString AppController::scanHelperPath() const {
@@ -99,7 +101,8 @@ blokkily::ScanCacheEntry* AppController::cachedScan(const blokkily::ScanCandidat
 void AppController::beginScan(const std::vector<std::filesystem::path>& clap_paths,
                               const std::vector<std::filesystem::path>& vst3_paths,
                               const std::vector<std::filesystem::path>& soundfont_paths,
-                              bool forget_cache) {
+                              bool forget_cache,
+                              const std::vector<std::filesystem::path>& lv2_paths) {
     if (scanning_) return;
     loadScanCache();
     if (forget_cache) scan_cache_.clear();
@@ -110,7 +113,7 @@ void AppController::beginScan(const std::vector<std::filesystem::path>& clap_pat
     plugins_.clear();
     scan_failures_ = 0;
     scan_index_ = 0;
-    scan_queue_ = blokkily::enumerate_scan_candidates(clap_paths, vst3_paths);
+    scan_queue_ = blokkily::enumerate_scan_candidates(clap_paths, vst3_paths, lv2_paths);
     scanning_ = true;
     emit scanningChanged();
 
@@ -259,16 +262,18 @@ void AppController::finishScan() {
     emit pluginsChanged();
     int clap = 0;
     int vst3 = 0;
+    int lv2 = 0;
     int soundfonts = 0;
     // Counted by format, so nothing that is not a SoundFont is counted as one.
     for (const auto& entry : plugins_) {
         const auto format = entry.toMap().value("format").toString();
         if (format == "CLAP") ++clap;
         else if (format == "VST3") ++vst3;
+        else if (format == "LV2") ++lv2;
         else if (format == "SF") ++soundfonts;
     }
-    status_ = QString("Scan: %1 CLAP, %2 VST3, %3 SoundFont, %4 failure%5")
-                  .arg(clap).arg(vst3).arg(soundfonts).arg(scan_failures_)
+    status_ = QString("Scan: %1 CLAP, %2 VST3, %3 LV2, %4 SoundFont, %5 failure%6")
+                  .arg(clap).arg(vst3).arg(lv2).arg(soundfonts).arg(scan_failures_)
                   .arg(scan_failures_ == 1 ? "" : "s");
     emit statusChanged();
     emit scanningChanged();
@@ -278,11 +283,16 @@ void AppController::finishScan() {
 void AppController::scanPluginPaths(
     const std::vector<std::filesystem::path>& clap_paths,
     const std::vector<std::filesystem::path>& vst3_paths,
-    const std::vector<std::filesystem::path>& soundfont_paths) {
+    const std::vector<std::filesystem::path>& soundfont_paths,
+    const std::vector<std::filesystem::path>& lv2_paths) {
     // CLAP is the first-class format, so it leads the browser; every installed
     // instrument type is still presented through the same list.
     const auto clap = blokkily::ClapCatalog{}.scan_paths(clap_paths);
     const auto vst3 = blokkily::Vst3PluginInstance::scan_paths(vst3_paths);
+    std::vector<blokkily::Vst3Descriptor> lv2;
+    for (const auto& candidate : blokkily::enumerate_scan_candidates({}, {}, lv2_paths))
+        for (auto& plugin : blokkily::Vst3PluginInstance::scan_lv2(candidate.path))
+            lv2.push_back(std::move(plugin));
     const auto soundfonts = blokkily::SoundFontCatalog::scan_paths(soundfont_paths);
     plugins_.clear();
     for (const auto& plugin : clap.plugins)
@@ -294,13 +304,18 @@ void AppController::scanPluginPaths(
             "VST3", plugin.name, plugin.manufacturer, plugin.bundle.string(), plugin.identifier,
             static_cast<int>(plugin.index),
             std::string(plugin.instrument ? blokkily::instrument_kind : blokkily::effect_kind)));
+    for (const auto& plugin : lv2)
+        plugins_.push_back(plugin_entry(
+            "LV2", plugin.name, plugin.manufacturer, plugin.bundle.string(), plugin.identifier,
+            static_cast<int>(plugin.index),
+            std::string(plugin.instrument ? blokkily::instrument_kind : blokkily::effect_kind)));
     for (const auto& soundfont : soundfonts)
         plugins_.push_back(plugin_entry("SF", soundfont.stem().string(),
                                         soundfont.parent_path().string(), soundfont.string()));
     soundfont_status_ = QString("%1 installed SoundFont%2")
                             .arg(soundfonts.size()).arg(soundfonts.size() == 1 ? "" : "s");
-    status_ = QString("Scan: %1 CLAP, %2 VST3, %3 SoundFont, %4 failure%5")
-                  .arg(clap.plugins.size()).arg(vst3.size())
+    status_ = QString("Scan: %1 CLAP, %2 VST3, %3 LV2, %4 SoundFont, %5 failure%6")
+                  .arg(clap.plugins.size()).arg(vst3.size()).arg(lv2.size())
                   .arg(soundfonts.size()).arg(clap.failures.size())
                   .arg(clap.failures.size() == 1 ? "" : "s");
     emit pluginsChanged();

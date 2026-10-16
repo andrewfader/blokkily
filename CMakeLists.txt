@@ -97,7 +97,7 @@ target_link_libraries(blokkily_juce
     PRIVATE juce::juce_audio_processors juce::juce_gui_basics
     PUBLIC  juce::juce_recommended_config_flags)
 target_compile_definitions(blokkily_juce PUBLIC
-    JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LV2=0
+    JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LV2=1
     JUCE_PLUGINHOST_VST=0 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
 # Consumers must see JUCE's module-availability macros and include paths.
 target_compile_definitions(blokkily_juce INTERFACE
@@ -504,7 +504,8 @@ foreach(blokkily_feature
         note_expression_editing
         sampler_editing
         track_freeze
-        midi_clock_input)
+        midi_clock_input
+        lv2_hosting)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

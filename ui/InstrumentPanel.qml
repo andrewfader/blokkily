@@ -28,6 +28,7 @@ ColumnLayout {
             Rectangle {
                 Layout.preferredWidth: 38; Layout.preferredHeight: 30; radius: 4
                 color: appController.activeInstrument.startsWith("VST3") ? Theme.blue
+                     : appController.activeInstrument.startsWith("LV2") ? Theme.violet
                      : appController.activeInstrument.startsWith("SF") ? Theme.amber : Theme.acid
                 Label { anchors.centerIn: parent
                     text: appController.activeInstrument === "Choose an instrument" ? "—"
@@ -452,6 +453,7 @@ ColumnLayout {
                     Layout.preferredWidth: 38; Layout.preferredHeight: 16; radius: 3
                     color: modelData.format === "CLAP" ? Theme.acid
                          : modelData.format === "VST3" ? Theme.blue
+                         : modelData.format === "LV2" ? Theme.violet
                          : modelData.format === "Built-in" ? Theme.line : Theme.amber
                     Label { anchors.centerIn: parent
                         text: modelData.format === "Built-in" ? "INT"

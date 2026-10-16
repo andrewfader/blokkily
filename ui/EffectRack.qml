@@ -79,7 +79,8 @@ Rectangle {
                         Rectangle {
                             Layout.preferredWidth: 32; Layout.preferredHeight: 15; radius: 3
                             color: modelData.format === "CLAP" ? Theme.acid
-                                 : modelData.format === "VST3" ? Theme.blue : Theme.line
+                                 : modelData.format === "VST3" ? Theme.blue
+                                 : modelData.format === "LV2" ? Theme.violet : Theme.line
                             Label { anchors.centerIn: parent; text: modelData.format
                                 color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
                                 font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.8 }

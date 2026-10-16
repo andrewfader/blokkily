@@ -465,12 +465,14 @@ public:
     void beginScan(const std::vector<std::filesystem::path>& clap_paths,
                    const std::vector<std::filesystem::path>& vst3_paths,
                    const std::vector<std::filesystem::path>& soundfont_paths,
-                   bool forget_cache = false);
+                   bool forget_cache = false,
+                   const std::vector<std::filesystem::path>& lv2_paths = {});
     // The in-process scan, kept for fixtures the verification drives directly:
     // a known-good plugin is loaded here rather than through a helper process.
     void scanPluginPaths(const std::vector<std::filesystem::path>& clap_paths,
                          const std::vector<std::filesystem::path>& vst3_paths,
-                         const std::vector<std::filesystem::path>& soundfont_paths);
+                         const std::vector<std::filesystem::path>& soundfont_paths,
+                         const std::vector<std::filesystem::path>& lv2_paths = {});
     bool scanClapFile(const QString& path);
     bool verifyClap(const QString& path);
     bool verifyVst3(const QString& path);

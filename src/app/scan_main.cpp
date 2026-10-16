@@ -13,7 +13,7 @@
 // load costs one helper process, never the window.
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cerr << "usage: blokkily_scan <CLAP|VST3> <path>\n";
+        std::cerr << "usage: blokkily_scan <CLAP|VST3|LV2> <path>\n";
         return 2;
     }
 #if defined(_WIN32)

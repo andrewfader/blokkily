@@ -249,6 +249,8 @@ private:
 struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::Listener {
     juce::ScopedJuceInitialiser_GUI juce_lifetime;
     std::unique_ptr<juce::AudioPluginInstance> plugin;
+    // The format JUCE loaded it through: "VST3" or "LV2".
+    std::string format_name = "VST3";
     int maximum_block_size = 0;
     double sample_rate = 48000.0;
     // Automation and modulation are kept apart per parameter: the plugin sees
@@ -594,6 +596,68 @@ std::unique_ptr<Vst3PluginInstance> Vst3PluginInstance::create(
     implementation->attach(std::move(plugin));
     return std::unique_ptr<Vst3PluginInstance>(new Vst3PluginInstance(std::move(implementation)));
 }
+
+// --- LV2, through the same JUCE host (features/lv2_hosting.feature) ----------
+
+namespace {
+juce::OwnedArray<juce::PluginDescription> lv2_descriptions(const std::filesystem::path& bundle) {
+    juce::LV2PluginFormat format;
+    juce::OwnedArray<juce::PluginDescription> found;
+    // An absolute bundle path loads the bundle and lists what it holds.
+    format.findAllTypesForFile(found, bundle_string(bundle));
+    return found;
+}
+} // namespace
+
+std::vector<Vst3Descriptor> Vst3PluginInstance::scan_lv2(const std::filesystem::path& bundle) {
+    const juce::ScopedJuceInitialiser_GUI juce_lifetime;
+    std::vector<Vst3Descriptor> result;
+    std::size_t index = 0;
+    for (const auto* description : lv2_descriptions(bundle)) {
+        // An LV2 plugin is named by its URI, which is what fileOrIdentifier
+        // holds for one.
+        result.push_back({description->name.toStdString(), description->manufacturerName.toStdString(),
+                          description->fileOrIdentifier.toStdString(), bundle, index,
+                          description->isInstrument});
+        ++index;
+    }
+    return result;
+}
+
+std::vector<std::filesystem::path> Vst3PluginInstance::lv2_system_paths() {
+    const juce::ScopedJuceInitialiser_GUI juce_lifetime;
+    const auto search = juce::LV2PluginFormat{}.getDefaultLocationsToSearch();
+    std::vector<std::filesystem::path> result;
+    for (int index = 0; index < search.getNumPaths(); ++index)
+        result.emplace_back(search[index].getFullPathName().toStdString());
+    return result;
+}
+
+std::unique_ptr<Vst3PluginInstance> Vst3PluginInstance::create_lv2(
+    const std::filesystem::path& bundle, const std::string& uri, std::string* error) {
+    auto implementation = std::make_unique<Impl>();
+    implementation->format_name = "LV2";
+    juce::LV2PluginFormat format;
+    juce::OwnedArray<juce::PluginDescription> found;
+    format.findAllTypesForFile(found, bundle_string(bundle));
+    const juce::PluginDescription* chosen = nullptr;
+    for (const auto* description : found)
+        if (uri.empty() || description->fileOrIdentifier.toStdString() == uri) chosen = description;
+    if (chosen == nullptr) {
+        if (error) *error = "LV2 plugin " + uri + " not found in " + bundle.string();
+        return nullptr;
+    }
+    juce::String message;
+    auto plugin = format.createInstanceFromDescription(*chosen, 48000.0, 512, message);
+    if (!plugin) {
+        if (error) *error = message.toStdString();
+        return nullptr;
+    }
+    implementation->attach(std::move(plugin));
+    return std::unique_ptr<Vst3PluginInstance>(new Vst3PluginInstance(std::move(implementation)));
+}
+
+std::string Vst3PluginInstance::format() const { return impl_ ? impl_->format_name : "VST3"; }
 
 Vst3PluginInstance::Vst3PluginInstance(std::unique_ptr<Impl> implementation)
     : impl_(std::move(implementation)) {}

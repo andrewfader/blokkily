@@ -80,6 +80,13 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   among independent stems. Muting a source also stops its sends. See
   [export, resampling and stems](usage.md#export-resampling-and-stems).
 
+## LV2
+
+- LV2 plugins are hosted through JUCE. Their own windows open where JUCE can
+  host the plugin's UI (an X11 UI on Linux); the suite's LV2 fixture has no
+  window, so LV2 editors are not covered by the gates. Per-note expression
+  reaches an LV2 plugin as MIDI, as it reaches a VST3.
+
 ## Plugin windows
 
 Plugin editors embed in a window of the host's: an NSView on macOS, an HWND

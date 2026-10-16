@@ -19,6 +19,9 @@ struct Vst3Descriptor {
     bool instrument = true;
 };
 
+// A plugin hosted through JUCE: a VST3 bundle, or (through the same adapter
+// and the same JUCE host, features/lv2_hosting.feature) an LV2 bundle. The
+// format() it reports says which.
 class Vst3PluginInstance final : public PluginInstance {
 public:
     ~Vst3PluginInstance() override;
@@ -35,6 +38,15 @@ public:
     [[nodiscard]] static std::unique_ptr<Vst3PluginInstance> create(
         const std::filesystem::path& bundle, std::size_t index = 0,
         std::string* error = nullptr);
+    // LV2: the plugins an .lv2 bundle holds (identifier is each one's URI),
+    // the folders LV2 plugins are installed in ($LV2_PATH, ~/.lv2,
+    // /usr/lib/lv2 ...), and one plugin made by its bundle and URI (the
+    // bundle's only plugin when the URI is empty).
+    [[nodiscard]] static std::vector<Vst3Descriptor> scan_lv2(const std::filesystem::path& bundle);
+    [[nodiscard]] static std::vector<std::filesystem::path> lv2_system_paths();
+    [[nodiscard]] static std::unique_ptr<Vst3PluginInstance> create_lv2(
+        const std::filesystem::path& bundle, const std::string& uri,
+        std::string* error = nullptr);
 
     bool activate(double sample_rate, std::uint32_t min_frames,
                   std::uint32_t max_frames) override;
@@ -44,7 +56,7 @@ public:
     void reset() override;
     std::vector<std::byte> save_state() override;
     bool load_state(std::span<const std::byte> state) override;
-    std::string format() const override { return "VST3"; }
+    std::string format() const override;
 
     // Plugin boundary v2 (plan F-C). The adapter keeps its automation base in
     // atomics that JUCE parameter listeners update when the plugin moves a

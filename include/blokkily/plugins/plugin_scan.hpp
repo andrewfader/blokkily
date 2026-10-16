@@ -13,7 +13,7 @@ namespace blokkily {
 // takes its host down with it, so a candidate is scanned in its own process
 // rather than in the process that owns the window.
 struct ScanCandidate {
-    std::string format;              // "CLAP" or "VST3"
+    std::string format;              // "CLAP", "VST3" or "LV2"
     std::filesystem::path path;
 };
 
@@ -53,7 +53,8 @@ struct ScanCacheEntry {
 // entries: no plugin code runs, so this is safe on the thread drawing the UI.
 [[nodiscard]] std::vector<ScanCandidate> enumerate_scan_candidates(
     const std::vector<std::filesystem::path>& clap_paths,
-    const std::vector<std::filesystem::path>& vst3_paths);
+    const std::vector<std::filesystem::path>& vst3_paths,
+    const std::vector<std::filesystem::path>& lv2_paths = {});
 
 // Loads one candidate and describes what it holds. This runs plugin code and
 // may never return, so it belongs in the scan helper process alone.

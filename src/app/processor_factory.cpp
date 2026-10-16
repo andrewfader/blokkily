@@ -102,6 +102,7 @@ std::unique_ptr<PluginInstance> create_processor(const InstrumentSlot& slot,
             }
         return Vst3PluginInstance::create(slot.path, index, error);
     }
+    if (slot.format == "LV2") return Vst3PluginInstance::create_lv2(slot.path, slot.identifier, error);
     if (const auto* registration = find(slot.format); registration && registration->factory)
         return registration->factory(slot, context, error);
     if (error != nullptr) *error = "unknown instrument format";

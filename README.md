@@ -91,9 +91,9 @@ keeps the layout consistent across desktops.
   grids, fretboards and chord pads. Tunings and scales include microtonal
   options. A session with no instruments uses an installed SoundFont by
   default, preferring a General MIDI bank when available.
-- Load CLAP, VST3 and SoundFont instruments, or use the keyed and drum samplers.
-  CLAP and VST3 plugins open their own editors, embedded in a Blokkily window
-  on Linux, macOS and Windows.
+- Load CLAP, VST3, LV2 and SoundFont instruments, or use the keyed and drum
+  samplers. CLAP and VST3 plugins open their own editors, embedded in a
+  Blokkily window on Linux, macOS and Windows.
 - Mix with inserts (including built-in EQ, delay, reverb, compressor, true-peak limiter,
   resonant filter, saturation, chorus, flanger and gate),
   sends, returns, sidechains, auxiliary outputs, automation and modulation.

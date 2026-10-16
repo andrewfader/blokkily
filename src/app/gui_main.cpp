@@ -85,6 +85,7 @@ int main(int argc, char* argv[]) {
     parser.addOption({"screenshot", "Write verification screenshot to path.", "path"});
     parser.addOption({"clap-fixture", "Scan this CLAP module during verification.", "path"});
     parser.addOption({"vst3-fixture", "Scan this VST3 bundle during verification.", "path"});
+    parser.addOption({"lv2-fixture", "Scan this LV2 bundle during verification.", "path"});
     parser.addOption({"soundfont-fixture", "Render this SF2/SF3 during verification.", "path"});
     parser.addOption({"clap-effect-fixture", "Scan this CLAP effect during verification.",
                       "path"});

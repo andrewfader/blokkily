@@ -213,6 +213,10 @@ across, velocities up; click a box to edit that zone), the zone's VEL range,
 and its waveform, where START, END and the loop markers are dragged. See
 [the scenarios](../features/sampler_editing.feature).
 
+LV2 plugins are found in `$LV2_PATH`, `~/.lv2`, `/usr/local/lib/lv2` and
+`/usr/lib/lv2` and listed with an LV2 badge; they play and are saved like any
+other plugin. See [the LV2 scenarios](../features/lv2_hosting.feature).
+
 ## MIDI input and recording
 
 The MIDI IN panel on the left chooses the controller. Its light flashes on

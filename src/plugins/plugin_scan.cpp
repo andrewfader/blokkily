@@ -127,7 +127,8 @@ void for_each_line(std::string_view text, const Visitor& visit) {
 
 std::vector<ScanCandidate> enumerate_scan_candidates(
     const std::vector<std::filesystem::path>& clap_paths,
-    const std::vector<std::filesystem::path>& vst3_paths) {
+    const std::vector<std::filesystem::path>& vst3_paths,
+    const std::vector<std::filesystem::path>& lv2_paths) {
     std::vector<ScanCandidate> candidates;
     const auto add = [&candidates](const char* format, const std::filesystem::path& path) {
         candidates.push_back({format, path});
@@ -182,6 +183,26 @@ std::vector<ScanCandidate> enumerate_scan_candidates(
         }
     }
 
+    // An LV2 plugin is a bundle: a directory named .lv2 holding a manifest.
+    for (const auto& root : lv2_paths) {
+        std::error_code error;
+        const auto normalized = normalize(root);
+        const auto is_bundle = [&error](const std::filesystem::path& path) {
+            return has_extension(path, ".lv2") && std::filesystem::is_regular_file(path / "manifest.ttl", error);
+        };
+        if (is_bundle(normalized)) {
+            add("LV2", normalized);
+            continue;
+        }
+        if (!std::filesystem::is_directory(normalized, error)) continue;
+        for (std::filesystem::directory_iterator it(
+                 normalized, std::filesystem::directory_options::skip_permission_denied, error),
+             end; it != end; it.increment(error)) {
+            if (error) { error.clear(); continue; }
+            if (is_bundle(it->path())) add("LV2", it->path());
+        }
+    }
+
     std::sort(candidates.begin(), candidates.end(),
               [](const ScanCandidate& left, const ScanCandidate& right) {
                   return std::tie(left.format, left.path) < std::tie(right.format, right.path);
@@ -211,6 +232,14 @@ std::vector<ScanRecord> scan_candidate(const ScanCandidate& candidate, std::stri
             records.push_back({"VST3", plugin.name, plugin.manufacturer, plugin.bundle.string(),
                                plugin.identifier, static_cast<int>(plugin.index),
                                std::string(plugin.instrument ? instrument_kind : effect_kind)});
+        return records;
+    }
+    if (candidate.format == "LV2") {
+        for (const auto& plugin : Vst3PluginInstance::scan_lv2(candidate.path))
+            records.push_back({"LV2", plugin.name, plugin.manufacturer, plugin.bundle.string(),
+                               plugin.identifier, static_cast<int>(plugin.index),
+                               std::string(plugin.instrument ? instrument_kind : effect_kind)});
+        if (records.empty() && error != nullptr) *error = "no LV2 plugin in the bundle";
         return records;
     }
     if (error != nullptr) *error = "unknown plugin format '" + candidate.format + "'";

@@ -12,6 +12,8 @@ QtObject {
     readonly property color acid: "#c8ff3d"
     readonly property color blue: "#4d7cff"
     readonly property color amber: "#ffb340"
+    // LV2 plugins' badge.
+    readonly property color violet: "#a98bff"
     // Recording, and nothing else: a red that means the song is being written.
     readonly property color record: "#ff4d5e"
     // The bundled interface face. The window sets it for every control, so a
