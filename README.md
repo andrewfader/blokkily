@@ -101,8 +101,10 @@ keeps the layout consistent across desktops.
   and send them MIDI clock.
 - Record audio and MIDI (including MPE and poly pressure), with a metronome and
   count-in. Resample a bus or bounce stems. Export the arrangement
-  as 16-bit, 24-bit or 32-bit float WAVE through the same engine used for
-  playback. Import and export Standard MIDI Files for note exchange.
+  as 16-bit, 24-bit or 32-bit float WAVE, MP3 or Ogg Vorbis through the same
+  engine used for playback, every track as a file of its own (STEMS), or an
+  oscilloscope video of every track over the master (SCOPE VIDEO, encoded by
+  `ffmpeg` on `PATH`). Import and export Standard MIDI Files for note exchange.
 - Save named versions of the song and restore any of them in one undo step,
   and keep notes with it, in the VERSIONS and NOTES tabs.
 - Press F1 or HELP for a guided tour of the window. CLEAR empties the session

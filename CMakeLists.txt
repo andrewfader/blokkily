@@ -488,7 +488,8 @@ foreach(blokkily_feature
         mcp
         long_song
         versions
-        loading_progress)
+        loading_progress
+        export_formats)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

@@ -235,6 +235,27 @@ per-note channel for SoundFont and VST3. See
 CLICK follows the tempo and meter. CI counts in up to four bars without moving
 the song. Exports exclude the click unless + CLICK is enabled.
 
+## Exporting
+
+BOUNCE (Ctrl+E) writes the whole arrangement through the playback engine. The
+WAV / MP3 / OGG chips choose the file type; 16, 24 and F32 set a WAV's depth
+and are out of play for MP3 and Ogg Vorbis, which are encoded at high VBR
+quality. A file name ending in `.mp3` or `.ogg` is encoded as such whichever
+chip is lit.
+
+STEMS asks for a folder and writes every track, then every return, as a file
+of its own in the chosen type: `01 Lead.wav`, `02 Bass.wav`, ... Each is the
+bus after its inserts, fader and pan, as long as the bounce and aligned with
+it; with nothing on the master they add up to the bounce. A muted track's
+stem is silent, and the click is never in a stem.
+
+SCOPE VIDEO renders an oscilloscope video in the manner of corrscope: a lane
+for every track and a wide master lane beneath, each triggered so a steady
+note stands still, with the master bounce as its sound. It is 1280 x 720 at
+30 fps, H.264 and AAC in an `.mp4`, and needs `ffmpeg` on `PATH` (or
+`BLOKKILY_FFMPEG` naming one). See
+[the export scenarios](../features/export_formats.feature).
+
 ## Outboard gear and MIDI clock
 
 The MIDI OUT row under MIDI IN gives the selected track a MIDI output port in

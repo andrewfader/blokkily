@@ -971,6 +971,9 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
         progress_, QStringLiteral("EXPORTING %1").arg(QFileInfo(local_path(path)).fileName().toUpper()));
     blokkily::BounceOptions options;
     options.include_metronome = withClick;
+    // The file's extension chooses its container: .mp3 and .ogg are
+    // encoded, anything else is a WAV at the chosen depth.
+    options.container = blokkily::container_for_path(local_path(path).toStdString());
     std::string error;
     const auto report = bounceThroughEngine(local_path(path).toStdString(), format, options, &error);
     if (!report) {
@@ -991,6 +994,15 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
 std::optional<blokkily::BounceReport> AppController::bounceThroughEngine(
     const std::filesystem::path& file, blokkily::WaveFormat format,
     blokkily::BounceOptions options, std::string* error) {
+    std::optional<blokkily::BounceReport> report;
+    withEngineStopped([&](std::uint64_t tail) {
+        options.progress = bounceProgress(engine_->sample_rate());
+        report = bounce_song(*engine_, file, format, tail, options, error);
+    });
+    return report;
+}
+
+void AppController::withEngineStopped(const std::function<void(std::uint64_t tail)>& work) {
     // The bounce is of the song as it is now, edits of this turn included,
     // with every warped clip's rendition in it.
     flushRecompile();
@@ -1000,9 +1012,7 @@ std::optional<blokkily::BounceReport> AppController::bounceThroughEngine(
     if (audio_output_) audio_output_->stop();
     releaseSoundingNotes();
     // Half a second of tail so the last note's release is part of the file.
-    const auto tail = static_cast<std::uint64_t>(engine_->sample_rate() / 2.0);
-    options.progress = bounceProgress(engine_->sample_rate());
-    auto report = bounce_song(*engine_, file, format, tail, options, error);
+    work(static_cast<std::uint64_t>(engine_->sample_rate() / 2.0));
     if (resume_device) {
         std::string resume_error;
         if (!audio_output_->start(&resume_error)) {
@@ -1012,7 +1022,6 @@ std::optional<blokkily::BounceReport> AppController::bounceThroughEngine(
             emit statusChanged();
         }
     }
-    return report;
 }
 
 std::function<void(std::uint64_t, std::uint64_t)> AppController::bounceProgress(double rate) {

@@ -356,8 +356,23 @@ public:
     blokkily::AudioAssetCache& assetCache() noexcept { return *assets_; }
     // Bounces the arrangement through the engine the speakers hear. The
     // metronome is left out unless `withClick` asks for it (item 3.7).
+    // A path ending .mp3 or .ogg is encoded as MP3 or Ogg Vorbis (the depth is
+    // then ignored); any other is a WAV.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
                                      bool withClick = false);
+    // --- Stems and the scope video (app_controller_export.cpp) ---------------
+    // Bounces every track, then every return, to a file of its own in
+    // `directory` ("01 Bass.wav"): each bus after its inserts, fader and pan,
+    // all the length of the master bounce and aligned with it. `format` is
+    // "WAV", "MP3" or "OGG"; `depth` is the WAV's.
+    Q_INVOKABLE bool exportTrackFiles(const QString& directory, const QString& format = "WAV",
+                                      const QString& depth = "PCM24");
+    // An oscilloscope video (corrscope's kind) of the song: every track's
+    // waveform in a lane of its own and the master's beneath them, with the
+    // master bounce as its sound, encoded by ffmpeg as H.264 and AAC.
+    Q_INVOKABLE bool exportScopeVideo(const QString& path);
+    // Whether an ffmpeg was found for exportScopeVideo.
+    Q_INVOKABLE bool scopeVideoAvailable() const;
     // --- Render analysis (app_controller_analysis.cpp) -----------------------
     // Bounces the arrangement exactly as exportAudioFile does, reads the file
     // back and measures it (blokkily/audio/analysis.hpp): loudness, peaks,
@@ -808,6 +823,9 @@ private:
     // Stops the device, bounces through the engine with half a second of
     // tail, and starts the device again: what exportAudioFile and
     // analyzeRender both render through.
+    // Brings the song up to date, stops the device and runs `work` with the
+    // tail every export is given, then starts the device again.
+    void withEngineStopped(const std::function<void(std::uint64_t tail)>& work);
     std::optional<blokkily::BounceReport> bounceThroughEngine(
         const std::filesystem::path& file, blokkily::WaveFormat format,
         blokkily::BounceOptions options, std::string* error);

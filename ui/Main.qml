@@ -30,6 +30,8 @@ ApplicationWindow {
     property string view: "ALL"
     // Bit depth the next bounce is written at.
     property string exportDepth: "PCM24"
+    // The file a bounce or stem export is written as: WAV, MP3 or OGG.
+    property string exportFormat: "WAV"
     // Whether the next bounce has the metronome in it (off: the click is a
     // guide, not part of the mix).
     property bool exportClick: false
@@ -197,11 +199,29 @@ ApplicationWindow {
     FileDialog {
         id: exportDialog
         title: "Bounce the arrangement"
-        nameFilters: ["Wave audio (*.wav)"]
+        // The extension chooses the container, so the dialog offers the
+        // chosen format's.
+        nameFilters: root.exportFormat === "MP3" ? ["MP3 audio (*.mp3)"]
+                   : root.exportFormat === "OGG" ? ["Ogg Vorbis audio (*.ogg)"]
+                   : ["Wave audio (*.wav)"]
         fileMode: FileDialog.SaveFile
-        defaultSuffix: "wav"
+        defaultSuffix: root.exportFormat.toLowerCase()
         onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth,
                                                   root.exportClick)
+    }
+    FolderDialog {
+        id: exportStemsDialog
+        title: "Export every track as a file of its own"
+        onAccepted: appController.exportTrackFiles(selectedFolder.toString(), root.exportFormat,
+                                                   root.exportDepth)
+    }
+    FileDialog {
+        id: exportScopeDialog
+        title: "Render an oscilloscope video of the tracks and the master"
+        nameFilters: ["MPEG-4 video (*.mp4)"]
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "mp4"
+        onAccepted: appController.exportScopeVideo(selectedFile.toString())
     }
 
     FileDialog {
@@ -457,6 +477,10 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     exportDepth: root.exportDepth
                     onExportDepthPicked: depth => root.exportDepth = depth
+                    exportFormat: root.exportFormat
+                    onExportFormatPicked: format => root.exportFormat = format
+                    onExportStemsRequested: exportStemsDialog.open()
+                    onExportScopeRequested: exportScopeDialog.open()
                     exportClick: root.exportClick
                     onExportClickToggled: root.exportClick = !root.exportClick
                     onNewRequested: root.whenDiscarded(function() { appController.newProject() })

@@ -24,10 +24,10 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     if (engine.sample_rate() <= 0.0) return fail("song has no sample rate");
 
     if (options.source && !engine.valid_tap(*options.source)) return fail("invalid output source");
-    WaveWriter writer;
+    AudioFileWriter writer;
     std::string writer_error;
     if (!writer.open(file, static_cast<std::uint32_t>(std::llround(engine.sample_rate())),
-                     format, &writer_error))
+                     options.container, format, &writer_error))
         return fail(writer_error.c_str());
 
     // Bouncing takes over the transport, then puts it back where it was, so an
@@ -139,6 +139,56 @@ std::optional<BounceReport> bounce_song(SongEngine& engine, const std::filesyste
     if (!restored) return fail("a processor could not restore its state after export");
     report.clipped = report.peak > 1.0F;
     return report;
+}
+
+std::string stem_file_name(std::size_t index, const std::string& name) {
+    std::string clean;
+    for (const char c : name) {
+        const auto u = static_cast<unsigned char>(c);
+        clean += (u < 0x20 || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+                  c == '"' || c == '<' || c == '>' || c == '|')
+                     ? ' ' : c;
+    }
+    while (!clean.empty() && (clean.back() == ' ' || clean.back() == '.')) clean.pop_back();
+    while (!clean.empty() && clean.front() == ' ') clean.erase(clean.begin());
+    if (clean.empty()) clean = "Track";
+    const auto number = std::to_string(index + 1);
+    return std::string(number.size() < 2 ? 2 - number.size() : 0, '0') + number + " " + clean;
+}
+
+std::optional<std::vector<StemFile>> bounce_stems(
+    SongEngine& engine, const Song& song, const std::filesystem::path& directory,
+    WaveFormat format, std::uint64_t tail_frames, const BounceOptions& options,
+    std::string* error) {
+    std::vector<StemFile> stems;
+    for (std::size_t track = 0; track < song.tracks.size(); ++track)
+        stems.push_back({{BusKind::track, static_cast<std::uint32_t>(track)},
+                         song.tracks[track].name, {}, {}});
+    for (std::size_t ret = 0; ret < song.returns.size(); ++ret)
+        stems.push_back({{BusKind::ret, static_cast<std::uint32_t>(ret)},
+                         song.returns[ret].name, {}, {}});
+    if (stems.empty()) {
+        if (error != nullptr) *error = "the song has no tracks";
+        return std::nullopt;
+    }
+    for (std::size_t index = 0; index < stems.size(); ++index) {
+        auto& stem = stems[index];
+        stem.file = directory / (stem_file_name(index, stem.name) +
+                                 container_extension(options.container));
+        BounceOptions one = options;
+        one.source = stem.source;
+        one.include_metronome = false;
+        if (options.progress) {
+            const auto count = static_cast<std::uint64_t>(stems.size());
+            one.progress = [&options, index, count](std::uint64_t written, std::uint64_t total) {
+                options.progress(index * total + written, count * total);
+            };
+        }
+        auto report = bounce_song(engine, stem.file, format, tail_frames, one, error);
+        if (!report) return std::nullopt;
+        stem.report = *report;
+    }
+    return stems;
 }
 
 } // namespace blokkily

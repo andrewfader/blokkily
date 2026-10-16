@@ -1,6 +1,8 @@
 #pragma once
 
+#include "blokkily/audio/audio_writer.hpp"
 #include "blokkily/audio/song_engine.hpp"
+#include "blokkily/model/song.hpp"
 #include "blokkily/audio/wave_file.hpp"
 
 #include <cstdint>
@@ -8,6 +10,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace blokkily {
 
@@ -50,10 +53,36 @@ struct BounceOptions {
     // how many it will hold, so a window can show the export's progress.
     // Called on the bouncing thread between blocks, never inside one.
     std::function<void(std::uint64_t written, std::uint64_t total)> progress{};
+    // The file's container. WAV is written at the bounce's WaveFormat; MP3
+    // and Ogg Vorbis encode the same samples and ignore it.
+    ExportContainer container = ExportContainer::wav;
 };
 
 [[nodiscard]] std::optional<BounceReport> bounce_song(
     SongEngine& engine, const std::filesystem::path& file, WaveFormat format,
     std::uint64_t tail_frames, const BounceOptions& options, std::string* error = nullptr);
+
+// One file of a stem export: the bus it taps and where it was written.
+struct StemFile {
+    OutputTap source;
+    std::string name;
+    std::filesystem::path file;
+    BounceReport report;
+};
+
+// Bounces every track, then every return, to a file of its own in
+// `directory`, each a full bounce_song() of that bus's tap (post-insert,
+// post-fader/pan, before master processing), so the files line up sample for
+// sample with one another and with a bounce of the master. Files are named
+// "NN Name.ext" after the bus, in mixer order. `options.source` is ignored and
+// the click is never in a stem. `progress` is told about the whole export.
+[[nodiscard]] std::optional<std::vector<StemFile>> bounce_stems(
+    SongEngine& engine, const Song& song, const std::filesystem::path& directory,
+    WaveFormat format, std::uint64_t tail_frames, const BounceOptions& options,
+    std::string* error = nullptr);
+
+// A file-name-safe form of a bus name: path separators and control
+// characters become spaces, and an empty result is "Track".
+[[nodiscard]] std::string stem_file_name(std::size_t index, const std::string& name);
 
 } // namespace blokkily

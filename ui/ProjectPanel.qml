@@ -9,6 +9,8 @@ ColumnLayout {
     id: root
     // The bit depth the next bounce is written at, owned by the window.
     property string exportDepth: "PCM24"
+    // WAV, MP3 or OGG: what a bounce and a stem export are written as.
+    property string exportFormat: "WAV"
     // Whether the next bounce has the metronome in it, owned by the window.
     property bool exportClick: false
     signal newRequested()
@@ -19,6 +21,9 @@ ColumnLayout {
     signal exportMidiRequested()
     signal exportRequested()
     signal exportDepthPicked(string depth)
+    signal exportFormatPicked(string format)
+    signal exportStemsRequested()
+    signal exportScopeRequested()
     signal exportClickToggled()
     spacing: 10
 
@@ -100,9 +105,36 @@ ColumnLayout {
                 text: modelData === "FLOAT32" ? "F32" : modelData.substring(3)
                 accent: Theme.amber
                 on: root.exportDepth === modelData
+                // A depth is a WAV's; MP3 and Ogg have none.
+                enabled: root.exportFormat === "WAV"
                 onClicked: root.exportDepthPicked(modelData)
             }
         }
+    }
+    RowLayout {
+        Layout.fillWidth: true; spacing: 4
+        Repeater {
+            model: ["WAV", "MP3", "OGG"]
+            Chip {
+                required property var modelData
+                objectName: "exportFormat" + modelData
+                Layout.fillWidth: true
+                text: modelData
+                accent: Theme.amber
+                on: root.exportFormat === modelData
+                onClicked: root.exportFormatPicked(modelData)
+            }
+        }
+    }
+    // Every track as a file of its own, and the scope video of them all.
+    RowLayout {
+        Layout.fillWidth: true; spacing: 4
+        Chip { objectName: "exportStemsButton"; text: "STEMS"
+            Layout.fillWidth: true; accent: Theme.amber
+            onClicked: root.exportStemsRequested() }
+        Chip { objectName: "exportScopeButton"; text: "SCOPE VIDEO"
+            Layout.fillWidth: true; accent: Theme.amber
+            onClicked: root.exportScopeRequested() }
     }
     RowLayout {
         Layout.fillWidth: true; spacing: 4
