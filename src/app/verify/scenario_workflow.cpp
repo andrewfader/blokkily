@@ -128,8 +128,15 @@ void run_workflow(VerifyContext& ctx) {
     song.clearHistory();
     auto* engine = controller.engine();
     const int low = pattern.lowKey();
+    // Scrolling moves the view, not the pattern: nothing that follows the
+    // pattern (the score, the tracker, the steps) is told it changed.
+    int pattern_changes = 0;
+    const auto counting = QObject::connect(&pattern, &PatternModel::patternChanged,
+                                           [&pattern_changes] { ++pattern_changes; });
     click("rollUp");
+    QObject::disconnect(counting);
     check(pattern.lowKey() == low + 12 && !song.canUndo() && controller.engine() == engine);
+    check(pattern_changes == 0);
     for (int i = 0; i < 11; ++i) click("rollDown");
     check(pattern.lowKey() == 0);
     draw(1, 0);

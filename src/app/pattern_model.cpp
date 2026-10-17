@@ -156,6 +156,7 @@ PatternModel::PatternModel(SongModel* song, QObject* parent)
     QObject::connect(this, &PatternModel::selectionChanged, this, &PatternModel::selectedChanged);
     // Connected first, so the count has moved before any editor reads it.
     QObject::connect(this, &PatternModel::patternChanged, this, [this] { ++revision_; });
+    QObject::connect(this, &PatternModel::patternChanged, this, &PatternModel::rollRangeChanged);
 }
 
 // The editors project whichever pattern the song has open, so switching
@@ -774,7 +775,7 @@ void PatternModel::scrollRoll(int semitones) {
     roll_pattern_ = song_ != nullptr ? song_->currentPattern() : -1;
     if (roll_low_ && *roll_low_ == moved) return;
     roll_low_ = moved;
-    emit patternChanged();
+    emit rollRangeChanged(); // the view moved; the pattern did not
 }
 
 int PatternModel::stepCount() const {

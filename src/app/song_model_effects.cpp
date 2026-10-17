@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <set>
 
 namespace {
 
@@ -146,7 +147,7 @@ std::string plugin_key(const std::string& format, const std::string& path,
 } // namespace
 
 void SongModel::learnPluginNames(const QVariantList& plugins) {
-    bool learned = false;
+    std::set<std::string> learned;
     for (const auto& entry : plugins) {
         const auto row = entry.toMap();
         const auto name = row.value("name").toString();
@@ -156,11 +157,24 @@ void SongModel::learnPluginNames(const QVariantList& plugins) {
         const auto identifier = row.value("identifier").toString().toStdString();
         for (const auto& key : {plugin_key(format, path, identifier), plugin_key(format, path, {})}) {
             auto& known = plugin_names_[key];
-            learned = learned || known != name;
+            if (known != name) learned.insert(key);
             known = name;
         }
     }
-    if (learned) announceSong();
+    // A scan learns hundreds of names, one plugin at a time: the song is
+    // only redrawn when a name it shows - one of its inserts - changed.
+    const auto shown = [&](const std::vector<blokkily::EffectSlot>& inserts) {
+        return std::any_of(inserts.begin(), inserts.end(), [&](const blokkily::EffectSlot& slot) {
+            const auto& p = slot.plugin;
+            return learned.contains(plugin_key(p.format, p.path, p.identifier)) ||
+                   learned.contains(plugin_key(p.format, p.path, {}));
+        });
+    };
+    if (learned.empty()) return;
+    bool redraw = shown(song_.master_inserts);
+    for (const auto& track : song_.tracks) redraw = redraw || shown(track.inserts);
+    for (const auto& bus : song_.returns) redraw = redraw || shown(bus.inserts);
+    if (redraw) announceSong();
 }
 
 QString SongModel::effectLabel(const blokkily::PluginSlot& slot) const {

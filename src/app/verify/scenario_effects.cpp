@@ -194,6 +194,26 @@ void run_effects(VerifyContext& ctx) {
     // The effect's name reads in full at the standard mixer width: the
     // row's chips do not squeeze it into "Blokkil...".
     check(VerifyContext::reads_whole(ctx.named("insertName0"), "Blokkily Test Effect"));
+    // A scan learning names of plugins the song does not use redraws
+    // nothing; a new name for this insert's plugin relabels its row.
+    {
+        int redraws = 0;
+        const auto counting = QObject::connect(&song, &SongModel::songChanged, [&redraws] { ++redraws; });
+        song.learnPluginNames({QVariantMap{{"name", "Elsewhere"}, {"format", "CLAP"},
+                                           {"path", "/nowhere/else.clap"}, {"identifier", "else"}}});
+        check(redraws == 0);
+        const auto& own = song.song().tracks.at(0).inserts.at(0).plugin;
+        const auto rename = [&](const QString& name) {
+            song.learnPluginNames({QVariantMap{{"name", name}, {"format", QString::fromStdString(own.format)},
+                                               {"path", QString::fromStdString(own.path)},
+                                               {"identifier", QString::fromStdString(own.identifier)}}});
+            lay_out();
+        };
+        rename(QStringLiteral("Renamed Effect"));
+        check(redraws >= 1 && VerifyContext::reads_whole(ctx.named("insertName0"), "Renamed Effect"));
+        rename(QStringLiteral("Blokkily Test Effect"));
+        QObject::disconnect(counting);
+    }
     check(VerifyContext::usable(ctx.named("bypass0"), 30, 16) &&
           VerifyContext::usable(ctx.named("removeInsert0"), 16, 16) &&
           VerifyContext::usable(ctx.named("insertEditor0"), 16, 16) &&

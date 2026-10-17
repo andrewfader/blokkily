@@ -52,8 +52,10 @@ class PatternModel final : public QAbstractListModel {
     // Pitch window the piano roll draws, widened to whatever the pattern uses
     // until the producer scrolls it (scrollRoll), which moves it anywhere in
     // the MIDI range, so no pitch is out of the roll's reach.
-    Q_PROPERTY(int lowKey READ lowKey NOTIFY patternChanged)
-    Q_PROPERTY(int highKey READ highKey NOTIFY patternChanged)
+    // The piano roll's visible keys: they follow the pattern, and a scroll
+    // of the roll moves them without anything in the pattern changing.
+    Q_PROPERTY(int lowKey READ lowKey NOTIFY rollRangeChanged)
+    Q_PROPERTY(int highKey READ highKey NOTIFY rollRangeChanged)
     // How many sixteenth steps the open pattern has: sixteen for a 4/4 bar,
     // fourteen for a 7/8 one, or whatever its LEN was set to. The grid, the
     // tracker and the roll each draw this many columns.
@@ -269,6 +271,7 @@ public:
     void refresh();
 
 signals:
+    void rollRangeChanged();
     // What the editors must redraw: an edit, a reload, or the song opening a
     // different pattern.
     void patternChanged();
