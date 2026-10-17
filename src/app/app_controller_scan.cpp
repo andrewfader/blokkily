@@ -9,6 +9,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QSaveFile>
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
@@ -77,10 +78,16 @@ void AppController::loadScanCache() {
 void AppController::saveScanCache() const {
     const QString path = scanCachePath();
     QDir{}.mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return;
+    // Written aside and renamed into place: every window shares the cache,
+    // and one reading it while another writes must see a whole file.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
     const auto text = blokkily::write_scan_cache(scan_cache_);
-    file.write(text.data(), static_cast<qint64>(text.size()));
+    if (file.write(text.data(), static_cast<qint64>(text.size())) != static_cast<qint64>(text.size())) {
+        file.cancelWriting();
+        return;
+    }
+    (void)file.commit();
 }
 
 blokkily::ScanCacheEntry* AppController::cachedScan(const blokkily::ScanCandidate& candidate) {
