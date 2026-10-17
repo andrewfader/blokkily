@@ -310,6 +310,7 @@ ColumnLayout {
                 }
                 TempoLane {
                     objectName: "tempoLane"
+                    viewport: arrangeScroll
                     Layout.preferredWidth: root.laneRoom + Math.max(0, songModel.bars - 1) * root.barGap
                     Layout.preferredHeight: 40
                     spacing: root.barGap
@@ -531,6 +532,7 @@ ColumnLayout {
                 }
                 AutomationLane {
                     objectName: "automationLane"
+                    viewport: arrangeScroll
                     Layout.preferredWidth: root.laneRoom + Math.max(0, songModel.bars - 1) * root.barGap
                     Layout.preferredHeight: 48
                     spacing: root.barGap

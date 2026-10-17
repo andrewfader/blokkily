@@ -74,6 +74,20 @@ Rectangle {
         return index + 1 < points.length ? xAt(points[index + 1].at) : width
     }
 
+    // The scroll view the lane is seen through, and the part of the lane
+    // inside it: the curve's canvas covers only that, since a lane zoomed
+    // far in is wider than a GPU texture can be.
+    property Flickable viewport: null
+    readonly property real laneX: {
+        if (viewport === null) return 0
+        void (viewport.contentX + viewport.width + width) // follow the scroll
+        return lane.mapToItem(viewport.contentItem, 0, 0).x
+    }
+    readonly property real viewLeft: viewport === null ? 0
+        : Math.max(0, Math.min(width, viewport.contentX - laneX))
+    readonly property real viewRight: viewport === null ? width
+        : Math.max(viewLeft, Math.min(width, viewport.contentX + viewport.width - laneX))
+
     onPointsChanged: curve.requestPaint()
     onLayoutChanged: curve.requestPaint()
     onWidthChanged: curve.requestPaint()
@@ -93,10 +107,15 @@ Rectangle {
 
     Canvas {
         id: curve
-        anchors.fill: parent
+        objectName: "tempoCurve"
+        x: lane.viewLeft; y: 0
+        width: Math.max(1, lane.viewRight - lane.viewLeft); height: lane.height
+        onXChanged: requestPaint()
+        onWidthChanged: requestPaint()
         onPaint: {
             var ctx = getContext("2d")
             ctx.reset()
+            ctx.translate(-x, 0) // drawn in the lane's own coordinates
             ctx.strokeStyle = Theme.amber
             ctx.lineWidth = 2
             ctx.beginPath()

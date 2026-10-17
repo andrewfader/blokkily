@@ -13,6 +13,7 @@
 
 #include "blokkily/model/timebase.hpp"
 
+#include <QFileInfo>
 #include <QCoreApplication>
 #include <QMouseEvent>
 
@@ -198,6 +199,31 @@ void run_tempo_meter(VerifyContext& ctx) {
     check(lane != nullptr && bar0 != nullptr &&
           std::abs(lane->mapToScene({0, 0}).x() - bar0->mapToScene({0, 0}).x()) < 0.5);
     reached("tempo-meter: a 7/8 bar is drawn 7/8 as wide, and the tempo lane is usable");
+
+    // Zoomed far in, the lane runs on well past the view, but its curve is
+    // drawn through a canvas the size of what shows, never the whole lane.
+    {
+        auto* arrangement = ctx.named("arrangementView");
+        auto* scroll = ctx.named("arrangeScroll");
+        check(arrangement != nullptr && scroll != nullptr);
+        if (arrangement != nullptr) QMetaObject::invokeMethod(arrangement, "setZoom", Q_ARG(QVariant, 16.0), Q_ARG(QVariant, QVariant()));
+        lay_out();
+        auto* curve = lane == nullptr ? nullptr : lane->findChild<QQuickItem*>("tempoCurve");
+        check(curve != nullptr && scroll != nullptr && lane != nullptr);
+        if (curve != nullptr && scroll != nullptr && lane != nullptr) {
+            check(lane->width() > 4 * scroll->width());
+            check(curve->width() <= scroll->width() + 0.5 && curve->width() > 1.0);
+            // Scrolled along, the canvas moves with the view.
+            scroll->setProperty("contentX", lane->width() / 2);
+            lay_out();
+            const double seen = lane->mapToItem(scroll, {curve->x(), 0}).x();
+            check(seen >= -0.5 && seen < scroll->width());
+            check(ctx.save_screenshot_to(QFileInfo(ctx.parser.value("screenshot")).path() + "/tempo-meter-zoomed.png"));
+        }
+        if (arrangement != nullptr) QMetaObject::invokeMethod(arrangement, "setZoom", Q_ARG(QVariant, 1.0), Q_ARG(QVariant, QVariant()));
+        if (scroll != nullptr) scroll->setProperty("contentX", 0.0);
+        lay_out();
+    }
 
     // ------------------------------------------------ seeking to bar 3
     check(press("rulerBar2"));
