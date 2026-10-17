@@ -114,9 +114,31 @@ std::optional<QByteArray> RecoveryStore::read(const QString& id) const {
     return file.readAll();
 }
 
+bool RecoveryStore::claim(const QString& id) {
+    if (!enabled() || id.isEmpty() || id.contains('/') || id == id_) return false;
+    if (claimed_.contains(id)) return true;
+    if (!QFile::exists(path(id, ".blok"))) return false;
+    // The dead window's lock is stale and is taken over; a live window's,
+    // including another window's claim, is not.
+    auto lock = std::make_unique<QLockFile>(path(id, ".lock"));
+    lock->setStaleLockTime(0);
+    if (!lock->tryLock(0)) return false;
+    claimed_.emplace(id, std::move(lock));
+    return true;
+}
+
+void RecoveryStore::release(const QString& id) {
+    // The lock's own destructor unlocks it and removes the file.
+    claimed_.erase(id);
+}
+
 bool RecoveryStore::discard(const QString& id) {
-    if (!enabled() || id.isEmpty() || id.contains('/') || live(id)) return false;
+    if (!enabled() || id.isEmpty() || id.contains('/')) return false;
+    const bool ours = claimed_.contains(id);
+    if (!ours && live(id)) return false;
     QFile::remove(path(id, ".info"));
-    QFile::remove(path(id, ".lock"));
-    return QFile::remove(path(id, ".blok"));
+    const bool removed = QFile::remove(path(id, ".blok"));
+    if (ours) release(id);
+    else QFile::remove(path(id, ".lock"));
+    return removed;
 }

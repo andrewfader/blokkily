@@ -86,13 +86,26 @@ void AppController::forgetAutosave() {
 bool AppController::recoverSession(const QString& id) {
     if (!recovery_ || song_ == nullptr) return false;
     QString project_path;
+    bool offered = false;
     for (const auto& entry : recovery_->abandoned())
-        if (entry.id == id) project_path = entry.project;
+        if (entry.id == id) {
+            project_path = entry.project;
+            offered = true;
+        }
+    // Another window may have started beside this one and offered the same
+    // song: the first to claim it recovers it, and the other lets it go.
+    if (!offered || !recovery_->claim(id)) {
+        project_status_ = QStringLiteral("Recovered in another window");
+        emit projectStatusChanged();
+        emit recoveriesChanged();
+        return false;
+    }
     const auto text = recovery_->read(id);
-    if (!text) return false;
     std::string error;
-    auto project = blokkily::ProjectFile::parse(text->toStdString(), &error, base_of(project_path));
+    auto project = text ? blokkily::ProjectFile::parse(text->toStdString(), &error, base_of(project_path))
+                        : std::nullopt;
     if (!project) {
+        recovery_->release(id);
         project_status_ = "Recovery failed";
         project_detail_ = QString::fromStdString(error);
         emit projectStatusChanged();
