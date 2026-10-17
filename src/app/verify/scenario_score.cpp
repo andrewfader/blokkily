@@ -18,6 +18,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <cmath>
 #include <iostream>
 #include <source_location>
 #include <utility>
@@ -241,6 +242,13 @@ void run_score(VerifyContext& ctx) {
         scroller->setProperty("contentX", scroller->property("contentWidth").toDouble() - scroller->width());
     }
     settle();
+    // The canvas is the visible window onto the part, never the part's whole
+    // width (a long part drawn whole outgrew what a GPU texture can hold),
+    // and it follows the scroll.
+    if (canvas != nullptr && scroller != nullptr) {
+        check(canvas->width() <= scroller->width() + 0.5);
+        check(std::abs(canvas->x() - scroller->property("contentX").toDouble()) < 0.5 && canvas->x() > 0.0);
+    }
     shot("long-part");
 
     // ---------------------------------------------------------------------
@@ -260,7 +268,8 @@ void run_score(VerifyContext& ctx) {
         const double y = canvas->property("yBottom").toDouble() - pos * sp / 2;
         auto* input = ctx.named("staffInput");
         check(input != nullptr);
-        if (input != nullptr) ctx.click_at(input, input->mapFromItem(canvas, QPointF(x, y)), Qt::LeftButton);
+        // The input spans the whole part, so (x, y) are its own coordinates.
+        if (input != nullptr) ctx.click_at(input, QPointF(x, y), Qt::LeftButton);
         settle();
     };
     const auto press_chip = [&](const char* name) {

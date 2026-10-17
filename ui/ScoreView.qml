@@ -174,7 +174,7 @@ Rectangle {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.HorizontalFlick
-            contentWidth: scoreCanvas.width; contentHeight: height
+            contentWidth: scoreCanvas.contentWidthPx; contentHeight: height
             ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
 
             Canvas {
@@ -191,12 +191,25 @@ Rectangle {
                 // Clef, key and time signature, then the notes.
                 readonly property real headerWidth: (1 + 3.4 + scoreModel.keySignature.length * 1.35
                                                      + (scoreModel.unmetered ? 0.6 : 3.2)) * sp
-                width: Math.max(scroller.width, headerWidth + (scoreModel.contentWidth + 1.5) * sp)
+                // The whole part's width. The canvas itself is only the
+                // visible window onto it, following the scroll: a long part
+                // drawn whole was wider than a GPU texture can be.
+                readonly property real contentWidthPx: Math.max(scroller.width,
+                                                                headerWidth + (scoreModel.contentWidth + 1.5) * sp)
+                x: Math.max(0, Math.min(scroller.contentX, contentWidthPx - scroller.width))
+                width: scroller.width
 
                 onPaint: {
                     var ctx = getContext("2d");
-                    var W = width, H = height;
-                    ctx.clearRect(0, 0, W, H);
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.save();
+                    ctx.translate(-x, 0);
+                    try { paintScore(ctx, x, x + width); } finally { ctx.restore(); }
+                }
+                // Draws in the part's coordinates; what lies wholly outside
+                // left..right is skipped.
+                function paintScore(ctx, left, right) {
+                    var W = contentWidthPx, H = height;
                     var sp = scoreCanvas.sp;
                     var ink = Theme.ink;
                     var lineW = Math.max(1, sp * 0.09);
@@ -288,6 +301,10 @@ Rectangle {
                     for (var i = 0; i < objects.length; i++) {
                         var o = objects[i];
                         var x = xAt(o.x);
+                        // Off screen, unless a tie, hyphen or tuplet from it reaches in.
+                        if (x > right + 2 * sp) continue;
+                        var reach = Math.max(o.x, o.tieToX || 0, o.hyphenToX || 0, o.tupletEndX || 0);
+                        if (xAt(reach) + 3 * sp < left) continue;
                         if (o.kind === "rest") {
                             var r = Smufl.rest(o.value);
                             if (ready) {
@@ -372,38 +389,40 @@ Rectangle {
 
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
+                onXChanged: requestPaint()
+            }
 
-                // Note entry: x in staff spaces from the first column (to the
-                // notehead's left edge, as objects' x), y in staff positions.
-                MouseArea {
-                    id: staffInput
-                    objectName: "staffInput"
-                    anchors.fill: parent
-                    activeFocusOnTab: true
-                    cursorShape: Qt.CrossCursor
-                    function unitsAt(px) { return (px - scoreCanvas.headerWidth) / scoreCanvas.sp - 0.59; }
-                    function posAt(py) { return (scoreCanvas.yBottom - py) / (scoreCanvas.sp / 2); }
-                    onPressed: mouse => {
-                        forceActiveFocus();
-                        scoreModel.click(unitsAt(mouse.x), posAt(mouse.y));
-                    }
-                    // The window's step-cursor shortcuts stand aside while
-                    // the staff has the keyboard (Main.qml's staffEditing).
-                    function handles(event) {
-                        return scoreModel.selectedStep >= 0
-                            && (event.key === Qt.Key_Up || event.key === Qt.Key_Down
-                                || event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace
-                                || event.key === Qt.Key_Escape);
-                    }
-                    Keys.onPressed: event => {
-                        if (!handles(event)) return;
-                        const octave = (event.modifiers & Qt.ShiftModifier) ? 7 : 1;
-                        if (event.key === Qt.Key_Up) scoreModel.moveSelected(octave);
-                        else if (event.key === Qt.Key_Down) scoreModel.moveSelected(-octave);
-                        else if (event.key === Qt.Key_Escape) scoreModel.deselect();
-                        else scoreModel.deleteSelected();
-                        event.accepted = true;
-                    }
+            // Note entry, over the whole part: x in staff spaces from the
+            // first column (to the notehead's left edge, as objects' x), y in
+            // staff positions.
+            MouseArea {
+                id: staffInput
+                objectName: "staffInput"
+                width: scoreCanvas.contentWidthPx; height: scroller.height
+                activeFocusOnTab: true
+                cursorShape: Qt.CrossCursor
+                function unitsAt(px) { return (px - scoreCanvas.headerWidth) / scoreCanvas.sp - 0.59; }
+                function posAt(py) { return (scoreCanvas.yBottom - py) / (scoreCanvas.sp / 2); }
+                onPressed: mouse => {
+                    forceActiveFocus();
+                    scoreModel.click(unitsAt(mouse.x), posAt(mouse.y));
+                }
+                // The window's step-cursor shortcuts stand aside while
+                // the staff has the keyboard (Main.qml's staffEditing).
+                function handles(event) {
+                    return scoreModel.selectedStep >= 0
+                        && (event.key === Qt.Key_Up || event.key === Qt.Key_Down
+                            || event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace
+                            || event.key === Qt.Key_Escape);
+                }
+                Keys.onPressed: event => {
+                    if (!handles(event)) return;
+                    const octave = (event.modifiers & Qt.ShiftModifier) ? 7 : 1;
+                    if (event.key === Qt.Key_Up) scoreModel.moveSelected(octave);
+                    else if (event.key === Qt.Key_Down) scoreModel.moveSelected(-octave);
+                    else if (event.key === Qt.Key_Escape) scoreModel.deselect();
+                    else scoreModel.deleteSelected();
+                    event.accepted = true;
                 }
             }
         }
