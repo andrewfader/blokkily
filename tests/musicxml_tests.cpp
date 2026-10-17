@@ -61,10 +61,14 @@ Score through_file(const Score& score, const std::string& name) {
         std::ofstream out(path, std::ios::binary);
         out << write(score);
     }
-    std::ifstream in(path, std::ios::binary);
     std::stringstream text;
-    text << in.rdbuf();
-    std::filesystem::remove(path);
+    {
+        std::ifstream in(path, std::ios::binary);
+        text << in.rdbuf();
+    }
+    // Closed first: Windows will not delete a file that is still open.
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
     return parse(text.str());
 }
 
