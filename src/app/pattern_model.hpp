@@ -301,6 +301,11 @@ private:
     // The roll's window once scrolled: its lowest key and how many keys it
     // spans, and the pattern it was scrolled on.
     std::optional<int> roll_low_;
+    // key_range of the open pattern at revision_: every voice of the piano
+    // roll reads the lane range, and scanning the pattern for each was
+    // quadratic in its notes.
+    mutable std::optional<std::pair<int, std::pair<int, int>>> key_range_cache_;
+    std::pair<int, int> cachedKeyRange() const;
     int roll_span_ = 0;
     int roll_pattern_ = -1;
     // The narration feed (see AppController::eventBus): note edits append

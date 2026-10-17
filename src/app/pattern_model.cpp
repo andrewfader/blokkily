@@ -745,9 +745,15 @@ std::pair<int, int> key_range(const blokkily::Pattern& pattern) {
 }
 } // namespace
 
+std::pair<int, int> PatternModel::cachedKeyRange() const {
+    if (!key_range_cache_ || key_range_cache_->first != revision_)
+        key_range_cache_ = std::make_pair(revision_, key_range(pattern()));
+    return key_range_cache_->second;
+}
+
 int PatternModel::lowKey() const {
     if (roll_low_) return *roll_low_;
-    const auto [lowest, highest] = key_range(pattern());
+    const auto [lowest, highest] = cachedKeyRange();
     int low = lowest - 4;
     const int span = (highest + 4) - low;
     if (span < minimum_roll_span) low -= (minimum_roll_span - span) / 2;
@@ -756,7 +762,7 @@ int PatternModel::lowKey() const {
 
 int PatternModel::highKey() const {
     if (roll_low_) return *roll_low_ + roll_span_;
-    const auto highest = key_range(pattern()).second;
+    const auto highest = cachedKeyRange().second;
     return qBound(lowKey() + minimum_roll_span, highest + 4, 127);
 }
 

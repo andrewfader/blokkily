@@ -60,6 +60,11 @@ QString pan_readout(double pan) {
 } // namespace
 
 SongModel::SongModel(QObject* parent) : QObject(parent) {
+    // tracks() also carries meters, input and arm state, which move on
+    // signals of their own; connected first, so no reader sees the old rows.
+    for (const auto changed : {&SongModel::metersChanged, &SongModel::inputChanged, &SongModel::mixChanged, &SongModel::audioClipsChanged,
+                               &SongModel::modulationChanged, &SongModel::structureChanged})
+        connect(this, changed, this, [this] { tracks_cache_.reset(); });
     song_.patterns = {{"VERSE", blokkily::Pattern(1920, 480)},
                       {"CHORUS", blokkily::Pattern(1920, 480)}};
     song_.tracks = {{"DRUMS", {}, {}}, {"BASS", {}, {-3.0, 0.25, false, false}}};
@@ -148,6 +153,7 @@ QStringList SongModel::trackNames() const {
 }
 
 QVariantList SongModel::tracks() const {
+    if (tracks_cache_) return *tracks_cache_;
     QVariantList rows;
     const bool solo = song_.any_solo();
     for (std::size_t index = 0; index < song_.tracks.size(); ++index) {
@@ -214,6 +220,7 @@ QVariantList SongModel::tracks() const {
         row["frozen"] = track.frozen;
         rows.push_back(row);
     }
+    tracks_cache_ = rows;
     return rows;
 }
 
@@ -257,7 +264,7 @@ void SongModel::selectTrack(int track) {
     // it, so moving between stems never changes what is being worked on.
     selected_track_ = track;
     rack_kind_ = blokkily::BusKind::track;
-    announceSong();
+    announceSelection();
 }
 
 void SongModel::selectPattern(int pattern) {
@@ -266,14 +273,14 @@ void SongModel::selectPattern(int pattern) {
     const auto& slot = song_.patterns[static_cast<std::size_t>(pattern)];
     current_section_ = static_cast<int>(slot.section);
     selected_track_ = static_cast<int>(slot.track);
-    announceSong();
+    announceSelection();
 }
 
 void SongModel::selectSection(int section) {
     if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return;
     if (section == current_section_) return;
     current_section_ = section;
-    announceSong();
+    announceSelection();
 }
 
 void SongModel::addTrack() { addTrack(blokkily::InstrumentSlot{}); }
@@ -377,12 +384,21 @@ void SongModel::refreshStructure() {
 // The projections are dropped before the signal goes out, not by a slot on it:
 // QML re-reads a property inside the emission, ahead of any connected slot.
 void SongModel::announceSong() {
+    tracks_cache_.reset();
     // A fader, pan, mute or solo changes nothing the arrangement draws.
     if (!mix_only_) {
         lanes_cache_.reset();
         bar_layout_cache_.reset();
         emit arrangementChanged();
     }
+    emit songChanged();
+}
+
+void SongModel::announceSelection() {
+    // What is selected is not drawn in the lanes or the bar ruler: their
+    // caches stand. Everything that follows the selection still hears it.
+    tracks_cache_.reset(); // each row says whether it is the selected one
+    emit arrangementChanged();
     emit songChanged();
 }
 

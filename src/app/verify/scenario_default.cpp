@@ -1025,6 +1025,12 @@ struct DefaultScenario {
                           && lane.at(4).toMap().value("repeats").toInt() == 2
                           && lane.at(5).toMap().value("start").toBool() == false
                           && lane.at(5).toMap().value("repeats").toInt() == 2;
+            // The drawn lanes agree with the song cell by cell, bar by bar.
+            for (int t = 0; t < lanes.size(); ++t) {
+                const auto cells = lanes.at(t).toList();
+                for (int b = 0; b < cells.size(); ++b)
+                    valid = valid && cells.at(b).toMap().value("filled").toBool() == song.hasClip(t, b);
+            }
             // Moving it along the lane keeps the length and frees the old bars.
             valid = valid && song.moveClip(2, 4, 6);
             valid = valid && !cellFilled(2, 4) && !cellFilled(2, 5)

@@ -801,9 +801,13 @@ private:
     // The arrangement's projections, built once per change to the song's
     // structure (lanes(), barLayout()). Every songChanged and timebaseChanged
     // goes out through these, which drop them first.
+    void announceSelection();
     void announceSong();
     void announceTimebase();
     mutable std::optional<QVariantList> lanes_cache_;
+    // tracks(), read by every mixer strip and arrangement row: built once
+    // per songChanged, not once per read (a fader drag read it 4T times).
+    mutable std::optional<QVariantList> tracks_cache_;
     mutable std::optional<QVariantList> bar_layout_cache_;
     int selected_lane_ = 0;
     bool take_recorded_ = false;

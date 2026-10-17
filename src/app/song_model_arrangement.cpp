@@ -32,10 +32,27 @@ QVariantList SongModel::lanes() const {
     if (lanes_cache_) return *lanes_cache_;
     QVariantList all;
     const int bar_count = bars();
+    // Each bar's clip, found by walking every clip once over the bars it
+    // covers; the first clip in the song's order wins, as in clipAt.
+    std::vector<std::vector<const blokkily::Clip*>> at(
+        static_cast<std::size_t>(std::max(0, trackCount())),
+        std::vector<const blokkily::Clip*>(static_cast<std::size_t>(std::max(0, bar_count)), nullptr));
+    for (const auto& clip : song_.clips) {
+        if (clip.track >= at.size() || clip.pattern >= song_.patterns.size()) continue;
+        const auto span = clip.span(song_.patterns[clip.pattern].pattern.length());
+        if (span <= 0) continue;
+        // A bar is the clip's when the bar starts inside it.
+        int first = barAt(clip.start);
+        if (barStart(first) < clip.start) ++first;
+        const int last = std::min(bar_count - 1, barAt(clip.start + span - 1));
+        auto& lane = at[clip.track];
+        for (int bar = std::max(0, first); bar <= last; ++bar)
+            if (lane[static_cast<std::size_t>(bar)] == nullptr) lane[static_cast<std::size_t>(bar)] = &clip;
+    }
     for (int track = 0; track < trackCount(); ++track) {
         QVariantList lane;
         for (int bar = 0; bar < bar_count; ++bar) {
-            const auto* clip = clipAt(track, bar);
+            const auto* clip = at[static_cast<std::size_t>(track)][static_cast<std::size_t>(bar)];
             QVariantMap cell;
             cell["filled"] = clip != nullptr;
             // A part with nothing in it yet: drawn quietly, still a clip that
