@@ -38,9 +38,10 @@ class ScoreModel final : public QObject {
     // pos (diatonic steps above the clef's bottom line), acc (-2..2),
     // showAcc, value (NoteValue as int), dots, voice, stemUp, stem (this
     // note draws its chord's stem, from stemFrom to stemTo positions),
-    // stemless, ledger (ledger lines needed), tieStart, tieToX, lyric,
-    // extend (holds the previous syllable), tuplet and tupletEndX (on the
-    // first note of a tuplet group).
+    // stemless, ledger (ledger lines needed), tieStart, tieToX, lyric (the
+    // syllable without its hyphen), hyphen and hyphenToX (the word goes on
+    // to the next sung note, at that x), extend (holds the previous
+    // syllable), tuplet and tupletEndX (on the first note of a tuplet group).
     Q_PROPERTY(QVariantList objects READ objects NOTIFY scoreChanged)
     // Each barline's x in staff spaces, and whether it is the final one.
     Q_PROPERTY(QVariantList barlines READ barlines NOTIFY scoreChanged)

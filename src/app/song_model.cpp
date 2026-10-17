@@ -367,7 +367,12 @@ bool SongModel::setInstrumentState(int track, std::vector<std::byte> state,
     return true;
 }
 
-void SongModel::refreshStructure() { notifyStructureChanged(); }
+// A song swapped in whole (an import) may bring its own tempo and meter:
+// the transport and the ruler hear of them as an undo would tell them.
+void SongModel::refreshStructure() {
+    announceTimebase();
+    notifyStructureChanged();
+}
 
 // The projections are dropped before the signal goes out, not by a slot on it:
 // QML re-reads a property inside the emission, ahead of any connected slot.

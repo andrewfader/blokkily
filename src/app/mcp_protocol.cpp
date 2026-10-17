@@ -112,6 +112,10 @@ QJsonArray toolDefinitions() {
                                    {"description",
                                     "Retunes the note from its key, -100 to 100 cents, for a "
                                     "pitch between keys (50 is a quarter tone up). Default 0."}}},
+             {"lyric", QJsonObject{{"type", "string"},
+                                   {"description",
+                                    "The syllable sung on the note, in any script: \"Al-\" goes "
+                                    "on into the next syllable, \"_\" holds the last one."}}},
          }},
         {"required", QJsonArray{"step", "key"}},
     };
@@ -146,6 +150,15 @@ QJsonArray toolDefinitions() {
                      {"swing", integer("0 to 100.")},
                      {"name", QJsonObject{{"type", "string"}}}},
                     {"section"})),
+        tool("set_lyrics",
+             "Lays a line of lyrics on one track's part of one pattern, one syllable per note "
+             "in time order (notes that start together share one), as one step of undo: "
+             "\"A-ma-zing grace\" is A-, ma-, zing, grace; \"_\" holds the last syllable over a "
+             "note. Any script, Hebrew included. Notes past the last syllable are left without one.",
+             schema({{"track", track},
+                     {"section", section},
+                     {"text", QJsonObject{{"type", "string"}}}},
+                    {"text"})),
         tool("place_section",
              "Places a pattern (section) in the arrangement at a bar: a clip of each track's "
              "part, or of one track's with track. Bars already holding a clip are left as "
@@ -346,7 +359,8 @@ QString instructions() {
         "a song: tracks (each owns an instrument and a mixer strip), patterns (sections; each "
         "track has its own part of each), and clips that place patterns on the arrangement's "
         "bars. Every index is from 0. Steps are sixteenth notes. Start with get_session. "
-        "write_notes writes notes, each retuned from its key by cents if asked; set_section "
+        "write_notes writes notes, each retuned from its key by cents and sung to a lyric if "
+        "asked; set_lyrics lays a line of lyrics on a part; set_section "
         "sizes a pattern and place_section arranges it; transport plays them. set_instrument, set_soundfont_preset and set_parameter choose sounds; "
         "set_parameter also reaches an effect on a return or the master. Anything else the interface can do "
         "is a method: describe lists them, call runs one (e.g. songModel.setTrackGain(track, "
@@ -356,7 +370,8 @@ QString instructions() {
         "setInsertStepLock(track, pattern, step, kind, bus, slot, ...) for a return's or the "
         "master's insert), "
         "songModel.undo(), appController.saveProjectFile(path), "
-        "appController.exportAudioFile(path)). Every edit can be undone. screenshot shows the "
+        "appController.exportAudioFile(path), appController.importMusicXmlFile(path) and "
+        "exportMusicXmlFile(path) for a whole score). Every edit can be undone. screenshot shows the "
         "window. analyze_render measures how the mix sounds: loudness, peaks and where the "
         "energy sits. get_score reads a part as staff notation (spelled notes plus "
         "MusicXML); set_clef, set_key_signature and set_time_signature dress the "

@@ -54,6 +54,8 @@ struct Part {
 struct Score {
     std::string title{};
     std::string composer{};
+    // Quarter notes per minute at the start, when the score says.
+    std::optional<double> tempo_bpm{};
     std::vector<Part> parts{};
 };
 

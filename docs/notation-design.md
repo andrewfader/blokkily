@@ -121,13 +121,21 @@ octave; a tied end never prints one.
 - Tests: `features/score_view.feature` + `bdd_score`, with inspected
   screenshots (treble, French violin, three sharps, chant, a long two-voice
   part), and the save/undo of the settings.
-- Still open (follow-ups, not regressions): the view is read-only (no note
-  entry on the staff); no beams (flags only); tuplets show their number but no
+- Still open (follow-ups, not regressions): no note entry on the staff (lyrics
+  are typed in the LYRICS field); one part at a time (no full score); no beams (flags only); tuplets show their number but no
   bracket; spacing is proportional but not Gould's; mid-piece changes of
   transposition are not modelled; the bridge never fills lyrics from a
-  pattern, so lyrics come only from MusicXML.
+  pattern - lyrics now live on the pattern's notes themselves.
 
 ## Lyrics
+
+A pattern's `Trigger::lyric` holds the syllable sung on that step, saved by
+`records_lyrics.cpp`, so lyrics are part of the song like its notes. The
+SCORE view's LYRICS field (and MCP's `set_lyrics`) lays a typed line on the
+open part's notes in time order through `split_lyrics()`. The view draws each
+syllable under its note - Hebrew in the bundled Noto Sans Hebrew, so it reads
+the same on every machine - and the hyphen of a word that goes on between it
+and the next syllable, whichever way the script runs.
 
 `NotationNote.lyric` holds one syllable; a trailing `-` ("Al-") says the word
 goes on into the next syllable, and `_` holds the previous syllable under the

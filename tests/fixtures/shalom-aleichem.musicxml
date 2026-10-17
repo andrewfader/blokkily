@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+<work><work-title>Shalom Aleichem</work-title></work>
+<part-list><score-part id="P1"><part-name>Voice</part-name></score-part><score-part id="P2"><part-name>Organ</part-name></score-part></part-list>
+<part id="P1">
+<measure number="1">
+<attributes><divisions>2</divisions><key><fifths>-1</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>76</per-minute></metronome></direction-type><sound tempo="76"/></direction>
+<note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>begin</syllabic><text>שָׁ</text></lyric></note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>end</syllabic><text>לוֹם</text></lyric></note>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>begin</syllabic><text>עֲ</text></lyric></note>
+</measure>
+<measure number="2">
+<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>middle</syllabic><text>לֵי</text></lyric></note>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>end</syllabic><text>כֶם</text></lyric></note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>begin</syllabic><text>מַלְ</text></lyric></note>
+</measure>
+<measure number="3">
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>middle</syllabic><text>אֲ</text></lyric></note>
+<note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>end</syllabic><text>כֵי</text></lyric></note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>begin</syllabic><text>הַ</text></lyric></note>
+</measure>
+<measure number="4">
+<note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>half</type><lyric number="1"><syllabic>middle</syllabic><text>שָּׁ</text></lyric></note>
+<note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>end</syllabic><text>רֵת</text></lyric></note>
+<barline location="right"><bar-style>light-heavy</bar-style></barline>
+</measure>
+</part>
+<part id="P2">
+<measure number="1">
+<attributes><divisions>2</divisions><key><fifths>-1</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<note><chord/><pitch><step>C</step><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<backup><duration>6</duration></backup>
+<note><pitch><step>F</step><octave>3</octave></pitch><duration>6</duration><voice>2</voice><type>half</type><dot/><staff>2</staff></note>
+</measure>
+<measure number="2">
+<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<note><chord/><pitch><step>D</step><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<backup><duration>6</duration></backup>
+<note><pitch><step>B</step><alter>-1</alter><octave>2</octave></pitch><duration>6</duration><voice>2</voice><type>half</type><dot/><staff>2</staff></note>
+</measure>
+<measure number="3">
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<note><chord/><pitch><step>C</step><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<backup><duration>6</duration></backup>
+<note><pitch><step>C</step><octave>3</octave></pitch><duration>6</duration><voice>2</voice><type>half</type><dot/><staff>2</staff></note>
+</measure>
+<measure number="4">
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<note><chord/><pitch><step>C</step><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+<backup><duration>6</duration></backup>
+<note><pitch><step>F</step><octave>2</octave></pitch><duration>6</duration><voice>2</voice><type>half</type><dot/><staff>2</staff></note>
+<barline location="right"><bar-style>light-heavy</bar-style></barline>
+</measure>
+</part></score-partwise>

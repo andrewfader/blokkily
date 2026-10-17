@@ -521,6 +521,16 @@ std::string write(const Score& score) {
                 }
             }
 
+            // The tempo, at the start of the first part.
+            if (m == 0 && p == 0 && score.tempo_bpm) {
+                auto direction = xml_measure.append_child("direction");
+                direction.append_attribute("placement") = "above";
+                auto metronome = direction.append_child("direction-type").append_child("metronome");
+                append_text(metronome, "beat-unit", "quarter");
+                append_text(metronome, "per-minute", decimal(*score.tempo_bpm));
+                direction.append_child("sound").append_attribute("tempo") = decimal(*score.tempo_bpm).c_str();
+            }
+
             // Each voice of each staff from the measure's start, rewound to
             // it with <backup> before the next.
             long long previous = -1;
@@ -708,6 +718,12 @@ Score parse(const std::string& xml) {
                 if (name == "forward") {
                     now += to_units(whole_number(child.child("duration"), "duration"));
                     continue;
+                }
+                if (!score.tempo_bpm) {
+                    // The first tempo the score sets, wherever it says it.
+                    const auto sound = name == "sound" ? child : child.child("sound");
+                    const double bpm = sound.attribute("tempo").as_double(0.0);
+                    if (std::isfinite(bpm) && bpm > 0.0) score.tempo_bpm = bpm;
                 }
                 if (name != "note") continue; // barlines, directions, harmony...
                 const auto xml_note = child;

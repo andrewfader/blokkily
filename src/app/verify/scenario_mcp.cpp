@@ -874,6 +874,38 @@ void run_mcp(VerifyContext& ctx) {
     check(untouched.value("notes").toArray().isEmpty());
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent writes lyrics, in any script");
+    {
+        const auto written = agent.tool(
+            "write_notes", {{"track", 0}, {"section", 0}, {"replace", true},
+                            {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", "C4"}, {"length", 4}, {"lyric", "Hal-"}},
+                                                 QJsonObject{{"step", 4}, {"key", "D4"}, {"length", 4}, {"lyric", "le-"}},
+                                                 QJsonObject{{"step", 8}, {"key", "E4"}, {"length", 4}}}}});
+        check(!isError(written));
+        QStringList sung;
+        for (const auto& note : agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
+                                    .value("structuredContent").toObject().value("notes").toArray())
+            sung << note.toObject().value("lyric").toString();
+        check(sung == QStringList({"Hal-", "le-", ""}));
+        // A line of Hebrew laid on the part, one syllable per note.
+        const QString hebrew = QString::fromUtf8("\xD7\x94\xD6\xB7\xD7\x9C-\xD7\x9C\xD7\x95\xD6\xBC-\xD7\x99\xD6\xB8\xD7\x94");
+        const auto laid = agent.tool("set_lyrics", {{"track", 0}, {"section", 0}, {"text", hebrew}})
+                              .value("structuredContent").toObject();
+        check(laid.value("placed").toInt() == 3 && laid.value("syllables").toInt() == 3 &&
+              laid.value("lyrics").toString() == hebrew);
+        const auto scored = agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+        check(scored.value("notes").toArray().at(2).toObject().value("lyric").toString() ==
+              QString::fromUtf8("\xD7\x99\xD6\xB8\xD7\x94"));
+        check(scored.value("musicxml").toString().contains(QString::fromUtf8("\xD7\x99\xD6\xB8\xD7\x94")));
+        // One undo takes the line back.
+        check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+        check(ctx.pattern.lyricsText() == "Hal-le-");
+        check(isError(agent.tool("set_lyrics", {{"track", 0}, {"section", 0}})));
+        check(isError(agent.tool("write_notes", {{"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", 60},
+                                                                                   {"lyric", QString(300, 'a')}}}}})));
+    }
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: the guide narrates what the agent did");
     check(!isError(agent.tool("write_notes",
                               {{"track", 0},

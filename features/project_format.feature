@@ -41,3 +41,10 @@ Feature: Project files keep opening as the program grows
     Then the saved file reads back with each part's clef and each section's key and meter
     And saving it again gives the same bytes
     And a clef the model does not know, a key past seven, a beat unit of three, no beats, or a record naming a part or section that does not exist is refused
+
+  Scenario: Lyrics are saved with their notes, in any script
+    Given a song whose notes have no lyrics
+    Then saving it writes no lyric records
+    When a note is given a pointed Hebrew syllable
+    Then the saved file reads back with the syllable byte for byte, and saving again gives the same bytes
+    And a second lyric for a step, or a lyric for a step or pattern that does not exist, is refused

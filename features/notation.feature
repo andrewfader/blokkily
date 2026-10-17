@@ -106,3 +106,26 @@ Feature: True staff notation as a fourth projection of the pattern
     Then the clarinet's D4 sounds C4 and the 8vb staff sounds an octave down
     And the pickup lasts one beat and 3/4 holds from the bar where it is written
     And a note written above MIDI 127 is left out and counted
+
+  Scenario: A line of lyrics becomes one syllable per note, in any script
+    Given "A-ma-zing grace" and a line of pointed Hebrew with a hyphen and a space
+    When each is split into syllables
+    Then the words split at spaces and hyphens, each keeping its hyphen, and the Hebrew keeps its points
+    And joining the syllables gives the line back
+    And a syllable rides on its note to the staff and back, on a chord's first note and a tie's first piece only
+    And a Hebrew syllable and the score's tempo come back from MusicXML byte for byte
+
+  Scenario: The song is written as a score, its whole arrangement
+    Given a track whose verse plays twice from bar 1 and once more from bar 4, trimmed to its second half, in an alto clef and two sharps, the song turning to 3/4 at bar 4
+    When the song is written as a score
+    Then the part keeps the alto clef and the key, and changes to 3/4 where the song does
+    And it plays every repeat, and the trimmed clip from its second half, lyrics and all
+
+  Scenario: A score comes into the song as a section of its own
+    Given a choir part on two staves in F major and 3/4 at 66 BPM, with lyrics
+    When it comes into a song with no notes
+    Then each staff becomes a track named after the part, the lower in the bass clef
+    And the section takes the key and the meter and is two bars long, and its clips start the arrangement
+    And the song takes the score's meter and tempo
+    When it comes into a song that has notes
+    Then it gets new tracks and its clips go after the last, and the song's tempo is left alone

@@ -88,9 +88,11 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Staff notation
 
-- The SCORE view draws the pattern but does not edit it: notes are written in
-  the step grid, tracker or piano roll. MusicXML import and export are
-  available to agents through MCP, not yet from the window.
+- The SCORE view draws one part at a time and does not place notes: they are
+  written in the step grid, tracker or piano roll (lyrics are typed in the
+  view's LYRICS field). There is no full score of every part together yet.
+- Lyrics are one verse: a note carries one syllable. Hebrew and other scripts
+  are drawn correctly, but cantillation marks (te'amim) are not.
 - Flags are drawn instead of beams, and a tuplet shows its number without a
   bracket. Spacing follows the rhythm but is not engraving-grade.
 - Notation leaves out what it cannot write: timing off the 128th-note grid,

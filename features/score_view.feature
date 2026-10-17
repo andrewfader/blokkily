@@ -48,7 +48,7 @@ Feature: The pattern is also shown as true staff notation
 
   # bdd_score "score: chords, held notes and long parts are drawn whole"
   Scenario: Chords, held notes and long parts are drawn whole
-    Given a four-bar part with a triad, then a C3 held through a bar under four C6 quarters
+    Given an eight-bar part with a triad, then a C3 held through a bar under four C6 quarters
     When the score draws it
-    Then there are four bars, the triad has one stem, and the two voices' stems point apart
+    Then there are eight bars, the triad has one stem, and the two voices' stems point apart
     And the staff fits its highest and lowest notes, and scrolls sideways to the end of the part

@@ -168,6 +168,14 @@ Feature: An agent drives Blokkily over MCP
     And text that is not MusicXML, a missing file, no document, or both xml and path are refused
     And the pattern is unchanged
 
+  Scenario: The agent writes lyrics, in any script
+    When the agent writes three notes, the first two sung "Hal-" and "le-"
+    Then get_pattern reads each note's lyric, the third with none
+    When it lays a line of pointed Hebrew on the part with set_lyrics
+    Then all three syllables find a note, get_score reads them under their notes and its MusicXML carries them
+    And one UNDO puts the earlier lyrics back
+    And set_lyrics with no text, or a lyric longer than 256 bytes, is refused
+
   Scenario: The guide narrates what the agent did
     When the agent writes a note with write_notes
     Then guide_events names the agent as the source and explains the note in the guide's voice

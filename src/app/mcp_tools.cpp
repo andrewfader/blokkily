@@ -7,6 +7,7 @@
 #include "blokkily/notation/clef.hpp"
 #include "blokkily/notation/duration.hpp"
 #include "blokkily/notation/layout.hpp"
+#include "blokkily/notation/lyrics.hpp"
 #include "blokkily/notation/musicxml.hpp"
 #include "blokkily/notation/pattern_bridge.hpp"
 #include "blokkily/notation/pitch.hpp"
@@ -151,6 +152,7 @@ QJsonObject McpTools::dispatch(const QString& name, const QJsonObject& arguments
     if (name == "get_pattern") return getPattern(arguments);
     if (name == "write_notes") return writeNotes(arguments);
     if (name == "set_section") return setSection(arguments);
+    if (name == "set_lyrics") return setLyrics(arguments);
     if (name == "place_section") return placeSection(arguments);
     if (name == "transport") return runTransport(arguments);
     if (name == "list_plugins") return listPlugins();
@@ -294,6 +296,7 @@ QJsonObject McpTools::getPattern(const QJsonObject& arguments) const {
             for (const auto interval : chord->intervals) keys.append(chord->root + interval);
             entry.insert("keys", keys);
         }
+        if (!trigger.lyric.empty()) entry.insert("lyric", QString::fromStdString(trigger.lyric));
         if (!trigger.locks.empty()) {
             QJsonArray locks;
             for (const auto& lock : trigger.locks)
@@ -334,6 +337,7 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         int key;
         float velocity;
         double cents;
+        std::string lyric;
     };
     std::vector<Wanted> wanted;
     const auto notes = arguments.value("notes").toArray();
@@ -350,7 +354,9 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         if (velocity < 0 || velocity > 1) return failure(QStringLiteral("Note %1: velocity must be 0 to 1.").arg(index));
         if (!(cents >= -100.0 && cents <= 100.0))
             return failure(QStringLiteral("Note %1: cents must be -100 to 100.").arg(index));
-        wanted.push_back({step, length, *key, static_cast<float>(velocity), cents});
+        const std::string lyric = note.value("lyric").toString().trimmed().toStdString();
+        if (lyric.size() > 256) return failure(QStringLiteral("Note %1: a lyric is one syllable, at most 256 bytes.").arg(index));
+        wanted.push_back({step, length, *key, static_cast<float>(velocity), cents, lyric});
     }
     // The part is opened, as a click on its lane would, so the editors show
     // what is written.
@@ -379,6 +385,7 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
             1, std::min<blokkily::Tick>(static_cast<blokkily::Tick>(std::llround(note.length * step_ticks)),
                                         pattern.length() - trigger.start));
         trigger.musical_data = blokkily::Note{static_cast<std::int16_t>(note.key), note.velocity, 0.0F, note.cents};
+        trigger.lyric = note.lyric;
         if (pattern.add(std::move(trigger)) != 0) ++written;
     }
     song_.notifyStructureChanged();
@@ -424,6 +431,25 @@ QJsonObject McpTools::setSection(const QJsonObject& arguments) {
         {"name", song_.sections().at(section).toMap().value("name").toString()},
         {"steps", static_cast<int>(open.length() / std::max<blokkily::Tick>(1, open.ticks_per_beat() / 4))},
         {"swing", open.swing()}});
+}
+
+QJsonObject McpTools::setLyrics(const QJsonObject& arguments) {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    if (track < 0 || track >= song_.trackCount()) return failure(QStringLiteral("There is no track %1.").arg(track));
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    if (!arguments.value("text").isString()) return failure(QStringLiteral("set_lyrics needs text."));
+    const QString text = arguments.value("text").toString();
+    song_.selectSection(section);
+    song_.selectTrack(track);
+    const int placed = pattern_.setLyrics(text);
+    const auto syllables = static_cast<int>(blokkily::notation::split_lyrics(text.toStdString()).size());
+    return jsonResult(QJsonObject{{"track", track},
+                                  {"pattern", section},
+                                  {"placed", placed},
+                                  {"syllables", syllables},
+                                  {"lyrics", pattern_.lyricsText()}});
 }
 
 QJsonObject McpTools::placeSection(const QJsonObject& arguments) {
@@ -838,6 +864,7 @@ QJsonObject McpTools::getScore(const QJsonObject& arguments) {
             entry.insert("tieEnd", note->tie_end);
             entry.insert("velocity", note->velocity);
             if (note->cents != 0.0) entry.insert("cents", note->cents);
+            if (!note->lyric.empty()) entry.insert("lyric", QString::fromStdString(note->lyric));
             notes.append(entry);
         }
         blokkily::notation::Score score;

@@ -187,6 +187,11 @@ struct Trigger {
     std::vector<ParameterLock> locks;
     // Per-note expression of its voices, by voice and then offset.
     std::vector<NoteExpression> expression;
+    // The syllable sung on this step, in any script. A trailing "-" ("Al-")
+    // says the word goes on into the next syllable; exactly "_" holds the
+    // previous syllable over this note. Empty is no lyric. Nothing that
+    // sounds depends on it.
+    std::string lyric;
 };
 
 struct ScheduledNote {
