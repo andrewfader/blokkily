@@ -122,7 +122,8 @@ keeps the layout consistent across desktops.
 - Read any part as staff notation in the SCORE view: all eleven clefs from
   French violin to percussion, any key, any meter or unmetered chant, chords,
   voices, ties, accidentals and lyrics in any script, with the clef, key and
-  meter saved with the song. Bring a hymn or a choral score in from notation
+  meter saved with the song. Write notes straight onto the staff with the
+  mouse and arrow keys. Bring a hymn or a choral score in from notation
   software with SCORE IN, and send the song out with SCORE OUT, as MusicXML.
 - Press F1 or HELP for a guided tour of the window. CLEAR empties the session
   in one undo step.

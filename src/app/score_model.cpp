@@ -16,6 +16,7 @@
 #include <map>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <variant>
 
 namespace notation = blokkily::notation;
@@ -48,7 +49,7 @@ struct Entry {
 
 } // namespace
 
-ScoreModel::ScoreModel(const PatternModel* pattern, SongModel* song, QObject* parent)
+ScoreModel::ScoreModel(PatternModel* pattern, SongModel* song, QObject* parent)
     : QObject(parent), pattern_(pattern), song_(song) {
     if (pattern_ != nullptr) connect(pattern_, &PatternModel::patternChanged, this, &ScoreModel::rebuild);
     if (song_ != nullptr) {
@@ -95,6 +96,144 @@ void ScoreModel::setUnmetered(bool unmetered) {
 }
 
 void ScoreModel::refresh() { rebuild(); }
+
+void ScoreModel::setNoteValue(int value) {
+    if (value != 1 && value != 2 && value != 4 && value != 8 && value != 16) return;
+    if (value == note_value_) return;
+    note_value_ = value;
+    emit entryChanged();
+}
+
+void ScoreModel::setDotted(bool dotted) {
+    if (dotted == dotted_) return;
+    dotted_ = dotted;
+    emit entryChanged();
+}
+
+int ScoreModel::tickAt(double x) const {
+    if (time_map_.size() < 2 || x < time_map_.front().first - 0.6 || x > time_map_.back().first) return -1;
+    // The column at or before x, and how far x has gone toward the next one.
+    std::size_t i = 0;
+    while (i + 1 < time_map_.size() && time_map_[i + 1].first <= x) ++i;
+    double tick = static_cast<double>(time_map_[i].second);
+    if (i + 1 < time_map_.size()) {
+        const auto& [x0, t0] = time_map_[i];
+        const auto& [x1, t1] = time_map_[i + 1];
+        if (x1 > x0 && t1 > t0) tick += (std::max(x, x0) - x0) / (x1 - x0) * static_cast<double>(t1 - t0);
+    }
+    const Tick step = PatternModel::ticks_per_step;
+    // To the nearest step: a column's own x is its time, wherever the
+    // spacing around it falls.
+    const auto snapped = static_cast<Tick>(std::lround(tick / static_cast<double>(step))) * step;
+    return snapped >= std::as_const(*pattern_).pattern().length() ? -1 : static_cast<int>(snapped);
+}
+
+double ScoreModel::xForTick(int tick) const {
+    if (time_map_.empty()) return 0.0;
+    for (std::size_t i = 0; i + 1 < time_map_.size(); ++i) {
+        const auto& [x0, t0] = time_map_[i];
+        const auto& [x1, t1] = time_map_[i + 1];
+        if (tick >= t0 && tick < t1) return x0 + (x1 - x0) * static_cast<double>(tick - t0) / static_cast<double>(t1 - t0);
+    }
+    return tick < time_map_.front().second ? time_map_.front().first : time_map_.back().first;
+}
+
+int ScoreModel::keyAt(int pos) const {
+    const notation::Clef clef(static_cast<notation::ClefKind>(clef_kind_));
+    // An unpitched staff writes on the treble's lines.
+    const int bottom = clef.pitched() ? clef.bottom_line_diatonic()
+                                      : notation::Clef(notation::ClefKind::Treble).bottom_line_diatonic();
+    const int diatonic = bottom + pos;
+    if (diatonic < 0) return -1;
+    notation::SpelledPitch written;
+    written.step = static_cast<notation::Step>(diatonic % 7);
+    written.octave = diatonic / 7;
+    written.accidental = notation::KeySignature(key_fifths_).accidental_for(written.step);
+    const int key = notation::to_midi(written) + transposition_;
+    return key < 0 || key > 127 ? -1 : key;
+}
+
+QVariantMap ScoreModel::selectedObject() const {
+    for (const auto& item : objects_) {
+        const auto object = item.toMap();
+        if (object.value("kind") == "note" && object.value("step").toInt() == selected_step_ &&
+            object.value("key").toInt() == selected_key_)
+            return object;
+    }
+    return {};
+}
+
+bool ScoreModel::select(int step, int key) {
+    selected_step_ = step;
+    selected_key_ = key;
+    rebuild();
+    return !selectedObject().isEmpty();
+}
+
+void ScoreModel::deselect() {
+    if (selected_step_ < 0) return;
+    selected_step_ = selected_key_ = -1;
+    rebuild();
+}
+
+bool ScoreModel::click(double x, double pos) {
+    if (pattern_ == nullptr) return false;
+    // A notehead is an oval about a staff space wide and a space tall.
+    QVariantMap best;
+    double nearest = 1e9;
+    for (const auto& item : objects_) {
+        const auto object = item.toMap();
+        if (object.value("kind") != "note" || object.value("step").toInt() < 0) continue;
+        const double dx = std::abs(object.value("x").toDouble() - x);
+        const double dy = std::abs(object.value("pos").toDouble() - pos);
+        if (dx > 0.8 || dy > 0.75) continue;
+        if (dx + dy < nearest) {
+            nearest = dx + dy;
+            best = object;
+        }
+    }
+    if (!best.isEmpty()) return select(best.value("step").toInt(), best.value("key").toInt());
+
+    const int tick = tickAt(x);
+    const int key = keyAt(static_cast<int>(std::lround(pos)));
+    if (tick < 0 || key < 0) return false;
+    const int step = tick / static_cast<int>(PatternModel::ticks_per_step);
+    if (pattern_->rollNoteDuration(step, key) > 0) return select(step, key);
+    const Tick whole = 4 * std::as_const(*pattern_).pattern().ticks_per_beat();
+    Tick ticks = whole / note_value_;
+    if (dotted_) ticks += ticks / 2;
+    ticks = std::min<Tick>(ticks, std::as_const(*pattern_).pattern().length() - tick);
+    if (song_ != nullptr) song_->beginGesture();
+    pattern_->addRollNote(step, key);
+    pattern_->resizeRollNote(step, key, static_cast<int>(ticks));
+    if (song_ != nullptr) song_->endGesture();
+    return select(step, key);
+}
+
+bool ScoreModel::deleteSelected() {
+    if (pattern_ == nullptr || selectedObject().isEmpty()) return false;
+    pattern_->eraseRollNote(selected_step_, selected_key_);
+    deselect();
+    return true;
+}
+
+bool ScoreModel::moveSelected(int steps) {
+    const auto object = selectedObject();
+    if (object.isEmpty() || steps == 0) return false;
+    // An octave keeps the note's spelling; a line or space takes the key's.
+    const int key = steps % 7 == 0 ? selected_key_ + 12 * (steps / 7) : keyAt(object.value("pos").toInt() + steps);
+    return alterSelected(key - selected_key_);
+}
+
+bool ScoreModel::alterSelected(int semitones) {
+    if (pattern_ == nullptr || selectedObject().isEmpty() || semitones == 0) return false;
+    // The edit rebuilds the score, which lets go of a note it cannot find.
+    const int step = selected_step_;
+    const int key = selected_key_ + semitones;
+    if (key < 0 || key > 127) return false;
+    if (!pattern_->moveRollNote(step, selected_key_, step, key)) return false;
+    return select(step, key);
+}
 
 int ScoreModel::clefRefPos() const {
     const notation::Clef clef(static_cast<notation::ClefKind>(clef_kind_));
@@ -151,22 +290,26 @@ void ScoreModel::rebuild() {
     // The step grid writes notes shorter than their step (a gate under 100%):
     // drawn exactly they would read as dotted 32nds and rests. A note that
     // starts on a step is drawn to the end of the steps it sounds in.
-    blokkily::Pattern shown = pattern_->pattern();
+    blokkily::Pattern shown = std::as_const(*pattern_).pattern();
     const Tick step = std::max<Tick>(1, shown.ticks_per_beat() / 4);
-    for (const auto& trigger : pattern_->pattern().events()) {
+    for (const auto& trigger : std::as_const(*pattern_).pattern().events()) {
         if (trigger.start % step != 0 || trigger.duration % step == 0) continue;
         auto drawn = trigger;
         drawn.duration = std::min((trigger.duration + step - 1) / step * step, shown.length() - trigger.start);
         (void)shown.update(trigger.id, drawn);
     }
     layout(notation::to_staff(shown, key, clef, time));
+    // A selection the pattern no longer holds (an undo, another editor) goes.
+    if (selected_step_ >= 0 && selectedObject().isEmpty()) selected_step_ = selected_key_ = -1;
     emit scoreChanged();
 }
 
 void ScoreModel::layout(const notation::Staff& staff) {
-    const Tick tpb = pattern_->pattern().ticks_per_beat();
+    const Tick tpb = std::as_const(*pattern_).pattern().ticks_per_beat();
     objects_.clear();
     barlines_.clear();
+    time_map_.clear();
+    transposition_ = staff.transposition();
     measure_count_ = static_cast<int>(staff.measures.size());
 
     // Every object where it falls, and which accidentals print.
@@ -204,11 +347,13 @@ void ScoreModel::layout(const notation::Staff& staff) {
             const Tick next = k < entries.size() && entries[k].measure == m ? entries[k].onset : measure_end[m];
             if (accidental) x += kAccidentalRoom;
             column_x[{m, entries[j].onset}] = x;
+            time_map_.emplace_back(x, entries[j].onset);
             x += room_for(next - entries[j].onset, tpb);
             j = k;
         }
         // Chant has no barlines, not even a closing one.
         if (barred) barlines_.push_back(QVariantMap{{"x", x}, {"final", j == entries.size()}});
+        time_map_.emplace_back(x, measure_end[m]);
         x += kBarPadding;
         i = j;
     }
@@ -249,6 +394,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
     lowest_pos_ = 0;
     bool lyrics = false;
     std::map<std::tuple<std::size_t, Tick, int>, bool> stem_drawn;
+    std::map<std::pair<int, int>, Tick> tied_from;
     for (std::size_t i = 0; i < entries.size(); ++i) {
         const Entry& entry = entries[i];
         const double at = column_x[{entry.measure, entry.onset}];
@@ -256,7 +402,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
         if (const auto* rest = std::get_if<notation::Rest>(entry.object)) {
             const int value = static_cast<int>(rest->duration.value);
             int pos = value <= 0 ? 6 : 4;
-            if (shared) pos += entry.voice == top_voice[entry.measure] ? 2 : -4;
+            if (shared) pos += entry.voice == top_voice[entry.measure] ? 4 : -4;
             objects_.push_back(QVariantMap{{"kind", "rest"}, {"x", at}, {"pos", pos}, {"value", value},
                                            {"dots", rest->duration.dots}, {"voice", entry.voice},
                                            {"tuplet", rest->duration.tuplet() ? rest->duration.tuplet_actual : 0}});
@@ -265,6 +411,18 @@ void ScoreModel::layout(const notation::Staff& staff) {
         const auto& note = std::get<notation::NotationNote>(*entry.object);
         const int pos = pos_of(note);
         const auto chord = std::make_tuple(entry.measure, entry.onset, entry.voice);
+        // The pattern note this piece of notation draws: a tied piece points
+        // back to where its tie began, so a click on any piece finds it.
+        const int midi = notation::to_midi(note.spelled) + staff.transposition();
+        const auto sounding = std::make_pair(entry.voice, midi);
+        Tick source = entry.onset;
+        if (note.tie_end) {
+            if (const auto open = tied_from.find(sounding); open != tied_from.end()) source = open->second;
+        }
+        if (note.tie_start) tied_from[sounding] = source;
+        else tied_from.erase(sounding);
+        const Tick step_ticks = PatternModel::ticks_per_step;
+        const int source_step = source % step_ticks == 0 ? static_cast<int>(source / step_ticks) : -1;
         const auto [low, high] = chord_span[chord];
         const bool up = shared ? entry.voice == top_voice[entry.measure] : (low + high) / 2.0 < 4.0;
         const int value = static_cast<int>(note.duration.value);
@@ -337,6 +495,9 @@ void ScoreModel::layout(const notation::Staff& staff) {
         lyrics = lyrics || !note.lyric.empty();
         objects_.push_back(QVariantMap{
             {"kind", "note"},
+            {"step", source_step},
+            {"key", midi},
+            {"selected", source_step >= 0 && source_step == selected_step_ && midi == selected_key_},
             {"x", at},
             {"pos", pos},
             {"acc", static_cast<int>(note.spelled.accidental)},

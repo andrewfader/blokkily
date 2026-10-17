@@ -6,10 +6,13 @@ import "Smufl.js" as Smufl
 
 // The score: a fourth projection of the canonical pattern, drawn as true
 // staff notation with the Bravura SMuFL font. It draws what scoreModel lays
-// out (the open part under the song's clef, key and meter) and never writes
-// notes back; the clef, key and CHANT controls set the song's notation for
-// the part, as one step of undo. Spacing follows the rhythm; it is readable,
-// not Gould-perfect.
+// out (the open part under the song's clef, key and meter). Notes are entered
+// on the staff: a click writes a note of the chosen value into the pattern
+// (beside one already sounding there, as a chord), a click on a notehead
+// selects it, and the arrows, the accidental chips and Delete edit it - each
+// one step of undo, through the same pattern edits the piano roll makes. The
+// clef, key and CHANT controls set the song's notation for the part. Spacing
+// follows the rhythm; it is readable, not Gould-perfect.
 Rectangle {
     id: root
     objectName: "scoreView"
@@ -96,6 +99,55 @@ Rectangle {
                 text: patternModel.lyricsText
                 onAccepted: patternModel.setLyrics(text)
                 onEditingFinished: if (text !== patternModel.lyricsText) patternModel.setLyrics(text)
+            }
+        }
+
+        // What a click on the staff writes, and edits of the selected note.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 4
+            Label { text: "NOTE"; color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1 }
+            Repeater {
+                model: [{ value: 1, label: "1" }, { value: 2, label: "1/2" }, { value: 4, label: "1/4" },
+                        { value: 8, label: "1/8" }, { value: 16, label: "1/16" }]
+                Chip {
+                    required property var modelData
+                    objectName: "noteValue" + modelData.value
+                    text: modelData.label; implicitHeight: 20
+                    accessibleLabel: "Enter " + modelData.label + " notes"
+                    on: scoreModel.noteValue === modelData.value
+                    onClicked: scoreModel.noteValue = modelData.value
+                }
+            }
+            Chip {
+                objectName: "noteDotted"; text: "DOT"; implicitHeight: 20
+                accessibleLabel: "Dotted notes"
+                on: scoreModel.dotted
+                onClicked: scoreModel.dotted = !scoreModel.dotted
+            }
+            Item { Layout.preferredWidth: 8 }
+            Chip {
+                objectName: "noteSharpen"; text: "\u266F"; implicitHeight: 20
+                accessibleLabel: "Raise the selected note a semitone"
+                enabled: scoreModel.selectedStep >= 0
+                onClicked: { scoreModel.alterSelected(1); staffInput.forceActiveFocus(); }
+            }
+            Chip {
+                objectName: "noteFlatten"; text: "\u266D"; implicitHeight: 20
+                accessibleLabel: "Lower the selected note a semitone"
+                enabled: scoreModel.selectedStep >= 0
+                onClicked: { scoreModel.alterSelected(-1); staffInput.forceActiveFocus(); }
+            }
+            Chip {
+                objectName: "noteDelete"; text: "DEL"; implicitHeight: 20
+                accessibleLabel: "Delete the selected note"
+                enabled: scoreModel.selectedStep >= 0
+                onClicked: { scoreModel.deleteSelected(); staffInput.forceActiveFocus(); }
+            }
+            Item { Layout.fillWidth: true }
+            Label {
+                text: "click the staff to write \u00B7 \u2191\u2193 move \u00B7 shift octave \u00B7 del"
+                color: Theme.muted; font.pixelSize: 9; elide: Text.ElideRight
+                Layout.fillWidth: true; horizontalAlignment: Text.AlignRight
             }
         }
 
@@ -248,7 +300,8 @@ Rectangle {
                             if (ready) drawGlyph(accGlyph(o.acc), x - 1.35 * sp, y);
                             else hline(x - 1.35 * sp, y, 0.8 * sp);
                         }
-                        // notehead
+                        // notehead, the selected one in the accent colour
+                        if (o.selected) ctx.fillStyle = Theme.acid;
                         if (ready) {
                             drawGlyph(Smufl.notehead(o.value), x, y);
                         } else {
@@ -256,6 +309,7 @@ Rectangle {
                             ctx.ellipse(x + nhw / 2, y, nhw / 2, sp * 0.36, -0.3, 0, 2 * Math.PI);
                             ctx.fill();
                         }
+                        if (o.selected) ctx.fillStyle = ink;
                         // the chord's one stem, and its flag
                         if (o.stem) {
                             var stemW = 0.13 * sp;
@@ -304,6 +358,39 @@ Rectangle {
 
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
+
+                // Note entry: x in staff spaces from the first column (to the
+                // notehead's left edge, as objects' x), y in staff positions.
+                MouseArea {
+                    id: staffInput
+                    objectName: "staffInput"
+                    anchors.fill: parent
+                    activeFocusOnTab: true
+                    cursorShape: Qt.CrossCursor
+                    function unitsAt(px) { return (px - scoreCanvas.headerWidth) / scoreCanvas.sp - 0.59; }
+                    function posAt(py) { return (scoreCanvas.yBottom - py) / (scoreCanvas.sp / 2); }
+                    onPressed: mouse => {
+                        forceActiveFocus();
+                        scoreModel.click(unitsAt(mouse.x), posAt(mouse.y));
+                    }
+                    // The window's step-cursor shortcuts stand aside while
+                    // the staff has the keyboard (Main.qml's staffEditing).
+                    function handles(event) {
+                        return scoreModel.selectedStep >= 0
+                            && (event.key === Qt.Key_Up || event.key === Qt.Key_Down
+                                || event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace
+                                || event.key === Qt.Key_Escape);
+                    }
+                    Keys.onPressed: event => {
+                        if (!handles(event)) return;
+                        const octave = (event.modifiers & Qt.ShiftModifier) ? 7 : 1;
+                        if (event.key === Qt.Key_Up) scoreModel.moveSelected(octave);
+                        else if (event.key === Qt.Key_Down) scoreModel.moveSelected(-octave);
+                        else if (event.key === Qt.Key_Escape) scoreModel.deselect();
+                        else scoreModel.deleteSelected();
+                        event.accepted = true;
+                    }
+                }
             }
         }
     }

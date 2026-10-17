@@ -20,6 +20,7 @@
 
 #include <iostream>
 #include <source_location>
+#include <utility>
 
 namespace blokkily::verify {
 namespace {
@@ -242,7 +243,109 @@ void run_score(VerifyContext& ctx) {
     settle();
     shot("long-part");
 
-    ctx.finish(" SCORE view, clefs saved and undone, chant, key signatures, chords and voices");
+    // ---------------------------------------------------------------------
+    ctx.reached("score: notes are written and edited on the staff");
+    if (scroller != nullptr) scroller->setProperty("contentX", 0.0);
+    clear();
+    check(song.setPatternSteps(16)); // one bar
+    settle();
+    // A press on the staff where the model says tick `tick` and staff
+    // position `pos` are, with the real mouse.
+    const auto press_staff = [&](int tick, int pos) {
+        if (canvas == nullptr) return;
+        const double sp = canvas->property("sp").toDouble();
+        double units = 0.0;
+        QMetaObject::invokeMethod(score, "xForTick", Q_RETURN_ARG(double, units), Q_ARG(int, tick));
+        const double x = canvas->property("headerWidth").toDouble() + (units + 0.59) * sp;
+        const double y = canvas->property("yBottom").toDouble() - pos * sp / 2;
+        auto* input = ctx.named("staffInput");
+        check(input != nullptr);
+        if (input != nullptr) ctx.click_at(input, input->mapFromItem(canvas, QPointF(x, y)), Qt::LeftButton);
+        settle();
+    };
+    const auto press_chip = [&](const char* name) {
+        auto* chip = ctx.named(QString::fromLatin1(name));
+        check(VerifyContext::usable(chip, 16, 14));
+        if (chip != nullptr) ctx.click_at(chip, {chip->width() / 2, chip->height() / 2}, Qt::LeftButton);
+        settle();
+    };
+    const auto selected = [&] { return std::make_pair(prop("selectedStep").toInt(), prop("selectedKey").toInt()); };
+    check(VerifyContext::usable(ctx.named("staffInput"), 300, 100));
+    press_chip("noteValue4");
+    check(prop("noteValue").toInt() == 4);
+    // A quarter-note G4 on beat two: the second line of the treble staff.
+    press_staff(480, 2);
+    check(pattern.rollNoteDuration(4, 67) == 480);
+    check((selected() == std::make_pair(4, 67)));
+    // One click is one step of undo.
+    check(song.undo());
+    settle();
+    check(pattern.rollNoteDuration(4, 67) == 0 && prop("selectedStep").toInt() == -1);
+    check(song.redo());
+    settle();
+    check(pattern.rollNoteDuration(4, 67) == 480);
+    press_staff(480, 2); // its notehead: selected again, nothing added
+    check((selected() == std::make_pair(4, 67)) && pattern.rollNoteDuration(4, 67) == 480);
+    // The arrows move it a line or space, shift an octave; the sharp chip
+    // raises it a semitone.
+    ctx.chord_key(Qt::Key_Up, Qt::NoModifier);
+    settle();
+    check(pattern.rollNoteDuration(4, 69) == 480 && pattern.rollNoteDuration(4, 67) == 0);
+    ctx.chord_key(Qt::Key_Up, Qt::ShiftModifier);
+    settle();
+    check(pattern.rollNoteDuration(4, 81) == 480 && (selected() == std::make_pair(4, 81)));
+    press_chip("noteSharpen");
+    check(pattern.rollNoteDuration(4, 82) == 480);
+    {
+        bool drawn_selected = false;
+        for (const auto& item : notes())
+            drawn_selected = drawn_selected || (item.toMap().value("selected").toBool() &&
+                                                item.toMap().value("key").toInt() == 82 &&
+                                                item.toMap().value("showAcc").toBool());
+        check(drawn_selected); // drawn with its sharp, in the accent colour
+    }
+    // A click below it at the same time writes a chord tone: C4 under it.
+    press_staff(480, -2);
+    check(pattern.rollNoteDuration(4, 60) == 480 && pattern.rollNoteDuration(4, 82) == 480);
+    check((selected() == std::make_pair(4, 60)));
+    // Delete takes the selected note and leaves its chord-mate.
+    ctx.chord_key(Qt::Key_Delete, Qt::NoModifier);
+    settle();
+    check(pattern.rollNoteDuration(4, 60) == 0 && pattern.rollNoteDuration(4, 82) == 480);
+    // A dotted half on the downbeat, on the middle line: B4.
+    press_chip("noteValue2");
+    press_chip("noteDotted");
+    press_staff(0, 4);
+    check(pattern.rollNoteDuration(0, 71) == 1440);
+    {
+        bool dotted_half = false;
+        for (const auto& item : notes())
+            dotted_half = dotted_half || (item.toMap().value("key").toInt() == 71 &&
+                                          item.toMap().value("value").toInt() == 1 &&
+                                          item.toMap().value("dots").toInt() == 1);
+        check(dotted_half);
+    }
+    press_chip("noteDotted");
+    // The key signature gives the written note its accidental: F5 in D major
+    // is F#5.
+    if (key_picker != nullptr) QMetaObject::invokeMethod(key_picker, "picked", Q_ARG(QString, QStringLiteral("+2")));
+    settle();
+    press_chip("noteValue4");
+    press_staff(1440, 8);
+    check(pattern.rollNoteDuration(12, 78) == 480);
+    // Escape lets the note go.
+    ctx.chord_key(Qt::Key_Escape, Qt::NoModifier);
+    settle();
+    check(prop("selectedStep").toInt() == -1);
+    // Every editor reads the same pattern: the piano roll's lookups see the
+    // notes the staff wrote.
+    check(pattern.stepKey(12) == 78 && pattern.hasStep(0) && pattern.hasStep(4));
+    press_staff(1440, 8); // selected again, for the record
+    shot("entry");
+    if (key_picker != nullptr) QMetaObject::invokeMethod(key_picker, "picked", Q_ARG(QString, QStringLiteral("0")));
+    settle();
+
+    ctx.finish(" SCORE view, clefs saved and undone, chant, key signatures, chords and voices, note entry");
 }
 
 [[maybe_unused]] const bool registered = register_scenario("score", run_score);

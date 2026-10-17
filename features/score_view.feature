@@ -3,8 +3,8 @@ Feature: The pattern is also shown as true staff notation
   its clef, key and time signature, notes where they fall in time, rests,
   barlines, ties, chords with one stem, voices with their stems apart,
   accidentals by the bar's rule and lyrics, in the Bravura SMuFL font. It
-  draws the one pattern and never writes notes back, so it cannot disagree
-  with the other editors. The clef, key and CHANT controls set the song's
+  draws the one pattern, and notes entered on its staff are written into
+  that pattern, so it cannot disagree with the other editors. The clef, key and CHANT controls set the song's
   notation for the part: saved with the song and undone with it. The clef
   picker covers the full roster including the obscure clefs (French violin,
   subbass, the C clefs); CHANT draws an unmetered chant staff with bare
@@ -52,3 +52,18 @@ Feature: The pattern is also shown as true staff notation
     When the score draws it
     Then there are eight bars, the triad has one stem, and the two voices' stems point apart
     And the staff fits its highest and lowest notes, and scrolls sideways to the end of the part
+
+  # bdd_score "score: notes are written and edited on the staff"
+  Scenario: Notes are written and edited on the staff
+    Given the SCORE view shows an empty bar and the quarter note is chosen
+    When the producer clicks the treble staff's second line on beat two
+    Then a quarter-note G4 is written into the pattern there, selected, and one UNDO takes it back
+    When the producer presses Up, then Shift+Up, then the sharp chip
+    Then the note is A4, then A5, then A#5, drawn with its sharp
+    When the producer clicks below it at the same time
+    Then a C4 is written beside it as a chord tone, and Delete takes only the C4
+    When the producer picks a dotted half and clicks the middle line on the downbeat
+    Then a dotted-half B4 is written and drawn with its dot
+    When the key is D major and the producer clicks the top line
+    Then the note written is F#5, from the key signature
+    And the piano roll's lookups find every note the staff wrote

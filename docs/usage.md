@@ -746,6 +746,16 @@ sung - `A-ma-zing grace`, one syllable per note in time order, `_` to hold a
 syllable over another note - in any script, Hebrew included; ENTER lays them
 on the notes as one step of undo.
 
+Write notes on the staff itself. Pick a value in the NOTE row (whole to
+sixteenth, DOT for dotted) and click where the note goes: its line or space
+gives the pitch, with the key signature's sharp or flat, and the click's
+place in the bar gives the time, to the nearest sixteenth. A click
+where a note already sounds adds a chord tone. A click on a notehead selects
+it, drawn in the accent colour: Up and Down move it a line or space, Shift
+an octave, the sharp and flat chips raise or lower it a semitone, Delete or
+DEL removes it, Escape lets it go. Each is one step of undo, and the notes
+are the pattern's own, so the step grid, tracker and piano roll show them.
+
 SCORE IN, in the SCORE view's header, brings a MusicXML score (`.musicxml` or `.xml`, from MuseScore,
 Dorico, Sibelius or Finale) into the song as a section of its own, with a track
 per staff named after its part, its notes, lyrics, clefs, key and meter, placed

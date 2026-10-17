@@ -64,6 +64,10 @@ ApplicationWindow {
     // the caret or the list, and Space types a space.
     readonly property bool typing: activeFocusItem !== null
                                    && activeFocusItem.cursorPosition !== undefined
+    // True while the score's staff has the keyboard: its arrows move the
+    // selected note and Delete removes it, so the step cursor's keys stand aside.
+    readonly property bool staffEditing: activeFocusItem !== null
+                                         && activeFocusItem.objectName === "staffInput"
 
     // Save writes back to the file the session came from; a session that has
     // never been saved asks where to put it.
@@ -380,24 +384,24 @@ ApplicationWindow {
         onActivated: patternModel.selectStep(Math.min(patternModel.stepCount - 1, patternModel.selectedStep + 1)) }
     // The tracker runs down the screen, so Up and Down walk its rows; the
     // pitch of a row is moved with Shift held (Ctrl for an octave).
-    Shortcut { sequence: "Up"; enabled: !root.typing
+    Shortcut { sequence: "Up"; enabled: !root.typing && !root.staffEditing
         onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
-    Shortcut { sequence: "Down"; enabled: !root.typing
+    Shortcut { sequence: "Down"; enabled: !root.typing && !root.staffEditing
         onActivated: patternModel.selectStep(Math.min(patternModel.stepCount - 1, patternModel.selectedStep + 1)) }
-    Shortcut { sequence: "Shift+Up"; enabled: !root.typing
+    Shortcut { sequence: "Shift+Up"; enabled: !root.typing && !root.staffEditing
                onActivated: patternModel.transposeSelected(1) }
-    Shortcut { sequence: "Shift+Down"; enabled: !root.typing
+    Shortcut { sequence: "Shift+Down"; enabled: !root.typing && !root.staffEditing
                onActivated: patternModel.transposeSelected(-1) }
-    Shortcut { sequence: "Ctrl+Up"; enabled: !root.typing
+    Shortcut { sequence: "Ctrl+Up"; enabled: !root.typing && !root.staffEditing
                onActivated: patternModel.transposeSelected(12) }
-    Shortcut { sequence: "Ctrl+Down"; enabled: !root.typing
+    Shortcut { sequence: "Ctrl+Down"; enabled: !root.typing && !root.staffEditing
                onActivated: patternModel.transposeSelected(-12) }
     // The tracker's own octave, moved without leaving the letter keys.
     Shortcut { sequence: "Ctrl+Left"; enabled: !root.typing
         onActivated: root.entryOctave = Math.max(0, root.entryOctave - 1) }
     Shortcut { sequence: "Ctrl+Right"; enabled: !root.typing
         onActivated: root.entryOctave = Math.min(8, root.entryOctave + 1) }
-    Shortcut { sequences: ["Backspace", "Delete"]; enabled: !root.typing
+    Shortcut { sequences: ["Backspace", "Delete"]; enabled: !root.typing && !root.staffEditing
         onActivated: patternModel.clearStep(patternModel.selectedStep) }
     // Insert pushes later rows down; Shift+Backspace pulls them up.
     Shortcut { sequence: "Insert"; enabled: !root.typing

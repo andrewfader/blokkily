@@ -180,7 +180,7 @@ int main(int argc, char* argv[]) {
     guide.setLlmModel(&llm);
     pattern.setEventBus(&controller.eventBus());
     // The score view's projection of the canonical pattern: re-spelled on
-    // every pattern change, never written back.
+    // every pattern change; notes entered on the staff go into the pattern.
     ScoreModel score(&pattern, &song);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
