@@ -202,7 +202,7 @@ void run_score(VerifyContext& ctx) {
     // ---------------------------------------------------------------------
     ctx.reached("score: chords, held notes and long parts are drawn whole");
     clear();
-    check(song.setPatternSteps(64)); // four bars
+    check(song.setPatternSteps(128)); // eight bars
     pattern.addRollNote(0, 60);       // a C major triad on the first beat...
     pattern.addRollNote(0, 64);
     pattern.addRollNote(0, 67);
@@ -212,7 +212,7 @@ void run_score(VerifyContext& ctx) {
     for (int beat = 0; beat < 4; ++beat) pattern.addRollNote(16 + beat * 4, 84); // ...C6 quarters
     for (int beat = 0; beat < 4; ++beat) pattern.resizeRollNote(16 + beat * 4, 84, 480);
     settle();
-    check(prop("measureCount").toInt() == 4);
+    check(prop("measureCount").toInt() == 8);
     {
         const auto drawn = notes();
         int triad_stems = 0;

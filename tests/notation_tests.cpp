@@ -7,6 +7,9 @@
 #include "blokkily/notation/clef.hpp"
 #include "blokkily/notation/duration.hpp"
 #include "blokkily/notation/layout.hpp"
+#include "blokkily/notation/lyrics.hpp"
+#include "blokkily/notation/musicxml.hpp"
+#include "blokkily/notation/song_score.hpp"
 #include "blokkily/notation/note.hpp"
 #include "blokkily/notation/pattern_bridge.hpp"
 #include "blokkily/notation/pitch.hpp"
@@ -501,6 +504,149 @@ void test_accidentals_in_the_bar() {
     require(shown.size() == 6 && shown[5], "under G major in bar two, F natural prints its natural");
 }
 
+void test_lyrics() {
+    // Scenario: A line of lyrics becomes one syllable per note, in any script
+    require((split_lyrics("A-ma-zing grace  how sweet _ the\tsound") ==
+             std::vector<std::string>{"A-", "ma-", "zing", "grace", "how", "sweet", "_", "the", "sound"}),
+            "a line splits into syllables, words keeping their hyphens");
+    const std::string hebrew = "\xD7\xA9\xD7\x81\xD6\xB8-\xD7\x9C\xD7\x95\xD6\xB9\xD7\x9D \xD7\xA2\xD6\xB2\xD7\x9C\xD6\xB5\xD7\x99\xD7\x9B\xD6\xB6\xD7\x9D";
+    const auto syllables = split_lyrics(hebrew); // shalom aleichem, pointed
+    require(syllables.size() == 3 && syllables[0].back() == '-', "Hebrew splits at its hyphen and space, points kept");
+    require(join_lyrics(syllables) == hebrew, "and joins back to the same line");
+    require(join_lyrics(split_lyrics("A-ma-zing grace")) == "A-ma-zing grace", "a word rejoins at its hyphens");
+
+    // The syllable rides with its note through the staff and back, on the
+    // chord's first note and the first piece of a tied note only.
+    Pattern pattern(3840, 480);
+    Trigger sung;
+    sung.start = 1440;
+    sung.duration = 960; // tied over the barline
+    sung.musical_data = Note{67, 0.8F, 0.0F, 0.0};
+    sung.lyric = syllables[0];
+    (void)pattern.add(sung);
+    Trigger dyad;
+    dyad.start = 2400;
+    dyad.duration = 480;
+    Chord chord;
+    chord.root = 60;
+    chord.intervals = {0, 4};
+    dyad.musical_data = chord;
+    dyad.lyric = "grace";
+    (void)pattern.add(dyad);
+    const Staff staff = to_staff(pattern, KeySignature(0), Clef(ClefKind::Treble), TimeSignature(4, 4));
+    std::vector<std::string> sung_lyrics;
+    for (const auto& measure : staff.measures)
+        for (const auto& object : measure.objects)
+            if (const auto* note = std::get_if<NotationNote>(&object)) sung_lyrics.push_back(note->lyric);
+    require((sung_lyrics == std::vector<std::string>{syllables[0], "", "grace", ""}),
+            "the syllable is on the first piece of the tie and the chord's first note only");
+    std::vector<std::string> back;
+    for (const Trigger& t : to_pattern(staff, 480).events()) back.push_back(t.lyric);
+    require((back == std::vector<std::string>{syllables[0], "grace", ""}), "lyrics come back on their notes");
+
+    // Through a MusicXML file and back, with the tempo.
+    Score score;
+    score.tempo_bpm = 72.0;
+    score.parts.push_back({"Voice", {staff}});
+    const Score read = parse(write(score));
+    require(read.tempo_bpm && *read.tempo_bpm == 72.0, "the tempo comes back");
+    std::string first_sung;
+    for (const auto& object : read.parts[0].staves[0].measures[0].objects)
+        if (const auto* note = std::get_if<NotationNote>(&object); note != nullptr && first_sung.empty()) first_sung = note->lyric;
+    require(first_sung == syllables[0], "a Hebrew syllable comes back from MusicXML byte for byte");
+}
+
+void test_song_score() {
+    // Scenario: The song is written as a score, its whole arrangement
+    Song song;
+    song.adopt_sections();
+    require(!song.sections.empty() && !song.tracks.empty(), "a song has a section and a track");
+    const std::size_t verse = 0;
+    const auto part = song.part(verse, 0);
+    require(part.has_value(), "the track has a part of the verse");
+    auto& slot = song.patterns[*part];
+    slot.pattern = Pattern(1920, 480);
+    Trigger a;
+    a.duration = 480;
+    a.musical_data = Note{60, 0.8F, 0.0F, 0.0};
+    a.lyric = "la";
+    (void)slot.pattern.add(a);
+    Trigger b = a;
+    b.start = 960;
+    b.musical_data = Note{62, 0.8F, 0.0F, 0.0};
+    b.lyric = "";
+    (void)slot.pattern.add(b);
+    slot.clef = "Alto";
+    song.sections[verse].key_fifths = 2;
+    // Twice from bar 0, then once from bar 3 trimmed to start at its second
+    // half, under 4/4 then 3/4 from bar 3.
+    song.clips = {Clip{0, *part, 0, 2, 0, 0}, Clip{0, *part, 3 * 1920, 1, 0, 960}};
+    song.meter.changes = {blokkily::MeterChange{0, 4, 4}, blokkily::MeterChange{3, 3, 4}};
+    const Score score = song_score(song, "Round");
+    require(score.parts.size() == 1 && score.parts[0].staves.size() == 1, "one part for the track with clips");
+    const Staff& staff = score.parts[0].staves[0];
+    require(staff.clef == Clef(ClefKind::Alto) && staff.key.fifths() == 2, "the part's clef and the section's key");
+    require(staff.measures.size() == 4 && staff.measures[3].time && *staff.measures[3].time == TimeSignature(3, 4),
+            "three bars of 4/4, then 3/4 where the meter changes");
+    std::vector<std::pair<Tick, int>> played;
+    const Pattern timeline = track_timeline(song, 0, 3 * 1920 + 1440);
+    for (const Trigger& t : timeline.events())
+        played.emplace_back(t.start, std::get<Note>(t.musical_data).key);
+    require((played == std::vector<std::pair<Tick, int>>{{0, 60}, {960, 62}, {1920, 60}, {2880, 62}, {5760, 62}}),
+            "every repeat, and the trimmed clip from its second half");
+    const auto replayed = to_pattern(staff, 480);
+    require(replayed.events().size() == 5 && replayed.events().front().lyric == "la", "the score plays the timeline, lyrics and all");
+}
+
+void test_add_score() {
+    // Scenario: A score comes into the song as a section of its own
+    Score score;
+    score.title = "Hymn";
+    score.tempo_bpm = 66.0;
+    Staff upper;
+    upper.key = KeySignature(-1);
+    upper.time = TimeSignature(3, 4);
+    Measure bar;
+    NotationNote note;
+    note.spelled = SpelledPitch{Step::F, Accidental::Natural, 4};
+    note.duration = NoteDuration{NoteValue::Half, 1};
+    note.lyric = "Ho-";
+    bar.objects = {note};
+    upper.measures = {bar, bar};
+    Staff lower = upper;
+    lower.clef = Clef(ClefKind::Bass);
+    for (auto& measure : lower.measures) std::get<NotationNote>(measure.objects[0]).spelled.octave = 2;
+    score.parts.push_back({"Choir", {upper, lower}});
+
+    Song fresh;
+    fresh.adopt_sections();
+    const auto landing = add_score(fresh, score);
+    require(landing.fresh && landing.tracks.size() == 2 && landing.notes == 4, "two staves land as two tracks of notes");
+    require(fresh.tracks[landing.tracks[0]].name == "Choir 1" && fresh.tracks[landing.tracks[1]].name == "Choir 2",
+            "the tracks are named after the part");
+    require(fresh.patterns[*fresh.part(landing.section, landing.tracks[1])].clef == "Bass", "the lower staff keeps its bass clef");
+    require(fresh.sections[landing.section].key_fifths == -1 && fresh.sections[landing.section].meter_beats == 3,
+            "the section takes the key and the meter");
+    require(fresh.meter.changes.size() == 1 && fresh.meter.changes[0].numerator == 3 &&
+                fresh.tempo.points.front().bpm == 66.0,
+            "a song with no notes takes the score's meter and tempo");
+    require(fresh.patterns[*fresh.part(landing.section, landing.tracks[0])].pattern.length() == 2 * 1440,
+            "the section is two bars of 3/4 long");
+    require(fresh.patterns[*fresh.part(landing.section, landing.tracks[0])].pattern.events().front().lyric == "Ho-",
+            "lyrics land on their notes");
+    bool placed = false;
+    for (const auto& clip : fresh.clips) placed = placed || (clip.start == 0 && fresh.patterns[clip.pattern].section == landing.section);
+    require(placed, "its clips start the arrangement");
+
+    // Into a song that has notes: new tracks, after the last clip, and the
+    // song's own meter and tempo are left alone.
+    Song busy = fresh;
+    const auto tracks_before = busy.tracks.size();
+    const auto second = add_score(busy, score);
+    require(!second.fresh && busy.tracks.size() == tracks_before + 2, "a song with notes gets new tracks");
+    require(second.start == 2 * 1440 && busy.tempo.points.front().bpm == 66.0, "the clips go after the last one");
+}
+
 } // namespace
 
 int main() {
@@ -512,6 +658,9 @@ int main() {
     test_layout();
     test_pattern_bridge();
     test_accidentals_in_the_bar();
+    test_lyrics();
+    test_song_score();
+    test_add_score();
     if (failures == 0) {
         std::cout << "notation model: all tests passed\n";
         return 0;

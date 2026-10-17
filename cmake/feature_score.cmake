@@ -14,7 +14,14 @@
 
 # The clef of each part and the key and meter of each section live in the
 # song and are saved with it (records_notation.cpp).
-target_sources(blokkily_core PRIVATE src/project/records_notation.cpp)
+# The syllable sung on each step is saved with its trigger (records_lyrics.cpp).
+target_sources(blokkily_core PRIVATE src/project/records_notation.cpp src/project/records_lyrics.cpp
+    src/notation/song_score.cpp)
+
+# MusicXML in and out of the window.
+if(BLOKKILY_BUILD_GUI)
+    target_sources(blokkily PRIVATE src/app/app_controller_score.cpp src/app/verify/scenario_score_file.cpp)
+endif()
 
 if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     # SCORE shows the pattern's notes as notation; the French violin clef
@@ -30,5 +37,19 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     set_tests_properties(bdd_score PROPERTIES
         LABELS "bdd;e2e;integration;screenshot;score"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
+        TIMEOUT 180)
+
+    # SCORE IN builds the song from a Hebrew hymn for voice and organ, its
+    # lyrics show under the staff and are retyped in the LYRICS field, and
+    # SCORE OUT writes the song and reads the file back.
+    add_test(NAME bdd_score_file
+        COMMAND blokkily --verify --scenario score-file
+            --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+            --vst3-fixture $<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../..
+            --soundfont-fixture ${BLOKKILY_TEST_SF2}
+            --screenshot ${CMAKE_BINARY_DIR}/artifacts/score-file.png)
+    set_tests_properties(bdd_score_file PROPERTIES
+        LABELS "bdd;e2e;integration;screenshot;score;export"
+        ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV};BLOKKILY_SCORE_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/shalom-aleichem.musicxml"
         TIMEOUT 180)
 endif()

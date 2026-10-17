@@ -77,6 +77,9 @@ int main(int argc, char* argv[]) {
     (void)family_of(":/fonts/IBMPlexSans-Bold.ttf");
     (void)family_of(":/fonts/JetBrainsMono-Regular.ttf");
     (void)family_of(":/fonts/JetBrainsMono-Bold.ttf");
+    // Hebrew lyrics under the staff draw in this face on every machine,
+    // whatever fonts the system has.
+    (void)family_of(":/fonts/NotoSansHebrew-Regular.ttf");
     QFont interface_font(interface_family);
     interface_font.setPixelSize(12);
     QGuiApplication::setFont(interface_font);

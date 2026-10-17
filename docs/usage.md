@@ -736,3 +736,22 @@ CLAP, VST3 and SoundFont instruments, a warped audio clip, built-in and
 CLAP/VST3 effects, a return/send bus, gain and effect automation, a count-in,
 and two armed tracks receiving deterministic MIDI input. See
 [verification](verification.md) for the scenario and its artifacts.
+
+## Scores and lyrics
+
+The SCORE view (the SCORE chip in the view switcher) draws the open part as
+staff notation in its clef, key and meter, which the view's pickers and CHANT
+set for the song. Type the part's lyrics in its LYRICS field the way they are
+sung - `A-ma-zing grace`, one syllable per note in time order, `_` to hold a
+syllable over another note - in any script, Hebrew included; ENTER lays them
+on the notes as one step of undo.
+
+SCORE IN, in the SCORE view's header, brings a MusicXML score (`.musicxml` or `.xml`, from MuseScore,
+Dorico, Sibelius or Finale) into the song as a section of its own, with a track
+per staff named after its part, its notes, lyrics, clefs, key and meter, placed
+after the arrangement. A song with no notes in it yet also takes the score's
+meter and tempo. The new tracks play on the song's first instrument, or the
+default sound. SCORE OUT, beside it, writes the whole song as a MusicXML score, a part per
+track, and reads the file back: the export status says whether it plays back
+the same (it differs only where a part holds what notation cannot say, such as
+timing off the 128th-note grid).

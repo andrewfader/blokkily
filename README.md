@@ -121,8 +121,9 @@ keeps the layout consistent across desktops.
   and keep notes with it, in the VERSIONS and NOTES tabs.
 - Read any part as staff notation in the SCORE view: all eleven clefs from
   French violin to percussion, any key, any meter or unmetered chant, chords,
-  voices, ties and accidentals, with the clef, key and meter saved with the
-  song. Agents can read the score and move it in and out as MusicXML.
+  voices, ties, accidentals and lyrics in any script, with the clef, key and
+  meter saved with the song. Bring a hymn or a choral score in from notation
+  software with SCORE IN, and send the song out with SCORE OUT, as MusicXML.
 - Press F1 or HELP for a guided tour of the window. CLEAR empties the session
   in one undo step.
 - Press GUIDE for a mascot that narrates what you and your agent do and why,

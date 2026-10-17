@@ -381,6 +381,19 @@ public:
     // of the bar the playhead is in.
     Q_INVOKABLE bool importMidiFile(const QString& path);
     Q_INVOKABLE bool exportMidiFile(const QString& path);
+    // A MusicXML score into the song as a section of its own: a track per
+    // staff with its notes, lyrics, clef, key and meter, placed after the
+    // arrangement (a song with no notes takes the score's meter and tempo).
+    // Its tracks play on the song's first instrument, or the default sound
+    // when none is loaded. One step of undo.
+    Q_INVOKABLE bool importMusicXmlFile(const QString& path);
+    // The song as a MusicXML score: a part per track, the whole arrangement
+    // under its meters (or the open section, when nothing is arranged). The
+    // file is read back and what it plays compared with the song; the status
+    // says whether it plays back the same.
+    Q_INVOKABLE bool exportMusicXmlFile(const QString& path);
+    // Whether the last MusicXML export read back as the song plays.
+    bool lastScoreExportMatches() const noexcept { return last_score_export_matches_; }
     Q_INVOKABLE bool importAudioFile(const QString& path);
     // The overview of a clip for its waveform: `buckets` min, max pairs over
     // the stretch of file it plays, relative to the file's loudest sample and
@@ -1071,4 +1084,5 @@ private:
     // While a rebuild prints the old engine's takes: the song edit that
     // printing makes must not start a rebuild of its own.
     bool rebuilding_ = false;
+    bool last_score_export_matches_ = false;
 };

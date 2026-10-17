@@ -80,6 +80,7 @@ add_library(blokkily_core
     src/midi/midi_output.cpp
     src/midi/midi_out_instrument.cpp
     src/notation/duration.cpp
+    src/notation/lyrics.cpp
     src/notation/pattern_bridge.cpp
     src/notation/signature.cpp
     src/notation/spelling.cpp
@@ -255,7 +256,8 @@ if(BLOKKILY_BUILD_GUI)
             resources/fonts/IBMPlexSans-Bold.ttf
             resources/fonts/JetBrainsMono-Regular.ttf
             resources/fonts/JetBrainsMono-Bold.ttf
-            resources/fonts/Bravura.otf)
+            resources/fonts/Bravura.otf
+            resources/fonts/NotoSansHebrew-Regular.ttf)
     set_source_files_properties(ui/guide/lessons/first-beat.json
         PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/first-beat.json")
     set_source_files_properties(ui/guide/lessons/triads.json

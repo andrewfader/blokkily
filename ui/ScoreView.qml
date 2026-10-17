@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import "Smufl.js" as Smufl
 
@@ -19,6 +20,24 @@ Rectangle {
     property bool warnedNoFont: false
 
     FontLoader { id: bravura; source: "qrc:/fonts/Bravura.otf" }
+
+    FileDialog {
+        id: importScoreDialog
+        objectName: "importScoreDialog"
+        title: "Import a MusicXML score as a new section"
+        nameFilters: ["MusicXML scores (*.musicxml *.xml)"]
+        fileMode: FileDialog.OpenFile
+        onAccepted: appController.importMusicXmlFile(selectedFile.toString())
+    }
+    FileDialog {
+        id: exportScoreDialog
+        objectName: "exportScoreDialog"
+        title: "Export the song as a MusicXML score"
+        nameFilters: ["MusicXML scores (*.musicxml)"]
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "musicxml"
+        onAccepted: appController.exportMusicXmlFile(selectedFile.toString())
+    }
     readonly property bool fontOk: bravura.status === FontLoader.Ready
 
     ColumnLayout {
@@ -30,6 +49,19 @@ Rectangle {
             Label { text: scoreModel.keyLabel; color: Theme.muted; font.pixelSize: 9
                 font.family: Theme.mono }
             Item { Layout.fillWidth: true }
+            // Scores in and out as MusicXML: a hymn, a choral piece or a
+            // concerto from notation software becomes a section with a
+            // track per staff; the whole song goes out as a score.
+            Chip {
+                objectName: "importScoreButton"; text: "SCORE IN"
+                implicitHeight: 20; accessibleLabel: "Import a MusicXML score"
+                onClicked: importScoreDialog.open()
+            }
+            Chip {
+                objectName: "exportScoreButton"; text: "SCORE OUT"
+                implicitHeight: 20; accessibleLabel: "Export the song as a MusicXML score"
+                onClicked: exportScoreDialog.open()
+            }
             Chip {
                 objectName: "chantChip"; text: "CHANT"
                 implicitHeight: 20; accessibleLabel: "Unmetered chant staff"
@@ -49,6 +81,24 @@ Rectangle {
                 onPicked: name => scoreModel.keyFifths = parseInt(name)
             }
         }
+        // The part's lyrics as one line, typed the way they are sung:
+        // "A-ma-zing grace", one syllable per note in time order, "_" to
+        // hold a syllable over another note. Any script, Hebrew included.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            Label { text: "LYRICS"; color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1 }
+            TextField {
+                id: lyricsField
+                objectName: "lyricsField"
+                Layout.fillWidth: true
+                font.pixelSize: 12
+                placeholderText: "A-ma-zing grace how sweet the sound"
+                text: patternModel.lyricsText
+                onAccepted: patternModel.setLyrics(text)
+                onEditingFinished: if (text !== patternModel.lyricsText) patternModel.setLyrics(text)
+            }
+        }
+
         // The staff scrolls sideways: a long part is drawn at its full
         // length rather than squeezed or cut off at the panel's edge.
         Flickable {
@@ -104,10 +154,16 @@ Rectangle {
                     // Glyph drawn with its visual center at (x, yCenter).
                     function drawGlyph(g, x, yCenter) { ctx.fillText(code(g), x, yCenter + g.cy * sp); }
                     function text(t, x, y, size, align) {
-                        var keepAlign = ctx.textAlign, keepFont = ctx.font;
-                        ctx.textAlign = align; ctx.font = size + "px sans-serif";
+                        var keepAlign = ctx.textAlign;
+                        // Hebrew is drawn in the bundled Hebrew face, so it
+                        // reads the same on every machine.
+                        var face = /[\u0590-\u05FF\uFB1D-\uFB4F]/.test(t) ? '"Noto Sans Hebrew"' : "sans-serif";
+                        ctx.textAlign = align; ctx.font = size + "px " + face;
                         ctx.fillText(t, x, y);
-                        ctx.textAlign = keepAlign; ctx.font = keepFont;
+                        // The music font is set again by name: a font read
+                        // back from the context does not reselect it.
+                        ctx.textAlign = keepAlign;
+                        ctx.font = ready ? musicFont : "12px sans-serif";
                     }
 
                     // ---- staff lines
@@ -234,9 +290,13 @@ Rectangle {
                             var tx = (x + xAt(o.tupletEndX) + nhw) / 2;
                             text(String(o.tuplet), tx, yPos(Math.max(o.stemTo, o.pos) + 3), Math.max(9, 1.3 * sp), "center");
                         }
-                        // lyric syllable, or the line holding the last one
+                        // lyric syllable, the hyphen to the next syllable of its
+                        // word (between the two, whichever way the script
+                        // runs), or the line holding the last one
                         if (o.lyric.length > 0)
                             text(o.lyric, x + nhw / 2, yPos(-6), Math.max(9, sp * 0.95), "center");
+                        if (o.hyphen && o.hyphenToX >= 0)
+                            ctx.fillRect((x + xAt(o.hyphenToX)) / 2 + nhw / 2 - 0.35 * sp, yPos(-6) - 0.32 * sp, 0.7 * sp, lineW);
                         else if (o.extend)
                             ctx.fillRect(x - 0.4 * sp, yPos(-6.4), nhw + 0.8 * sp, lineW);
                     }

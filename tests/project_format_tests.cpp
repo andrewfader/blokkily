@@ -10,6 +10,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace blokkily;
 
@@ -223,6 +224,33 @@ int main() {
                 (void)ProjectFile::parse(text + bad, &broken);
                 check(!ProjectFile::parse(text + bad, &broken).has_value() && !broken.empty(),
                       "notation: a malformed notation record is refused");
+            }
+        }
+    }
+
+    // Scenario: Lyrics are saved with their notes, in any script
+    {
+        auto project = ProjectFile::parse("blokkily-project 5\n" + v5_body, &error);
+        check(project.has_value() && !project->song.patterns[0].pattern.events().empty(), "lyrics: a song with notes");
+        if (project) {
+            check(ProjectFile::serialize(*project).find("lyric ") == std::string::npos,
+                  "lyrics: a song without lyrics writes no lyric records");
+            auto& pattern = project->song.patterns[0].pattern;
+            auto first = pattern.events().front();
+            const std::string shalom = "\xD7\xA9\xD7\x81\xD6\xB8-"; // pointed Hebrew, with its hyphen
+            first.lyric = shalom;
+            (void)pattern.update(first.id, first);
+            const std::string text = ProjectFile::serialize(*project);
+            const auto back = ProjectFile::parse(text, &error);
+            check(back && back->song.patterns[0].pattern.events().front().lyric == shalom,
+                  "lyrics: a Hebrew syllable comes back byte for byte");
+            check(back && ProjectFile::serialize(*back) == text, "lyrics: saving again gives the same bytes");
+            const auto id = std::to_string(first.id);
+            for (const std::string& bad : std::vector<std::string>{"lyric 0 " + id + " a\n", "lyric 0 999 a\n",
+                                                                   "lyric 9 " + id + " a\n", "lyric 0 " + id + "\n"}) {
+                std::string broken;
+                check(!ProjectFile::parse(text + bad, &broken).has_value() && !broken.empty(),
+                      "lyrics: a second lyric for a step, or one for a step or pattern that does not exist, is refused");
             }
         }
     }

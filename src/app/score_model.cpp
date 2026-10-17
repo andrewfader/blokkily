@@ -322,6 +322,18 @@ void ScoreModel::layout(const notation::Staff& staff) {
         }
 
         const bool extend = note.lyric == "_" || note.lyric == "-";
+        // A word that goes on: the hyphen is drawn between this syllable and
+        // the next sung one in its voice, not as part of the text.
+        const bool hyphen = !extend && note.lyric.size() > 1 && note.lyric.back() == '-';
+        double hyphen_to = -1.0;
+        if (hyphen)
+            for (std::size_t k = i + 1; k < entries.size(); ++k) {
+                const auto* next = std::get_if<notation::NotationNote>(entries[k].object);
+                if (next != nullptr && entries[k].voice == entry.voice && !next->chord && !next->lyric.empty()) {
+                    hyphen_to = column_x[{entries[k].measure, entries[k].onset}];
+                    break;
+                }
+            }
         lyrics = lyrics || !note.lyric.empty();
         objects_.push_back(QVariantMap{
             {"kind", "note"},
@@ -340,8 +352,11 @@ void ScoreModel::layout(const notation::Staff& staff) {
             {"ledger", notation::ledger_lines(pos)},
             {"tieStart", tie_to >= 0.0},
             {"tieToX", tie_to},
-            {"lyric", extend ? QString() : QString::fromStdString(note.lyric)},
+            {"lyric", extend ? QString()
+                             : QString::fromStdString(hyphen ? note.lyric.substr(0, note.lyric.size() - 1) : note.lyric)},
             {"extend", extend},
+            {"hyphen", hyphen},
+            {"hyphenToX", hyphen_to},
             {"tuplet", tuplet},
             {"tupletEndX", tuplet_end},
         });

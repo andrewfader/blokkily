@@ -1,5 +1,7 @@
 #include "pattern_model.hpp"
 
+#include "blokkily/notation/lyrics.hpp"
+
 #include "blokkily/model/groove.hpp"
 #include "blokkily/guide/narrator.hpp"
 
@@ -1118,6 +1120,60 @@ void PatternModel::setSelectedDuration(int ticks) { setStepDuration(selected_ste
 void PatternModel::setStepVelocity(int step, double velocity) {
     selectStep(step);
     setSelectedVelocity(velocity);
+}
+
+QString PatternModel::stepLyric(int step) const {
+    const auto* trigger = triggerAt(step);
+    return trigger == nullptr ? QString() : QString::fromStdString(trigger->lyric);
+}
+
+void PatternModel::setStepLyric(int step, const QString& syllable) {
+    const auto* existing = triggerAt(step);
+    const std::string text = syllable.trimmed().toStdString();
+    if (existing == nullptr || existing->lyric == text) return;
+    song_->checkpoint();
+    beginResetModel();
+    auto replacement = *existing;
+    replacement.lyric = text;
+    (void)pattern().update(replacement.id, replacement);
+    endResetModel();
+    emit patternChanged();
+    emit contentChanged();
+}
+
+int PatternModel::setLyrics(const QString& text) {
+    const auto syllables = blokkily::notation::split_lyrics(text.toStdString());
+    // The notes in time order, one per onset: notes that start together are
+    // sung as one, on the first of them.
+    std::vector<std::pair<blokkily::EventId, std::string>> wanted;
+    blokkily::Tick last = -1;
+    std::size_t next = 0;
+    for (const auto& trigger : pattern().events()) {
+        std::string syllable;
+        if (trigger.start != last && next < syllables.size()) syllable = syllables[next++];
+        last = trigger.start;
+        if (trigger.lyric != syllable) wanted.emplace_back(trigger.id, syllable);
+    }
+    if (!wanted.empty()) {
+        song_->checkpoint();
+        beginResetModel();
+        for (const auto& [id, syllable] : wanted) {
+            auto replacement = *pattern().find(id);
+            replacement.lyric = syllable;
+            (void)pattern().update(id, replacement);
+        }
+        endResetModel();
+        emit patternChanged();
+        emit contentChanged();
+    }
+    return static_cast<int>(next);
+}
+
+QString PatternModel::lyricsText() const {
+    std::vector<std::string> syllables;
+    for (const auto& trigger : pattern().events())
+        if (!trigger.lyric.empty()) syllables.push_back(trigger.lyric);
+    return QString::fromStdString(blokkily::notation::join_lyrics(syllables));
 }
 
 void PatternModel::copySelected() {

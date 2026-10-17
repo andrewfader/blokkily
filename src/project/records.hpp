@@ -117,6 +117,8 @@ struct RecordModule {
 // Records defined by format 4: name, tempo, master, tuning, scale, harmony,
 // pattern, trigger, lock, track, clip.
 [[nodiscard]] const RecordModule& core_records();
+// The syllable sung on each step (records_lyrics.cpp): lyric.
+[[nodiscard]] const RecordModule& lyric_records();
 
 // The timebase (item 1.2): tempo_point, meter; and the legacy tempo line,
 // which the core module reads into the context.

@@ -15,6 +15,8 @@
 #include "blokkily/notation/signature.hpp"
 #include "blokkily/notation/staff.hpp"
 
+#include <vector>
+
 namespace blokkily::notation {
 
 // The pattern as notation, under the given clef, key and meter, at the
@@ -25,6 +27,17 @@ namespace blokkily::notation {
 // an unmetered one is a single measure with no barlines.
 [[nodiscard]] Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef,
                              const TimeSignature& time);
+
+// A change of meter at a tick of the pattern, as a song's meter map has them.
+struct MeterChange {
+    Tick at = 0;
+    TimeSignature time{4, 4};
+};
+// As above, under meters that change: the first holds from the start, and
+// each later one from the first barline at or after its tick, where the
+// measure records the change.
+[[nodiscard]] Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef,
+                             const std::vector<MeterChange>& meters);
 
 // The staff played back into a pattern at `ticks_per_beat`: each voice of
 // each measure in time, chords together, ties joined into one note. A

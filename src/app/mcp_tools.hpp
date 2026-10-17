@@ -38,6 +38,7 @@ private:
     QJsonObject getPattern(const QJsonObject& arguments) const;
     QJsonObject writeNotes(const QJsonObject& arguments);
     QJsonObject setSection(const QJsonObject& arguments);
+    QJsonObject setLyrics(const QJsonObject& arguments);
     QJsonObject placeSection(const QJsonObject& arguments);
     QJsonArray effects(const std::vector<blokkily::EffectSlot>& chain) const;
     QJsonObject runTransport(const QJsonObject& arguments);

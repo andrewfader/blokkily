@@ -33,6 +33,7 @@ Blokkily can connect.
 | `get_pattern` | Read a pattern |
 | `write_notes` | Write notes, each retuned from its key by up to ±100 `cents` |
 | `set_section` | Set a pattern's length, swing or name |
+| `set_lyrics` | Lay a line of lyrics on a part, one syllable per note, in any script |
 | `place_section` | Place a pattern's clips at a bar, on every track or one |
 | `transport` | Control playback |
 | `list_plugins` | List plugins |
@@ -79,6 +80,13 @@ the eleven clefs for a track's part, `set_key_signature` takes fifths from -7
 to 7 for a pattern, and `set_time_signature` takes beats and unit, `unmetered`
 for chant (switching it off keeps the meter), or `song: true` to follow the
 song's meter again. They are saved with the song and undone with it.
+
+`write_notes` takes a `lyric` on each note and `get_pattern` and `get_score`
+read them back; `set_lyrics` lays a whole line on a part, as the SCORE view's
+LYRICS field does. The window's own SCORE IN and SCORE OUT are
+`appController.importMusicXmlFile(path)` - a score into the song as a new
+section with a track per staff - and `appController.exportMusicXmlFile(path)`
+- the whole arrangement as a score, read back and compared - through `call`.
 
 `export_musicxml` writes a pattern - one part per track that has a part of it,
 or one track's - to an absolute `.musicxml` or `.xml` path, refusing to replace

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <map>
+#include <string>
 #include <variant>
 
 namespace blokkily::notation {
@@ -18,6 +19,7 @@ struct Sound {
     int midi;
     double cents;
     float velocity;
+    std::string lyric; // the trigger's syllable, on its first voice only
 };
 
 // Notes that start and end together: one chord in one voice.
@@ -25,19 +27,20 @@ struct Group {
     Tick start;
     Tick duration;
     std::vector<Sound> notes; // lowest first
+    std::string lyric;
 };
 
 std::vector<Sound> sounds_of(const Pattern& pattern) {
     std::vector<Sound> out;
     for (const Trigger& trigger : pattern.events()) {
         if (const auto* note = std::get_if<Note>(&trigger.musical_data)) {
-            out.push_back({trigger.start, trigger.duration, note->key, note->cents, note->velocity});
+            out.push_back({trigger.start, trigger.duration, note->key, note->cents, note->velocity, trigger.lyric});
         } else if (const auto* chord = std::get_if<Chord>(&trigger.musical_data)) {
             for (std::size_t i = 0; i < chord->intervals.size(); ++i)
                 out.push_back({trigger.start, voice_duration(*chord, i, trigger.duration),
                                static_cast<int>(chord->root) + chord->intervals[i],
                                i < chord->cents.size() ? chord->cents[i] : 0.0,
-                               voice_velocity(*chord, i)});
+                               voice_velocity(*chord, i), i == 0 ? trigger.lyric : std::string{}});
         }
     }
     std::erase_if(out, [](const Sound& s) { return s.duration <= 0 || s.midi < 0 || s.midi > 127; });
@@ -120,7 +123,13 @@ std::vector<Placed> place(const Staff& staff, Tick ticks_per_beat) {
 
 Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef,
                const TimeSignature& time) {
+    return to_staff(pattern, key, clef, std::vector<MeterChange>{{0, time}});
+}
+
+Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef,
+               const std::vector<MeterChange>& meters) {
     const Tick tpb = pattern.ticks_per_beat();
+    const TimeSignature time = meters.empty() ? TimeSignature(4, 4) : meters.front().time;
     Staff staff;
     staff.clef = clef;
     staff.key = key;
@@ -130,10 +139,12 @@ Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef
     std::vector<Group> groups;
     for (const Sound& sound : sounds_of(pattern)) {
         if (!groups.empty() && groups.back().start == sound.start &&
-            groups.back().duration == sound.duration)
+            groups.back().duration == sound.duration) {
             groups.back().notes.push_back(sound);
-        else
-            groups.push_back({sound.start, sound.duration, {sound}});
+            if (groups.back().lyric.empty()) groups.back().lyric = sound.lyric;
+        } else {
+            groups.push_back({sound.start, sound.duration, {sound}, sound.lyric});
+        }
     }
     // Each chord goes to the first voice that is free when it starts, so a
     // note held under moving ones keeps its own voice.
@@ -152,10 +163,35 @@ Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef
         end = std::max(end, voice_end[v]);
     }
 
+    // Where each bar starts, under whichever meter holds there; a meter
+    // takes effect at the first barline at or after its tick.
     const bool metered = time.metered();
-    const Tick bar = metered ? bar_ticks(time, tpb) : end;
-    const std::size_t measures = metered ? static_cast<std::size_t>((end + bar - 1) / bar) : 1;
-    staff.measures.resize(std::max<std::size_t>(1, measures));
+    std::vector<Tick> bar_start{0};
+    std::vector<TimeSignature> bar_meter{time};
+    if (metered) {
+        std::size_t next = 1;
+        TimeSignature current = time;
+        while (bar_start.back() < end) {
+            const Tick at = bar_start.back() + bar_ticks(current, tpb);
+            while (next < meters.size() && meters[next].at <= at) current = meters[next++].time;
+            if (!current.metered()) current = time;
+            bar_start.push_back(at);
+            bar_meter.push_back(current);
+        }
+        bar_start.pop_back();
+        bar_meter.pop_back();
+    }
+    const auto bar_of = [&](Tick at) -> std::size_t {
+        if (!metered) return 0;
+        return static_cast<std::size_t>(std::upper_bound(bar_start.begin(), bar_start.end(), at) - bar_start.begin()) - 1;
+    };
+    const auto bar_end = [&](std::size_t m) -> Tick {
+        if (!metered) return end;
+        return bar_start[m] + bar_ticks(bar_meter[m], tpb);
+    };
+    staff.measures.resize(bar_start.size());
+    for (std::size_t m = 1; m < bar_meter.size(); ++m)
+        if (bar_meter[m] != bar_meter[m - 1]) staff.measures[m].time = bar_meter[m];
 
     for (std::size_t v = 0; v < voices.size(); ++v) {
         const int voice = static_cast<int>(v) + 1;
@@ -165,8 +201,8 @@ Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef
         const auto emit = [&](Tick from, Tick to, const Group* group) {
             bool first_piece = true;
             for (Tick at = from; at < to;) {
-                const auto m = metered ? static_cast<std::size_t>(at / bar) : 0;
-                const Tick piece_end = std::min(to, metered ? static_cast<Tick>(m + 1) * bar : to);
+                const auto m = bar_of(at);
+                const Tick piece_end = std::min(to, bar_end(m));
                 const auto chain = notate_ticks(piece_end - at, tpb);
                 for (std::size_t k = 0; k < chain.size(); ++k) {
                     if (group == nullptr) {
@@ -185,6 +221,8 @@ Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef
                         note.cents = sound.cents;
                         note.voice = voice;
                         note.chord = i > 0;
+                        // The syllable is sung where the chord starts.
+                        if (i == 0 && first_piece && k == 0) note.lyric = group->lyric;
                         note.tie_end = !(first_piece && k == 0);
                         note.tie_start = !(piece_end == to && k + 1 == chain.size());
                         per_measure[m].emplace_back(note);
@@ -202,8 +240,8 @@ Staff to_staff(const Pattern& pattern, const KeySignature& key, const Clef& clef
         }
         // The first voice fills every bar; another fills only the bar it
         // stops in, and is left out of bars where it has nothing to play.
-        const Tick fill_to = v == 0 ? static_cast<Tick>(staff.measures.size()) * bar
-                                    : (cursor + bar - 1) / bar * bar;
+        const Tick fill_to = v == 0 ? bar_end(staff.measures.size() - 1)
+                                    : cursor > 0 ? bar_end(bar_of(cursor - 1)) : 0;
         if (cursor < fill_to) emit(cursor, fill_to, nullptr);
         for (std::size_t m = 0; m < staff.measures.size(); ++m) {
             if (v > 0 && !sounds_in[m]) continue;
@@ -221,6 +259,7 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped) {
         int midi;
         double cents;
         float velocity;
+        std::string lyric;
     };
     // A tie that has started and not yet stopped: the note it extends, and
     // where the tied note must begin to continue it.
@@ -269,7 +308,7 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped) {
                 ++left_out;
                 continue;
             }
-            placed.push_back({start, length, midi, note.cents, note.velocity});
+            placed.push_back({start, length, midi, note.cents, note.velocity, note.lyric});
             last_end = std::max(last_end, start + length);
             if (note.tie_start) open.push_back({placed.size() - 1, start + length});
         }
@@ -285,6 +324,7 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped) {
         trigger.start = p.start;
         trigger.duration = p.duration;
         trigger.musical_data = Note{static_cast<std::int16_t>(p.midi), p.velocity, 0.0F, p.cents};
+        trigger.lyric = p.lyric;
         (void)pattern.add(std::move(trigger));
     }
     return pattern;
