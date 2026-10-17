@@ -15,6 +15,7 @@
 #include "blokkily/notation/musicxml.hpp"
 
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
@@ -122,7 +123,7 @@ void run_score_file(VerifyContext& ctx) {
     check(part_of(1) && part_of(1)->pattern.events().size() == 8 && part_of(1)->clef == "Treble");
     check(part_of(2) && part_of(2)->pattern.events().size() == 4 && part_of(2)->clef == "Bass");
     check(built.tracks[1].instrument.format == "CLAP" && built.tracks[2].instrument.format == "CLAP");
-    check(lyrics_of(0).size() == 11 && lyrics_of(0).front() == shin);
+    check(lyrics_of(0).size() == 11 && lyrics_of(0).value(0) == shin);
     check(controller.status().startsWith("Imported 23 notes on 3 tracks"));
     // It plays: the production callback hears the hymn from bar one.
     controller.seekToBar(0);
@@ -180,7 +181,7 @@ void run_score_file(VerifyContext& ctx) {
     check(ctx.pattern.lyricsText() == "Peace be up-on you, an-gels of the High-est,");
     check(song.undo());
     settle();
-    check(lyrics_of(0).front() == shin);
+    check(lyrics_of(0).value(0) == shin);
 
     // ---------------------------------------------------------------------
     ctx.reached("score-file: retyping keeps every other syllable on its note");
@@ -198,31 +199,43 @@ void run_score_file(VerifyContext& ctx) {
         };
         const auto before = events();
         check(before.size() == 11);
-        const int second = static_cast<int>(before[1].start / 120);
-        ctx.pattern.setStepLyric(second, QString());
-        settle();
-        const QString line = ctx.pattern.lyricsText();
-        auto syllables = blokkily::notation::split_lyrics(line.toStdString());
-        check(syllables.size() == 11 && syllables[1] == "_");
-        if (field != nullptr && !syllables.empty()) {
-            syllables[0] = "Shin-"; // the first word's first syllable, retyped
-            field->setProperty("text", QString::fromStdString(blokkily::notation::join_lyrics(syllables)));
-            QMetaObject::invokeMethod(field, "accepted");
+        if (before.size() == 11) {
+            const int second = static_cast<int>(before[1].start / 120);
+            ctx.pattern.setStepLyric(second, QString());
+            settle();
+            const QString line = ctx.pattern.lyricsText();
+            auto syllables = blokkily::notation::split_lyrics(line.toStdString());
+            check(syllables.size() == 11 && syllables[1] == "_");
+            if (field != nullptr && !syllables.empty()) {
+                syllables[0] = "Shin-"; // the first word's first syllable, retyped
+                field->setProperty("text", QString::fromStdString(blokkily::notation::join_lyrics(syllables)));
+                QMetaObject::invokeMethod(field, "accepted");
+            }
+            settle();
+            const auto after = events();
+            bool kept = after.size() == before.size() && after[0].lyric == "Shin-" && after[1].lyric == "_";
+            for (std::size_t i = 2; kept && i < after.size(); ++i) kept = after[i].lyric == before[i].lyric;
+            check(kept);
+            check(song.undo() && song.undo());
+            settle();
+            check(lyrics_of(0).size() == 11 && lyrics_of(0).value(0) == shin);
         }
-        settle();
-        const auto after = events();
-        bool kept = after.size() == before.size() && after[0].lyric == "Shin-" && after[1].lyric == "_";
-        for (std::size_t i = 2; kept && i < after.size(); ++i) kept = after[i].lyric == before[i].lyric;
-        check(kept);
-        check(song.undo() && song.undo());
-        settle();
-        check(lyrics_of(0).size() == 11 && lyrics_of(0).front() == shin);
     }
     // The line being typed belongs to the part it was typed for, even when
     // another part opens before ENTER.
-    if (field != nullptr) {
-        field->forceActiveFocus();
-        settle();
+    // The field only has the keyboard in the focused window, and the file
+    // dialogs, drawn as windows of their own, leave none focused on close.
+    window->requestActivate();
+    for (int wait = 0; wait < 150 && QGuiApplication::focusWindow() != window; ++wait) VerifyContext::settle(20);
+    if (field != nullptr) field->forceActiveFocus();
+    settle();
+    const bool typing = field != nullptr && field->hasActiveFocus();
+    if (!typing)
+        std::cerr << "LYRICS field has no keyboard; focus window: "
+                  << (QGuiApplication::focusWindow() == window ? "this" : QGuiApplication::focusWindow() ? "another" : "none")
+                  << '\n';
+    check(typing);
+    if (typing) {
         const QString typed_line = QStringLiteral("La la la");
         field->setProperty("text", typed_line);
         song.selectTrack(1);
@@ -230,14 +243,14 @@ void run_score_file(VerifyContext& ctx) {
         check(field->property("text").toString() == typed_line); // not replaced under the cursor
         QMetaObject::invokeMethod(field, "accepted");
         settle();
-        check(lyrics_of(0).size() == 3 && lyrics_of(0).front() == "La");
+        check(lyrics_of(0).size() == 3 && lyrics_of(0).value(0) == "La");
         check(lyrics_of(1).isEmpty());
         field->setFocus(false);
         window->contentItem()->forceActiveFocus();
         song.selectTrack(0);
         check(song.undo());
         settle();
-        check(lyrics_of(0).front() == shin);
+        check(lyrics_of(0).value(0) == shin);
     }
 
     // ---------------------------------------------------------------------
@@ -265,7 +278,7 @@ void run_score_file(VerifyContext& ctx) {
     // The written score comes in again as a second hymn after the first.
     check(controller.importMusicXmlFile(written));
     settle();
-    check(song.song().tracks.size() == 6 && lyrics_of(3).size() == 11 && lyrics_of(3).front() == shin);
+    check(song.song().tracks.size() == 6 && lyrics_of(3).size() == 11 && lyrics_of(3).value(0) == shin);
 
     // ---------------------------------------------------------------------
     ctx.reached("score-file: a broken file is refused and changes nothing");
