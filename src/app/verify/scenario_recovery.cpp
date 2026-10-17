@@ -3,6 +3,7 @@
 // cleaning up, as a crash does. recovery_restore is the next launch: it is
 // offered the song back, recovers it, and lets an older one go.
 #include "verify/harness.hpp"
+#include "recovery.hpp"
 #include "song_model.hpp"
 #include "blokkily/project/project.hpp"
 
@@ -127,6 +128,24 @@ void run_recovery_restore(VerifyContext& ctx) {
     const QString offer_png = QFileInfo(ctx.parser.value("screenshot")).path() + "/recovery-offer.png";
     check(ctx.save_screenshot_to(offer_png));
     ctx.reached("recovery: the next launch offers the song back");
+
+    // Another window that started beside this one takes the same song first:
+    // while it holds it, this one neither offers, recovers nor discards it.
+    {
+        RecoveryStore other(store());
+        const QString id = newest.value("id").toString();
+        check(other.claim(id));
+        check(!c.recoverSession(id) && !c.discardRecovery(id));
+        check(c.recoveries().size() == 1 && entries() == 2);
+        check(s.song().tracks.empty() || s.song().tracks[0].name != "AFTER SAVE");
+        other.release(id);
+    }
+    // Let go, it is offered again (the window hears of it the next time
+    // anything recovers or is discarded).
+    emit c.recoveriesChanged();
+    check(c.recoveries().size() == 2);
+    layout();
+    ctx.reached("recovery: a song another window has taken is not recovered twice");
 
     if (recover) ctx.click_at(recover, {recover->width() / 2, recover->height() / 2}, Qt::LeftButton);
     layout();

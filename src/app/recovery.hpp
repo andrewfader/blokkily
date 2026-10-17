@@ -11,6 +11,7 @@
 #include <QLockFile>
 #include <QString>
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -53,8 +54,15 @@ public:
     [[nodiscard]] std::vector<Entry> abandoned() const;
     // The serialized project of an abandoned entry.
     [[nodiscard]] std::optional<QByteArray> read(const QString& id) const;
+    // Takes an abandoned entry for this window by locking it, so a window
+    // that started beside this one neither offers nor recovers it as well.
+    // False when another window holds it, or it is gone.
+    [[nodiscard]] bool claim(const QString& id);
+    // Gives a claimed entry back, untouched, for any window to offer.
+    void release(const QString& id);
     // Deletes an abandoned entry (after it is recovered, or when declined).
-    // A live window's entry is never removed.
+    // An entry a live window holds is never removed, unless it is this
+    // window's claim.
     bool discard(const QString& id);
 
 private:
@@ -64,4 +72,6 @@ private:
     QString directory_;
     QString id_;
     std::unique_ptr<QLockFile> lock_;
+    // Abandoned entries this window has claimed, each held by its lock.
+    std::map<QString, std::unique_ptr<QLockFile>> claimed_;
 };

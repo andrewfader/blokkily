@@ -41,8 +41,10 @@ void run_open_running(VerifyContext& ctx) {
     check(project.exists());
     // A window this one opens for a file is a real process that reports
     // what it holds (verify/window_report.hpp).
-    const QString child_png =
-        QFileInfo(ctx.parser.value("screenshot")).path() + "/open-running-window.png";
+    const QString artifacts = QFileInfo(ctx.parser.value("screenshot")).path();
+    const QString child_png = artifacts + "/open-running-window.png";
+    const QString url_png = artifacts + "/open-running-url-window.png";
+    for (const auto& png : {child_png, url_png}) forget_window_report(png);
     c.setWindowArgumentsForTesting(window_report_arguments(child_png));
     auto* dialog = ctx.window->findChild<QObject*>("discardDialog");
     check(dialog != nullptr);
@@ -73,7 +75,6 @@ void run_open_running(VerifyContext& ctx) {
     // Unsaved work in this window: the file opens beside it.
     s.renameTrack(0, "UNSAVED HERE");
     check(s.dirty());
-    forget_window_report(child_png);
     launch(project.fileName());
     ctx.reached("open running: a second launch hands the file over and exits");
     auto opened = await_window_report(child_png, 30000);
@@ -81,18 +82,21 @@ void run_open_running(VerifyContext& ctx) {
           opened->first_track == "OPENED FROM FILE");
     check(!asked() && s.dirty() && s.song().tracks[0].name == "UNSAVED HERE");
     ctx.reached("open running: unsaved work stays, and the file opens in a new window");
+    // That window lets the song go before it is opened again below.
+    check(stop_window(child_png, project.absoluteFilePath()));
 
     // A saved song is not replaced either; the file:// URL a file manager
     // hands over opens beside it too.
     s.renameTrack(0, "SAVED SOON");
     const QString other = QDir(project.absolutePath()).filePath("other.blok");
     check(c.saveProject(other));
-    forget_window_report(child_png);
+    c.setWindowArgumentsForTesting(window_report_arguments(url_png));
     launch(QUrl::fromLocalFile(project.absoluteFilePath()).toString(QUrl::FullyEncoded));
-    opened = await_window_report(child_png, 30000);
+    opened = await_window_report(url_png, 30000);
     check(opened.has_value() && opened->passed && opened->project == project.completeBaseName());
     check(!asked() && c.projectName() == "other" && s.song().tracks[0].name == "SAVED SOON");
     ctx.reached("open running: a saved song stays, and a file:// URL opens beside it");
+    check(stop_window(url_png, project.absoluteFilePath()));
 
     // The file this window already holds only brings it forward.
     const QString before = c.status();

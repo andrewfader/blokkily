@@ -29,3 +29,11 @@ Feature: Autosave and crash recovery
     And the older copy is offered next, and DISCARD lets it go
     When the song is saved
     Then it is written to its project and no copy remains
+
+  # bdd_recovery_restore
+  Scenario: Two windows never recover the same song
+    Given two windows started together, both offered a crashed window's copy
+    When the other window takes the copy first
+    Then this window can neither recover nor discard it, and stops offering it
+    When the other window lets it go untouched
+    Then it is offered here again

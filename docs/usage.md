@@ -632,8 +632,12 @@ Several songs can be open at once, each in its own window. + WINDOW on the
 project rail (Ctrl+Shift+N) opens an empty one; OPEN NEW (Ctrl+Shift+O)
 asks for a project and opens it in a new window, leaving this one as it is.
 Each window is a process of its own, with its own audio stream, undo history
-and autosave, so closing or crashing one leaves the others playing. Only the
-first window serves MCP. See [the scenarios](../features/multiple_windows.feature).
+and autosave, so closing or crashing one leaves the others playing. A song
+is open in one window at a time: opening it again, from OPEN NEW or the
+desktop, brings forward the window that holds it. One window serves MCP at a
+time; when it closes, another open window takes over within moments and the
+agent's bridge carries on there. Two windows started after a crash never
+recover the same copy: the first to press RECOVER takes it. See [the scenarios](../features/multiple_windows.feature).
 
 Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes edits to steps, strokes, clips,
 tracks, patterns, faders and tuning. A phrase-drawing or fader drag is one undo

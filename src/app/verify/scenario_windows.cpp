@@ -5,16 +5,20 @@
 //
 // "opened_window" is the other end: the scenario a window this gate opened
 // runs. It waits for the song it was started with, renders itself, writes
-// what it holds beside its screenshot (verify/window_report.hpp) and exits.
+// what it holds beside its screenshot (verify/window_report.hpp) and stays
+// open until the gate stops it.
 #include "verify/harness.hpp"
 #include "verify/window_report.hpp"
 #include "song_model.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMetaObject>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QSaveFile>
 #include <QUrl>
 
@@ -56,9 +60,15 @@ void run_opened_window(VerifyContext& ctx) {
         ini.setValue("passed", ctx.valid);
         ini.sync();
     }
-    const auto report = window_report_path(ctx.parser.value("screenshot"));
+    const QString screenshot = ctx.parser.value("screenshot");
+    // Asked to come forward (its song opened again elsewhere): marked.
+    QObject::connect(&c, &AppController::raiseRequested, &c,
+                     [screenshot] { touch_file(window_raised_path(screenshot)); });
+    const auto report = window_report_path(screenshot);
     QFile::remove(report);
     ctx.check(QFile::rename(report + ".part", report));
+    // Open, holding its song, until the gate is done with it.
+    (void)wait_for([&] { return QFileInfo::exists(window_stop_path(screenshot)); }, 60000);
     ctx.finish("a window a gate opened reported what it holds");
 }
 
@@ -71,9 +81,12 @@ void run_windows(VerifyContext& ctx) {
     };
     const QFileInfo project(ctx.parser.value("project"));
     check(project.exists());
-    const QString child_png =
-        QFileInfo(ctx.parser.value("screenshot")).path() + "/multiple-windows-opened.png";
-    c.setWindowArgumentsForTesting(window_report_arguments(child_png));
+    // Each window this gate opens reports to a picture of its own.
+    const QString artifacts = QFileInfo(ctx.parser.value("screenshot")).path();
+    const QString empty_png = artifacts + "/multiple-windows-empty.png";
+    const QString opened_png = artifacts + "/multiple-windows-opened.png";
+    const QString again_png = artifacts + "/multiple-windows-again.png";
+    for (const auto& png : {empty_png, opened_png, again_png}) forget_window_report(png);
 
     // Unsaved work in this window, which neither new window may touch.
     s.renameTrack(0, "STAYS HERE");
@@ -82,13 +95,13 @@ void run_windows(VerifyContext& ctx) {
     check(dialog != nullptr);
 
     // + WINDOW: another, empty song beside this one.
-    forget_window_report(child_png);
+    c.setWindowArgumentsForTesting(window_report_arguments(empty_png));
     auto* new_window = ctx.named("newWindowButton");
     check(VerifyContext::usable(new_window, 40, 16));
     if (new_window)
         ctx.click_at(new_window, {new_window->width() / 2, new_window->height() / 2},
                      Qt::LeftButton);
-    const auto empty = await_window_report(child_png, 30000);
+    const auto empty = await_window_report(empty_png, 30000);
     check(empty.has_value());
     if (empty) {
         check(empty->passed && empty->project == "Untitled" && !empty->dirty);
@@ -98,10 +111,11 @@ void run_windows(VerifyContext& ctx) {
     check(s.dirty() && s.song().tracks[0].name == "STAYS HERE" && c.projectName() == "Untitled");
     check(!(dialog && dialog->property("opened").toBool()));
     ctx.reached("multiple windows: + WINDOW opens an empty song beside this one");
+    (void)stop_window(empty_png);
 
     // OPEN NEW: the chosen project in a window of its own, without
     // asking about this window's work.
-    forget_window_report(child_png);
+    c.setWindowArgumentsForTesting(window_report_arguments(opened_png));
     auto* open_window = ctx.named("openWindowButton");
     check(VerifyContext::usable(open_window, 40, 16));
     if (open_window)
@@ -125,7 +139,7 @@ void run_windows(VerifyContext& ctx) {
         QMetaObject::invokeMethod(chooser, "accepted");
         QMetaObject::invokeMethod(chooser, "close");
     }
-    const auto opened = await_window_report(child_png, 30000);
+    const auto opened = await_window_report(opened_png, 30000);
     check(opened.has_value());
     if (opened) {
         check(opened->passed && opened->project == project.completeBaseName());
@@ -134,6 +148,32 @@ void run_windows(VerifyContext& ctx) {
     }
     check(s.dirty() && s.song().tracks[0].name == "STAYS HERE" && c.projectName() == "Untitled");
     ctx.reached("multiple windows: OPEN NEW opens the project beside this song");
+
+    // The same song again, while that window holds it: that window comes
+    // forward, and no second copy opens.
+    c.setWindowArgumentsForTesting(window_report_arguments(again_png));
+    check(c.openWindow(QUrl::fromLocalFile(project.absoluteFilePath()).toString()));
+    check(c.status().contains("open in another window"));
+    check(await_window_raised(opened_png, 5000));
+    // And opened from the desktop, as `blokkily song.blok`, the same.
+    QFile::remove(window_raised_path(opened_png));
+    QProcess desktop;
+    desktop.setProgram(QCoreApplication::applicationFilePath());
+    desktop.setArguments({project.absoluteFilePath()});
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("BLOKKILY_MCP", "0");
+    environment.insert("BLOKKILY_RECOVERY_DIR", QDir(artifacts).filePath("multiple-windows-recovery"));
+    desktop.setProcessEnvironment(environment);
+    desktop.start();
+    check(desktop.waitForStarted(5000));
+    check(wait_for([&] { return desktop.state() == QProcess::NotRunning; }, 15000));
+    if (desktop.state() != QProcess::NotRunning) { desktop.kill(); desktop.waitForFinished(2000); }
+    check(desktop.exitStatus() == QProcess::NormalExit && desktop.exitCode() == 0);
+    check(await_window_raised(opened_png, 5000));
+    check(!QFileInfo::exists(window_report_path(again_png)));
+    check(s.dirty() && s.song().tracks[0].name == "STAYS HERE" && c.projectName() == "Untitled");
+    ctx.reached("multiple windows: a song open in one window is brought forward, never opened twice");
+    check(stop_window(opened_png, project.absoluteFilePath()));
 
     // Ctrl+O still opens in this window, asking first. A shortcut answers
     // only in the focused window, and a chooser drawn as a window of its own

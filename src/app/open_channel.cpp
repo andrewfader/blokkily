@@ -1,5 +1,6 @@
 #include "open_channel.hpp"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -20,6 +21,20 @@ QString socketPath() {
     if (directory.isEmpty()) directory = QDir::tempPath();
     return QDir(directory).filePath(QStringLiteral("blokkily-open.sock"));
 #endif
+}
+
+QString fileSocketPath(const QString& file) {
+    QFileInfo info(absoluteFile(file));
+    QString key = info.exists() ? info.canonicalFilePath() : info.absoluteFilePath();
+#ifdef Q_OS_WIN
+    key = key.toLower();
+#endif
+    // Short, as a Unix socket's whole path must fit in 107 bytes.
+    const auto hash = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha1).toHex().left(12);
+    QString base = socketPath();
+    if (base.endsWith(QStringLiteral(".sock"))) base.chop(5);
+    return base + QLatin1Char('-') + QString::fromLatin1(hash) +
+           (socketPath().endsWith(QStringLiteral(".sock")) ? QStringLiteral(".sock") : QString());
 }
 
 QString absoluteFile(const QString& argument) {
@@ -69,7 +84,13 @@ Server::Server(QObject* parent) : QObject(parent) {
 
 Server::~Server() = default;
 
+void Server::close() {
+    server_.close();
+    lock_.reset();
+}
+
 bool Server::listen(const QString& socket, QString* error) {
+    close();
     lock_.emplace(socket);
     if (!lock_->held()) {
         lock_.reset();

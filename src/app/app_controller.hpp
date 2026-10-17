@@ -353,6 +353,11 @@ public:
     // other song stays put and the file opens in a window of its own. True
     // when this window takes it and should come forward.
     bool routeOpenRequest(const QString& path);
+    // Whether this window holds the project at `path` (a path or file:// URL).
+    bool holdsFile(const QString& path) const;
+    // Hands `path` to the window that holds it, which comes forward. False
+    // when no window holds it.
+    bool forwardToHolder(const QString& path);
     // Arguments every window this one opens is started with as well, so the
     // windows a gate opens run as gates.
     void setWindowArgumentsForTesting(QStringList arguments) {
@@ -751,6 +756,9 @@ signals:
     // Another launch handed this window a project to open (open_channel.hpp).
     // The window asks about unsaved work, then opens it.
     void openRequested(const QString& path);
+    // A launch, or another window, asked for the song this window holds:
+    // the window comes forward.
+    void raiseRequested();
     void autosaveStatusChanged();
 
 private:

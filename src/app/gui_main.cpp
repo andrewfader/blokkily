@@ -14,6 +14,7 @@
 
 #include <cstdio>
 
+#include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -127,6 +128,15 @@ int main(int argc, char* argv[]) {
     const bool use_open_channel = !parser.isSet("new-window") &&
         (!verifying || !qEnvironmentVariable("BLOKKILY_OPEN_SOCKET").isEmpty());
     const QString open_socket = open_channel::socketPath();
+    // Each window also listens on a channel named for the song it holds
+    // (features/multiple_windows.feature), so a song open in one window is
+    // brought forward there, even by `--new-window`, never opened twice.
+    const bool use_file_channel =
+        !verifying || !qEnvironmentVariable("BLOKKILY_OPEN_SOCKET").isEmpty();
+    if (use_file_channel && !launch_file.isEmpty() &&
+        open_channel::forward(open_channel::fileSocketPath(launch_file),
+                              open_channel::absoluteFile(launch_file)))
+        return 0;
     if (!verifying && use_open_channel && !launch_file.isEmpty() &&
         open_channel::forward(open_socket, open_channel::absoluteFile(launch_file)))
         return 0;
@@ -194,22 +204,45 @@ int main(int argc, char* argv[]) {
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 
+    auto* main_window = qobject_cast<QQuickWindow*>(engine.rootObjects().front());
+    QObject::connect(&controller, &AppController::raiseRequested, &controller, [main_window] {
+        if (main_window == nullptr) return;
+        main_window->show();
+        main_window->raise();
+        main_window->requestActivate();
+    });
     open_channel::Server open_server;
     if (use_open_channel) {
         QString why;
         if (open_server.listen(open_socket, &why)) {
-            auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().front());
             QObject::connect(&open_server, &open_channel::Server::fileRequested, &controller,
-                             [&controller, window](const QString& path) {
+                             [&controller](const QString& path) {
                                  // A song already open here stays; the file
                                  // gets a window of its own instead.
-                                 if (controller.routeOpenRequest(path) && window != nullptr) {
-                                     window->show();
-                                     window->raise();
-                                     window->requestActivate();
-                                 }
+                                 if (controller.routeOpenRequest(path))
+                                     emit controller.raiseRequested();
                              });
         }
+    }
+    // The channel for the song this window holds follows it through every
+    // open, save-as and new song.
+    open_channel::Server file_server;
+    QString file_channel_song;
+    if (use_file_channel) {
+        QObject::connect(&file_server, &open_channel::Server::fileRequested, &controller,
+                         [&controller] { emit controller.raiseRequested(); });
+        QObject::connect(&controller, &AppController::projectStatusChanged, &file_server,
+                         [&controller, &file_server, &file_channel_song] {
+                             const QString song = controller.projectPath();
+                             if (song == file_channel_song) return;
+                             file_channel_song = song;
+                             file_server.close();
+                             QString why;
+                             if (!song.isEmpty() &&
+                                 !file_server.listen(open_channel::fileSocketPath(song), &why))
+                                 std::fprintf(stderr, "Blokkily: %s cannot be found by other windows: %s\n",
+                                              qPrintable(QFileInfo(song).fileName()), qPrintable(why));
+                         });
     }
 
     McpTools mcp_tools(song, pattern, controller, transport,
@@ -218,8 +251,14 @@ int main(int argc, char* argv[]) {
     QObject::connect(controller.progress(), &LoadProgress::holdRequests, &mcp_server,
                      &McpServer::setHeld);
     if (serve_mcp) {
+        QObject::connect(&mcp_server, &McpServer::tookOver, &app,
+                         [&app, &mcp_server] { app.setProperty("blokkilyMcpSocket", mcp_server.path()); });
         if (mcp_server.listen(mcp_socket, *mcp_lock))
             app.setProperty("blokkilyMcpSocket", mcp_server.path());
+        else if (!verifying && !mcp_lock->held())
+            // Another window serves the agent; this one takes over when it
+            // closes (features/multiple_windows.feature).
+            (void)mcp_server.serveWhenFree(mcp_socket);
         else
             std::fprintf(stderr, "Blokkily: MCP is off: %s\n", qPrintable(mcp_server.error()));
     }

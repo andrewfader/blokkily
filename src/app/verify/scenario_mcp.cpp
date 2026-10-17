@@ -283,6 +283,15 @@ void run_mcp(VerifyContext& ctx) {
                                       {"args", QJsonArray{"loud"}}})));
     const auto unknown = agent.request("tools/call", {{"name", "no_such_tool"}});
     check(unknown && unknown->contains("error"));
+    // A call that lands while someone else is stamped (here the guide, as
+    // during a lesson) gives the stamp back as it found it, not as the user's.
+    ctx.controller.setEventSource(blokkily::guide::EventSource::guide);
+    ctx.pattern.setEventSource(blokkily::guide::EventSource::guide);
+    check(!isError(agent.tool("get_session")));
+    check(ctx.controller.eventSource() == blokkily::guide::EventSource::guide &&
+          ctx.pattern.eventSource() == blokkily::guide::EventSource::guide);
+    ctx.controller.setEventSource(blokkily::guide::EventSource::user);
+    ctx.pattern.setEventSource(blokkily::guide::EventSource::user);
 
     // ---------------------------------------------------------------------
     ctx.reached("mcp: the agent sees the window");
@@ -1054,6 +1063,38 @@ void run_mcp(VerifyContext& ctx) {
         check(!isError(answered));
         check(waiting.close());
     }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: a bridge waits for a window that is still starting");
+    {
+        // Two windows are open; the first serves the agent. When it closes,
+        // the second takes the socket over, and the agent's next call is
+        // answered there through the same bridge, which neither gives up nor
+        // starts a window of its own.
+        const QString shared = socket + "-shared";
+        auto first_lock = std::make_unique<blokkily::mcp::SocketLock>(shared);
+        check(first_lock->held());
+        McpTools first_tools(song, ctx.pattern, controller, ctx.transport, ctx.window);
+        auto first = std::make_unique<McpServer>(first_tools);
+        check(first->listen(shared, *first_lock));
+        McpTools second_tools(song, ctx.pattern, controller, ctx.transport, ctx.window);
+        McpServer second(second_tools);
+        QString took_over;
+        QObject::connect(&second, &McpServer::tookOver, [&](const QString& path) { took_over = path; });
+        check(!second.serveWhenFree(shared, 100) && !second.listening());
+        Agent agent_of_both(shared, false);
+        check(agent_of_both.started());
+        check(agent_of_both.request("initialize", {{"protocolVersion", "2025-06-18"}}).has_value());
+        check(!isError(agent_of_both.tool("get_session")));
+        check(!second.listening());
+        // The first window closes.
+        first.reset();
+        first_lock.reset();
+        const auto after_close = agent_of_both.tool("get_session");
+        check(!isError(after_close) && second.listening() && !took_over.isEmpty());
+        check(agent_of_both.close());
+    }
+    ctx.reached("mcp: closing the first window hands MCP to another");
 
     // ---------------------------------------------------------------------
     ctx.reached("mcp: closing the agent's end ends the bridge");
