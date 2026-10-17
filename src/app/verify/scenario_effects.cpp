@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <source_location>
 #include <sstream>
 #include <vector>
 
@@ -58,7 +59,10 @@ void run_effects(VerifyContext& ctx) {
     auto& song = ctx.song;
     auto& controller = ctx.controller;
     const auto& parser = ctx.parser;
-    const auto check = [&ctx](bool ok) { ctx.check(ok); };
+    const auto check = [&ctx](bool ok, std::source_location at = std::source_location::current()) {
+        if (!ok) std::cerr << "effects check failed at line " << at.line() << '\n';
+        ctx.check(ok);
+    };
     const auto reached = [&ctx](const char* scenario) { ctx.reached(scenario); };
     const auto lay_out = [window] {
         (void)window->grabWindow();

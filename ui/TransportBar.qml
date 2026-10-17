@@ -16,9 +16,9 @@ ToolBar {
     // captions. The controls themselves never run off the window's edge,
     // however narrow it is allowed to get (bdd_metronome sweeps the widths).
     // Each step is taken a little before the wider layout stops fitting.
-    readonly property bool tight: width < 1430
-    readonly property bool cramped: width < 1330
-    readonly property bool narrow: width < 1230
+    readonly property bool tight: width < 1480
+    readonly property bool cramped: width < 1380
+    readonly property bool narrow: width < 1280
     height: 52
     background: Rectangle {
         color: "#141519"
@@ -63,8 +63,8 @@ ToolBar {
         }
     }
     RowLayout {
-        anchors.fill: parent; anchors.leftMargin: root.narrow ? 10 : 16
-        anchors.rightMargin: root.narrow ? 10 : 16; spacing: root.narrow ? 4 : 7
+        anchors.fill: parent; anchors.leftMargin: root.narrow ? 8 : 16
+        anchors.rightMargin: root.narrow ? 8 : 16; spacing: root.narrow ? 3 : 7
 
         Label { text: "BLOKKILY"; color: Theme.acid; font.bold: true; font.letterSpacing: 2.5
             font.pixelSize: 15; visible: !root.narrow }
@@ -242,23 +242,25 @@ ToolBar {
             objectName: "viewSwitcher"
             spacing: 2
             Repeater {
-                model: ["ALL", "STEP", "TRACKER", "PIANO", "KEYS", "LAUNCH", "VERSIONS", "NOTES"]
+                model: ["ALL", "STEP", "TRACKER", "PIANO", "SCORE", "KEYS", "LAUNCH", "VERSIONS", "NOTES"]
                 Chip {
                     required property var modelData
                     objectName: "view" + modelData
                     readonly property var shortNames: ({
                         "ALL": "ALL", "STEP": "STEP", "TRACKER": "TRK", "PIANO": "ROLL",
-                        "KEYS": "KEYS", "LAUNCH": "LNCH", "VERSIONS": "VERS", "NOTES": "NOTE"
+                        "SCORE": "SCORE", "KEYS": "KEYS", "LAUNCH": "LNCH",
+                        "VERSIONS": "VERS", "NOTES": "NOTE"
                     })
                     readonly property var shortestNames: ({
                         "ALL": "ALL", "STEP": "STP", "TRACKER": "TRK", "PIANO": "ROL",
-                        "KEYS": "KEY", "LAUNCH": "LNC", "VERSIONS": "VER", "NOTES": "NTS"
+                        "SCORE": "SCR", "KEYS": "KEY", "LAUNCH": "LNC",
+                        "VERSIONS": "VER", "NOTES": "NTS"
                     })
                     readonly property string shown: root.narrow ? shortestNames[modelData]
                                                   : root.cramped ? shortNames[modelData] : modelData
                     text: shown
                     accessibleLabel: modelData
-                    labelPadding: root.narrow ? 4 : root.tight ? 8 : 12
+                    labelPadding: root.narrow ? 3 : root.tight ? 8 : 12
                     implicitWidth: Math.ceil(viewName.advanceWidth) + labelPadding + 1
                     TextMetrics {
                         id: viewName

@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QSettings>
 #include <QSysInfo>
+#include <QTimeZone>
 
 #include <cstdio>
 #include <cstdlib>

@@ -134,6 +134,57 @@ Feature: An agent drives Blokkily over MCP
     When the agent closes the bridge's standard input
     Then the bridge exits cleanly
 
+  Scenario: The tools list names the notation and guide tools
+    When the agent lists the tools
+    Then it names get_score, set_clef, set_key_signature, set_time_signature, export_musicxml, import_musicxml, guide_events, guide_lesson and guide_ask
+
+  Scenario: The agent reads a part as staff notation
+    Given the CLAP track plays a quarter-note C4, then an E4-G4 dyad on beat three
+    When the agent calls get_score
+    Then it reads C4 on step 0 and the dyad on step 8 as quarters, the G4 marked as a chord tone
+    And quarter rests on steps 4 and 12, and a MusicXML document with the chord and the rests
+
+  Scenario: The agent dresses the score in another clef, key and meter
+    When the agent sets the clef to Bass, the key to 2 flats and the meter to 3/4
+    Then get_score reads the clef Bass, the key Bb major and the meter 3/4
+    And the E4 keeps its pitch and prints a natural sign
+    When it switches chant on and off, then asks for the song's meter
+    Then chant keeps 3/4 for when it comes off, and the song's 4/4 comes back
+    And one UNDO puts 3/4 back, while the clef and key stay in the song
+    And a bad clef name, a key of 8 fifths or of "2", a meter of 3/3, or no meter at all is refused and the score is unchanged
+
+  Scenario: The agent exports MusicXML and reads it back
+    When the agent exports the part to a MusicXML file
+    Then the file is read back from disk and plays the part's three notes as the part does
+    And exporting over it again is refused unless overwrite is given, as are a relative path and a .wav name
+    When the agent clears the part, sets it back to treble in C, and imports the file with replace
+    Then get_pattern reads the C4 and the dyad at their steps and lengths again
+    And the part takes the file's bass clef, two flats and 3/4
+    And one UNDO takes back the notes and the clef, key and meter together
+
+  Scenario: A MusicXML import that cannot land is refused without changing the song
+    When the agent imports a score three bars long into a one-bar pattern
+    Then the call is refused, naming set_section to lengthen the pattern
+    And text that is not MusicXML, a missing file, no document, or both xml and path are refused
+    And the pattern is unchanged
+
+  Scenario: The guide narrates what the agent did
+    When the agent writes a note with write_notes
+    Then guide_events names the agent as the source and explains the note in the guide's voice
+    When the producer plays the transport from the window
+    Then guide_events names the user as the source of the transport event
+
+  Scenario: The agent walks a guide lesson and asks it a question
+    When the agent lists the guide's lessons
+    Then it reads "Your first beat" among them
+    When it starts that lesson
+    Then the lesson is active on its first step
+    When it steps forward and back, then stops
+    Then the lesson is no longer active
+    When it asks the guide what a triad is
+    Then the answer names three notes a third apart
+    And asking with no question is refused
+
   Scenario: A second Blokkily never takes the socket from one that is busy
     Given a Blokkily serving MCP whose window is too busy to accept connections
     When a second Blokkily starts and tries to serve the same socket

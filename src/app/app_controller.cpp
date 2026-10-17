@@ -221,6 +221,11 @@ AppController::~AppController() {
     }
 }
 
+void AppController::emitBusEvent(blokkily::guide::EventKind kind, const std::string& label,
+                                 const std::string& detail) {
+    event_bus_.publish(blokkily::guide::AppEvent{event_source_, kind, label, detail});
+}
+
 // Nothing is left holding a note across a rebuild: the engine that was told to
 // sound it no longer exists, so the release would land on an instrument that
 // never heard the press.
@@ -500,6 +505,7 @@ void AppController::addTrack(const std::vector<std::filesystem::path>& roots) {
     if (bank.empty()) bank = findDefaultBank(roots);
     // A numbered track names no instrument family, so it opens on the piano.
     song_->addTrack(bank.empty() ? blokkily::InstrumentSlot{} : defaultSlot(bank, "TRACK"));
+    emitBusEvent(blokkily::guide::EventKind::track_added, "track added");
 }
 
 QString AppController::projectName() const {
@@ -550,6 +556,7 @@ void AppController::newProject() {
     song_->markSaved();
     forgetAutosave();
     emit projectStatusChanged();
+    emitBusEvent(blokkily::guide::EventKind::new_project, "new project");
 }
 
 void AppController::clearEverything() {
@@ -828,6 +835,8 @@ bool AppController::selectInstrument(int index) {
     slot.path = entry.value("path").toString().toStdString();
     slot.identifier = entry.value("identifier").toString().toStdString();
     song_->setInstrument(song_->selectedTrack(), slot);
+    emitBusEvent(blokkily::guide::EventKind::instrument_loaded,
+                 entry.value("name").toString().toStdString());
     return engine_ != nullptr;
 }
 
@@ -859,6 +868,7 @@ void AppController::togglePlayback() {
         // and every automation pass still open is written up to here.
         finishTake();
         finishAutomationTake();
+        emitBusEvent(blokkily::guide::EventKind::transport_stopped, "stopped");
         return;
     }
     // Every pass the song is played through is a take of its own, so undo
@@ -886,6 +896,7 @@ void AppController::togglePlayback() {
                                   std::max<std::uint64_t>(1, engine_->song_samples()),
                               engine_->sample_rate());
     transport_->play();
+    emitBusEvent(blokkily::guide::EventKind::transport_started, "playing");
 }
 
 void AppController::rewindPlayback() {
@@ -944,6 +955,8 @@ void AppController::setTempo(double bpm) {
     // the instruments playing them: the song model reports it as a structure
     // change, which reaches the running engine as a coalesced recompile.
     (void)song_->setTempoAt(bpm, transport_ != nullptr ? transport_->tick() : 0.0);
+    emitBusEvent(blokkily::guide::EventKind::tempo_changed, "",
+                 "bpm=" + std::to_string(bpm));
 }
 
 bool AppController::exportMidiFile(const QString& path) {
@@ -1015,6 +1028,8 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
         format != blokkily::WaveFormat::float32)
         export_status_ += " · dithered";
     emit exportStatusChanged();
+    emitBusEvent(blokkily::guide::EventKind::bounce_finished,
+                 QFileInfo(local_path(path)).fileName().toStdString());
     return true;
 }
 
@@ -1085,6 +1100,9 @@ bool AppController::loadProjectFile(const QString& path) {
         progress_, QStringLiteral("OPENING %1").arg(QFileInfo(local_path(path)).completeBaseName().toUpper()));
     const bool loaded = loadProject(local_path(path));
     if (loaded && transport_) transport_->rewind();
+    if (loaded)
+        emitBusEvent(blokkily::guide::EventKind::project_loaded,
+                     QFileInfo(path).fileName().toStdString());
     return loaded;
 }
 
@@ -1331,6 +1349,9 @@ bool AppController::saveProject(const QString& path) {
                                   .arg(song.tracks.size() == 1 ? "" : "s")
                             : QString::fromStdString(error);
     emit projectStatusChanged();
+    if (valid)
+        emitBusEvent(blokkily::guide::EventKind::project_saved,
+                     QFileInfo(path).fileName().toStdString());
     return valid;
 }
 

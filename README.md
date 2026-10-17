@@ -119,8 +119,14 @@ keeps the layout consistent across desktops.
   `ffmpeg` on `PATH`). Import and export Standard MIDI Files for note exchange.
 - Save named versions of the song and restore any of them in one undo step,
   and keep notes with it, in the VERSIONS and NOTES tabs.
+- Read any part as staff notation in the SCORE view: all eleven clefs from
+  French violin to percussion, any key, any meter or unmetered chant, chords,
+  voices, ties and accidentals, with the clef, key and meter saved with the
+  song. Agents can read the score and move it in and out as MusicXML.
 - Press F1 or HELP for a guided tour of the window. CLEAR empties the session
   in one undo step.
+- Press GUIDE for a mascot that narrates what you and your agent do and why,
+  answers theory questions and teaches short interactive lessons.
 - Ask the LLM composition assistant for a phrase. Review its proposal before
   applying it; each generation is one undo step. An MCP bridge also lets agents
   control the running application and measure what they render (loudness,

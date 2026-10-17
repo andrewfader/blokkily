@@ -79,6 +79,10 @@ add_library(blokkily_core
     src/midi/midi_input.cpp
     src/midi/midi_output.cpp
     src/midi/midi_out_instrument.cpp
+    src/notation/duration.cpp
+    src/notation/pattern_bridge.cpp
+    src/notation/signature.cpp
+    src/notation/spelling.cpp
 )
 target_include_directories(blokkily_core PUBLIC include PRIVATE third_party/clap/include)
 target_link_libraries(blokkily_core PRIVATE ${CMAKE_DL_LIBS})
@@ -93,6 +97,26 @@ if(UNIX AND NOT APPLE)
     target_compile_definitions(blokkily_core PRIVATE BLOKKILY_HAVE_JACK=1)
 endif()
 target_link_libraries(blokkily_core PRIVATE PkgConfig::RTMIDI)
+
+# Floating guide (feature/staff-notation): continuous narration of user/MCP
+# actions, the mascot overlay, interactive lessons, Q&A, guide-performed
+# actions. Qt-free core (event bus, narrator, dispatcher, lessons, LLM
+# client); the QObject bridge joins the GUI target below.
+target_sources(blokkily_core PRIVATE
+    src/guide/event_bus.cpp
+    src/guide/narrator.cpp
+    src/guide/action_dispatcher.cpp
+    src/guide/lesson.cpp
+    src/guide/llm_client.cpp)
+
+# Staff notation (feature/staff-notation): MusicXML import/export.
+# pugixml is vendored (MIT); silence warnings for the third-party source so
+# the core target's -Werror stays meaningful for first-party code.
+target_sources(blokkily_core PRIVATE
+    src/notation/musicxml.cpp
+    third_party/pugixml/pugixml.cpp)
+set_source_files_properties(third_party/pugixml/pugixml.cpp PROPERTIES COMPILE_OPTIONS "-w")
+target_include_directories(blokkily_core PRIVATE third_party/pugixml)
 # JUCE is compiled once, GUI-capable, here and nowhere else in the host
 # (docs/plans/spike-1.7-juce-gui.md, "core links GUI"). Everything that needs
 # JUCE links this target; nothing else links juce:: module targets (the VST3
@@ -137,11 +161,16 @@ if(BLOKKILY_BUILD_GUI)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 Network
         OPTIONAL_COMPONENTS QuickShapes)
     qt_standard_project_setup(REQUIRES 6.5)
-    qt_policy(SET QTP0004 NEW)
+    # QTP0004 only exists in Qt 6.8+; older Qt keeps its default behavior.
+    if(Qt6_VERSION VERSION_GREATER_EQUAL "6.8")
+        qt_policy(SET QTP0004 NEW)
+    endif()
     qt_add_executable(blokkily
         src/app/gui_main.cpp
         src/app/pattern_model.cpp
         src/app/pattern_model.hpp
+        src/app/score_model.cpp
+        src/app/score_model.hpp
         src/app/transport.cpp
         src/app/transport.hpp
         src/app/app_controller.cpp
@@ -161,6 +190,10 @@ if(BLOKKILY_BUILD_GUI)
         src/app/verify/harness.hpp
         src/app/verify/scenario_default.cpp
         src/app/verify/scenario_midi.cpp
+        src/app/verify/scenario_guide.cpp
+        src/app/verify/scenario_score.cpp
+        src/guide/guide_controller.cpp
+        src/guide/guide_controller.hpp
     )
     target_include_directories(blokkily PRIVATE src/app)
     # The window and the panels it is built from. They are served from the
@@ -185,6 +218,9 @@ if(BLOKKILY_BUILD_GUI)
         ui/MixerStrip.qml
         ui/Blokkily.qml
         ui/Tutorial.qml
+        ui/guide/GuideOverlay.qml
+        ui/ScoreView.qml
+        ui/Smufl.js
     )
     foreach(qml_file IN LISTS BLOKKILY_QML_FILES)
         get_filename_component(qml_name "${qml_file}" NAME)
@@ -200,6 +236,12 @@ if(BLOKKILY_BUILD_GUI)
         VERSION 1.0
         OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml/Blokkily"
         QML_FILES ${BLOKKILY_QML_FILES}
+        RESOURCES
+            ui/guide/lessons/first-beat.json
+            ui/guide/lessons/triads.json
+            ui/guide/lessons/bass-lines.json
+            ui/guide/lessons/lead-sheet.json
+            ui/guide/lessons/call-response.json
     )
     # The UI's own typefaces (both SIL OFL 1.1, licences beside them). The
     # layout is drawn for their metrics, so it looks - and the gates measure
@@ -212,9 +254,20 @@ if(BLOKKILY_BUILD_GUI)
             resources/fonts/IBMPlexSans-Regular.ttf
             resources/fonts/IBMPlexSans-Bold.ttf
             resources/fonts/JetBrainsMono-Regular.ttf
-            resources/fonts/JetBrainsMono-Bold.ttf)
+            resources/fonts/JetBrainsMono-Bold.ttf
+            resources/fonts/Bravura.otf)
+    set_source_files_properties(ui/guide/lessons/first-beat.json
+        PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/first-beat.json")
+    set_source_files_properties(ui/guide/lessons/triads.json
+        PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/triads.json")
+    set_source_files_properties(ui/guide/lessons/bass-lines.json
+        PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/bass-lines.json")
+    set_source_files_properties(ui/guide/lessons/lead-sheet.json
+        PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/lead-sheet.json")
+    set_source_files_properties(ui/guide/lessons/call-response.json
+        PROPERTIES QT_RESOURCE_ALIAS "guide/lessons/call-response.json")
     target_link_libraries(blokkily PRIVATE blokkily_core
-        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2 Qt6::Network)
     if(TARGET Qt6::QuickShapes)
         target_link_libraries(blokkily PRIVATE Qt6::QuickShapes)
     endif()
@@ -324,6 +377,40 @@ if(BLOKKILY_BUILD_TESTS)
     set_tests_properties(project_format PROPERTIES
         LABELS "unit;bdd;project"
         ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 30)
+
+    # Staff notation model: clefs, spelling, durations, and the pattern bridge.
+    # Proves features/notation.feature's model scenarios (the GUI scenarios are
+    # task C's, proved by the screenshot gate).
+    add_executable(blokkily_notation_tests tests/notation_tests.cpp)
+    target_link_libraries(blokkily_notation_tests PRIVATE blokkily_core)
+    add_test(NAME notation COMMAND blokkily_notation_tests)
+    set_tests_properties(notation PROPERTIES
+        LABELS "unit;bdd;notation"
+        ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
+
+    # MusicXML import/export (feature/staff-notation, task B). Proves
+    # features/musicxml.feature: clef roster, key signatures, ties, lyrics,
+    # parts/staves, unmetered chant, and the export rule — the written document
+    # is read back and the re-imported score is played through the pattern
+    # bridge and compared with what the engine renders.
+    add_executable(blokkily_musicxml_tests tests/musicxml_tests.cpp)
+    target_link_libraries(blokkily_musicxml_tests PRIVATE blokkily_core)
+    add_test(NAME musicxml COMMAND blokkily_musicxml_tests)
+    set_tests_properties(musicxml PROPERTIES
+        LABELS "unit;bdd;notation;export"
+        ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
+
+    # Floating guide: event bus, narrator, action dispatcher, lesson engine,
+    # LLM client. Proves features/guide.feature's non-GUI scenarios (the
+    # overlay scenarios are task C's screenshot gate, bdd_guide).
+    add_executable(blokkily_guide_tests tests/guide_tests.cpp)
+    target_link_libraries(blokkily_guide_tests PRIVATE blokkily_core)
+    # The checks are asserts: they must run in every build type.
+    target_compile_options(blokkily_guide_tests PRIVATE -UNDEBUG)
+    add_test(NAME guide COMMAND blokkily_guide_tests)
+    set_tests_properties(guide PROPERTIES
+        LABELS "unit;bdd;guide"
+        ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
 
     add_executable(blokkily_audio_regressions tests/audio_regressions.cpp)
     target_link_libraries(blokkily_audio_regressions PRIVATE blokkily_core)
@@ -509,7 +596,9 @@ foreach(blokkily_feature
         sequencer_fidelity
         insert_locks
         tutorial
+        guide
         mcp
+        score
         long_song
         versions
         loading_progress

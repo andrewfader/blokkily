@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <variant>
@@ -86,7 +87,10 @@ void run_metronome(VerifyContext& ctx) {
     auto& transport = ctx.transport;
     auto& controller = ctx.controller;
     const auto& parser = ctx.parser;
-    const auto check = [&ctx](bool ok) { ctx.check(ok); };
+    const auto check = [&ctx](bool ok, std::source_location at = std::source_location::current()) {
+        if (!ok) std::cerr << "metronome check failed at line " << at.line() << '\n';
+        ctx.check(ok);
+    };
     const auto reached = [&ctx](const char* scenario) { ctx.reached(scenario); };
     const auto settle = [](int milliseconds) { VerifyContext::settle(milliseconds); };
     const auto lay_out = [window] {
@@ -156,8 +160,8 @@ void run_metronome(VerifyContext& ctx) {
     // can be, from its minimum up, the bar must end inside it.
     {
         const QSize kept = window->size();
-        for (const int width : {960, 1000, 1060, 1100, 1144, 1145, 1152, 1180, 1204, 1205, 1229, 1230, 1240, 1280,
-                               1299, 1300, 1329, 1330, 1429, 1430, 1440}) {
+        for (const int width : {960, 1000, 1060, 1100, 1144, 1145, 1152, 1180, 1204, 1205, 1229, 1230, 1240, 1279,
+                               1280, 1299, 1300, 1329, 1330, 1379, 1380, 1429, 1430, 1440, 1479, 1480}) {
             window->resize(width, kept.height());
             lay_out();
             auto* rescan = ctx.named("rescanButton");
@@ -165,7 +169,7 @@ void run_metronome(VerifyContext& ctx) {
                 rescan != nullptr ? rescan->mapToScene({rescan->width(), 0}).x() : 1e9;
             // Every chip on the bar says what it is: none of their labels elided.
             bool whole = true;
-            for (const char* name : {"viewALL", "viewSTEP", "viewTRACKER", "viewPIANO", "viewKEYS",
+            for (const char* name : {"viewALL", "viewSTEP", "viewTRACKER", "viewPIANO", "viewSCORE", "viewKEYS",
                                      "viewLAUNCH", "viewVERSIONS", "viewNOTES", "undoButton", "redoButton", "clearButton", "rescanButton"})
                 if (auto* chip = ctx.named(QString::fromLatin1(name)))
                     for (auto* child : chip->childItems())

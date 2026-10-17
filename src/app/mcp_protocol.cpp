@@ -214,6 +214,118 @@ QJsonArray toolDefinitions() {
              "`get_property`. Covers what the purpose-built tools do not: the mixer, effects, "
              "automation, clips, tempo, tuning, saving and exporting, undo and redo.",
              schema({{"object", QJsonObject{{"type", "string"}, {"enum", objects}}}})),
+        tool("get_score",
+             "One track's part of one pattern as staff notation, as the SCORE view draws "
+             "it: every note and rest with its bar, step, written value, dots, tuplet and "
+             "voice, and for a note its spelling (C4, F#3), whether it is a chord tone or "
+             "tied, its staff position and whether its accidental prints by the bar's "
+             "rule - plus the part as a MusicXML document. Clef, key and meter are the "
+             "song's (set_clef, set_key_signature, set_time_signature) unless given here.",
+             schema({{"track", track},
+                     {"section", section},
+                     {"clef",
+                      QJsonObject{{"type", "string"},
+                                  {"description",
+                                   "Treble, French violin, Soprano, Mezzo-soprano, Alto, "
+                                   "Tenor, Baritone (C), Baritone (F), Bass, Subbass, "
+                                   "Percussion."}}},
+                     {"key",
+                      QJsonObject{{"type", "integer"},
+                                  {"description",
+                                   "Key signature in fifths, -7 to 7. 0 is C major."}}},
+                     {"time",
+                      QJsonObject{{"type", "string"},
+                                  {"description",
+                                   "\"4/4\", \"3/4\", \"6/8\", ... or \"unmetered\"."}}}})),
+        tool("set_clef",
+             "The clef one track's part of one pattern is written in. Saved with the song "
+             "and undone with it.",
+             schema({{"track", track},
+                     {"section", section},
+                     {"clef",
+                      QJsonObject{{"type", "string"},
+                                  {"description",
+                                   "Treble, French violin, Soprano, Mezzo-soprano, Alto, "
+                                   "Tenor, Baritone (C), Baritone (F), Bass, Subbass, "
+                                   "Percussion."}}}},
+                    {"clef"})),
+        tool("set_key_signature",
+             "The key signature a pattern is spelled in, in fifths (-7 to 7; 0 is C major, "
+             "1 one sharp), for every track's part of it. Saved and undone with the song.",
+             schema({{"section", section},
+                     {"fifths", integer("The key signature in fifths, -7 to 7.")}},
+                    {"fifths"})),
+        tool("set_time_signature",
+             "The meter a pattern is written in: beats and unit, unmetered (chant: no "
+             "time signature and no barlines; false turns chant off and keeps the meter), "
+             "or song: true to follow the song's meter where the pattern plays (the "
+             "default). Saved and undone with the song.",
+             schema({{"section", section},
+                     {"beats", integer("Beats in the bar, 1 to 64; give unit with it.")},
+                     {"unit", integer("Beat unit: 1, 2, 4, 8, 16 or 32.")},
+                     {"unmetered",
+                      QJsonObject{{"type", "boolean"},
+                                  {"description", "Chant on or off."}}},
+                     {"song",
+                      QJsonObject{{"type", "boolean"},
+                                  {"description", "Follow the song's meter again."}}}},
+                    {})),
+        tool("export_musicxml",
+             "Writes a pattern as a MusicXML 4.0 partwise file: one part per track that "
+             "has a part of it (or one track's with track). The file is read back and "
+             "what it plays is compared with each part: matches is false when a part "
+             "holds what notation cannot say, such as timing off the 128th-note grid.",
+             schema({{"section", section},
+                     {"track", track},
+                     {"path",
+                      QJsonObject{{"type", "string"},
+                                  {"description", "An absolute path ending in .musicxml or .xml."}}},
+                     {"overwrite",
+                      QJsonObject{{"type", "boolean"},
+                                  {"description", "Replace a file already there. Default false."}}}},
+                    {"path"})),
+        tool("import_musicxml",
+             "Reads a MusicXML partwise score into one pattern as one step of undo: part "
+             "i lands on track i from `track`, every staff of it, at its sounding pitch, "
+             "and the part takes the score's clef, key and meter. With replace, each part "
+             "is emptied first. Nothing changes when no part has a track or the score runs "
+             "past the pattern (lengthen it with set_section); notes outside MIDI 0-127 "
+             "are left out and counted as dropped.",
+             schema({{"track", track},
+                     {"section", section},
+                     {"replace",
+                      QJsonObject{{"type", "boolean"},
+                                  {"description", "Empty each part before writing. Default false."}}},
+                     {"xml",
+                      QJsonObject{{"type", "string"},
+                                  {"description", "The MusicXML document, as text (or path)."}}},
+                     {"path",
+                      QJsonObject{{"type", "string"},
+                                  {"description", "Read the document from this file (or xml)."}}}},
+                    {})),
+        tool("guide_events",
+             "What the floating guide has been narrating: the last bus events — user "
+             "edits, agent tool calls, guide actions — each with who did it and the "
+             "guide's why-explanation.",
+             schema({{"count",
+                      QJsonObject{{"type", "integer"},
+                                  {"description", "How many recent events. Default 10, at most 50."}}}})),
+        tool("guide_lesson",
+             "The guide's interactive lessons: list them, start one, step through it, "
+             "or stop. Each step says what to do and where; the guide spotlights the "
+             "control in the window.",
+             schema({{"action",
+                      QJsonObject{{"type", "string"},
+                                  {"enum", QJsonArray{"list", "start", "next", "back", "stop"}}}},
+                     {"id", QJsonObject{{"type", "string"},
+                                        {"description", "For start: the lesson id from list."}}}},
+                    {"action"})),
+        tool("guide_ask",
+             "Ask the guide a music-theory or composition question. Its built-in rules "
+             "answer at once; what they do not cover goes to the guide's bubble, where "
+             "it asks a model (its own LLM config, else the prompt bar's backend).",
+             schema({{"question", QJsonObject{{"type", "string"}}}},
+                    {"question"})),
         tool("call",
              "Calls one of the window's methods (listed by describe) with positional "
              "arguments, through the same path a click takes, and returns what it returns.",
@@ -246,7 +358,12 @@ QString instructions() {
         "songModel.undo(), appController.saveProjectFile(path), "
         "appController.exportAudioFile(path)). Every edit can be undone. screenshot shows the "
         "window. analyze_render measures how the mix sounds: loudness, peaks and where the "
-        "energy sits.");
+        "energy sits. get_score reads a part as staff notation (spelled notes plus "
+        "MusicXML); set_clef, set_key_signature and set_time_signature dress the "
+        "score; export_musicxml writes a MusicXML file and import_musicxml reads one "
+        "back as one undo step. guide_events narrates what happened lately, "
+        "guide_lesson runs the guide's interactive lessons, guide_ask asks it a "
+        "theory question.");
 }
 
 QJsonObject textResult(const QString& text, bool error) {

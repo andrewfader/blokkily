@@ -1,6 +1,7 @@
 #include "pattern_model.hpp"
 
 #include "blokkily/model/groove.hpp"
+#include "blokkily/guide/narrator.hpp"
 
 #include <QString>
 #include <QVariantMap>
@@ -159,6 +160,12 @@ PatternModel::PatternModel(SongModel* song, QObject* parent)
 // patterns in the arrangement moves all three views at once.
 blokkily::Pattern& PatternModel::pattern() { return song_->editPattern(); }
 const blokkily::Pattern& PatternModel::pattern() const { return song_->editPattern(); }
+
+void PatternModel::emitBusEvent(blokkily::guide::EventKind kind, const std::string& label,
+                                const std::string& detail) {
+    if (bus_ == nullptr) return;
+    bus_->publish(blokkily::guide::AppEvent{event_source_, kind, label, detail});
+}
 
 void PatternModel::refresh() {
     // Another pattern opened: the roll fits its notes again.
@@ -798,6 +805,8 @@ void PatternModel::toggleStep(int step, int key) {
         emit patternChanged();
         emit contentChanged();
         emit selectionChanged();
+        emitBusEvent(blokkily::guide::EventKind::note_removed,
+                     "step " + std::to_string(step + 1));
         return;
     }
     blokkily::Trigger trigger;
@@ -811,6 +820,9 @@ void PatternModel::toggleStep(int step, int key) {
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
+    emitBusEvent(blokkily::guide::EventKind::note_added,
+                 blokkily::guide::Narrator::note_name(key) + " at step " +
+                     std::to_string(step + 1));
 }
 
 // Writing a pitch onto a step is the same edit whichever editor asks for it,
@@ -1079,6 +1091,8 @@ void PatternModel::clearStep(int step) {
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
+    emitBusEvent(blokkily::guide::EventKind::note_removed,
+                 "step " + std::to_string(step + 1));
 }
 
 void PatternModel::setStepDuration(int step, int ticks) {
@@ -1260,6 +1274,9 @@ void PatternModel::placeNote(int step, const blokkily::Note& note) {
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
+    emitBusEvent(blokkily::guide::EventKind::note_added,
+                 blokkily::guide::Narrator::note_name(note.key) + " at step " +
+                     std::to_string(step + 1));
 }
 
 void PatternModel::notifyRecorded() {
@@ -1285,6 +1302,8 @@ void PatternModel::placeChord(int step, const blokkily::Chord& chord) {
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
+    emitBusEvent(blokkily::guide::EventKind::note_added,
+                 "chord at step " + std::to_string(step + 1));
 }
 
 void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)>& edit,

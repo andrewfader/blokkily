@@ -223,6 +223,23 @@ public:
     QString rootName() const;
     bool autoScale() const noexcept { return song_.auto_scale; }
 
+    // How the score view writes a track's part of a section: the part's clef
+    // ("Treble", "Bass", "Alto", "French violin", ...; a piano's two hands
+    // read two clefs), the section's key in fifths, and its meter - the
+    // song's meter where the section plays unless one is set, or none for
+    // chant. They are the song's: saved with it, undone with it.
+    // notationSettings reads {clef, keyFifths, timeBeats, timeUnit,
+    // unmetered, meterSet}; an empty map when the part does not exist.
+    Q_INVOKABLE QVariantMap notationSettings(int track, int section) const;
+    // Changes any of clef, keyFifths, timeBeats with timeUnit, unmetered, or
+    // meterSet false (back to the song's meter), as one step of undo. Every
+    // value is checked first: false, and nothing changed, when one is not
+    // valid or the part does not exist.
+    Q_INVOKABLE bool setNotationSettings(int track, int section, const QVariantMap& settings);
+    // As above; without its own step of undo when the caller has taken one
+    // for a larger edit (an import).
+    bool setNotationSettings(int track, int section, const QVariantMap& settings, bool own_step);
+
     Q_INVOKABLE void selectTrack(int track);
     // Opens pattern `pattern`: its section, with its track selected, so it is
     // the part the editors show.
@@ -682,6 +699,8 @@ signals:
     // The session changed tuning, scale, or root. Every projection that names
     // or draws a pitch re-reads itself from this.
     void tuningChanged();
+    // A part's clef, or a section's key or meter for the score, changed.
+    void notationChanged();
     void historyChanged();
     void notesChanged();
     void versionsChanged();

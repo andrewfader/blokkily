@@ -1,13 +1,26 @@
 #include "mcp_tools.hpp"
 
+#include "../guide/guide_controller.hpp"
 #include "app_controller.hpp"
+#include "blokkily/guide/event_bus.hpp"
 #include "blokkily/model/song.hpp"
+#include "blokkily/notation/clef.hpp"
+#include "blokkily/notation/duration.hpp"
+#include "blokkily/notation/layout.hpp"
+#include "blokkily/notation/musicxml.hpp"
+#include "blokkily/notation/pattern_bridge.hpp"
+#include "blokkily/notation/pitch.hpp"
+#include "blokkily/notation/signature.hpp"
+#include "blokkily/notation/spelling.hpp"
+#include "blokkily/sequencer/scheduler.hpp"
 #include "mcp_protocol.hpp"
 #include "pattern_model.hpp"
 #include "song_model.hpp"
 #include "transport.hpp"
 
 #include <QBuffer>
+#include <QFile>
+#include <QFileInfo>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -15,9 +28,13 @@
 #include <QMetaProperty>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QSaveFile>
 
 #include <cmath>
+#include <algorithm>
 #include <optional>
+#include <stdexcept>
+#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -111,11 +128,25 @@ QString signatureOf(const QMetaMethod& method) {
 }  // namespace
 
 McpTools::McpTools(SongModel& song, PatternModel& pattern, AppController& controller,
-                   Transport& transport, QQuickWindow* window)
+                   Transport& transport, QQuickWindow* window, GuideController* guide)
     : song_(song), pattern_(pattern), controller_(controller), transport_(transport),
-      window_(window) {}
+      window_(window), guide_(guide) {}
 
 QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
+    // The guide's narration feed attributes what follows: everything the call
+    // does is stamped source=mcp, and the stamp is put back afterwards so a
+    // later click is never misattributed.
+    // Both models are stamped: tools reach the pattern model as well as the
+    // controller (e.g. through the generic call/invoke tool).
+    controller_.setEventSource(blokkily::guide::EventSource::mcp);
+    pattern_.setEventSource(blokkily::guide::EventSource::mcp);
+    QJsonObject result = dispatch(name, arguments);
+    controller_.setEventSource(blokkily::guide::EventSource::user);
+    pattern_.setEventSource(blokkily::guide::EventSource::user);
+    return result;
+}
+
+QJsonObject McpTools::dispatch(const QString& name, const QJsonObject& arguments) {
     if (name == "get_session") return getSession();
     if (name == "get_pattern") return getPattern(arguments);
     if (name == "write_notes") return writeNotes(arguments);
@@ -132,6 +163,15 @@ QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
     if (name == "describe") return describe(arguments);
     if (name == "call") return invoke(arguments);
     if (name == "get_property") return getProperty(arguments);
+    if (name == "get_score") return getScore(arguments);
+    if (name == "set_clef") return setClef(arguments);
+    if (name == "set_key_signature") return setKeySignature(arguments);
+    if (name == "set_time_signature") return setTimeSignature(arguments);
+    if (name == "export_musicxml") return exportMusicXml(arguments);
+    if (name == "import_musicxml") return importMusicXml(arguments);
+    if (name == "guide_events") return guideEvents(arguments);
+    if (name == "guide_lesson") return guideLesson(arguments);
+    if (name == "guide_ask") return guideAsk(arguments);
     return failure(QStringLiteral("Unknown tool: %1").arg(name));
 }
 
@@ -342,6 +382,13 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         if (pattern.add(std::move(trigger)) != 0) ++written;
     }
     song_.notifyStructureChanged();
+    // Direct model write, past the emitting commands: attribute it by hand so
+    // the guide's feed tells the producer their agent did this.
+    if (written > 0)
+        controller_.eventBus().publish(
+            {blokkily::guide::EventSource::mcp, blokkily::guide::EventKind::note_added,
+             std::to_string(written) + " notes",
+             "track=" + std::to_string(track) + " section=" + std::to_string(section)});
     return jsonResult(QJsonObject{{"written", written},
                                   {"refused", static_cast<int>(wanted.size()) - written},
                                   {"track", track},
@@ -656,4 +703,496 @@ QJsonObject McpTools::getProperty(const QJsonObject& arguments) const {
     const QJsonValue value = QJsonValue::fromVariant(target->property(property.constData()));
     if (value.isObject() || value.isArray()) return jsonResult(value);
     return textResult(QString::fromUtf8(QJsonDocument(QJsonArray{value}).toJson(QJsonDocument::Compact)).mid(1).chopped(1));
+}
+
+namespace {
+
+// Staff notation (feature/staff-notation): shared argument handling.
+struct PartRef {
+    int track = -1;
+    int section = -1;
+    QString error;
+};
+
+PartRef resolvePart(SongModel& song, int track, int section) {
+    PartRef ref{track, section, {}};
+    if (track < 0 || track >= song.trackCount())
+        ref.error = QStringLiteral("There is no track %1.").arg(track);
+    else if (section < 0 || section >= song.sections().size())
+        ref.error = QStringLiteral("There is no pattern %1.").arg(section);
+    else if (song.partOf(section, track) < 0)
+        ref.error =
+            QStringLiteral("Track %1 has no part of pattern %2.").arg(track).arg(section);
+    return ref;
+}
+
+std::optional<blokkily::notation::ClefKind> clefKindOf(const QString& name) {
+    for (int kind = 0; kind <= static_cast<int>(blokkily::notation::ClefKind::Percussion);
+         ++kind) {
+        const auto clef_kind = static_cast<blokkily::notation::ClefKind>(kind);
+        if (QString::fromUtf8(blokkily::notation::Clef(clef_kind).name())
+                .compare(name, Qt::CaseInsensitive) == 0)
+            return clef_kind;
+    }
+    return std::nullopt;
+}
+
+QString clefNames() {
+    QStringList names;
+    for (int kind = 0; kind <= static_cast<int>(blokkily::notation::ClefKind::Percussion);
+         ++kind)
+        names << QString::fromUtf8(
+            blokkily::notation::Clef(static_cast<blokkily::notation::ClefKind>(kind)).name());
+    return names.join(QStringLiteral(", "));
+}
+
+}  // namespace
+
+McpTools::ScoreDressing McpTools::scoreDressing(int track, int section,
+                                               const QJsonObject& arguments) {
+    // The part's own settings, overridden by the call's. Throws
+    // std::invalid_argument on an override that is not one.
+    ScoreDressing dressing;
+    const QVariantMap stored = song_.notationSettings(track, section);
+    const QString clef_name = arguments.value("clef").toString(stored.value("clef").toString());
+    const auto kind = clefKindOf(clef_name);
+    if (!kind)
+        throw std::invalid_argument("unknown clef \"" + clef_name.toStdString() + "\"; one of: " +
+                                    clefNames().toStdString());
+    dressing.clef = blokkily::notation::Clef(*kind);
+    int fifths = stored.value("keyFifths").toInt();
+    if (arguments.contains("key")) {
+        const auto key = arguments.value("key");
+        if (!key.isDouble() || key.toDouble() != std::floor(key.toDouble()))
+            throw std::invalid_argument("key is a whole number of fifths, -7 to 7");
+        fifths = key.toInt();
+    }
+    dressing.key = blokkily::notation::KeySignature(fifths); // range-checked
+    if (arguments.contains("time")) {
+        const QString time = arguments.value("time").toString().trimmed();
+        if (time.compare("unmetered", Qt::CaseInsensitive) == 0) {
+            dressing.time = blokkily::notation::TimeSignature::unmetered();
+        } else {
+            static const QRegularExpression meter(QStringLiteral("^(\\d{1,2})/(\\d{1,2})$"));
+            const auto match = meter.match(time);
+            if (!match.hasMatch()) throw std::invalid_argument("time is \"beats/unit\", such as 3/4, or \"unmetered\"");
+            dressing.time = blokkily::notation::TimeSignature(match.captured(1).toInt(), match.captured(2).toInt());
+        }
+    } else if (stored.value("unmetered").toBool()) {
+        dressing.time = blokkily::notation::TimeSignature::unmetered();
+    } else {
+        dressing.time = blokkily::notation::TimeSignature(stored.value("timeBeats").toInt(),
+                                                         stored.value("timeUnit").toInt());
+    }
+    return dressing;
+}
+
+blokkily::notation::Staff McpTools::scoreStaff(int track, int section, const ScoreDressing& dressing) const {
+    const int index = song_.partOf(section, track);
+    const auto& pattern = song_.song().patterns.at(static_cast<std::size_t>(index)).pattern;
+    return blokkily::notation::to_staff(pattern, dressing.key, dressing.clef, dressing.time);
+}
+
+QJsonObject McpTools::getScore(const QJsonObject& arguments) {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    const auto part = resolvePart(song_, track, section);
+    if (!part.error.isEmpty()) return failure(part.error);
+    try {
+        const auto dressing = scoreDressing(track, section, arguments);
+        const auto staff = scoreStaff(track, section, dressing);
+        const auto& pattern =
+            song_.song().patterns.at(static_cast<std::size_t>(song_.partOf(section, track))).pattern;
+        const blokkily::Tick ticks_per_beat = pattern.ticks_per_beat();
+        const double step = static_cast<double>(std::max<blokkily::Tick>(1, ticks_per_beat / 4));
+        // The notes and rests as they are written: where each falls, its
+        // value, and what it prints. The same reading the score view draws.
+        QJsonArray notes;
+        QJsonArray rests;
+        for (const auto& placed : blokkily::notation::place(staff, ticks_per_beat)) {
+            const auto& object = staff.measures[placed.measure].objects[placed.index];
+            const auto& value = std::visit(
+                [](const auto& o) -> const blokkily::notation::NoteDuration& { return o.duration; }, object);
+            QJsonObject entry{{"measure", static_cast<int>(placed.measure) + 1},
+                              {"step", static_cast<double>(placed.onset) / step},
+                              {"length", static_cast<double>(placed.length) / step},
+                              {"value", QString::fromUtf8(blokkily::notation::value_name(value.value))},
+                              {"dots", value.dots},
+                              {"voice", placed.voice}};
+            if (value.tuplet()) entry.insert("tuplet", QStringLiteral("%1:%2").arg(value.tuplet_actual).arg(value.tuplet_normal));
+            const auto* note = std::get_if<blokkily::notation::NotationNote>(&object);
+            if (note == nullptr) {
+                rests.append(entry);
+                continue;
+            }
+            entry.insert("midi", blokkily::notation::to_midi(note->spelled) + staff.transposition());
+            entry.insert("spelled", QString::fromUtf8(blokkily::notation::step_name(note->spelled.step)) +
+                                        QString::fromUtf8(blokkily::notation::accidental_name(note->spelled.accidental)) +
+                                        QString::number(note->spelled.octave));
+            entry.insert("staffPosition", dressing.clef.pitched()
+                                              ? blokkily::notation::staff_position(note->spelled, dressing.clef)
+                                              : 4);
+            entry.insert("accidentalShown", placed.accidental_shown);
+            entry.insert("chord", note->chord);
+            entry.insert("tieStart", note->tie_start);
+            entry.insert("tieEnd", note->tie_end);
+            entry.insert("velocity", note->velocity);
+            if (note->cents != 0.0) entry.insert("cents", note->cents);
+            notes.append(entry);
+        }
+        blokkily::notation::Score score;
+        score.title = song_.sections().at(section).toMap().value("name").toString().toStdString();
+        score.parts.push_back({song_.tracks().at(track).toMap().value("name").toString().toStdString(), {staff}});
+        const std::string xml = blokkily::notation::write(score);
+        return jsonResult(QJsonObject{
+            {"track", track},
+            {"pattern", section},
+            {"name", song_.sections().at(section).toMap().value("name").toString()},
+            {"clef", QString::fromUtf8(dressing.clef.name())},
+            {"key", QJsonObject{{"fifths", dressing.key.fifths()},
+                                {"label", QString::fromStdString(dressing.key.label())}}},
+            {"time", QString::fromStdString(dressing.time.label())},
+            {"steps", static_cast<double>(pattern.length()) / step},
+            {"measures", static_cast<int>(staff.measures.size())},
+            {"notes", notes},
+            {"rests", rests},
+            {"musicxml", QString::fromUtf8(xml.c_str())},
+        });
+    } catch (const std::exception& e) {
+        return failure(QStringLiteral("The score could not be built: %1").arg(e.what()));
+    }
+}
+
+namespace {
+
+// A JSON value that is a whole number, or nothing.
+std::optional<int> wholeNumber(const QJsonValue& value) {
+    if (!value.isDouble() || value.toDouble() != std::floor(value.toDouble())) return std::nullopt;
+    return value.toInt();
+}
+
+// What the scheduler plays from a pattern, note by note.
+using Played = std::tuple<blokkily::Tick, int, blokkily::Tick, long long, int>;
+std::vector<Played> played(const blokkily::Pattern& pattern) {
+    std::vector<Played> notes;
+    for (const auto& note : blokkily::Scheduler{}.render_loop(pattern, 0, 0))
+        notes.emplace_back(note.start, note.key, note.duration, std::llround(note.cents * 1000.0),
+                           static_cast<int>(std::lround(note.velocity * 1000.0F)));
+    std::sort(notes.begin(), notes.end());
+    return notes;
+}
+
+} // namespace
+
+QJsonObject McpTools::setClef(const QJsonObject& arguments) {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    const auto part = resolvePart(song_, track, section);
+    if (!part.error.isEmpty()) return failure(part.error);
+    const auto kind = clefKindOf(arguments.value("clef").toString());
+    if (!kind)
+        return failure(QStringLiteral("Unknown clef \"%1\". One of: %2.").arg(arguments.value("clef").toString(), clefNames()));
+    const QString name = QString::fromUtf8(blokkily::notation::Clef(*kind).name());
+    if (!song_.setNotationSettings(track, section, {{"clef", name}}))
+        return failure(QStringLiteral("The clef could not be set."));
+    return jsonResult(QJsonObject{{"track", track}, {"pattern", section}, {"clef", name}});
+}
+
+QJsonObject McpTools::setKeySignature(const QJsonObject& arguments) {
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    const auto fifths = wholeNumber(arguments.value("fifths"));
+    if (!fifths || *fifths < -7 || *fifths > 7)
+        return failure(QStringLiteral("fifths is a whole number from -7 to 7 (0 is C major, 1 one sharp)."));
+    // The key is the section's: any track with a part of it sets it for all.
+    int any = -1;
+    for (int track = 0; track < song_.trackCount() && any < 0; ++track)
+        if (song_.partOf(section, track) >= 0) any = track;
+    if (any < 0 || !song_.setNotationSettings(any, section, {{"keyFifths", *fifths}}))
+        return failure(QStringLiteral("Pattern %1 has no parts to set a key on.").arg(section));
+    return jsonResult(QJsonObject{{"pattern", section},
+                                  {"fifths", *fifths},
+                                  {"label", QString::fromStdString(blokkily::notation::KeySignature(*fifths).label())}});
+}
+
+QJsonObject McpTools::setTimeSignature(const QJsonObject& arguments) {
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    QVariantMap settings;
+    if (arguments.value("song").toBool()) {
+        // Back to the song's meter where the pattern plays.
+        settings = {{"meterSet", false}, {"unmetered", false}};
+    } else {
+        if (arguments.contains("beats") || arguments.contains("unit")) {
+            const auto beats = wholeNumber(arguments.value("beats"));
+            const auto unit = wholeNumber(arguments.value("unit"));
+            if (!beats || !unit)
+                return failure(QStringLiteral("Give beats and unit together, such as beats 3 and unit 4."));
+            settings = {{"timeBeats", *beats}, {"timeUnit", *unit}, {"unmetered", false}};
+        }
+        // Chant on or off; the meter it had is kept for when it comes off.
+        if (arguments.contains("unmetered")) settings["unmetered"] = arguments.value("unmetered").toBool();
+        if (settings.isEmpty())
+            return failure(QStringLiteral("Give beats and unit, unmetered, or song: true for the song's meter."));
+    }
+    int any = -1;
+    for (int track = 0; track < song_.trackCount() && any < 0; ++track)
+        if (song_.partOf(section, track) >= 0) any = track;
+    if (any < 0 || !song_.setNotationSettings(any, section, settings))
+        return failure(QStringLiteral("beats is 1 to 64 and unit one of 1, 2, 4, 8, 16, 32."));
+    const QVariantMap now = song_.notationSettings(any, section);
+    const auto time = now.value("unmetered").toBool()
+                          ? blokkily::notation::TimeSignature::unmetered()
+                          : blokkily::notation::TimeSignature(now.value("timeBeats").toInt(), now.value("timeUnit").toInt());
+    return jsonResult(QJsonObject{{"pattern", section},
+                                  {"time", QString::fromStdString(time.label())},
+                                  {"followsSong", !now.value("meterSet").toBool()}});
+}
+
+QJsonObject McpTools::exportMusicXml(const QJsonObject& arguments) {
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    const QString path = arguments.value("path").toString();
+    const QFileInfo target(path);
+    if (path.isEmpty() || !target.isAbsolute())
+        return failure(QStringLiteral("export_musicxml needs an absolute path."));
+    const QString suffix = target.suffix().toLower();
+    if (suffix != "musicxml" && suffix != "xml")
+        return failure(QStringLiteral("The path must end in .musicxml or .xml."));
+    if (target.exists() && !arguments.value("overwrite").toBool())
+        return failure(QStringLiteral("%1 already exists; pass overwrite: true to replace it.").arg(path));
+    try {
+        blokkily::notation::Score score;
+        score.title = song_.sections().at(section).toMap().value("name").toString().toStdString();
+        std::vector<int> tracks;
+        if (arguments.contains("track")) {
+            const int track = arguments.value("track").toInt();
+            const auto part = resolvePart(song_, track, section);
+            if (!part.error.isEmpty()) return failure(part.error);
+            tracks.push_back(track);
+        } else {
+            for (int track = 0; track < song_.trackCount(); ++track)
+                if (song_.partOf(section, track) >= 0) tracks.push_back(track);
+        }
+        if (tracks.empty()) return failure(QStringLiteral("Pattern %1 has no parts on any track.").arg(section));
+        for (const int track : tracks)
+            score.parts.push_back({song_.tracks().at(track).toMap().value("name").toString().toStdString(),
+                                   {scoreStaff(track, section, scoreDressing(track, section, {}))}});
+        const std::string xml = blokkily::notation::write(score);
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly) ||
+            file.write(xml.c_str(), static_cast<qint64>(xml.size())) != static_cast<qint64>(xml.size()) ||
+            !file.commit())
+            return failure(QStringLiteral("Could not write %1: %2").arg(path, file.errorString()));
+
+        // The export rule: the file is read back, and what it plays is
+        // compared with what each exported part plays.
+        QFile written(path);
+        if (!written.open(QIODevice::ReadOnly)) return failure(QStringLiteral("Could not read %1 back.").arg(path));
+        const auto back = blokkily::notation::parse(written.readAll().toStdString());
+        if (back.parts.size() != tracks.size())
+            return failure(QStringLiteral("%1 reads back with %2 parts, not %3.")
+                               .arg(path).arg(back.parts.size()).arg(tracks.size()));
+        QJsonArray parts;
+        bool all_match = true;
+        int notes = 0;
+        for (std::size_t p = 0; p < tracks.size(); ++p) {
+            const auto& pattern =
+                song_.song().patterns.at(static_cast<std::size_t>(song_.partOf(section, tracks[p]))).pattern;
+            std::vector<Played> heard;
+            for (const auto& staff : back.parts[p].staves) {
+                const auto staff_notes = played(blokkily::notation::to_pattern(staff, pattern.ticks_per_beat()));
+                heard.insert(heard.end(), staff_notes.begin(), staff_notes.end());
+            }
+            std::sort(heard.begin(), heard.end());
+            const auto original = played(pattern);
+            const bool matches = heard == original;
+            all_match = all_match && matches;
+            notes += static_cast<int>(original.size());
+            parts.append(QJsonObject{{"track", tracks[p]},
+                                     {"notes", static_cast<int>(original.size())},
+                                     {"readBackNotes", static_cast<int>(heard.size())},
+                                     {"matches", matches}});
+        }
+        return jsonResult(QJsonObject{{"path", path},
+                                      {"bytes", static_cast<int>(xml.size())},
+                                      {"notes", notes},
+                                      {"parts", parts},
+                                      // False when the pattern holds what notation cannot say,
+                                      // such as timing off the 128th grid.
+                                      {"matches", all_match}});
+    } catch (const std::exception& e) {
+        return failure(QStringLiteral("The export failed: %1").arg(e.what()));
+    }
+}
+
+QJsonObject McpTools::importMusicXml(const QJsonObject& arguments) {
+    const int track = arguments.value("track").toInt(song_.selectedTrack());
+    const int section = arguments.value("section").toInt(song_.currentSection());
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    if (arguments.contains("xml") == arguments.contains("path"))
+        return failure(QStringLiteral("import_musicxml needs one of xml or path."));
+    std::string xml;
+    if (arguments.contains("xml")) {
+        xml = arguments.value("xml").toString().toStdString();
+    } else {
+        QFile file(arguments.value("path").toString());
+        if (!file.open(QIODevice::ReadOnly))
+            return failure(QStringLiteral("Could not read %1.").arg(arguments.value("path").toString()));
+        xml = file.readAll().toStdString();
+    }
+    try {
+        const auto score = blokkily::notation::parse(xml);
+        if (score.parts.empty()) return failure(QStringLiteral("The score has no parts."));
+        // Everything is worked out before anything changes: a part that has
+        // no track to land on, or notes that run past the pattern, refuse
+        // the whole import.
+        struct Landing {
+            int track;
+            std::vector<blokkily::Trigger> notes;
+            const blokkily::notation::Staff* first;
+        };
+        std::vector<Landing> landings;
+        int skipped = 0;
+        int dropped = 0;
+        for (std::size_t p = 0; p < score.parts.size(); ++p) {
+            const int target = track + static_cast<int>(p);
+            if (target < 0 || target >= song_.trackCount() || song_.partOf(section, target) < 0 ||
+                score.parts[p].staves.empty()) {
+                ++skipped;
+                continue;
+            }
+            const auto& pattern =
+                song_.song().patterns.at(static_cast<std::size_t>(song_.partOf(section, target))).pattern;
+            Landing landing{target, {}, &score.parts[p].staves.front()};
+            for (const auto& staff : score.parts[p].staves) {
+                int left_out = 0;
+                const auto imported = blokkily::notation::to_pattern(staff, pattern.ticks_per_beat(), &left_out);
+                dropped += left_out;
+                for (const auto& trigger : imported.events()) {
+                    if (trigger.start >= pattern.length()) {
+                        const double step = static_cast<double>(std::max<blokkily::Tick>(1, pattern.ticks_per_beat() / 4));
+                        return failure(QStringLiteral("The score runs to step %1, past pattern %2's %3 steps; "
+                                                      "lengthen it with set_section first.")
+                                           .arg(static_cast<double>(imported.length()) / step)
+                                           .arg(section)
+                                           .arg(static_cast<double>(pattern.length()) / step));
+                    }
+                    auto note = trigger;
+                    note.id = 0;
+                    note.duration = std::min(note.duration, pattern.length() - note.start);
+                    landing.notes.push_back(note);
+                }
+            }
+            landings.push_back(std::move(landing));
+        }
+        if (landings.empty())
+            return failure(QStringLiteral("No part of the score has a track to land on from track %1.").arg(track));
+
+        // One step of undo for the notes and the clef, key and meter they
+        // were written in.
+        song_.checkpoint();
+        int written = 0;
+        for (const auto& landing : landings) {
+            song_.selectSection(section);
+            song_.selectTrack(landing.track);
+            auto& pattern = song_.editPattern();
+            if (arguments.value("replace").toBool()) {
+                std::vector<blokkily::EventId> ids;
+                for (const auto& trigger : pattern.events()) ids.push_back(trigger.id);
+                for (const auto id : ids) (void)pattern.remove(id);
+            }
+            for (const auto& note : landing.notes)
+                if (pattern.add(note) != 0) ++written;
+            const auto& staff = *landing.first;
+            QVariantMap settings{{"clef", QString::fromUtf8(staff.clef.name())}, {"keyFifths", staff.key.fifths()}};
+            if (staff.time.metered())
+                settings.insert({{"timeBeats", staff.time.beats()}, {"timeUnit", staff.time.beat_unit()}, {"unmetered", false}});
+            else
+                settings.insert("unmetered", true);
+            (void)song_.setNotationSettings(landing.track, section, settings, false);
+        }
+        song_.notifyStructureChanged();
+        if (written > 0)
+            controller_.eventBus().publish({blokkily::guide::EventSource::mcp, blokkily::guide::EventKind::note_added,
+                                            std::to_string(written) + " notes from MusicXML",
+                                            "section=" + std::to_string(section)});
+        return jsonResult(QJsonObject{{"written", written},
+                                      {"dropped", dropped},
+                                      {"skippedParts", skipped},
+                                      {"section", section},
+                                      {"title", QString::fromStdString(score.title)}});
+    } catch (const std::exception& e) {
+        return failure(QStringLiteral("The import failed: %1").arg(e.what()));
+    }
+}
+
+QJsonObject McpTools::guideEvents(const QJsonObject& arguments) {
+    if (guide_ == nullptr)
+        return failure(QStringLiteral("The guide is not running in this window."));
+    const int count = std::clamp(arguments.value("count").toInt(10), 1, 50);
+    const QVariantList events = guide_->narratedEvents(count);
+    QJsonArray out;
+    for (const auto& event : events) out.append(QJsonObject::fromVariantMap(event.toMap()));
+    return jsonResult(QJsonObject{{"events", out}});
+}
+
+QJsonObject McpTools::guideLesson(const QJsonObject& arguments) {
+    if (guide_ == nullptr)
+        return failure(QStringLiteral("The guide is not running in this window."));
+    const QString action = arguments.value("action").toString();
+    if (action == "list") {
+        QJsonArray lessons;
+        for (const auto& id : guide_->lessonIds())
+            lessons.append(
+                QJsonObject{{"id", id}, {"title", guide_->lessonTitleFor(id)}});
+        return jsonResult(QJsonObject{{"lessons", lessons}});
+    }
+    if (action == "start") {
+        const QString id = arguments.value("id").toString();
+        if (id.isEmpty()) return failure(QStringLiteral("start needs an id; list shows them."));
+        if (!guide_->lessonIds().contains(id))
+            return failure(QStringLiteral("There is no lesson \"%1\"; list shows them.").arg(id));
+        guide_->startLesson(id);
+    } else if (action == "next") {
+        guide_->lessonNext();
+    } else if (action == "back") {
+        guide_->lessonBack();
+    } else if (action == "stop") {
+        guide_->stopLesson();
+    } else {
+        return failure(QStringLiteral("Unknown action \"%1\"; one of list, start, next, back, stop.")
+                           .arg(action));
+    }
+    return jsonResult(QJsonObject{{"active", guide_->lessonActive()},
+                                  {"title", guide_->lessonTitle()},
+                                  {"step", guide_->lessonStepIndex()},
+                                  {"steps", guide_->lessonStepCount()},
+                                  {"stepTitle", guide_->lessonStepTitle()},
+                                  {"stepText", guide_->lessonStepText()}});
+}
+
+QJsonObject McpTools::guideAsk(const QJsonObject& arguments) {
+    if (guide_ == nullptr)
+        return failure(QStringLiteral("The guide is not running in this window."));
+    const QString question = arguments.value("question").toString().trimmed();
+    if (question.isEmpty()) return failure(QStringLiteral("guide_ask needs a question."));
+    const QString ruled = guide_->ruleAnswer(question);
+    if (!ruled.isEmpty()) return jsonResult(QJsonObject{{"answer", ruled}, {"source", "guide"}});
+    if (!guide_->guideEnabled())
+        return failure(QStringLiteral("The guide's rules have no answer, and the guide is off, so nothing "
+                                      "was asked. Turn it on with GUIDE to ask a model."));
+    // No rule covers it: hand it to the guide the way the question box does.
+    // It answers in the bubble — from its own LLM when configured, else the
+    // prompt bar's shared backend.
+    guide_->askQuestion(question);
+    return jsonResult(
+        QJsonObject{{"source", "deferred"},
+                    {"answer", "The guide's rules had no answer, so the question went to "
+                               "its bubble, where it asks a model (its own LLM config, else "
+                               "the prompt bar's backend)."}});
 }

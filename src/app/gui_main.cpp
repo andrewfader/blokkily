@@ -1,6 +1,8 @@
 #include "keyboard_model.hpp"
 #include "app_controller.hpp"
 #include "llm_model.hpp"
+#include "score_model.hpp"
+#include "../guide/guide_controller.hpp"
 #include "plugin_run_loop_qt.hpp"
 #include "mcp_bridge.hpp"
 #include "mcp_server.hpp"
@@ -166,6 +168,16 @@ int main(int argc, char* argv[]) {
     // drives the same ask → propose → apply path with bytes it controls.
     if (parser.isSet("verify"))
         llm.setBackendForTesting(std::make_unique<blokkily::llm::ScriptedBackend>());
+    // The floating guide: narration feed, mascot overlay, lessons, Q&A. The
+    // pattern's note edits feed the same bus the controller's commands do.
+    // Theory questions the rules miss borrow the prompt bar's backend.
+    GuideController guide(&controller, &song, &pattern, &transport, nullptr,
+                          !parser.isSet("verify"));
+    guide.setLlmModel(&llm);
+    pattern.setEventBus(&controller.eventBus());
+    // The score view's projection of the canonical pattern: re-spelled on
+    // every pattern change, never written back.
+    ScoreModel score(&pattern, &song);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
     engine.rootContext()->setContextProperty("patternModel", &pattern);
@@ -173,6 +185,8 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty("transport", &transport);
     engine.rootContext()->setContextProperty("keyboardModel", &keyboard);
     engine.rootContext()->setContextProperty("llmModel", &llm);
+    engine.rootContext()->setContextProperty("guideController", &guide);
+    engine.rootContext()->setContextProperty("scoreModel", &score);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 
@@ -194,7 +208,7 @@ int main(int argc, char* argv[]) {
     }
 
     McpTools mcp_tools(song, pattern, controller, transport,
-                       qobject_cast<QQuickWindow*>(engine.rootObjects().front()));
+                       qobject_cast<QQuickWindow*>(engine.rootObjects().front()), &guide);
     McpServer mcp_server(mcp_tools);
     QObject::connect(controller.progress(), &LoadProgress::holdRequests, &mcp_server,
                      &McpServer::setHeld);
