@@ -606,6 +606,7 @@ foreach(blokkily_feature
         open_from_desktop
         autosave
         open_in_running_window
+        multiple_windows
         quantize_humanize
         arpeggiator
         midi_learn

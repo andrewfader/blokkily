@@ -343,6 +343,21 @@ public:
     Q_INVOKABLE bool renameVersion(int index, const QString& name);
     Q_INVOKABLE bool deleteVersion(int index);
     Q_INVOKABLE bool loadProjectFile(const QString& path);
+    // Another window: a Blokkily process of its own, empty or holding the
+    // project at `path` (a path or a file:// URL), so two songs are open at
+    // once (features/multiple_windows.feature). False when it cannot start.
+    Q_INVOKABLE bool openWindow(const QString& path = QString());
+    // Where a project another launch handed over goes. This window takes it
+    // when it already holds that file, or holds nothing yet (an untitled
+    // session with no changes), and emits openRequested for the latter; any
+    // other song stays put and the file opens in a window of its own. True
+    // when this window takes it and should come forward.
+    bool routeOpenRequest(const QString& path);
+    // Arguments every window this one opens is started with as well, so the
+    // windows a gate opens run as gates.
+    void setWindowArgumentsForTesting(QStringList arguments) {
+        window_arguments_ = std::move(arguments);
+    }
     // Sounds pitches straight through the running engine, so a keyboard is
     // audible on a stopped song. Returns false when no engine is live.
     // `held` notes last until releaseAudition(), with a generous limit so a
@@ -910,6 +925,7 @@ private:
     // The song is on disk as it stands, or was let go: no recovery copy.
     void forgetAutosave();
     QString project_path_;
+    QStringList window_arguments_;
     SongModel* song_ = nullptr;
     PatternModel* pattern_ = nullptr;
     Transport* transport_ = nullptr;

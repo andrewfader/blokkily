@@ -71,6 +71,20 @@ ApplicationWindow {
         if (!appController.saveProjectInPlace()) saveProjectDialog.open()
     }
 
+    // Asks for a song to open, in this window (once its unsaved work is let
+    // go) or in a new one beside it.
+    function openProject(newWindow) {
+        if (newWindow) {
+            openProjectDialog.newWindow = true
+            openProjectDialog.open()
+            return
+        }
+        whenDiscarded(function() {
+            openProjectDialog.newWindow = false
+            openProjectDialog.open()
+        })
+    }
+
     // Opening or starting a session throws the current one away, and there is
     // no undo across that, so unsaved work is asked about first.
     property var pendingDiscard: null
@@ -107,8 +121,8 @@ ApplicationWindow {
         onRejected: root.pendingDiscard = null
     }
 
-    // A .blok opened from the desktop while this window runs comes here
-    // rather than to a window of its own.
+    // A .blok opened from the desktop while this window runs comes here when
+    // the window holds nothing yet (AppController::routeOpenRequest).
     Connections {
         target: appController
         function onOpenRequested(path) {
@@ -261,10 +275,14 @@ ApplicationWindow {
 
     FileDialog {
         id: openProjectDialog
-        title: "Open Blokkily project"
+        objectName: "openProjectDialog"
+        // Whether the chosen song opens beside this one rather than in its place.
+        property bool newWindow: false
+        title: newWindow ? "Open Blokkily project in a new window" : "Open Blokkily project"
         nameFilters: ["Blokkily projects (*.blok)", "All files (*)"]
         fileMode: FileDialog.OpenFile
-        onAccepted: appController.loadProjectFile(selectedFile.toString())
+        onAccepted: newWindow ? appController.openWindow(selectedFile.toString())
+                              : appController.loadProjectFile(selectedFile.toString())
         onRejected: noteEntry.forceActiveFocus()
     }
     FileDialog {
@@ -332,7 +350,9 @@ ApplicationWindow {
     Shortcut { sequence: StandardKey.New
                onActivated: root.whenDiscarded(function() { appController.newProject() }) }
     Shortcut { sequence: StandardKey.Open
-               onActivated: root.whenDiscarded(function() { openProjectDialog.open() }) }
+               onActivated: root.openProject(false) }
+    Shortcut { sequence: "Ctrl+Shift+N"; onActivated: appController.openWindow() }
+    Shortcut { sequence: "Ctrl+Shift+O"; onActivated: root.openProject(true) }
     Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
     Shortcut { sequence: "Ctrl+R"; enabled: !root.typing
                onActivated: appController.toggleRecord() }
@@ -590,7 +610,9 @@ ApplicationWindow {
                     exportClick: root.exportClick
                     onExportClickToggled: root.exportClick = !root.exportClick
                     onNewRequested: root.whenDiscarded(function() { appController.newProject() })
-                    onOpenRequested: root.whenDiscarded(function() { openProjectDialog.open() })
+                    onOpenRequested: root.openProject(false)
+                    onNewWindowRequested: appController.openWindow()
+                    onOpenWindowRequested: root.openProject(true)
                     onSaveRequested: root.save()
                     onSaveAsRequested: saveProjectDialog.open()
                     onExportRequested: exportDialog.open()

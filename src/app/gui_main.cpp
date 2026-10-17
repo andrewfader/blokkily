@@ -117,7 +117,8 @@ int main(int argc, char* argv[]) {
     const QString launch_file = launch_files.isEmpty() ? QString() : launch_files.front();
 
     // A file opened while Blokkily runs goes to the window already open
-    // (open_channel.hpp), which asks before it replaces unsaved work. A gate
+    // (open_channel.hpp), which opens it itself only when it holds nothing
+    // yet, and otherwise in a window of its own. A gate
     // takes part only on a channel of its own naming.
     const bool verifying = parser.isSet("verify");
     const bool use_open_channel = !parser.isSet("new-window") &&
@@ -197,12 +198,13 @@ int main(int argc, char* argv[]) {
             auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().front());
             QObject::connect(&open_server, &open_channel::Server::fileRequested, &controller,
                              [&controller, window](const QString& path) {
-                                 if (window != nullptr) {
+                                 // A song already open here stays; the file
+                                 // gets a window of its own instead.
+                                 if (controller.routeOpenRequest(path) && window != nullptr) {
                                      window->show();
                                      window->raise();
                                      window->requestActivate();
                                  }
-                                 emit controller.openRequested(path);
                              });
         }
     }

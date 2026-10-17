@@ -622,9 +622,18 @@ install into `~/.local`, run
 `update-desktop-database ~/.local/share/applications` once afterwards (a
 package does this itself). A file that cannot be read leaves a new song open
 and says so on the project card. While Blokkily runs, a file opened this way
-goes to the window already open, which comes forward and asks before
-replacing unsaved work; `blokkily --new-window song.blok` opens one of its
-own instead. See [the scenarios](../features/open_from_desktop.feature).
+goes to the window already open. That window opens it itself only while it
+holds nothing yet (an untitled song with no changes) or already holds that
+file, and comes forward; otherwise the file opens in a new window beside it.
+`blokkily --new-window song.blok` always opens one of its own. See
+[the scenarios](../features/open_from_desktop.feature).
+
+Several songs can be open at once, each in its own window. + WINDOW on the
+project rail (Ctrl+Shift+N) opens an empty one; OPEN NEW (Ctrl+Shift+O)
+asks for a project and opens it in a new window, leaving this one as it is.
+Each window is a process of its own, with its own audio stream, undo history
+and autosave, so closing or crashing one leaves the others playing. Only the
+first window serves MCP. See [the scenarios](../features/multiple_windows.feature).
 
 Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes edits to steps, strokes, clips,
 tracks, patterns, faders and tuning. A phrase-drawing or fader drag is one undo
@@ -701,6 +710,8 @@ or transport shortcuts.
 | Ctrl+Shift+S | Save to a new file |
 | Ctrl+N | Start a new session |
 | Ctrl+O | Open a project |
+| Ctrl+Shift+N | Open a new, empty window |
+| Ctrl+Shift+O | Open a project in a new window |
 
 ## Composition assistant
 

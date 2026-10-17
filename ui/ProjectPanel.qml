@@ -20,6 +20,8 @@ ColumnLayout {
     signal openRequested()
     signal saveRequested()
     signal saveAsRequested()
+    signal newWindowRequested()
+    signal openWindowRequested()
     signal importMidiRequested()
     signal exportMidiRequested()
     signal exportRequested()
@@ -65,6 +67,13 @@ ColumnLayout {
         Chip { objectName: "saveAsProjectButton"; text: "SAVE AS"
             Layout.fillWidth: true
             onClicked: root.saveAsRequested() }
+        // Another song alongside this one, in a window of its own.
+        Chip { objectName: "newWindowButton"; text: "+ WINDOW"
+            Layout.fillWidth: true
+            onClicked: root.newWindowRequested() }
+        Chip { objectName: "openWindowButton"; text: "OPEN NEW"
+            Layout.fillWidth: true
+            onClicked: root.openWindowRequested() }
     }
     Rectangle {
         objectName: "projectCard"
