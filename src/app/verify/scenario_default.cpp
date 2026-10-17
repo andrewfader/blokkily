@@ -232,6 +232,25 @@ struct DefaultScenario {
                 }
                 reached("piano roll lengthens a note");
 
+                // An edit that leaves a note where it starts redraws that
+                // note alone: every other note keeps its own delegate.
+                {
+                    int other = -1;
+                    for (int s = 0; s < 16 && other < 0; ++s)
+                        if (s != 3 && pattern.hasStep(s)) other = s;
+                    auto* kept = other < 0 ? nullptr : named(QString("rollNote%1").arg(other));
+                    const int was_selected = pattern.selectedStep();
+                    pattern.setStepVelocity(3, 0.42);
+                    (void)window->grabWindow();
+                    QCoreApplication::processEvents();
+                    valid = valid && kept != nullptr && named(QString("rollNote%1").arg(other)) == kept &&
+                            named("rollNote3") != nullptr;
+                    valid = valid && song.undo();
+                    pattern.selectStep(was_selected);
+                    (void)window->grabWindow();
+                    QCoreApplication::processEvents();
+                }
+
                 // Dragging the body of a note moves it in time and pitch.
                 const int high_move = pattern.highKey();
                 const double lane_height_move = roll->height() /

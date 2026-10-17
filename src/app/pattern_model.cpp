@@ -1404,9 +1404,18 @@ void PatternModel::mutate(int step, const std::function<void(blokkily::Trigger&)
     blokkily::Trigger replacement = *existing;
     edit(replacement);
     song_->checkpoint(merge.isEmpty() ? QString() : QString("%1:%2").arg(merge).arg(step));
-    beginResetModel();
-    (void)pattern().update(replacement.id, replacement);
-    endResetModel();
+    if (replacement.start == existing->start) {
+        // Still where it starts, so still the same row: only that row is
+        // told, and the editors keep every other note's delegate.
+        const auto events = pattern().events();
+        const auto row = static_cast<int>(existing - events.data());
+        (void)pattern().update(replacement.id, replacement);
+        emit dataChanged(index(row), index(row));
+    } else {
+        beginResetModel();
+        (void)pattern().update(replacement.id, replacement);
+        endResetModel();
+    }
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
