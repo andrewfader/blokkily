@@ -3,12 +3,18 @@
 #include <RtMidi.h>
 
 #include <algorithm>
+#include <exception>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
 
 namespace blokkily {
+
+// RtMidi's failures are caught as std::exception, never as RtMidiError: that
+// class is defined wholly in its header, so each image carries its own type
+// info for it, and on macOS a catch here does not match one thrown inside
+// librtmidi. Uncaught, a sequencer that will not start aborts the program.
 
 struct MidiOutput::Impl {
     Mode mode = Mode::device;
@@ -35,7 +41,7 @@ struct MidiOutput::Impl {
         if (port == nullptr) return;
         try {
             port->sendMessage(message.bytes.data(), message.size);
-        } catch (const RtMidiError&) {
+        } catch (const std::exception&) {
         }
     }
 
@@ -91,7 +97,7 @@ std::vector<std::string> MidiOutput::ports() {
         const unsigned int count = probe.getPortCount();
         for (unsigned int index = 0; index < count; ++index)
             names.push_back(probe.getPortName(index));
-    } catch (const RtMidiError&) {
+    } catch (const std::exception&) {
         return {};
     }
     // Our own input is not somewhere to send the song.
@@ -131,8 +137,8 @@ bool MidiOutput::open(const std::string& name, std::string* error) {
         impl_->sender = std::thread([impl = impl_.get()] { impl->run(); });
         impl_->open.store(true, std::memory_order_release);
         return true;
-    } catch (const RtMidiError& failure) {
-        return fail(failure.getMessage());
+    } catch (const std::exception& failure) {
+        return fail(failure.what());
     }
 }
 
@@ -146,7 +152,7 @@ void MidiOutput::close() noexcept {
     if (impl_->port != nullptr) {
         try {
             impl_->port->closePort();
-        } catch (const RtMidiError&) {
+        } catch (const std::exception&) {
         }
         impl_->port.reset();
     }

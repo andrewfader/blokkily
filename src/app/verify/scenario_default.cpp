@@ -456,7 +456,8 @@ struct DefaultScenario {
             Transport fresh_transport;
             AppController fresh(&fresh_song, &fresh_pattern, &fresh_transport, nullptr,
                 std::make_unique<blokkily::RtAudioOutput>(
-                    blokkily::RtAudioOutput::Mode::deterministic));
+                    blokkily::RtAudioOutput::Mode::deterministic),
+                std::make_unique<blokkily::MidiInput>(blokkily::MidiInput::Mode::deterministic));
             const std::filesystem::path fixture =
                 parser.value("soundfont-fixture").toStdString();
             (void)fresh.loadDefaultInstrument({fixture.parent_path()});
@@ -602,7 +603,8 @@ struct DefaultScenario {
             auto replacement_output = std::make_unique<blokkily::RtAudioOutput>(
                 blokkily::RtAudioOutput::Mode::deterministic);
             AppController replacement(&replacement_song, &replacement_pattern,
-                &replacement_transport, nullptr, std::move(replacement_output));
+                &replacement_transport, nullptr, std::move(replacement_output),
+                std::make_unique<blokkily::MidiInput>(blokkily::MidiInput::Mode::deterministic));
             blokkily::InstrumentSlot clap_slot;
             clap_slot.format = "CLAP";
             clap_slot.path = parser.value("clap-fixture").toStdString();
@@ -1579,7 +1581,8 @@ struct DefaultScenario {
             Transport other_transport;
             AppController other(&other_song, &other_pattern, &other_transport, nullptr,
                 std::make_unique<blokkily::RtAudioOutput>(
-                    blokkily::RtAudioOutput::Mode::deterministic, 44100));
+                    blokkily::RtAudioOutput::Mode::deterministic, 44100),
+                std::make_unique<blokkily::MidiInput>(blokkily::MidiInput::Mode::deterministic));
             const std::filesystem::path fixture =
                 parser.value("soundfont-fixture").toStdString();
             (void)other.loadDefaultInstrument({fixture.parent_path()});

@@ -3,10 +3,16 @@
 #include <RtMidi.h>
 
 #include <algorithm>
+#include <exception>
 #include <bit>
 #include <mutex>
 
 namespace blokkily {
+
+// RtMidi's failures are caught as std::exception, never as RtMidiError: that
+// class is defined wholly in its header, so each image carries its own type
+// info for it, and on macOS a catch here does not match one thrown inside
+// librtmidi. Uncaught, a sequencer that will not start aborts the program.
 
 std::optional<MidiNote> decode_midi(std::span<const std::uint8_t> message) noexcept {
     if (message.size() < 3) return std::nullopt;
@@ -222,7 +228,7 @@ std::vector<std::string> MidiInput::ports() {
         const unsigned int count = probe.getPortCount();
         for (unsigned int index = 0; index < count; ++index)
             names.push_back(probe.getPortName(index));
-    } catch (const RtMidiError&) {
+    } catch (const std::exception&) {
         return {};
     }
     // Our own ports are not a keyboard.
@@ -269,8 +275,8 @@ bool MidiInput::open(std::size_t index, std::string* error) {
         impl_->port = std::move(port);
         impl_->open.store(true, std::memory_order_release);
         return true;
-    } catch (const RtMidiError& failure) {
-        return fail(failure.getMessage());
+    } catch (const std::exception& failure) {
+        return fail(failure.what());
     }
 }
 
@@ -294,7 +300,7 @@ void MidiInput::close() noexcept {
         try {
             impl_->port->cancelCallback();
             impl_->port->closePort();
-        } catch (const RtMidiError&) {
+        } catch (const std::exception&) {
         }
         impl_->port.reset();
     }
