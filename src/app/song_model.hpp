@@ -808,6 +808,7 @@ private:
     // tracks(), read by every mixer strip and arrangement row: built once
     // per songChanged, not once per read (a fader drag read it 4T times).
     mutable std::optional<QVariantList> tracks_cache_;
+    mutable int current_part_hint_ = 0; // currentPattern()'s last answer, checked before use
     mutable std::optional<QVariantList> bar_layout_cache_;
     int selected_lane_ = 0;
     bool take_recorded_ = false;

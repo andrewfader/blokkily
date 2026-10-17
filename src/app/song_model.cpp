@@ -110,8 +110,17 @@ const blokkily::Pattern& SongModel::editPattern() const {
 }
 
 int SongModel::currentPattern() const {
-    const auto part = song_.part(static_cast<std::size_t>(current_section_),
-                                 static_cast<std::size_t>(std::max(0, selected_track_)));
+    const auto section = static_cast<std::size_t>(current_section_);
+    const auto track = static_cast<std::size_t>(std::max(0, selected_track_));
+    // Every read of the open pattern asks this. The last answer is checked
+    // rather than trusted: while that slot is still this section's part for
+    // this track (a section has one part per track), it is the answer.
+    const auto hint = static_cast<std::size_t>(current_part_hint_);
+    if (section < song_.sections.size() && hint < song_.patterns.size() &&
+        song_.patterns[hint].section == section && song_.patterns[hint].track == track)
+        return current_part_hint_;
+    const auto part = song_.part(section, track);
+    if (part) current_part_hint_ = static_cast<int>(*part);
     return part ? static_cast<int>(*part) : 0;
 }
 
