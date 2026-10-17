@@ -417,11 +417,22 @@ void SongModel::duplicatePattern() {
     }
     const auto& first = editPattern();
     const auto copy = song_.add_section(name, first.length(), first.ticks_per_beat());
-    // Every track's part is copied, notes and controller movements alike.
+    // The copy is written as the section it copies: its key and meter.
+    auto& section = song_.sections[copy];
+    const auto& original = song_.sections[source];
+    section.key_fifths = original.key_fifths;
+    section.meter_beats = original.meter_beats;
+    section.meter_unit = original.meter_unit;
+    section.unmetered = original.unmetered;
+    // Every track's part is copied, notes and controller movements alike,
+    // and the clef it is written in.
     for (std::size_t track = 0; track < song_.tracks.size(); ++track) {
         const auto from = song_.part(source, track);
         const auto to = song_.part(copy, track);
-        if (from && to) song_.patterns[*to].pattern = song_.patterns[*from].pattern;
+        if (from && to) {
+            song_.patterns[*to].pattern = song_.patterns[*from].pattern;
+            song_.patterns[*to].clef = song_.patterns[*from].clef;
+        }
     }
     current_section_ = static_cast<int>(copy);
     notifyStructureChanged();

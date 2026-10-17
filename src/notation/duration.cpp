@@ -67,4 +67,17 @@ std::vector<NoteDuration> from_ticks(Tick duration, Tick ticks_per_beat) {
     return chain;
 }
 
+std::vector<NoteDuration> notate_ticks(Tick duration, Tick ticks_per_beat) {
+    if (duration <= 0) throw std::invalid_argument("duration must be positive");
+    if (ticks_per_beat <= 0) throw std::invalid_argument("ticks_per_beat must be positive");
+    if (duration % unit_128th(ticks_per_beat) != 0 && (duration * 3) % 2 == 0) {
+        if (auto value = single_from_ticks(duration * 3 / 2, ticks_per_beat)) {
+            value->tuplet_actual = 3;
+            value->tuplet_normal = 2;
+            return {*value};
+        }
+    }
+    return from_ticks(duration, ticks_per_beat);
+}
+
 } // namespace blokkily::notation

@@ -741,115 +741,136 @@ void run_mcp(VerifyContext& ctx) {
         check(next.close());
     }
     ctx.reached("mcp: the agent reads a part as staff notation");
-    // A known part: three quarter notes, replacing whatever the earlier
-    // scenarios left behind.
+    // A known part: a quarter-note C4, a quarter's rest, an E4-G4 dyad, then
+    // silence - replacing whatever the earlier scenarios left behind.
     check(!isError(agent.tool("write_notes",
                               {{"track", 0},
                                {"section", 0},
                                {"replace", true},
-                               {"notes",
-                                QJsonArray{QJsonObject{{"step", 0}, {"key", "C4"}, {"length", 4}},
-                                           QJsonObject{{"step", 4}, {"key", "E4"}, {"length", 4}},
-                                           QJsonObject{{"step", 8},
-                                                       {"key", "G4"},
-                                                       {"length", 4}}}}})));
+                               {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", "C4"}, {"length", 4}},
+                                                    QJsonObject{{"step", 8}, {"key", "E4"}, {"length", 4}},
+                                                    QJsonObject{{"step", 8}, {"key", "G4"}, {"length", 4}}}}})));
     const auto score_result = agent.tool("get_score", {{"track", 0}, {"section", 0}});
     check(!isError(score_result));
     const auto score = score_result.value("structuredContent").toObject();
     check(score.value("clef").toString() == "Treble");
     check(score.value("key").toObject().value("fifths").toInt() == 0);
     check(score.value("time").toString() == "4/4");
-    QStringList spelled;
-    QStringList values;
-    for (const auto& note : score.value("notes").toArray()) {
-        spelled << note.toObject().value("spelled").toString();
-        values << note.toObject().value("value").toString();
+    QStringList read_notes;
+    for (const auto& entry : score.value("notes").toArray()) {
+        const auto note = entry.toObject();
+        read_notes << QStringLiteral("%1@%2:%3%4")
+                          .arg(note.value("spelled").toString())
+                          .arg(note.value("step").toDouble())
+                          .arg(note.value("value").toString(), note.value("chord").toBool() ? "+" : "");
     }
-    check(spelled == QStringList({"C4", "E4", "G4"}));
-    check(values == QStringList({"quarter", "quarter", "quarter"}));
-    check(!score.value("musicxml").toString().isEmpty());
-    check(score.value("musicxml").toString().contains("<score-partwise"));
-    check(score.value("musicxml").toString().contains("<step>C</step>"));
+    // Where each note falls, the dyad as one chord.
+    check(read_notes == QStringList({"C4@0:quarter", "E4@8:quarter", "G4@8:quarter+"}));
+    QStringList read_rests;
+    for (const auto& entry : score.value("rests").toArray())
+        read_rests << QStringLiteral("%1:%2").arg(entry.toObject().value("step").toDouble()).arg(entry.toObject().value("value").toString());
+    check(read_rests == QStringList({"4:quarter", "12:quarter"}));
+    const QString score_xml = score.value("musicxml").toString();
+    check(score_xml.contains("<score-partwise") && score_xml.contains("<chord") && score_xml.contains("<rest"));
 
     // ---------------------------------------------------------------------
     ctx.reached("mcp: the agent dresses the score in another clef, key and meter");
-    check(!isError(
-        agent.tool("set_clef", {{"track", 0}, {"section", 0}, {"clef", "Bass"}})));
+    check(!isError(agent.tool("set_clef", {{"track", 0}, {"section", 0}, {"clef", "Bass"}})));
     check(!isError(agent.tool("set_key_signature", {{"section", 0}, {"fifths", -2}})));
-    check(!isError(
-        agent.tool("set_time_signature", {{"section", 0}, {"beats", 3}, {"unit", 4}})));
-    const auto dressed =
-        agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(!isError(agent.tool("set_time_signature", {{"section", 0}, {"beats", 3}, {"unit", 4}})));
+    const auto dressed = agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
     check(dressed.value("clef").toString() == "Bass");
     check(dressed.value("key").toObject().value("fifths").toInt() == -2);
     check(dressed.value("key").toObject().value("label").toString() == "Bb major");
     check(dressed.value("time").toString() == "3/4");
-    // The MIDI pitches never move under a new key signature: E4 (MIDI 64)
-    // stays E-natural in Bb major, spelled "E4" — it just needs a natural
-    // sign, which accidentalShown pins. ("Eb4" would misstate the pitch by a
-    // semitone.) The bass clef moves every note to another staff position.
+    // The pitches never move under a new key signature: E4 stays E natural
+    // in Bb major, and prints its natural sign.
     QStringList respelled;
     bool e_needs_natural = false;
     for (const auto& note : dressed.value("notes").toArray()) {
         respelled << note.toObject().value("spelled").toString();
-        if (note.toObject().value("midi").toInt() == 64)
-            e_needs_natural = note.toObject().value("accidentalShown").toBool();
+        if (note.toObject().value("midi").toInt() == 64) e_needs_natural = note.toObject().value("accidentalShown").toBool();
     }
     check(respelled == QStringList({"C4", "E4", "G4"}));
     check(e_needs_natural);
+    // The settings are the song's: CHANT keeps the meter for when it comes
+    // off, the song's meter comes back on request, and UNDO takes a change back.
+    check(agent.tool("set_time_signature", {{"section", 0}, {"unmetered", true}})
+              .value("structuredContent").toObject().value("time").toString() == "unmetered");
+    check(agent.tool("set_time_signature", {{"section", 0}, {"unmetered", false}})
+              .value("structuredContent").toObject().value("time").toString() == "3/4");
+    const auto follows = agent.tool("set_time_signature", {{"section", 0}, {"song", true}}).value("structuredContent").toObject();
+    check(follows.value("time").toString() == "4/4" && follows.value("followsSong").toBool());
+    check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+    check(agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject().value("time").toString() == "3/4");
+    check(song.song().patterns.at(static_cast<std::size_t>(song.partOf(0, 0))).clef == "Bass");
+    check(song.song().sections.at(0).key_fifths == -2);
+    // Refusals change nothing.
     check(isError(agent.tool("set_clef", {{"clef", "Treble-8vb"}})));
     check(isError(agent.tool("set_key_signature", {{"fifths", 8}})));
+    check(isError(agent.tool("set_key_signature", {{"fifths", "2"}})));
     check(isError(agent.tool("set_time_signature", {{"beats", 3}, {"unit", 3}})));
-    const auto still =
-        agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
-    check(still.value("clef").toString() == "Bass" &&
-          still.value("key").toObject().value("fifths").toInt() == -2 &&
+    check(isError(agent.tool("set_time_signature", {{"section", 0}})));
+    check(isError(agent.tool("get_score", {{"key", "2"}})));
+    const auto still = agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(still.value("clef").toString() == "Bass" && still.value("key").toObject().value("fifths").toInt() == -2 &&
           still.value("time").toString() == "3/4");
 
     // ---------------------------------------------------------------------
     ctx.reached("mcp: the agent exports MusicXML and reads it back");
     const QString score_file = exports.filePath("mcp-score.musicxml");
     const auto exported_score =
-        agent.tool("export_musicxml", {{"section", 0}, {"path", score_file}})
-            .value("structuredContent")
-            .toObject();
+        agent.tool("export_musicxml", {{"section", 0}, {"track", 0}, {"path", score_file}}).value("structuredContent").toObject();
     check(exported_score.value("path").toString() == score_file);
-    check(exported_score.value("parts").toInt() >= 1);
-    check(exported_score.value("readBackNotes").toInt() ==
-          exported_score.value("notes").toInt());
-    // The file on disk parses to the notes the pattern holds.
-    QFile written_file(score_file);
-    check(written_file.open(QIODevice::ReadOnly | QIODevice::Text));
-    const QString disk_xml = QString::fromUtf8(written_file.readAll());
-    check(disk_xml.contains("<score-partwise"));
-    // Clear the part, import with replace, read the notes back, undo it all.
-    check(!isError(agent.tool("write_notes",
-                              {{"track", 0}, {"section", 0}, {"replace", true}, {"notes", QJsonArray{}}})));
-    const auto imported =
-        agent.tool("import_musicxml",
-                   {{"track", 0}, {"section", 0}, {"replace", true}, {"path", score_file}})
-            .value("structuredContent")
-            .toObject();
-    // Four notes round-trip: the three on track 0 plus the C4 the soundfont
-    // section left on track 1 (export/import cover every part in the section).
-    check(imported.value("written").toInt() == 4 && imported.value("refused").toInt() == 0);
-    const auto back =
-        agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
-    QList<int> back_keys;
+    // The file was read back from disk and plays what the part plays.
+    check(exported_score.value("matches").toBool() && exported_score.value("notes").toInt() == 3);
+    check(isError(agent.tool("export_musicxml", {{"section", 0}, {"track", 0}, {"path", score_file}})));
+    check(!isError(agent.tool("export_musicxml",
+                              {{"section", 0}, {"track", 0}, {"path", score_file}, {"overwrite", true}})));
+    check(isError(agent.tool("export_musicxml", {{"section", 0}, {"path", "relative.musicxml"}})));
+    check(isError(agent.tool("export_musicxml", {{"section", 0}, {"path", exports.filePath("score.wav")}})));
+    // Back to treble, C major and the song's meter, so the import can be
+    // seen to bring the file's own.
+    check(!isError(agent.tool("set_clef", {{"track", 0}, {"section", 0}, {"clef", "Treble"}})));
+    check(!isError(agent.tool("set_key_signature", {{"section", 0}, {"fifths", 0}})));
+    check(!isError(agent.tool("set_time_signature", {{"section", 0}, {"song", true}})));
+    check(!isError(agent.tool("write_notes", {{"track", 0}, {"section", 0}, {"replace", true}, {"notes", QJsonArray{}}})));
+    const auto imported = agent.tool("import_musicxml", {{"track", 0}, {"section", 0}, {"replace", true}, {"path", score_file}})
+                              .value("structuredContent").toObject();
+    check(imported.value("written").toInt() == 3 && imported.value("dropped").toInt() == 0);
+    const auto back = agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    QStringList back_notes;
     for (const auto& note : back.value("notes").toArray())
-        back_keys << note.toObject().value("key").toInt();
-    std::sort(back_keys.begin(), back_keys.end());
-    check(back_keys == QList<int>({60, 64, 67}));
+        back_notes << QStringLiteral("%1@%2/%3").arg(note.toObject().value("key").toInt())
+                          .arg(note.toObject().value("step").toDouble())
+                          .arg(note.toObject().value("length").toDouble());
+    back_notes.sort();
+    check(back_notes == QStringList({"60@0/4", "64@8/4", "67@8/4"}));
+    const auto reimported = agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(reimported.value("clef").toString() == "Bass" && reimported.value("key").toObject().value("fifths").toInt() == -2 &&
+          reimported.value("time").toString() == "3/4");
+    // One undo takes back the notes and the clef, key and meter with them.
     check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
-    const auto undone =
-        agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    const auto undone = agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
     check(undone.value("notes").toArray().isEmpty());
-    // One bad document is refused without touching the song.
+    check(agent.tool("get_score", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject()
+              .value("clef").toString() == "Treble");
+    // A score longer than the pattern, or a bad document, is refused
+    // without touching the song.
+    const QString long_score = QStringLiteral(
+        "<score-partwise version=\"4.0\"><part-list><score-part id=\"P1\"><part-name>L</part-name></score-part></part-list>"
+        "<part id=\"P1\"><measure number=\"1\"><attributes><divisions>1</divisions></attributes>"
+        "<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note></measure>"
+        "<measure number=\"2\"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note></measure>"
+        "<measure number=\"3\"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note></measure>"
+        "</part></score-partwise>");
+    const auto too_long = agent.tool("import_musicxml", {{"track", 0}, {"section", 0}, {"xml", long_score}});
+    check(isError(too_long) && textOf(too_long).contains("set_section"));
     check(isError(agent.tool("import_musicxml", {{"xml", "this is not xml <"}})));
     check(isError(agent.tool("import_musicxml", {{"path", exports.filePath("missing.musicxml")}})));
     check(isError(agent.tool("import_musicxml", {})));
-    const auto untouched =
-        agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
+    check(isError(agent.tool("import_musicxml", {{"xml", long_score}, {"path", score_file}})));
+    const auto untouched = agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
     check(untouched.value("notes").toArray().isEmpty());
 
     // ---------------------------------------------------------------------

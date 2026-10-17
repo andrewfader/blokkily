@@ -70,11 +70,13 @@ DispatchResult ActionDispatcher::dispatch(const std::string& id, const Args& arg
     if (id == "add-note") {
         const int step = get_int(args, "step", 0);
         const int key = get_int(args, "key", 60);
-        if (sink.addNote(step, key)) {
+        if (key < 0 || key > 127) {
+            result.message = "That key is outside the keyboard (0 to 127), so I left it alone.";
+        } else if (sink.addNote(step, key)) {
             emit_done("I added " + Narrator::note_name(key) + " on step " +
-                      std::to_string(step) + " — hear how it sits in the loop?");
+                      std::to_string(step + 1) + " — hear how it sits in the loop?");
         } else {
-            result.message = "That step is outside the pattern, so I left it alone.";
+            result.message = "That step is outside the pattern or already has a note, so I left it alone.";
         }
     } else if (id == "add-chord") {
         const int step = get_int(args, "step", 0);
@@ -96,19 +98,23 @@ DispatchResult ActionDispatcher::dispatch(const std::string& id, const Args& arg
             }
         }
         if (intervals.empty()) intervals = {0, 4, 7};
-        if (sink.addChord(step, root, intervals)) {
+        bool on_keyboard = true;
+        for (const auto interval : intervals) on_keyboard = on_keyboard && root + interval >= 0 && root + interval <= 127;
+        if (!on_keyboard) {
+            result.message = "That chord runs off the keyboard (0 to 127), so I left it alone.";
+        } else if (sink.addChord(step, root, intervals)) {
             std::string names;
             for (const auto iv : intervals)
                 names += (names.empty() ? "" : " ") + Narrator::note_name(root + iv);
-            emit_done("I laid down " + names + " on step " + std::to_string(step) +
+            emit_done("I laid down " + names + " on step " + std::to_string(step + 1) +
                       " — a chord is just stacked thirds. Hear how they fuse into one sound?");
         } else {
-            result.message = "That step is outside the pattern, so I left it alone.";
+            result.message = "That step is outside the pattern or already has a note, so I left it alone.";
         }
     } else if (id == "remove-note") {
         const int step = get_int(args, "step", 0);
         if (sink.removeNote(step)) {
-            emit_done("I cleared step " + std::to_string(step) + ".");
+            emit_done("I cleared step " + std::to_string(step + 1) + ".");
         } else {
             result.message = "There's no note on that step to remove.";
         }

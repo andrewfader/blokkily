@@ -17,6 +17,7 @@ namespace blokkily::guide {
 struct SongSnapshot {
     int pattern_steps = 16;      // steps in the current pattern
     int note_count = 0;          // notes currently in the pattern
+    int song_note_count = 0;     // notes in every pattern of the song
     double tempo_bpm = 120.0;
     int beats_per_bar = 4;
     std::string scale_name = "major";

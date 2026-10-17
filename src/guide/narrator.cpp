@@ -58,8 +58,8 @@ std::string Narrator::describe(const AppEvent& event, const SongSnapshot& snap) 
         case EventKind::step_toggled:
             return actor + " toggled " + event.label + ".";
         case EventKind::transport_started:
-            return snap.note_count == 0
-                       ? "Playing — but the pattern is empty, so you'll hear silence. Add some steps first."
+            return snap.song_note_count == 0
+                       ? "Playing — but the song has no notes yet, so you'll hear silence. Add some steps first."
                        : "Playing. Everything you hear is the pattern looping; edits you make now land on the next pass without stopping.";
         case EventKind::transport_stopped:
             return "Stopped. The pattern keeps everything you wrote — nothing is lost when the transport stops.";

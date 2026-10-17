@@ -12,6 +12,10 @@
 # shapes and logs once; the gate fails the run when the font is missing,
 # because the SMuFL rendering is the feature.
 
+# The clef of each part and the key and meter of each section live in the
+# song and are saved with it (records_notation.cpp).
+target_sources(blokkily_core PRIVATE src/project/records_notation.cpp)
+
 if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     # SCORE shows the pattern's notes as notation; the French violin clef
     # re-spells under the new clef; CHANT draws an unmetered staff with bare

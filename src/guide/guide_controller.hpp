@@ -49,10 +49,17 @@ class GuideController final : public QObject {
     Q_PROPERTY(bool confirmVisible READ confirmVisible NOTIFY confirmChanged)
     Q_PROPERTY(QString confirmText READ confirmText NOTIFY confirmChanged)
     Q_PROPERTY(bool llmEnabled READ llmEnabled NOTIFY llmChanged)
+    // Whether a question the guide's rules cannot answer may go to the
+    // prompt bar's model (which may be a cloud service). Off until the
+    // producer switches it on; kept in their settings.
+    Q_PROPERTY(bool askModel READ askModel WRITE setAskModel NOTIFY llmChanged)
+    // The lesson step's progress, "2 of 3", when it asks for more than one.
+    Q_PROPERTY(QString lessonProgress READ lessonProgress NOTIFY lessonChanged)
 
 public:
     GuideController(AppController* controller, SongModel* song, PatternModel* pattern,
-                    Transport* transport, QObject* parent = nullptr);
+                    Transport* transport, QObject* parent = nullptr, bool persist = true);
+    ~GuideController() override;
 
     bool guideEnabled() const { return guide_enabled_; }
     bool narrateEnabled() const { return narrate_enabled_; }
@@ -72,13 +79,19 @@ public:
     bool confirmVisible() const { return confirm_visible_; }
     QString confirmText() const { return confirm_text_; }
     // True when the guide can ask a model: its own configured client, or the
-    // prompt bar's shared backend.
+    // prompt bar's backend once the producer has allowed it (askModel).
     bool llmEnabled() const;
+    bool askModel() const { return ask_model_; }
+    void setAskModel(bool on);
+    QString lessonProgress() const;
 
     // The guide says something unprompted (tours, greetings).
     Q_INVOKABLE void say(const QString& title, const QString& text,
                          const QString& kind = "guide");
     Q_INVOKABLE void dismiss();
+    // Opens the bubble with its question box and lessons; it stays until it
+    // is closed or the guide says something else.
+    Q_INVOKABLE void open();
     Q_INVOKABLE void spotlight(const QString& target);
     Q_INVOKABLE void clearSpotlight();
 
@@ -106,7 +119,9 @@ public:
 
     Q_INVOKABLE void setGuideEnabled(bool on);
     Q_INVOKABLE void setNarrateEnabled(bool on);
-    Q_INVOKABLE void configureLlm(const QString& endpoint, const QString& key);
+    // The guide's own OpenAI-compatible model. The key travels only over
+    // https (or to this machine); false, and nothing kept, otherwise.
+    Q_INVOKABLE bool configureLlm(const QString& endpoint, const QString& key);
     Q_INVOKABLE void clearLlm();
 
     // The prompt bar's LlmModel, whose backend (Ollama local by default) the
@@ -131,6 +146,8 @@ private:
     void showBubble(const QString& title, const QString& text, const QString& kind);
     void hideBubbleSoon();
     void enterLessonStep();
+    void afterLessonEvent(std::size_t step_before);
+    void finishAsking(quint64 generation, const QString& text, const QString& kind);
     void loadLessons();
     std::string sessionContext() const;
 
@@ -146,7 +163,10 @@ private:
     blokkily::guide::ActionDispatcher dispatcher_;
     std::map<std::string, std::string> lesson_sources_; // id -> json
 
-    bool guide_enabled_ = true;
+    bool guide_enabled_ = false;
+    // Whether the guide's choices are kept in the user's settings. A --verify
+    // run keeps them in memory only, so no gate reads or changes the user's.
+    bool persist_ = true;
     bool narrate_enabled_ = true;
     QString bubble_title_;
     QString bubble_text_;
@@ -161,6 +181,19 @@ private:
     std::string pending_action_;
     blokkily::guide::ActionDispatcher::Args pending_args_;
     QTimer* bubble_timer_ = nullptr;
+    // Narration settles before it is shown, so a tempo dragged across forty
+    // values is said once, at the value it stopped on.
+    QTimer* narration_timer_ = nullptr;
+    QString pending_narration_;
+    blokkily::guide::EventBus::Token subscription_ = 0;
+    // Lesson steps whose action has run this lesson: going back and forward
+    // does not run it again.
+    std::vector<bool> acted_;
+    bool ask_model_ = false;
+    // Which question an answer belongs to: one that arrives after another
+    // question, a timeout or a change of backend is dropped.
+    quint64 ask_generation_ = 0;
+    QTimer* ask_timer_ = nullptr;
     // The LLM endpoint/key for the transport closure (mirrors QSettings).
     QString endpoint_;
     QString api_key_;

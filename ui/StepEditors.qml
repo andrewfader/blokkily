@@ -25,7 +25,7 @@ ColumnLayout {
     readonly property int entryBase: (entryOctave + 1) * 12
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
-    readonly property bool showScore: view === "ALL" || view === "SCORE"
+    readonly property bool showScore: view === "SCORE"
     // Where the keyboard goes back to after a click in an editor.
     property Item focusHome: null
     // A pitch written onto a step: the window writes and sounds it.

@@ -86,6 +86,19 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   among independent stems. Muting a source also stops its sends. See
   [export, resampling and stems](usage.md#export-resampling-and-stems).
 
+## Staff notation
+
+- The SCORE view draws the pattern but does not edit it: notes are written in
+  the step grid, tracker or piano roll. MusicXML import and export are
+  available to agents through MCP, not yet from the window.
+- Flags are drawn instead of beams, and a tuplet shows its number without a
+  bracket. Spacing follows the rhythm but is not engraving-grade.
+- Notation leaves out what it cannot write: timing off the 128th-note grid,
+  probability, ratchets, loop conditions, parameter locks and chord strum.
+  A MusicXML export reports when a part does not play back the same.
+- A staff's transposition holds for the whole part; a change of it partway
+  through a MusicXML file is not read. Grace and cue notes are skipped.
+
 ## LV2
 
 - LV2 plugins are hosted through JUCE. Their own windows open where JUCE can

@@ -16,9 +16,9 @@ ToolBar {
     // captions. The controls themselves never run off the window's edge,
     // however narrow it is allowed to get (bdd_metronome sweeps the widths).
     // Each step is taken a little before the wider layout stops fitting.
-    readonly property bool tight: width < 1430
-    readonly property bool cramped: width < 1330
-    readonly property bool narrow: width < 1230
+    readonly property bool tight: width < 1480
+    readonly property bool cramped: width < 1380
+    readonly property bool narrow: width < 1280
     height: 52
     background: Rectangle {
         color: "#141519"
@@ -63,8 +63,8 @@ ToolBar {
         }
     }
     RowLayout {
-        anchors.fill: parent; anchors.leftMargin: root.narrow ? 10 : 16
-        anchors.rightMargin: root.narrow ? 10 : 16; spacing: root.narrow ? 4 : 7
+        anchors.fill: parent; anchors.leftMargin: root.narrow ? 8 : 16
+        anchors.rightMargin: root.narrow ? 8 : 16; spacing: root.narrow ? 3 : 7
 
         Label { text: "BLOKKILY"; color: Theme.acid; font.bold: true; font.letterSpacing: 2.5
             font.pixelSize: 15; visible: !root.narrow }
@@ -260,7 +260,7 @@ ToolBar {
                                                   : root.cramped ? shortNames[modelData] : modelData
                     text: shown
                     accessibleLabel: modelData
-                    labelPadding: root.narrow ? 4 : root.tight ? 8 : 12
+                    labelPadding: root.narrow ? 3 : root.tight ? 8 : 12
                     implicitWidth: Math.ceil(viewName.advanceWidth) + labelPadding + 1
                     TextMetrics {
                         id: viewName
@@ -296,12 +296,5 @@ ToolBar {
                      : root.narrow ? "SCAN" : root.tight ? "RESCAN" : "RESCAN PLUGINS"
                accessibleLabel: "Rescan plugins"
                onClicked: appController.rescanPlugins() }
-        // The floating guide: Blokkily narrates what happens, answers
-        // questions and teaches. Lit while it is on; a press toggles it.
-        Chip { objectName: "guideButton"
-               text: "GUIDE"
-               accessibleLabel: "Guide: the floating assistant"
-               on: guideController.guideEnabled
-               onClicked: guideController.guideEnabled = !guideController.guideEnabled }
     }
 }

@@ -185,6 +185,48 @@ int main() {
               "instrument paths are not rewritten");
     }
 
+    // Scenario: The score's clefs, keys and meters are saved with the song
+    {
+        auto project = ProjectFile::parse("blokkily-project 5\n" + v5_body, &error);
+        check(project.has_value(), "notation: a format 5 file parses");
+        if (project) {
+            project->song.adopt_sections();
+            const std::string plain = ProjectFile::serialize(*project);
+            check(plain.find("clef ") == std::string::npos && plain.find("section-key") == std::string::npos &&
+                      plain.find("section-meter") == std::string::npos,
+                  "notation: a song that never set them writes no notation records");
+            check(project->song.sections.size() >= 2 && project->song.patterns.size() >= 2,
+                  "notation: the song has sections and parts");
+            project->song.patterns[0].clef = "French violin";
+            project->song.sections[0].key_fifths = -3;
+            project->song.sections[0].meter_beats = 7;
+            project->song.sections[0].meter_unit = 8;
+            project->song.sections[1].unmetered = true;
+            const std::string text = ProjectFile::serialize(*project);
+            check(text.find("clef 0 French%20violin\n") != std::string::npos, "notation: the clef record");
+            const auto back = ProjectFile::parse(text, &error);
+            check(back.has_value(), "notation: the file parses back");
+            if (back) {
+                check(back->song.patterns[0].clef == "French violin" && back->song.patterns[1].clef == "Treble",
+                      "notation: each part keeps its clef");
+                check(back->song.sections[0].key_fifths == -3 && back->song.sections[0].meter_beats == 7 &&
+                          back->song.sections[0].meter_unit == 8 && !back->song.sections[0].unmetered,
+                      "notation: the section keeps its key and 7/8");
+                check(back->song.sections[1].unmetered && back->song.sections[1].key_fifths == 0,
+                      "notation: the chant section stays unmetered");
+                check(ProjectFile::serialize(*back) == text, "notation: saving again gives the same bytes");
+            }
+            for (const char* bad : {"clef 0 Treble-8vb\n", "clef 99 Bass\n", "section-key 0 8\n",
+                                    "section-key 99 1\n", "section-meter 0 3 3\n", "section-meter 0 0 4\n",
+                                    "section-meter 99 free\n"}) {
+                std::string broken;
+                (void)ProjectFile::parse(text + bad, &broken);
+                check(!ProjectFile::parse(text + bad, &broken).has_value() && !broken.empty(),
+                      "notation: a malformed notation record is refused");
+            }
+        }
+    }
+
     if (failures != 0) {
         std::cerr << failures << " project format check(s) failed\n";
         return 1;

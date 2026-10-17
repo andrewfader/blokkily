@@ -1,6 +1,7 @@
 #include "blokkily/guide/lesson.hpp"
 
 #include <cctype>
+#include <cmath>
 #include <stdexcept>
 
 namespace blokkily::guide {
@@ -32,6 +33,7 @@ struct JsonValue {
 struct Parser {
     const char* p;
     const char* end;
+    int depth = 0; // nesting, bounded so a hostile file cannot exhaust the stack
 
     [[noreturn]] void fail(const std::string& what) {
         throw std::runtime_error("lesson JSON: " + what);
@@ -50,8 +52,12 @@ struct Parser {
     JsonValue parse_value() {
         skip_ws();
         const char c = peek();
-        if (c == '{') return parse_object();
-        if (c == '[') return parse_array();
+        if (c == '{' || c == '[') {
+            if (++depth > 32) fail("nested too deeply");
+            JsonValue v = c == '{' ? parse_object() : parse_array();
+            --depth;
+            return v;
+        }
         if (c == '"') {
             JsonValue v;
             v.type = JsonValue::Type::string;
@@ -138,11 +144,58 @@ struct Parser {
                     case 'n': out += '\n'; break;
                     case 't': out += '\t'; break;
                     case 'r': out += '\r'; break;
+                    case 'b': out += '\b'; break;
+                    case 'f': out += '\f'; break;
+                    case 'u': append_utf8(out, code_point()); break;
                     default: fail("bad escape");
                 }
             } else {
                 out += c;
             }
+        }
+    }
+    // Four hex digits after \u.
+    unsigned hex4() {
+        unsigned value = 0;
+        for (int i = 0; i < 4; ++i) {
+            if (p == end) fail("unterminated \\u escape");
+            const char c = *p++;
+            value <<= 4;
+            if (c >= '0' && c <= '9') value |= static_cast<unsigned>(c - '0');
+            else if (c >= 'a' && c <= 'f') value |= static_cast<unsigned>(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') value |= static_cast<unsigned>(c - 'A' + 10);
+            else fail("bad \\u escape");
+        }
+        return value;
+    }
+    // A \u escape, joining a surrogate pair into one code point.
+    unsigned code_point() {
+        const unsigned high = hex4();
+        if (high < 0xD800 || high > 0xDBFF) {
+            if (high >= 0xDC00 && high <= 0xDFFF) fail("lone low surrogate");
+            return high;
+        }
+        if (end - p < 6 || p[0] != '\\' || p[1] != 'u') fail("lone high surrogate");
+        p += 2;
+        const unsigned low = hex4();
+        if (low < 0xDC00 || low > 0xDFFF) fail("bad surrogate pair");
+        return 0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00);
+    }
+    static void append_utf8(std::string& out, unsigned cp) {
+        if (cp < 0x80) {
+            out += static_cast<char>(cp);
+        } else if (cp < 0x800) {
+            out += static_cast<char>(0xC0 | (cp >> 6));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp < 0x10000) {
+            out += static_cast<char>(0xE0 | (cp >> 12));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | (cp >> 18));
+            out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
         }
     }
     JsonValue parse_bool() {
@@ -172,7 +225,11 @@ struct Parser {
         while (p != end && (std::isdigit(static_cast<unsigned char>(*p)) || *p == '.' ||
                             *p == 'e' || *p == 'E' || *p == '+' || *p == '-'))
             ++p;
-        v.number = std::stod(std::string(start, p));
+        try {
+            v.number = std::stod(std::string(start, p));
+        } catch (const std::exception&) {
+            fail("bad number");
+        }
         return v;
     }
 };
@@ -202,6 +259,12 @@ bool LessonEngine::load(const std::string& json, std::string* error) {
             if (step.text.empty()) throw std::runtime_error("step needs text");
             step.spotlight = s.get_string("spotlight");
             step.check = s.get_string("check", "none");
+            if (const auto* count = s.find("count")) {
+                if (count->type != JsonValue::Type::number || count->number < 1 || count->number > 64 ||
+                    count->number != static_cast<int>(count->number))
+                    throw std::runtime_error("a step's count is a whole number from 1 to 64");
+                step.count = static_cast<int>(count->number);
+            }
             if (const auto* action = s.find("action")) {
                 step.has_action = true;
                 step.action.id = action->get_string("id");
@@ -210,8 +273,10 @@ bool LessonEngine::load(const std::string& json, std::string* error) {
                         for (const auto& [k, v] : args->object) {
                             if (v.type == JsonValue::Type::string)
                                 step.action.args[k] = v.string;
-                            else if (v.type == JsonValue::Type::number)
+                            else if (v.type == JsonValue::Type::number) {
+                                if (!(std::abs(v.number) < 1e9)) throw std::runtime_error("an action argument is out of range");
                                 step.action.args[k] = std::to_string(static_cast<long long>(v.number));
+                            }
                         }
                     }
                 }
@@ -231,6 +296,7 @@ bool LessonEngine::load(const std::string& json, std::string* error) {
 
 void LessonEngine::start() {
     step_ = 0;
+    hits_ = 0;
 }
 
 bool LessonEngine::at_end() const {
@@ -239,14 +305,19 @@ bool LessonEngine::at_end() const {
 
 void LessonEngine::next() {
     if (loaded_ && step_ < lesson_.steps.size()) ++step_;
+    hits_ = 0;
 }
 
 void LessonEngine::back() {
     if (step_ > 0) --step_;
+    hits_ = 0;
 }
 
 bool LessonEngine::check_event(const AppEvent& event) {
-    if (!loaded_ || step().check == "none") return false;
+    if (at_end() || step().check == "none") return false;
+    // The lesson is the producer's to do: what the guide or an agent does
+    // never counts toward it.
+    if (event.source != EventSource::user) return false;
     const auto want = step().check;
     const bool hit =
         (want == "note-added" && event.kind == EventKind::note_added) ||
@@ -256,8 +327,9 @@ bool LessonEngine::check_event(const AppEvent& event) {
         (want == "tempo-changed" && event.kind == EventKind::tempo_changed) ||
         (want == "track-added" && event.kind == EventKind::track_added) ||
         (want == "guide-action" && event.kind == EventKind::guide_action);
-    if (hit) next();
-    return hit;
+    if (!hit) return false;
+    if (++hits_ >= step().count) next();
+    return true;
 }
 
 } // namespace blokkily::guide

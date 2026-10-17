@@ -223,14 +223,22 @@ public:
     QString rootName() const;
     bool autoScale() const noexcept { return song_.auto_scale; }
 
-    // Staff-notation view settings for the score projection
-    // (feature/staff-notation). The clef is per track part of a section — a
-    // piano's two hands read two clefs — while the key and meter are per
-    // section. Session-scoped: they are not written to the project file (v1),
-    // and they follow section/track indices. `clef` is the conventional
-    // English name ("Treble", "Bass", "Alto", "French violin", ...).
+    // How the score view writes a track's part of a section: the part's clef
+    // ("Treble", "Bass", "Alto", "French violin", ...; a piano's two hands
+    // read two clefs), the section's key in fifths, and its meter - the
+    // song's meter where the section plays unless one is set, or none for
+    // chant. They are the song's: saved with it, undone with it.
+    // notationSettings reads {clef, keyFifths, timeBeats, timeUnit,
+    // unmetered, meterSet}; an empty map when the part does not exist.
     Q_INVOKABLE QVariantMap notationSettings(int track, int section) const;
-    Q_INVOKABLE void setNotationSettings(int track, int section, const QVariantMap& settings);
+    // Changes any of clef, keyFifths, timeBeats with timeUnit, unmetered, or
+    // meterSet false (back to the song's meter), as one step of undo. Every
+    // value is checked first: false, and nothing changed, when one is not
+    // valid or the part does not exist.
+    Q_INVOKABLE bool setNotationSettings(int track, int section, const QVariantMap& settings);
+    // As above; without its own step of undo when the caller has taken one
+    // for a larger edit (an import).
+    bool setNotationSettings(int track, int section, const QVariantMap& settings, bool own_step);
 
     Q_INVOKABLE void selectTrack(int track);
     // Opens pattern `pattern`: its section, with its track selected, so it is
@@ -691,6 +699,8 @@ signals:
     // The session changed tuning, scale, or root. Every projection that names
     // or draws a pitch re-reads itself from this.
     void tuningChanged();
+    // A part's clef, or a section's key or meter for the score, changed.
+    void notationChanged();
     void historyChanged();
     void notesChanged();
     void versionsChanged();
@@ -788,16 +798,6 @@ private:
     // show rather than rebuilding every projection per pointer move.
     void emitMixMove();
     bool mix_only_ = false;
-    // Staff-notation view settings per (track, section), for the score
-    // projection (feature/staff-notation). Session-scoped, not saved.
-    struct NotationSettings {
-        QString clef = QStringLiteral("Treble");
-        int key_fifths = 0;
-        int time_beats = 4;
-        int time_unit = 4;
-        bool unmetered = false;
-    };
-    std::map<std::pair<int, int>, NotationSettings> notation_settings_;
     // The arrangement's projections, built once per change to the song's
     // structure (lanes(), barLayout()). Every songChanged and timebaseChanged
     // goes out through these, which drop them first.

@@ -22,12 +22,12 @@ New namespace `blokkily::notation`, headers under
 | `pitch.hpp` | `Step` (C..B), `Accidental` (-2..+2), `SpelledPitch{step, accidental, octave}`, MIDI conversion both ways |
 | `clef.hpp` | `Clef` — see clef table below; `diatonic_offset()` of its reference line |
 | `signature.hpp` | `KeySignature{fifths:-7..7}`, `TimeSignature{beats, beat_unit}` plus `unmetered()` |
-| `duration.hpp` | `NoteValue` (breve..128th), dots, `ticks()`/`from_ticks()` against a ticks-per-beat |
-| `note.hpp` | `NotationNote{spelled, value, dots, tie_start/tie_end, lyric, voice}`, `Rest` |
-| `staff.hpp` | `Staff{clef, key, time, transpose}`, `Measure{notes}`, `Part{name, staves}`, `Score{parts, title, composer}` |
+| `duration.hpp` | `NoteValue` (breve..128th), dots, tuplets (3 in 2, ...), `ticks()`/`from_ticks()`/`notate_ticks()` against a ticks-per-beat |
+| `note.hpp` | `NotationNote{spelled, duration, tie_start/tie_end, lyric, voice, chord, cents, velocity}`, `Rest{duration, voice}` |
+| `staff.hpp` | `Staff{clef, key, time, transpose_semitones, transpose_octaves}`, `Measure{objects, clef?, key?, time?, pickup}`, `Part{name, staves}`, `Score{parts, title, composer}` |
 | `spelling.hpp` | `spell(midi_key, KeySignature) -> SpelledPitch` — enharmonic spelling |
 | `layout.hpp` | `staff_position(spelled, clef) -> int` (diatonic steps above/below the clef's bottom line), accidental visibility vs key signature |
-| `pattern_bridge.hpp` | `to_staff(pattern, key, clef, ticks_per_beat)`, `to_pattern(staff, ticks_per_beat)` — round-trips through the canonical pattern model; the pattern stays the single source of truth (repo invariant: editors are projections of one canonical pattern) |
+| `pattern_bridge.hpp` | `to_staff(pattern, key, clef, time)`, `to_pattern(staff, ticks_per_beat, &dropped)`, `place(staff)` (where each object falls, and which accidentals print), `measure_ticks()` — round-trips through the canonical pattern model; the pattern stays the single source of truth (repo invariant: editors are projections of one canonical pattern) |
 | `musicxml.hpp` | `write(Score) -> std::string`, `parse(std::string) -> Score` |
 
 ## Clef table (all required)
@@ -47,23 +47,45 @@ preferring the fewest accidentals; ties break toward sharps in sharp keys and
 flats in flat keys. Microtonal `cents` on a pattern note is preserved on the
 `NotationNote` as a `cents` field but does not affect spelling (documented).
 
-## Quantization
+## Time: measures, voices, chords, rests
 
-`from_ticks()`: exact durations map to a value+dots; anything else becomes a
-tied chain of values (whole+half, etc.). Rests are NOT invented — the staff
-shows only the pattern's notes; measure filling is a view concern for later.
+A measure holds its objects voice by voice, as MusicXML does: inside a voice
+they follow each other in time, a note with `chord` set starts with the note
+before it, and every voice runs from the measure's start. `to_staff()` places
+the pattern's notes where they start: notes that start and end together are
+one chord, a note that overlaps a held one goes to another voice, gaps are
+rests, notes are split at barlines and tied over them, and the first voice
+fills every bar. `notate_ticks()` writes an exact value with dots, a triplet
+as a triplet, and anything else as a tied chain rounded to the 128th grid.
+`to_pattern()` plays each voice of each measure from the measure's start,
+joins ties, honours a measure's own meter and pickups, applies the staff's
+transposition, and drops (and counts) notes outside MIDI 0-127.
 
-## MusicXML scope (v1)
+Accidentals print by the bar's rule (`place()`): a note prints one when its
+own differs from what its bar, or else the key, last said for its line and
+octave; a tied end never prints one.
 
-- Export: `<score-partwise>`, part list, measures with attributes
-  (divisions, key, time, clef), notes (pitch, duration, voice, type, dots,
-  ties, lyrics), rests, barlines. One part per Blokkily track.
-- Import: the same subset back. Unknown elements are skipped, never fatal.
-- Tests: write → read round-trip equality on a score exercising every clef,
-  all key signatures -7..+7, tuplets excluded v1 (documented), lyrics, ties.
-- Repo rule: "export behaviour must read the written file back and compare it
-  with what the engine renders" — the round-trip test plays the re-imported
-  score through `to_pattern` and compares scheduled note keys/starts.
+## MusicXML scope
+
+- Export: `<score-partwise>` 4.0, part list, measures with `<attributes>`
+  (divisions, keys, times or senza-misura, staves, clefs, transpose, in the
+  schema's order) in the first measure and wherever a measure changes them,
+  pickups as implicit measures, notes and rests voice by voice joined by
+  `<backup>`, `<chord/>`, ties, dots, tuplets (`<time-modification>`), stemless
+  chant heads, lyrics (syllabic begin/middle/end/single and extend lines),
+  velocity as the note's `dynamics`, a retune as a fractional `<alter>`.
+- Import: the same back. A note's time comes from its `<duration>`; a
+  `<forward>` gap becomes a rest; a `<key>` or `<time>` with no number holds on
+  every staff; `<transpose>` (chromatic and octave) and `<clef-octave-change>`
+  set the sounding pitch. Grace and cue notes are skipped; unknown elements
+  are ignored. A staff number outside 1-16, a non-positive divisions, an
+  unsupported meter or a negative duration is refused with
+  `std::runtime_error`, never a crash or a runaway allocation.
+- Tests (`tests/musicxml_tests.cpp`): a varied pattern written to a file,
+  read back from the file and compared with what the scheduler plays from the
+  original - start, length, key, retune and velocity; every clef; keys -7..7;
+  lyrics; grand staff with a pickup and a change of meter; a transposing
+  part; chant; element order; a hand-written foreign document; hostile input.
 
 ## QML staff view
 
@@ -78,39 +100,38 @@ shows only the pattern's notes; measure filling is a view concern for later.
   Add `features/notation.feature` (Given/When/Then) mapping to the screenshot
   test.
 
-### As built (2026-10-16, Task E)
+### As built
 
-- Shipped as `ui/ScoreView.qml` + `src/app/score_model.{hpp,cpp}` (a
-  `QObject` projection, not a `QQuickItem`): the model re-spells the pattern
-  through `to_staff()` on every `patternChanged` and hands QML a flat
-  `objects` list (notes/rests with staff position, accidental, value, dots,
-  ties, lyrics) plus clef/key/time furniture. The Canvas draws with Bravura
-  glyphs positioned from measured font metrics (`ui/Smufl.js`, 43 glyphs —
-  the metadata JSON 404'd upstream, so metrics were measured from the font
-  with fontTools instead).
-- Font extends the repo's existing fonts mechanism: `resources/fonts/Bravura.otf`
-  (+ `Bravura-OFL.txt`) in the `blokkily_fonts` `qt_add_resources` block,
-  loaded via `FontLoader` from `qrc:/fonts/Bravura.otf`. Fallback shapes +
-  one `console.warn` when the font is absent, per the plan.
-- The view switcher gains a SCORE chip (`view === "SCORE"`); ALL shows the
-  score beside tracker and piano roll. Clef picker covers the full 11-clef
-  roster; key picker -7..+7; CHANT chip toggles the unmetered staff.
-- Tests: `features/score_view.feature` + `bdd_score` gate
-  (`cmake/feature_score.cmake`, `src/app/verify/scenario_score.cpp`) with
-  inspected screenshots (treble, French violin, 3 sharps, chant).
-- v1 coverage gaps (documented follow-ups, not regressions): read-only (no
-  note editing); even horizontal spacing (no proportional engraving); no
-  internal barlines (final barline only); no beaming (flags for 8ths+); ties
-  drawn as canvas curves but not visually exercised (the verify driver can't
-  set note durations); lyrics follow `NotationNote.lyric` but the bridge
-  never populates it from the pattern yet; key-signature accidental
-  placement is a readable zigzag approximation, not Gould's exact tables;
-  very low/high notes get full ledger-line stacks (no automatic clef
-  suggestion).
+- `ui/ScoreView.qml` + `src/app/score_model.{hpp,cpp}`: the model lays the
+  open part out through `to_staff()` and `place()` - each note's x in staff
+  spaces from the rhythm, barlines, a chord's one stem, two voices' stems
+  apart (the higher voice up), ties to the note they continue into, triplet
+  numbers, accidentals by the bar's rule, the key signature at each clef's
+  conventional places, and the highest and lowest staff positions - and the
+  Canvas draws it with Bravura glyphs (`ui/Smufl.js`), sizing the staff to fit
+  and scrolling sideways for a long part. A note the step grid wrote shorter
+  than its step is drawn to the end of the step.
+- The clef of each part and the key and meter of each section are the song's
+  (`PatternSlot::clef`, `Section::key_fifths/meter_beats/meter_unit/unmetered`),
+  saved by `records_notation.cpp` and undone with the song; a section with no
+  meter of its own follows the song's meter where it plays. The view's
+  pickers and CHANT set them.
+- The view switcher's SCORE chip shows it in the editors' place. It is not
+  part of ALL, which keeps the tracker and the roll at usable sizes.
+- Tests: `features/score_view.feature` + `bdd_score`, with inspected
+  screenshots (treble, French violin, three sharps, chant, a long two-voice
+  part), and the save/undo of the settings.
+- Still open (follow-ups, not regressions): the view is read-only (no note
+  entry on the staff); no beams (flags only); tuplets show their number but no
+  bracket; spacing is proportional but not Gould's; mid-piece changes of
+  transposition are not modelled; the bridge never fills lyrics from a
+  pattern, so lyrics come only from MusicXML.
 
 ## Lyrics
 
-`NotationNote.lyric` holds one syllable; `-` continues a melisma, `_` extends.
+`NotationNote.lyric` holds one syllable; a trailing `-` ("Al-") says the word
+goes on into the next syllable, and `_` holds the previous syllable under the
+note as a melisma.
 The QML view draws syllables under noteheads; Qt handles RTL shaping, so
 Hebrew hymn text works without extra code.
 

@@ -94,49 +94,94 @@ void SongModel::toggleAutoScale() {
 
 namespace {
 
-// The clef name as notationSettings/setNotationSettings takes it, or empty
-// when the name does not name one of the eleven clefs.
+// The clef's own name for a name in any case, or empty when it names none of
+// the eleven.
 QString canonicalClef(const QString& name) {
     for (int kind = 0; kind <= static_cast<int>(blokkily::notation::ClefKind::Percussion); ++kind) {
         const auto clef = blokkily::notation::Clef(static_cast<blokkily::notation::ClefKind>(kind));
-        if (QString::fromUtf8(clef.name()).compare(name, Qt::CaseInsensitive) == 0)
-            return QString::fromUtf8(clef.name());
+        const auto own = QString::fromUtf8(clef.name().data(), static_cast<qsizetype>(clef.name().size()));
+        if (own.compare(name.trimmed(), Qt::CaseInsensitive) == 0) return own;
     }
     return {};
 }
 
+bool beatUnit(int unit) { return unit == 1 || unit == 2 || unit == 4 || unit == 8 || unit == 16 || unit == 32; }
+
 }  // namespace
 
 QVariantMap SongModel::notationSettings(int track, int section) const {
-    const auto it = notation_settings_.find({track, section});
-    const NotationSettings settings = it == notation_settings_.end() ? NotationSettings{} : it->second;
-    return {{"clef", settings.clef},
-            {"keyFifths", settings.key_fifths},
-            {"timeBeats", settings.time_beats},
-            {"timeUnit", settings.time_unit},
-            {"unmetered", settings.unmetered}};
+    if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return {};
+    const auto part = song_.part(static_cast<std::size_t>(section), static_cast<std::size_t>(std::max(0, track)));
+    if (track < 0 || !part) return {};
+    const auto& written = song_.sections[static_cast<std::size_t>(section)];
+    // The song's meter where this part first plays, unless one is set.
+    int beats = written.meter_beats;
+    int unit = written.meter_unit;
+    if (beats == 0) {
+        std::int32_t bar = 0;
+        for (const auto& clip : song_.clips)
+            if (clip.pattern == *part) {
+                bar = song_.meter.bar_at(clip.start);
+                break;
+            }
+        const auto& meter = song_.meter.meter_in(bar);
+        beats = meter.numerator;
+        unit = meter.denominator;
+    }
+    return {{"clef", QString::fromStdString(song_.patterns[*part].clef)},
+            {"keyFifths", written.key_fifths},
+            {"timeBeats", beats},
+            {"timeUnit", unit},
+            {"unmetered", written.unmetered},
+            {"meterSet", written.meter_beats != 0}};
 }
 
-void SongModel::setNotationSettings(int track, int section, const QVariantMap& settings) {
-    NotationSettings current;
-    const auto it = notation_settings_.find({track, section});
-    if (it != notation_settings_.end()) current = it->second;
+bool SongModel::setNotationSettings(int track, int section, const QVariantMap& settings) {
+    return setNotationSettings(track, section, settings, true);
+}
+
+bool SongModel::setNotationSettings(int track, int section, const QVariantMap& settings, bool own_step) {
+    if (track < 0 || section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return false;
+    const auto part = song_.part(static_cast<std::size_t>(section), static_cast<std::size_t>(track));
+    if (!part) return false;
+    auto written = song_.sections[static_cast<std::size_t>(section)];
+    std::string clef = song_.patterns[*part].clef;
+    bool ok = true;
+    const auto whole = [&ok](const QVariant& value) {
+        bool read = false;
+        const int number = value.toInt(&read);
+        if (!read || value.typeId() == QMetaType::Bool) ok = false;
+        return number;
+    };
     if (settings.contains("clef")) {
-        const QString clef = canonicalClef(settings.value("clef").toString());
-        if (!clef.isEmpty()) current.clef = clef;
+        const QString named = canonicalClef(settings.value("clef").toString());
+        if (named.isEmpty()) return false;
+        clef = named.toStdString();
     }
     if (settings.contains("keyFifths")) {
-        const int fifths = settings.value("keyFifths").toInt();
-        if (fifths >= -7 && fifths <= 7) current.key_fifths = fifths;
+        const int fifths = whole(settings.value("keyFifths"));
+        if (!ok || fifths < -7 || fifths > 7) return false;
+        written.key_fifths = fifths;
     }
     if (settings.contains("timeBeats") || settings.contains("timeUnit")) {
-        const int beats = settings.value("timeBeats", current.time_beats).toInt();
-        const int unit = settings.value("timeUnit", current.time_unit).toInt();
-        if (beats >= 1 && (unit == 1 || unit == 2 || unit == 4 || unit == 8 || unit == 16 || unit == 32)) {
-            current.time_beats = beats;
-            current.time_unit = unit;
-        }
+        const auto current = notationSettings(track, section);
+        const int beats = whole(settings.value("timeBeats", current.value("timeBeats")));
+        const int unit = whole(settings.value("timeUnit", current.value("timeUnit")));
+        if (!ok || beats < 1 || beats > 64 || !beatUnit(unit)) return false;
+        written.meter_beats = beats;
+        written.meter_unit = unit;
     }
-    if (settings.contains("unmetered")) current.unmetered = settings.value("unmetered").toBool();
-    notation_settings_[{track, section}] = current;
+    if (settings.contains("meterSet") && !settings.value("meterSet").toBool()) {
+        written.meter_beats = 0;
+        written.meter_unit = 4;
+    }
+    if (settings.contains("unmetered")) written.unmetered = settings.value("unmetered").toBool();
+    if (written == song_.sections[static_cast<std::size_t>(section)] && clef == song_.patterns[*part].clef)
+        return true;
+    if (own_step) checkpoint();
+    song_.sections[static_cast<std::size_t>(section)] = written;
+    song_.patterns[*part].clef = clef;
+    emit notationChanged();
+    announceSong();
+    return true;
 }

@@ -47,11 +47,13 @@ void test_narrator() {
 
     SongSnapshot snap;
     snap.note_count = 0;
-    // Grounded: empty pattern + play = silence warning, not canned cheer.
+    snap.song_note_count = 0;
+    // Grounded: a song with no notes + play = silence warning, not canned cheer.
     AppEvent play{EventSource::user, EventKind::transport_started, "", ""};
     const auto silent = narrator.describe(play, snap);
-    assert(silent.find("empty") != std::string::npos);
-    snap.note_count = 3;
+    assert(silent.find("silence") != std::string::npos);
+    // Another track may well be playing while the open pattern is empty.
+    snap.song_note_count = 3;
     const auto playing = narrator.describe(play, snap);
     assert(playing.find("silence") == std::string::npos);
 
@@ -170,6 +172,12 @@ void test_action_dispatcher() {
     // Unknown action: honest, no crash.
     r = dispatcher.dispatch("levitate", {}, sink);
     assert(!r.ok && !r.needs_confirm);
+    // A key off the keyboard is refused before it reaches the pattern.
+    sink.added_step = -1;
+    r = dispatcher.dispatch("add-note", {{"step", "2"}, {"key", "200"}}, sink);
+    assert(!r.ok && sink.added_step == -1 && r.message.find("0 to 127") != std::string::npos);
+    r = dispatcher.dispatch("add-chord", {{"step", "2"}, {"root", "125"}, {"intervals", "0,4,7"}}, sink);
+    assert(!r.ok && r.message.find("0 to 127") != std::string::npos);
     std::cout << "action_dispatcher ok\n";
 }
 
@@ -178,9 +186,9 @@ const char* kLessonJson = R"({
   "title": "Your first beat",
   "steps": [
     {"title": "STEPS", "text": "Click a step.", "spotlight": "stepGrid", "check": "none"},
-    {"title": "KICK", "text": "Add a kick.", "spotlight": "stepGrid",
+    {"title": "KICK", "text": "Add three kicks \u2014 like this.", "spotlight": "stepGrid",
      "action": {"id": "add-note", "args": {"step": "0", "key": "36"}},
-     "check": "note-added"},
+     "check": "note-added", "count": 3},
     {"title": "PLAY", "text": "Press play.", "spotlight": "playButton", "check": "transport-started"}
   ]
 })";
@@ -207,8 +215,19 @@ void test_lesson_engine() {
     assert(engine.step().action.args.at("key") == "36");
     // The right event advances; the wrong one doesn't.
     assert(!engine.check_event(AppEvent{EventSource::user, EventKind::tempo_changed, "", ""}));
+    // The guide's own note and an agent's do not count toward the producer's
+    // three; the producer's do, one at a time.
+    assert(!engine.check_event(AppEvent{EventSource::guide, EventKind::note_added, "", ""}));
+    assert(!engine.check_event(AppEvent{EventSource::mcp, EventKind::note_added, "", ""}));
     assert(engine.check_event(AppEvent{EventSource::user, EventKind::note_added, "", ""}));
-    assert(engine.step_index() == 2);
+    assert(engine.check_event(AppEvent{EventSource::user, EventKind::note_added, "", ""}));
+    assert(engine.step_index() == 1 && engine.progress() == 2);
+    assert(engine.check_event(AppEvent{EventSource::user, EventKind::note_added, "", ""}));
+    assert(engine.step_index() == 2 && engine.progress() == 0);
+    // \u escapes, as any JSON writer makes them, come through as UTF-8.
+    engine.back();
+    assert(engine.step().text == "Add three kicks \xE2\x80\x94 like this.");
+    engine.next();
     assert(engine.at_end() == false);
     engine.next();
     assert(engine.at_end());
@@ -221,6 +240,12 @@ void test_lesson_engine() {
     assert(!error.empty() && !bad.has_lesson());
     LessonEngine empty;
     assert(!empty.load(R"({"id": "x", "title": "y", "steps": []})", &error));
+    // A hostile file is refused, never a crash.
+    LessonEngine deep;
+    assert(!deep.load(std::string(100000, '[') + std::string(100000, ']'), &error));
+    assert(!deep.load(R"({"id":"x","steps":[{"text":"t","count":0}]})", &error));
+    assert(!deep.load(R"({"id":"x","steps":[{"text":"t","action":{"id":"a","args":{"k":1e300}}}]})", &error));
+    assert(!deep.load(R"({"id":"x","steps":[{"text":"\ud800"}]})", &error));
     std::cout << "lesson_engine ok\n";
 }
 
@@ -264,9 +289,17 @@ void test_llm_client() {
         done("", "connection refused");
     });
     answer.clear();
+    errored = false;
     client.ask("q?", "", [&](const std::string& a) { answer = a; },
                [&](const std::string& e) { errored = !e.empty(); });
-    assert(answer.empty());
+    assert(answer.empty() && errored);
+
+    // Every control character is escaped, so the body stays JSON.
+    const std::string escaped = client.build_request(std::string("a\x01" "b\x1f"), "");
+    assert(escaped.find("a\\u0001b\\u001f") != std::string::npos);
+    // A \u escape in the reply, a surrogate pair included, is read as UTF-8.
+    assert(LlmClient::parse_answer(R"({"choices":[{"message":{"content":"a \u2014 b \ud83c\udfb5"}}]})") ==
+           "a \xE2\x80\x94 b \xF0\x9F\x8E\xB5");
     std::cout << "llm_client ok\n";
 }
 

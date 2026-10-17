@@ -69,38 +69,44 @@ as long as the render. An agent that hangs up before then is owed nothing, and
 the window carries on.
 ## Staff notation
 
-`get_score` reads one track's part of one pattern the way theory writes it:
-every note spelled (`C4`, `F#3`), its note value and dots, whether it is tied,
-its staff position and whether the accidental is drawn — and the whole part as
-a MusicXML 4.0 document in the same answer. The clef, key signature and meter
-come from the part's settings unless the call overrides them: `set_clef` picks
-one of the eleven clefs (treble, French violin, all five C clefs, both baritone
-clefs, bass, subbass, percussion), `set_key_signature` takes fifths from -7 to
-7, `set_time_signature` takes beats and unit or `unmetered` for chant.
+`get_score` reads one track's part of one pattern as the SCORE view draws it:
+every note and rest with its bar, step, written value, dots, tuplet and voice,
+and for a note its spelling (`C4`, `F#3`), whether it is a chord tone or tied,
+its staff position and whether its accidental prints by the bar's rule - and
+the part as a MusicXML 4.0 document in the same answer. The clef, key and
+meter are the song's unless the call overrides them: `set_clef` picks one of
+the eleven clefs for a track's part, `set_key_signature` takes fifths from -7
+to 7 for a pattern, and `set_time_signature` takes beats and unit, `unmetered`
+for chant (switching it off keeps the meter), or `song: true` to follow the
+song's meter again. They are saved with the song and undone with it.
 
-`export_musicxml` writes a pattern — one part per track that plays it, or one
-track's part — to a `.musicxml` file and reads it back to prove it.
-`import_musicxml` parses a MusicXML partwise score (from text or a file) into a
-pattern as a single step of undo: part *i* lands on track *i* from `track`;
-with `replace` each part is emptied first, and notes that do not fit the
-pattern are refused and counted rather than half-written. Micro-timing,
-probability, ratchets, loop conditions and parameter locks do not survive the
-trip — notation cannot say them.
-
-The score settings are session-scoped (they are not saved to the project file
-yet) and follow pattern/track indices.
+`export_musicxml` writes a pattern - one part per track that has a part of it,
+or one track's - to an absolute `.musicxml` or `.xml` path, refusing to replace
+a file unless `overwrite` is given. It reads the file back and compares what
+it plays with each part; `matches` is false where a part holds what notation
+cannot say, such as timing off the 128th-note grid. `import_musicxml` reads a
+MusicXML partwise score (`xml` or `path`) into a pattern as one step of undo:
+part *i* lands on track *i* from `track`, every staff of it at its sounding
+pitch, and the part takes the score's clef, key and meter. With `replace` each
+part is emptied first. Nothing changes when no part has a track or the score
+runs past the pattern; notes outside MIDI 0-127 are left out and counted.
+Micro-timing off the grid, probability, ratchets, loop conditions and
+parameter locks do not survive the trip - notation cannot say them.
 
 ## The guide
 
 `guide_events` reads the narration feed: the last user edits, agent tool calls
 and guide actions, each with who did it (`user`, `mcp`, `guide`) and the
-guide's why-explanation. Every mutating MCP tool stamps the feed as `mcp`, so
-the producer can always tell what they did from what their agent did.
-`guide_lesson` lists the guide's interactive lessons and walks through one —
-each step names the control the guide spotlights in the window.
+guide's why-explanation. Everything an MCP call does is stamped `mcp`, so the
+producer can tell what they did from what their agent did. `guide_lesson`
+lists the guide's interactive lessons and walks through one (starting one turns
+the guide on); each step names the control the guide spotlights in the window,
+and a step that waits for the producer counts only the producer's own edits.
 `guide_ask` asks the guide a theory question: its built-in rules answer at
-once; what they do not cover goes to the guide's bubble, where it asks a model
-(its own LLM config, else the prompt bar's backend).
+once. What they do not cover goes to the guide's bubble only while the guide is
+on, and reaches a model only if the producer has switched on ASK MODEL (or
+configured the guide's own model) - the question would go to the prompt bar's
+model, which may be a cloud service.
 
 ## Measuring a render
 

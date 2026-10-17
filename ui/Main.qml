@@ -23,8 +23,9 @@ ApplicationWindow {
     font.family: Theme.sans
     font.pixelSize: 12
 
-    // STEP / TRACKER / PIANO / SCORE focus one editor; ALL keeps every
-    // projection on screen at once, which is the point of the instrument.
+    // STEP / TRACKER / PIANO / SCORE focus one editor; ALL keeps the step
+    // grid, tracker and piano roll on screen at once, which is the point of
+    // the instrument (the score needs a view of its own to be readable).
     // LAUNCH shows the scene launcher in the editors' place, VERSIONS the
     // song's saved versions and NOTES its notes.
     property string view: "ALL"
@@ -39,7 +40,7 @@ ApplicationWindow {
     property bool exportClick: false
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
-    readonly property bool showScore: view === "ALL" || view === "SCORE"
+    readonly property bool showScore: view === "SCORE"
 
     // Which octave the tracker's note keys write in. A tracker is played from
     // the letter keys, and the letter keys only span two octaves, so the octave
@@ -658,6 +659,20 @@ ApplicationWindow {
                                accessibleLabel: "Help: a guided tour"
                                on: tutorial.running
                                onClicked: tutorial.toggle() }
+                        // The floating guide beside the tour: Blokkily
+                        // narrates what happens, answers questions and
+                        // teaches. Lit while it is on; a press opens its
+                        // bubble (turning it on first), or closes it. It is
+                        // turned off from the bubble.
+                        Chip { objectName: "guideButton"; text: "GUIDE"
+                               implicitHeight: 20
+                               accessibleLabel: "Guide: the floating assistant"
+                               on: guideController.guideEnabled
+                               onClicked: {
+                                   if (!guideController.guideEnabled) guideController.guideEnabled = true
+                                   if (guideController.bubbleVisible) guideController.dismiss()
+                                   else guideController.open()
+                               } }
                     }
 
                     PromptBar {

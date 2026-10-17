@@ -31,6 +31,11 @@ struct NoteDuration {
     NoteValue value = NoteValue::Quarter;
     int dots = 0;          // 0..2 in what from_ticks produces
     bool stemless = false; // chant noteheads: no stem is drawn
+    // A tuplet: `tuplet_actual` notes in the time of `tuplet_normal` (a
+    // triplet is 3 in 2). 1:1 is no tuplet.
+    int tuplet_actual = 1;
+    int tuplet_normal = 1;
+    [[nodiscard]] bool tuplet() const noexcept { return tuplet_actual != tuplet_normal; }
 };
 
 // Ticks of one (possibly dotted) value. Each dot adds half the previous
@@ -38,6 +43,8 @@ struct NoteDuration {
 [[nodiscard]] inline Tick ticks(NoteDuration duration, Tick ticks_per_beat) {
     if (ticks_per_beat <= 0) throw std::invalid_argument("ticks_per_beat must be positive");
     if (duration.dots < 0) throw std::invalid_argument("dots must be non-negative");
+    if (duration.tuplet_actual < 1 || duration.tuplet_normal < 1)
+        throw std::invalid_argument("a tuplet needs positive counts");
     const int v = static_cast<int>(duration.value);
     Tick base = (v < 0) ? ticks_per_beat * 8 : (ticks_per_beat * 4) >> v;
     Tick total = base;
@@ -46,7 +53,7 @@ struct NoteDuration {
         add /= 2;
         total += add;
     }
-    return total;
+    return total * duration.tuplet_normal / duration.tuplet_actual;
 }
 
 [[nodiscard]] inline Tick ticks(const std::vector<NoteDuration>& chain, Tick ticks_per_beat) {
@@ -61,6 +68,10 @@ struct NoteDuration {
 // A tied chain for any positive duration, largest value first. The input is
 // rounded to the nearest 128th-note grid first when it does not land on one.
 [[nodiscard]] std::vector<NoteDuration> from_ticks(Tick duration, Tick ticks_per_beat);
+// As from_ticks, but a duration that is exactly a triplet value (a third of a
+// half, of a quarter, ...) becomes that triplet note rather than a rounded
+// chain, so triplet rhythms written in a pattern read as triplets.
+[[nodiscard]] std::vector<NoteDuration> notate_ticks(Tick duration, Tick ticks_per_beat);
 
 [[nodiscard]] inline const char* value_name(NoteValue value) noexcept {
     switch (value) {

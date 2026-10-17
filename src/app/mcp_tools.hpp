@@ -75,7 +75,7 @@ private:
         blokkily::notation::TimeSignature time{4, 4};
     };
     ScoreDressing scoreDressing(int track, int section, const QJsonObject& arguments);
-    blokkily::notation::Part scorePart(int track, int section);
+    blokkily::notation::Staff scoreStaff(int track, int section, const ScoreDressing& dressing) const;
 
     SongModel& song_;
     PatternModel& pattern_;

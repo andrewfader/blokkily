@@ -2,17 +2,21 @@
 
 // MusicXML import/export for blokkily::notation scores.
 //
-// v1 subset (see docs/notation-design.md):
-//   - Export writes <score-partwise> 4.0: part list, per-measure <attributes>
-//     (divisions, key, time or senza-misura, clef, transpose), notes with
-//     pitch/unpitched, duration, voice, type, dots, ties, lyrics and stem,
-//     rests, and a closing barline per part. One <part> per Score part;
-//     multi-staff parts use <staves>, <staff> and <backup>.
-//   - Import reads the same subset back. Unknown elements are skipped, never
-//     fatal. Chords (<chord/>) import as sequential notes, grace notes are
-//     skipped, tuplets are not represented: all documented v1 limits.
-//   - parse() throws std::runtime_error on malformed XML or a non-partwise
-//     root element.
+// What is written and read (see docs/notation-design.md):
+//   - <score-partwise> 4.0: the part list, and per part its measures with
+//     <attributes> (divisions, key, time or senza-misura, staves, clef,
+//     transpose) in the first measure and wherever a measure changes them,
+//     pickups as implicit measures.
+//   - Notes and rests voice by voice, rewound with <backup>; chords with
+//     <chord/>; ties, dots, tuplets (<time-modification>), stemless chant
+//     heads, lyrics (syllabic and extend), velocity as the note's dynamics,
+//     and a retune as a fractional <alter>.
+//   - Import takes a note's time from its <duration> and turns <forward>
+//     gaps into rests. Grace and cue notes are skipped; unknown elements
+//     are ignored.
+//   - parse() throws std::runtime_error on malformed XML, a non-partwise
+//     root, or values the model cannot hold (a staff number outside 1-16,
+//     a non-positive <divisions>, an unsupported meter).
 //
 // No Qt here; errors are reported by exception, matching the core library.
 

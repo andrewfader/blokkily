@@ -12,12 +12,14 @@
 //       "spotlight": "stepGrid",          // objectName to ring ("" for none)
 //       "action": {"id": "add-note",      // optional guide-performed action
 //                  "args": {"step": "0", "key": "36"}},
-//       "check": "note-added" }           // "none" | "note-added" |
+//       "check": "note-added",            // "none" | "note-added" |
+//       "count": 4 }                       // times it must happen (1)
 //   ]                                     // "transport-started" | "tempo-changed"
 // }
 //
-// A step's check names the AppEvent kind that completes it; the engine
-// watches the bus and advances when the producer (or the guide) does it.
+// A step's check names the AppEvent kind that completes it, and its count
+// how many times; the engine watches the bus and advances once the producer
+// has done it that often. What the guide or an agent does does not count.
 
 #include "blokkily/guide/event_bus.hpp"
 
@@ -39,6 +41,8 @@ struct LessonStep {
     LessonAction action;
     bool has_action = false;
     std::string check = "none"; // see above
+    // How many times the producer must do it: "add four kicks" is 4.
+    int count = 1;
 };
 
 struct Lesson {
@@ -61,13 +65,17 @@ public:
     void next();
     void back();
 
-    // True when the event satisfies the current step's check; advances.
-    // "none" checks never auto-advance (the Continue button calls next()).
+    // True when the producer's event counts toward the current step's
+    // check; the step advances once it has counted `count` of them. "none"
+    // checks never auto-advance (the Continue button calls next()).
     bool check_event(const AppEvent& event);
+    // How many the current step has counted so far.
+    [[nodiscard]] int progress() const { return hits_; }
 
 private:
     Lesson lesson_;
     std::size_t step_ = 0;
+    int hits_ = 0;
     bool loaded_ = false;
 };
 

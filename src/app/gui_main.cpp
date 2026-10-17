@@ -171,12 +171,13 @@ int main(int argc, char* argv[]) {
     // The floating guide: narration feed, mascot overlay, lessons, Q&A. The
     // pattern's note edits feed the same bus the controller's commands do.
     // Theory questions the rules miss borrow the prompt bar's backend.
-    GuideController guide(&controller, &song, &pattern, &transport);
+    GuideController guide(&controller, &song, &pattern, &transport, nullptr,
+                          !parser.isSet("verify"));
     guide.setLlmModel(&llm);
     pattern.setEventBus(&controller.eventBus());
     // The score view's projection of the canonical pattern: re-spelled on
     // every pattern change, never written back.
-    ScoreModel score(&pattern);
+    ScoreModel score(&pattern, &song);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("songModel", &song);
     engine.rootContext()->setContextProperty("patternModel", &pattern);

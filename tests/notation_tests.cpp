@@ -255,106 +255,250 @@ void test_layout() {
     require(threw, "beat unit 3 throws");
 }
 
-void test_pattern_bridge() {
-    // Scenario: A pattern renders to spelled, tied notation and replays back
-    constexpr Tick tpb = 480;
-    Pattern pattern(1920, tpb);
-    Trigger melody;
-    melody.start = 0;
-    melody.duration = 720; // dotted quarter
-    melody.musical_data = Note{62, 0.9F, 0.0F, 0.0}; // D4
-    (void)pattern.add(melody);
-    Trigger chord;
-    chord.start = 720;
-    chord.duration = 480;
-    Chord c;
-    c.root = 60;
-    c.intervals = {0, 4, 7};
-    c.velocity = 0.7F;
-    chord.musical_data = c;
-    (void)pattern.add(chord);
-
-    const KeySignature key(2); // D major
-    const Staff staff = to_staff(pattern, key, Clef(ClefKind::Treble), tpb);
-    require(staff.measures.size() == 1, "one measure");
-    require(staff.measures[0].objects.size() == 4, "dotted quarter + three chord voices");
-    const auto* first = std::get_if<NotationNote>(&staff.measures[0].objects[0]);
-    require(first != nullptr && spelled_name(first->spelled) == "D4", "D4 spelled in D major");
-    require(first->duration.dots == 1 && first->duration.value == NoteValue::Quarter,
-            "720 ticks is a dotted quarter");
-    require(!first->tie_start && !first->tie_end, "single value ties neither way");
-    require(first->velocity == 0.9F, "velocity survives to_staff");
-    // The chord's third voice is A4; check one tied chain while here.
-    Pattern tied_pattern(1920, tpb);
-    Trigger odd;
-    odd.start = 0;
-    odd.duration = 2880; // whole + half
-    odd.musical_data = Note{69, 0.8F, 0.0F, 0.0};
-    (void)tied_pattern.add(odd);
-    const Staff tied_staff = to_staff(tied_pattern, KeySignature(0), Clef(ClefKind::Treble), tpb);
-    require(tied_staff.measures[0].objects.size() == 2, "2880 ticks ties two notes");
-    const auto* t0 = std::get_if<NotationNote>(&tied_staff.measures[0].objects[0]);
-    const auto* t1 = std::get_if<NotationNote>(&tied_staff.measures[0].objects[1]);
-    require(t0->tie_start && !t0->tie_end && !t1->tie_start && t1->tie_end,
-            "tie flags chain the two notes");
-
-    // Round trip: every sounding voice comes back at the same tick, key, length.
-    const Pattern back = to_pattern(staff, tpb);
-    require(soundings_of(back) == soundings_of(pattern), "pattern round-trips voices");
-    const Pattern tied_back = to_pattern(tied_staff, tpb);
-    require(soundings_of(tied_back) == soundings_of(tied_pattern),
-            "tied durations round-trip");
-
-    // Transposition: a treble-8vb staff sounds an octave below the writing.
-    Staff low = staff;
-    low.transpose_octaves = -1;
-    const Pattern low_back = to_pattern(low, tpb);
-    for (const Trigger& t : low_back.events()) {
-        const auto* n = std::get_if<Note>(&t.musical_data);
-        require(n != nullptr && n->key == 62 - 12, "treble-8vb sounds an octave down");
-        break;
+// A pattern of plain notes: (start, key, duration) each, at 480 per beat.
+Pattern pattern_of(Tick length, std::initializer_list<Sounding> notes) {
+    Pattern pattern(length, 480);
+    for (const Sounding& n : notes) {
+        Trigger t;
+        t.start = n.start;
+        t.duration = n.duration;
+        t.musical_data = Note{static_cast<std::int16_t>(n.key), 0.8F, 0.0F, 0.0};
+        (void)pattern.add(t);
     }
-
-    // Rests advance the cursor; unmetered staves pack notes end to end.
-    Staff chant;
-    chant.clef = Clef(ClefKind::Treble);
-    chant.time = TimeSignature::unmetered();
-    Measure m;
-    NotationNote n1;
-    n1.spelled = SpelledPitch{Step::E, Accidental::Natural, 4};
-    n1.duration = NoteDuration{NoteValue::Quarter};
-    NotationNote n2 = n1;
-    n2.spelled = SpelledPitch{Step::G, Accidental::Natural, 4};
-    n2.lyric = "a-";
-    m.objects.emplace_back(n1);
-    m.objects.emplace_back(Rest{NoteDuration{NoteValue::Quarter}});
-    m.objects.emplace_back(n2);
-    chant.measures.push_back(m);
-    const Pattern chant_back = to_pattern(chant, tpb);
-    const auto chant_sounds = soundings_of(chant_back);
-    require(chant_sounds.size() == 2, "two notes around the rest");
-    require(chant_sounds[0] == Sounding{0, 64, 480}, "first chant note at 0");
-    require(chant_sounds[1] == Sounding{960, 67, 480}, "second chant note after the rest");
+    return pattern;
 }
 
-void test_score_hierarchy() {
-    // Scenario: Parts group staves under a titled score
-    Score score;
-    score.title = "Test Concerto";
-    score.composer = "A. Fader";
-    Part piano;
-    piano.name = "Piano";
-    Staff right;
-    right.clef = Clef(ClefKind::Treble);
-    Staff left;
-    left.clef = Clef(ClefKind::Bass);
-    piano.staves = {right, left};
-    score.parts.push_back(piano);
-    require(score.parts.size() == 1 && score.parts[0].staves.size() == 2,
-            "piano part is a grand staff");
-    require(score.parts[0].staves[1].clef == Clef(ClefKind::Bass),
-            "left hand is bass clef");
-    require(score.title == "Test Concerto", "title survives");
+std::string shape(const Measure& measure) {
+    // A compact reading of a measure: "D4:q. [C4 E4 G4]:q r:8" style.
+    std::string out;
+    const auto value = [](const NoteDuration& d) {
+        std::string v;
+        switch (d.value) {
+            case NoteValue::Breve: v = "b"; break;
+            case NoteValue::Whole: v = "w"; break;
+            case NoteValue::Half: v = "h"; break;
+            case NoteValue::Quarter: v = "q"; break;
+            case NoteValue::Eighth: v = "8"; break;
+            case NoteValue::Sixteenth: v = "16"; break;
+            default: v = "s"; break;
+        }
+        v += std::string(static_cast<std::size_t>(d.dots), '.');
+        if (d.tuplet()) v += "/" + std::to_string(d.tuplet_actual);
+        return v;
+    };
+    for (std::size_t i = 0; i < measure.objects.size(); ++i) {
+        const auto& object = measure.objects[i];
+        if (const auto* rest = std::get_if<Rest>(&object)) {
+            out += (out.empty() ? "" : " ") + std::string("r") + std::to_string(rest->voice) + ":" + value(rest->duration);
+            continue;
+        }
+        const auto& note = std::get<NotationNote>(object);
+        if (note.chord) {
+            out += "+" + spelled_name(note.spelled);
+        } else {
+            out += (out.empty() ? "" : " ") + std::string(note.tie_end ? "~" : "") + std::to_string(note.voice) +
+                   spelled_name(note.spelled);
+        }
+        const bool last_of_chord = i + 1 == measure.objects.size() ||
+                                   !std::holds_alternative<NotationNote>(measure.objects[i + 1]) ||
+                                   !std::get<NotationNote>(measure.objects[i + 1]).chord;
+        if (last_of_chord) out += ":" + value(note.duration) + (note.tie_start ? "~" : "");
+    }
+    return out;
+}
+
+void round_trips(const Pattern& pattern, const Staff& staff, const std::string& what) {
+    int dropped = -1;
+    const Pattern back = to_pattern(staff, 480, &dropped);
+    require(dropped == 0, what + ": nothing dropped");
+    require(soundings_of(back) == soundings_of(pattern), what + ": every note comes back where it was");
+}
+
+void test_pattern_bridge() {
+    // Scenario: A pattern becomes notation where its notes fall
+    const Clef treble(ClefKind::Treble);
+    {
+        // A dotted-quarter D4, a C major triad, an eighth E4, then silence.
+        Pattern pattern(1920, 480);
+        Trigger melody;
+        melody.duration = 720;
+        melody.musical_data = Note{62, 0.9F, 0.0F, 0.0};
+        (void)pattern.add(melody);
+        Trigger chord;
+        chord.start = 720;
+        chord.duration = 480;
+        Chord c;
+        c.root = 60;
+        c.intervals = {0, 4, 7};
+        chord.musical_data = c;
+        (void)pattern.add(chord);
+        Trigger tail;
+        tail.start = 1200;
+        tail.duration = 240;
+        tail.musical_data = Note{64, 0.8F, 0.0F, 0.0};
+        (void)pattern.add(tail);
+        const Staff staff = to_staff(pattern, KeySignature(2), treble, TimeSignature(4, 4));
+        require(staff.measures.size() == 1, "one bar of 4/4");
+        require(shape(staff.measures[0]) == "1D4:q. 1C4+E4+G4:q 1E4:8 r1:q",
+                "notes, a chord and the closing rest, in time: " + shape(staff.measures[0]));
+        const auto& first = std::get<NotationNote>(staff.measures[0].objects[0]);
+        require(first.velocity == 0.9F, "velocity survives to_staff");
+        round_trips(pattern, staff, "melody, chord and rest");
+    }
+    {
+        // Scenario: Silence between notes is written as rests
+        const auto pattern = pattern_of(1920, {{0, 62, 480}, {960, 64, 480}});
+        const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(4, 4));
+        require(shape(staff.measures[0]) == "1D4:q r1:q 1E4:q r1:q", "the gap is a rest: " + shape(staff.measures[0]));
+        round_trips(pattern, staff, "gapped notes");
+    }
+    {
+        // Scenario: A note across the barline is tied over it
+        const auto pattern = pattern_of(3840, {{1440, 67, 960}});
+        const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(4, 4));
+        require(staff.measures.size() == 2, "two bars");
+        require(shape(staff.measures[0]) == "r1:h. 1G4:q~" && shape(staff.measures[1]) == "~1G4:q r1:h.",
+                "tied over the barline: " + shape(staff.measures[0]) + " | " + shape(staff.measures[1]));
+        round_trips(pattern, staff, "tie over the barline");
+    }
+    {
+        // A tied chord, then a note after it: the note must not move.
+        Pattern pattern(3840, 480);
+        Trigger chord;
+        chord.duration = 2880;
+        Chord c;
+        c.root = 60;
+        c.intervals = {0, 4, 7};
+        chord.musical_data = c;
+        (void)pattern.add(chord);
+        Trigger after;
+        after.start = 2880;
+        after.duration = 480;
+        after.musical_data = Note{72, 0.8F, 0.0F, 0.0};
+        (void)pattern.add(after);
+        const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(4, 4));
+        require(shape(staff.measures[1]) == "~1C4+E4+G4:h 1C5:q r1:q",
+                "the chord ties into bar two: " + shape(staff.measures[1]));
+        round_trips(pattern, staff, "tied chord");
+    }
+    {
+        // Scenario: A note held under moving ones gets its own voice
+        const auto pattern =
+            pattern_of(1920, {{0, 48, 1920}, {0, 64, 480}, {480, 65, 480}, {960, 67, 480}, {1440, 69, 480}});
+        const Staff staff = to_staff(pattern, KeySignature(0), Clef(ClefKind::Bass), TimeSignature(4, 4));
+        require(shape(staff.measures[0]) == "1C3:w 2E4:q 2F4:q 2G4:q 2A4:q",
+                "held note in voice 1, the tune in voice 2: " + shape(staff.measures[0]));
+        round_trips(pattern, staff, "two voices");
+    }
+    {
+        // Scenario: A meter sets the bar length
+        const auto pattern = pattern_of(4 * 1440, {{0, 60, 480}, {1440 * 3, 62, 1440}});
+        const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(3, 4));
+        require(staff.measures.size() == 4, "four bars of 3/4");
+        require(shape(staff.measures[1]) == "r1:h.", "an empty bar is one rest: " + shape(staff.measures[1]));
+        require(to_pattern(staff, 480).length() == 4 * 1440, "the pattern comes back four bars of 3/4 long");
+        round_trips(pattern, staff, "3/4");
+    }
+    {
+        // Scenario: Triplets read as triplets
+        const auto pattern = pattern_of(1920, {{0, 60, 160}, {160, 62, 160}, {320, 64, 160}});
+        const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(4, 4));
+        require(shape(staff.measures[0]).starts_with("1C4:8/3 1D4:8/3 1E4:8/3"),
+                "three eighth-note triplets: " + shape(staff.measures[0]));
+        round_trips(pattern, staff, "triplets");
+    }
+    {
+        // Retunes and velocities ride along; the key re-spells.
+        Pattern pattern(1920, 480);
+        Trigger quarter_tone;
+        quarter_tone.duration = 480;
+        quarter_tone.musical_data = Note{66, 0.5F, 0.0F, -50.0};
+        (void)pattern.add(quarter_tone);
+        const Staff flats = to_staff(pattern, KeySignature(-3), treble, TimeSignature(4, 4));
+        const auto& note = std::get<NotationNote>(flats.measures[0].objects[0]);
+        require(spelled_name(note.spelled) == "Gb4" && note.cents == -50.0, "Gb4 a quarter tone flat in Eb");
+        const Pattern back = to_pattern(flats, 480);
+        const auto& played = std::get<Note>(back.events().front().musical_data);
+        require(played.key == 66 && played.cents == -50.0 && played.velocity == 0.5F,
+                "the retune and the velocity come back");
+    }
+    {
+        // Scenario: An unmetered staff is one bar as long as its notes
+        const auto pattern = pattern_of(2400, {{0, 64, 480}, {960, 67, 480}, {1440, 69, 960}});
+        const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature::unmetered());
+        require(staff.measures.size() == 1, "chant is one measure");
+        round_trips(pattern, staff, "unmetered");
+    }
+
+    // Scenario: A staff plays back with its transposition, pickup and changes
+    NotationNote note;
+    note.spelled = SpelledPitch{Step::D, Accidental::Natural, 4};
+    note.duration = NoteDuration{NoteValue::Quarter};
+    {
+        Staff clarinet; // B-flat clarinet: written D4 sounds C4
+        clarinet.transpose_semitones = -2;
+        Measure bar;
+        bar.objects = {note, Rest{NoteDuration{NoteValue::Half, 1}}};
+        clarinet.measures = {bar};
+        const Pattern back = to_pattern(clarinet, 480);
+        require(std::get<Note>(back.events().front().musical_data).key == 60, "a B-flat clarinet's D4 sounds C4");
+        Staff tenor = clarinet;
+        tenor.transpose_semitones = 0;
+        tenor.transpose_octaves = -1;
+        require(std::get<Note>(to_pattern(tenor, 480).events().front().musical_data).key == 50,
+                "treble-8vb sounds an octave down");
+    }
+    {
+        Staff tune;
+        Measure pickup;
+        pickup.pickup = true;
+        pickup.objects = {note};
+        Measure bar;
+        bar.objects = {note, Rest{NoteDuration{NoteValue::Half, 1}}};
+        Measure waltz = bar;
+        waltz.time = TimeSignature(3, 4);
+        waltz.objects = {note, Rest{NoteDuration{NoteValue::Half}}};
+        Measure after = waltz;
+        after.time.reset();
+        tune.measures = {pickup, bar, waltz, after};
+        const auto sounds = soundings_of(to_pattern(tune, 480));
+        require(sounds.size() == 4 && sounds[1].start == 480 && sounds[2].start == 480 + 1920 &&
+                    sounds[3].start == 480 + 1920 + 1440,
+                "the pickup lasts a beat, and 3/4 holds from where it is written");
+    }
+    {
+        Staff high;
+        Measure bar;
+        NotationNote way_up = note;
+        way_up.spelled.octave = 10;
+        bar.objects = {way_up, note};
+        high.measures = {bar};
+        int dropped = 0;
+        const Pattern back = to_pattern(high, 480, &dropped);
+        require(dropped == 1 && back.events().size() == 1, "a note above MIDI 127 is left out and counted");
+    }
+}
+
+void test_accidentals_in_the_bar() {
+    // Scenario: An accidental holds to the end of its bar
+    const auto pattern = pattern_of(3840, {{0, 66, 480}, {480, 65, 480}, {960, 65, 480}, {1440, 66, 960}, {2400, 65, 480}});
+    const Staff staff = to_staff(pattern, KeySignature(0), Clef(ClefKind::Treble), TimeSignature(4, 4));
+    std::vector<std::string> printed;
+    for (const auto& placed : place(staff, 480)) {
+        const auto* note = std::get_if<NotationNote>(&staff.measures[placed.measure].objects[placed.index]);
+        if (note != nullptr) printed.push_back(spelled_name(note->spelled) + (placed.accidental_shown ? "!" : ""));
+    }
+    // F#, then F natural (printed), F again (the natural still holds), F#
+    // tied over the bar (its tied end prints nothing), then F in bar two.
+    require((printed == std::vector<std::string>{"F#4!", "F4!", "F4", "F#4!", "F#4", "F4!"}),
+            "accidentals print by the bar's rule");
+    Staff changed = staff;
+    changed.measures[1].key = KeySignature(1);
+    std::vector<bool> shown;
+    for (const auto& placed : place(changed, 480))
+        if (std::holds_alternative<NotationNote>(changed.measures[placed.measure].objects[placed.index]))
+            shown.push_back(placed.accidental_shown);
+    require(shown.size() == 6 && shown[5], "under G major in bar two, F natural prints its natural");
 }
 
 } // namespace
@@ -367,7 +511,7 @@ int main() {
     test_durations();
     test_layout();
     test_pattern_bridge();
-    test_score_hierarchy();
+    test_accidentals_in_the_bar();
     if (failures == 0) {
         std::cout << "notation model: all tests passed\n";
         return 0;

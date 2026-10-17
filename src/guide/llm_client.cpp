@@ -26,11 +26,58 @@ std::string LlmClient::escape(const std::string& s) {
             case '\n': out += "\\n"; break;
             case '\r': out += "\\r"; break;
             case '\t': out += "\\t"; break;
-            default: out += c;
+            default:
+                // Every other control character is escaped too, or the
+                // request is not JSON.
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    static const char* hex = "0123456789abcdef";
+                    out += "\\u00";
+                    out += hex[(c >> 4) & 0xF];
+                    out += hex[c & 0xF];
+                } else {
+                    out += c;
+                }
         }
     }
     return out;
 }
+
+namespace {
+
+// Four hex digits at `at`, or -1.
+long hex4(const std::string& text, std::size_t at) {
+    if (at + 4 > text.size()) return -1;
+    long value = 0;
+    for (std::size_t i = at; i < at + 4; ++i) {
+        const char c = text[i];
+        value <<= 4;
+        if (c >= '0' && c <= '9') value |= c - '0';
+        else if (c >= 'a' && c <= 'f') value |= c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') value |= c - 'A' + 10;
+        else return -1;
+    }
+    return value;
+}
+
+void append_utf8(std::string& out, unsigned long cp) {
+    if (cp < 0x80) {
+        out += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    }
+}
+
+} // namespace
 
 std::string LlmClient::build_request(const std::string& question,
                                      const std::string& session_context) const {
@@ -80,6 +127,25 @@ std::string LlmClient::parse_answer(const std::string& response_json) {
                 case 'r': out += '\r'; break;
                 case '"': out += '"'; break;
                 case '\\': out += '\\'; break;
+                case '/': out += '/'; break;
+                case 'b': out += '\b'; break;
+                case 'f': out += '\f'; break;
+                case 'u': {
+                    long cp = hex4(response_json, p);
+                    if (cp < 0) return "";
+                    p += 4;
+                    // A surrogate pair is one character.
+                    if (cp >= 0xD800 && cp <= 0xDBFF && p + 6 <= response_json.size() &&
+                        response_json[p] == '\\' && response_json[p + 1] == 'u') {
+                        const long low = hex4(response_json, p + 2);
+                        if (low >= 0xDC00 && low <= 0xDFFF) {
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+                            p += 6;
+                        }
+                    }
+                    append_utf8(out, static_cast<unsigned long>(cp));
+                    break;
+                }
                 default: out += e;
             }
         } else {

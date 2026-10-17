@@ -405,6 +405,8 @@ if(BLOKKILY_BUILD_TESTS)
     # overlay scenarios are task C's screenshot gate, bdd_guide).
     add_executable(blokkily_guide_tests tests/guide_tests.cpp)
     target_link_libraries(blokkily_guide_tests PRIVATE blokkily_core)
+    # The checks are asserts: they must run in every build type.
+    target_compile_options(blokkily_guide_tests PRIVATE -UNDEBUG)
     add_test(NAME guide COMMAND blokkily_guide_tests)
     set_tests_properties(guide PROPERTIES
         LABELS "unit;bdd;guide"

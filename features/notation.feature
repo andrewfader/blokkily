@@ -1,13 +1,10 @@
 Feature: True staff notation as a fourth projection of the pattern
-  Blokkily's editors — tracker, piano roll, step grid — are projections of one
-  canonical pattern. Staff notation joins them: a score view that shows real
-  staves with real clefs, key and time signatures, spelled note values,
-  accidentals, ties and lyrics, so concertos, hymns and choral music can be
-  written in Blokkily or by an agent driving it. The model scenarios below are
-  proved by blokkily_notation_tests (tests/notation_tests.cpp), one case per
-  scenario; the score-view scenarios are task C's and are proved by the
-  screenshot gate, which renders the view and saves build/artifacts/notation.png
-  for inspection.
+  Blokkily's editors - tracker, piano roll, step grid - are projections of one
+  canonical pattern. Staff notation joins them: real staves with real clefs,
+  key and time signatures, spelled note values, accidentals, rests, ties,
+  chords, voices, tuplets and lyrics. The model scenarios below are proved by
+  blokkily_notation_tests (tests/notation_tests.cpp), one case per scenario;
+  the score view is features/score_view.feature.
 
   Scenario: Pitches convert between spelling and MIDI both ways
     Given middle C written as C4
@@ -34,15 +31,15 @@ Feature: True staff notation as a fourth projection of the pattern
   Scenario: Enharmonic spelling follows the key signature
     Given D major, F major, C major, C# major and Cb major
     When MIDI keys are spelled under each
-    Then F#4 in D major is never written Gb, and Bb3 in F major is never A#4
+    Then F#4 in D major is never written Gb, and Bb4 in F major is never A#4
     And C major breaks chromatic ties toward the sharps
-    And C# major spells MIDI 60 as B#3 while Cb major spells it Cb4
+    And C# major spells MIDI 60 as B#3 while Cb major spells it C4 and 61 as Db4
 
   Scenario: Note values convert to ticks and back; odd lengths tie
     Given 480 ticks per beat
     When exact durations convert
     Then a quarter is 480 ticks, a dotted half is 1440, a breve is 3840
-    And 720 ticks is a single dotted half while 500 ticks is not exact
+    And 720 ticks is a single dotted quarter while 500 ticks is not exact
     And 2880 ticks ties a whole to a half
     And 500 ticks rounds to the 128th-note grid and ties quarter plus 128th
 
@@ -55,28 +52,57 @@ Feature: True staff notation as a fourth projection of the pattern
     And ledger lines count correctly above and below the staff
     And 4/4 is metered while chant is unmetered with no barlines
 
-  Scenario: A pattern renders to spelled, tied notation and replays back
-    Given a pattern with a dotted-half D4 and a C major triad
+  Scenario: A pattern becomes notation where its notes fall
+    Given a dotted-quarter D4, a C major triad and an eighth E4 in a bar of 4/4
     When it renders to a staff in D major under treble clef
-    Then the melody is one dotted-half D4 and the triad is three voiced notes
-    And a 2880-tick note renders as two notes chained by ties
-    And replaying the staff reproduces every voice at its tick, key and length
-    And a treble-8vb staff sounds an octave below its writing
-    And rests advance the cursor while an unmetered chant staff packs notes end to end
+    Then the bar reads the D4, the triad as one chord, the E4 and a closing quarter rest
+    And replaying the staff puts every note back at its tick, key and length
 
-  Scenario: Parts group staves under a titled score
-    Given a score titled "Test Concerto"
-    When a piano part holds treble and bass staves
-    Then the part is a grand staff under the score's title and composer
+  Scenario: Silence between notes is written as rests
+    Given quarter notes on beats one and three
+    When the pattern renders
+    Then a quarter rest stands between them and after them
 
-  Scenario: The score view shows the pattern as engraved notation
-    Given a pattern with notes in several clefs, keys and meters
-    When the score view renders it
-    Then staves show clefs, key signatures, time signatures, note values,
-      accidentals, ties and lyrics, and the screenshot shows it
+  Scenario: A note across the barline is tied over it
+    Given a half note starting on beat four
+    When the pattern renders
+    Then a quarter ends bar one tied into a quarter that starts bar two
+    And a triad tied into bar two is followed by the next note at its own time
 
-  Scenario: Editing the score edits the one pattern
-    Given the score view showing a pattern's notation
-    When a note is added, moved or deleted in the score view
-    Then the tracker, piano roll and step grid show the same change
-    And the change survives a project save and reload
+  Scenario: A note held under moving ones gets its own voice
+    Given a whole-note C3 under four quarter notes
+    When the pattern renders
+    Then the held note and the tune are written as two voices of one bar
+
+  Scenario: A meter sets the bar length
+    Given four bars of 3/4
+    When the pattern renders
+    Then there are four bars, an empty bar is one dotted-half rest, and it plays back four bars long
+
+  Scenario: Triplets read as triplets
+    Given three notes of 160 ticks
+    When the pattern renders
+    Then they are three eighth-note triplets and play back exactly
+
+  Scenario: A retune and a velocity ride along with the spelling
+    Given F#4 a quarter tone flat at half velocity, in E-flat major
+    When the pattern renders and plays back
+    Then it is spelled Gb4 with its retune, and the key, retune and velocity come back
+
+  Scenario: An unmetered staff is one bar as long as its notes
+    Given a chant line with a rest in it
+    When it renders without a meter
+    Then it is a single measure and plays back note for note
+
+  Scenario: An accidental holds to the end of its bar
+    Given F#4, F4, F4, then F#4 tied over the barline and F4 in bar two, in C major
+    When the staff is placed
+    Then the first F4 prints its natural, the second does not, the tied F#4 prints nothing
+    And bar two starts afresh, and a key change there decides what prints
+
+  Scenario: A staff plays back with its transposition, pickup and changes
+    Given a B-flat clarinet staff, a treble-8vb staff, and a tune with a pickup then a change to 3/4
+    When each plays back
+    Then the clarinet's D4 sounds C4 and the 8vb staff sounds an octave down
+    And the pickup lasts one beat and 3/4 holds from the bar where it is written
+    And a note written above MIDI 127 is left out and counted

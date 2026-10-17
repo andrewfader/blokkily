@@ -33,3 +33,11 @@ Feature: Project files keep opening as the program grows
     Then it is stored relative to the project folder
     And reading it back names the same absolute file
     And a file outside the folder keeps its absolute path
+
+  Scenario: The score's clefs, keys and meters are saved with the song
+    Given a song with sections that never set how the score writes them
+    Then saving it writes no clef, section-key or section-meter records
+    When one part is set to French violin, a section to three flats in 7/8 and another to chant
+    Then the saved file reads back with each part's clef and each section's key and meter
+    And saving it again gives the same bytes
+    And a clef the model does not know, a key past seven, a beat unit of three, no beats, or a record naming a part or section that does not exist is refused

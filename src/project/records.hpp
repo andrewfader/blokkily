@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace blokkily::project_io {
@@ -72,6 +73,11 @@ struct ParseContext {
     // Sections and the part each pattern is (records_sections.cpp): the
     // pattern, its section and its track. Applied after every other module.
     std::vector<Section> sections;
+    // The score view's settings (records_notation.cpp), applied once the
+    // sections and parts are in place.
+    std::vector<std::pair<std::size_t, std::string>> part_clefs;
+    std::vector<std::pair<std::size_t, int>> section_keys;
+    std::vector<std::tuple<std::size_t, int, int, bool>> section_meters;
     struct PartRecord {
         std::size_t pattern = 0;
         std::size_t section = 0;
@@ -162,6 +168,9 @@ struct RecordModule {
 // Sections (records_sections.cpp): section, part. Runs last, once the
 // patterns they name are built.
 [[nodiscard]] const RecordModule& sections_records();
+// The score view's clefs, keys and meters (records_notation.cpp): clef,
+// section-key, section-meter. Runs after sections.
+[[nodiscard]] const RecordModule& notation_records();
 
 // The registered modules, in the order they are written and finished.
 [[nodiscard]] std::span<const RecordModule* const> record_modules();

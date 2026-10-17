@@ -86,10 +86,11 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     // The narration feed (see AppController::eventBus): the guide's action
-    // dispatcher stamps source=guide through setNextEventSource; the window's
-    // own edits stay source=user.
+    // dispatcher and the MCP server set who is acting for the length of what
+    // they do (setEventSource); the window's own edits are source=user.
     void setEventBus(blokkily::guide::EventBus* bus) { bus_ = bus; }
-    void setNextEventSource(blokkily::guide::EventSource source) { next_source_ = source; }
+    void setEventSource(blokkily::guide::EventSource source) { event_source_ = source; }
+    blokkily::guide::EventSource eventSource() const noexcept { return event_source_; }
 
     QVariantList steps() const;
     QVariantList stemRows() const;
@@ -288,7 +289,7 @@ private:
     // here. The guide's action dispatcher stamps source=guide through the
     // setter; the window's own edits stay source=user.
     blokkily::guide::EventBus* bus_ = nullptr;
-    blokkily::guide::EventSource next_source_ = blokkily::guide::EventSource::user;
+    blokkily::guide::EventSource event_source_ = blokkily::guide::EventSource::user;
     void emitBusEvent(blokkily::guide::EventKind kind, const std::string& label,
                       const std::string& detail = "");
 };

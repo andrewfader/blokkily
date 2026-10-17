@@ -226,6 +226,10 @@ struct PatternSlot {
     Pattern pattern{1920, 480};
     std::size_t section = 0;
     std::size_t track = 0;
+    // The clef the score view writes this part in, by its English name
+    // ("Treble", "Bass", "Alto", ...): a piano's two hands read two clefs.
+    // Notation only - nothing that sounds depends on it.
+    std::string clef = "Treble";
 };
 
 // A section of the song: what a producer calls a pattern (VERSE, CHORUS).
@@ -236,6 +240,13 @@ struct PatternSlot {
 // or play another section's part in a bar.
 struct Section {
     std::string name = "Pattern";
+    // How the score view writes the section: its key in fifths (-7 to 7),
+    // and its meter, which follows the song's meter while `meter_beats` is
+    // 0. Unmetered writes it as chant, with no barlines. Notation only.
+    int key_fifths = 0;
+    int meter_beats = 0;
+    int meter_unit = 4;
+    bool unmetered = false;
 
     friend bool operator==(const Section&, const Section&) = default;
 };

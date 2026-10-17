@@ -223,8 +223,7 @@ AppController::~AppController() {
 
 void AppController::emitBusEvent(blokkily::guide::EventKind kind, const std::string& label,
                                  const std::string& detail) {
-    event_bus_.publish(blokkily::guide::AppEvent{next_source_, kind, label, detail});
-    next_source_ = blokkily::guide::EventSource::user;
+    event_bus_.publish(blokkily::guide::AppEvent{event_source_, kind, label, detail});
 }
 
 // Nothing is left holding a note across a rebuild: the engine that was told to

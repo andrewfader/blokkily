@@ -215,11 +215,12 @@ QJsonArray toolDefinitions() {
              "automation, clips, tempo, tuning, saving and exporting, undo and redo.",
              schema({{"object", QJsonObject{{"type", "string"}, {"enum", objects}}}})),
         tool("get_score",
-             "One track's part of one pattern as staff notation: every note spelled "
-             "(C4, F#3), its note value and dots, whether it is tied, its staff position "
-             "and whether the accidental is drawn — plus the whole part as a MusicXML "
-             "document. Clef, key and meter come from the part's settings (set_clef, "
-             "set_key_signature, set_time_signature) unless given here.",
+             "One track's part of one pattern as staff notation, as the SCORE view draws "
+             "it: every note and rest with its bar, step, written value, dots, tuplet and "
+             "voice, and for a note its spelling (C4, F#3), whether it is a chord tone or "
+             "tied, its staff position and whether its accidental prints by the bar's "
+             "rule - plus the part as a MusicXML document. Clef, key and meter are the "
+             "song's (set_clef, set_key_signature, set_time_signature) unless given here.",
              schema({{"track", track},
                      {"section", section},
                      {"clef",
@@ -237,7 +238,8 @@ QJsonArray toolDefinitions() {
                                   {"description",
                                    "\"4/4\", \"3/4\", \"6/8\", ... or \"unmetered\"."}}}})),
         tool("set_clef",
-             "The clef the score projection reads one track's part of one pattern in.",
+             "The clef one track's part of one pattern is written in. Saved with the song "
+             "and undone with it.",
              schema({{"track", track},
                      {"section", section},
                      {"clef",
@@ -248,34 +250,47 @@ QJsonArray toolDefinitions() {
                                    "Percussion."}}}},
                     {"clef"})),
         tool("set_key_signature",
-             "The key signature a pattern's parts are spelled in, in fifths (-7 to 7; "
-             "0 is C major, 1 one sharp). Applies to every track's part of the pattern.",
+             "The key signature a pattern is spelled in, in fifths (-7 to 7; 0 is C major, "
+             "1 one sharp), for every track's part of it. Saved and undone with the song.",
              schema({{"section", section},
                      {"fifths", integer("The key signature in fifths, -7 to 7.")}},
                     {"fifths"})),
         tool("set_time_signature",
-             "The meter a pattern's parts are read in. With unmetered, no time signature "
-             "is drawn and no barlines fall (chant).",
+             "The meter a pattern is written in: beats and unit, unmetered (chant: no "
+             "time signature and no barlines; false turns chant off and keeps the meter), "
+             "or song: true to follow the song's meter where the pattern plays (the "
+             "default). Saved and undone with the song.",
              schema({{"section", section},
-                     {"beats", integer("Beats in the bar.")},
+                     {"beats", integer("Beats in the bar, 1 to 64; give unit with it.")},
                      {"unit", integer("Beat unit: 1, 2, 4, 8, 16 or 32.")},
                      {"unmetered",
                       QJsonObject{{"type", "boolean"},
-                                  {"description", "Chant: no meter. Default false."}}}},
+                                  {"description", "Chant on or off."}}},
+                     {"song",
+                      QJsonObject{{"type", "boolean"},
+                                  {"description", "Follow the song's meter again."}}}},
                     {})),
         tool("export_musicxml",
-             "Writes a pattern as a MusicXML 4.0 partwise file: one part per track "
-             "that plays it (or one track's part with track), read back to prove it.",
+             "Writes a pattern as a MusicXML 4.0 partwise file: one part per track that "
+             "has a part of it (or one track's with track). The file is read back and "
+             "what it plays is compared with each part: matches is false when a part "
+             "holds what notation cannot say, such as timing off the 128th-note grid.",
              schema({{"section", section},
                      {"track", track},
                      {"path",
                       QJsonObject{{"type", "string"},
-                                  {"description", "Where to write the .musicxml file."}}}},
+                                  {"description", "An absolute path ending in .musicxml or .xml."}}},
+                     {"overwrite",
+                      QJsonObject{{"type", "boolean"},
+                                  {"description", "Replace a file already there. Default false."}}}},
                     {"path"})),
         tool("import_musicxml",
-             "Reads a MusicXML partwise score into one pattern as one step of undo: "
-             "part i lands on track i from `track`. With replace, each part is emptied "
-             "first. Notes that do not fit the pattern are refused and counted.",
+             "Reads a MusicXML partwise score into one pattern as one step of undo: part "
+             "i lands on track i from `track`, every staff of it, at its sounding pitch, "
+             "and the part takes the score's clef, key and meter. With replace, each part "
+             "is emptied first. Nothing changes when no part has a track or the score runs "
+             "past the pattern (lengthen it with set_section); notes outside MIDI 0-127 "
+             "are left out and counted as dropped.",
              schema({{"track", track},
                      {"section", section},
                      {"replace",
@@ -283,10 +298,10 @@ QJsonArray toolDefinitions() {
                                   {"description", "Empty each part before writing. Default false."}}},
                      {"xml",
                       QJsonObject{{"type", "string"},
-                                  {"description", "The MusicXML document, as text."}}},
+                                  {"description", "The MusicXML document, as text (or path)."}}},
                      {"path",
                       QJsonObject{{"type", "string"},
-                                  {"description", "Read the document from this file instead."}}}},
+                                  {"description", "Read the document from this file (or xml)."}}}},
                     {})),
         tool("guide_events",
              "What the floating guide has been narrating: the last bus events — user "

@@ -51,6 +51,9 @@ Item {
     }
     onWidthChanged: spot = targetItem()
     onHeightChanged: spot = targetItem()
+    // Mascot and bubble follow the target, the window and the bubble's own
+    // size: placed again whenever any of them changes.
+    onSpotChanged: place()
 
     // ------------------------------------------------------- the spotlight
     // Four dimming rectangles around the target; the ring on top of them.
@@ -63,7 +66,7 @@ Item {
             y: [0, 0, 0, overlay.spot.y + overlay.spot.h][index]
             width: [overlay.spot.x, overlay.width - overlay.spot.x - overlay.spot.w,
                     overlay.spot.w, overlay.spot.w][index]
-            height: [overlay.height, overlay.spot.y, overlay.spot.y,
+            height: [overlay.height, overlay.height, overlay.spot.y,
                      overlay.height - overlay.spot.y - overlay.spot.h][index]
         }
     }
@@ -80,10 +83,10 @@ Item {
     }
 
     // ------------------------------------------------- mascot and bubble
-    // Idle: the mascot floats in the bottom-right corner. Talking: mascot and
-    // bubble fly to the spotlight target (below it with room, above without).
-    property real idleX: overlay.width - mascot.width - 16
-    property real idleY: overlay.height - mascot.height - 16
+    // The mascot shows only while the guide talks, beside its bubble: idle,
+    // the overlay draws nothing that takes a click. The bubble sits low in
+    // the middle, or flies to the spotlight target (below it with room,
+    // above without).
     property real bubbleX: (overlay.width - bubble.width) / 2
     property real bubbleY: overlay.height - bubble.height - mascot.height - 40
 
@@ -110,9 +113,10 @@ Item {
             mascot.y = top + (groupH - mascot.height) / 2
             bubbleY = top
         } else {
-            mascot.x = idleX; mascot.y = idleY
             bubbleX = (overlay.width - bubble.width) / 2
-            bubbleY = overlay.height - bubble.height - mascot.height - 40
+            bubbleY = overlay.height - bubble.height - 40
+            mascot.x = Math.max(12, bubbleX - mascot.width - 10)
+            mascot.y = bubbleY + bubble.height - mascot.height
         }
     }
 
@@ -124,16 +128,13 @@ Item {
         objectName: "guideMascot"
         pixel: 3
         talking: guideController.bubbleVisible
-        x: overlay.idleX; y: overlay.idleY
+        visible: guideController.bubbleVisible
         Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.InOutQuad } }
         Behavior on y { NumberAnimation { duration: 350; easing.type: Easing.InOutQuad } }
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                if (guideController.bubbleVisible) guideController.dismiss()
-                else guideController.say("", "Hey — I'm the guide. Ask me something, or press TEACH ME and I'll walk you through making your first beat.")
-            }
+            onClicked: guideController.dismiss()
         }
     }
 
@@ -146,8 +147,11 @@ Item {
         x: bubbleX; y: bubbleY
         Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.InOutQuad } }
         Behavior on y { NumberAnimation { duration: 350; easing.type: Easing.InOutQuad } }
+        onHeightChanged: overlay.place()
         color: Theme.raised
         border.color: guideController.bubbleKind === "llm" ? Theme.acid : Theme.line
+        // A click on the bubble is the bubble's, never the editor's beneath.
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
         border.width: guideController.bubbleKind === "llm" ? 2 : 1
         radius: 10
 
@@ -187,14 +191,16 @@ Item {
                 width: parent.width; spacing: 6
                 visible: guideController.lessonActive
                 Label {
+                    objectName: "guideLessonStep"
                     text: "Step " + (guideController.lessonStepIndex + 1) + " of " + guideController.lessonStepCount
+                          + (guideController.lessonProgress !== "" ? "  ·  " + guideController.lessonProgress + " done" : "")
                     color: Theme.dim; font.pixelSize: 11
                 }
                 Row {
                     spacing: 8
-                    Button { text: "← Back"; onClicked: guideController.lessonBack() }
-                    Button { text: "Next →"; onClicked: guideController.lessonNext() }
-                    Button { text: "End lesson"; onClicked: guideController.stopLesson() }
+                    Button { objectName: "guideLessonBack"; text: "← Back"; onClicked: guideController.lessonBack() }
+                    Button { objectName: "guideLessonNext"; text: "Next →"; onClicked: guideController.lessonNext() }
+                    Button { objectName: "guideLessonEnd"; text: "End lesson"; onClicked: guideController.stopLesson() }
                 }
             }
 
@@ -210,9 +216,20 @@ Item {
                 }
                 Row {
                     spacing: 8
-                    Button { text: "Yes, do it"; onClicked: guideController.confirmPending() }
-                    Button { text: "Cancel"; onClicked: guideController.cancelPending() }
+                    Button { objectName: "guideConfirmYes"; text: "Yes, do it"; onClicked: guideController.confirmPending() }
+                    Button { objectName: "guideConfirmCancel"; text: "Cancel"; onClicked: guideController.cancelPending() }
                 }
+            }
+
+            // Whether a question the rules miss may go to the prompt bar's
+            // model: off until the producer says so.
+            CheckBox {
+                objectName: "guideAskModel"
+                visible: !guideController.lessonActive && !guideController.confirmVisible
+                text: "ASK MODEL when my rules have no answer"
+                checked: guideController.askModel
+                onToggled: guideController.askModel = checked
+                font.pixelSize: 10
             }
 
             // Question box + teach-me.
@@ -242,6 +259,13 @@ Item {
                     onClicked: lessonPicker.open()
                 }
             }
+
+            Button {
+                objectName: "guideOffButton"
+                visible: !guideController.lessonActive && !guideController.confirmVisible
+                text: "Turn the guide off"
+                onClicked: guideController.guideEnabled = false
+            }
         }
     }
 
@@ -259,6 +283,7 @@ Item {
                 model: guideController.lessonIds
                 Button {
                     required property string modelData
+                    objectName: "guideLesson-" + modelData
                     width: parent.width
                     text: guideController.lessonTitleFor(modelData)
                     onClicked: { guideController.startLesson(modelData); lessonPicker.close() }
