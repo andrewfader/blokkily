@@ -25,3 +25,11 @@ Feature: Several songs open at once, each in a window of its own
     When the producer presses Ctrl+O
     Then the window asks before discarding its work
 
+  # bdd_multiple_windows
+  Scenario: A song open in one window is never opened in another
+    Given a window holding a project, beside a window with unsaved work
+    When the producer opens that project again in a new window
+    Then the window holding it comes forward and no second copy opens
+    When the project is opened from the desktop as well
+    Then the window holding it comes forward again
+

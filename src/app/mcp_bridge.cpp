@@ -24,6 +24,9 @@ using blokkily::mcp::Session;
 // needed it is answered with an error.
 constexpr int launch_wait_ms = 60000;
 constexpr int retry_ms = 250;
+// How long a bridge whose window went away waits for another open window to
+// take the socket over (McpServer::serveWhenFree) before starting a new one.
+constexpr int takeover_wait_ms = 2000;
 
 void writeOut(const QByteArray& line) {
     std::fwrite(line.constData(), 1, static_cast<std::size_t>(line.size()), stdout);
@@ -109,6 +112,7 @@ private:
             retry_.stop();
             // A window that goes away after this may be started again.
             launched_ = false;
+            had_window_ = true;
             flush();
             return;
         }
@@ -121,6 +125,9 @@ private:
                                        "minute.").arg(path_));
             return;
         }
+        // The window that served may have closed beside others, one of which
+        // takes the socket over within moments: that is waited for first.
+        if (had_window_ && !launched_ && clock_.elapsed() < takeover_wait_ms) return;
         // A window is started at most once per absence: one that was started
         // and never listened is not started again, call after call.
         if (!launched_ && may_launch_ && !launch_failed_) {
@@ -183,6 +190,8 @@ private:
     QString path_;
     bool may_launch_;
     bool launched_ = false;
+    // Whether this bridge has reached a window before.
+    bool had_window_ = false;
     bool launch_failed_ = false;
     bool input_ended_ = false;
     QLocalSocket socket_;

@@ -204,3 +204,14 @@ Feature: An agent drives Blokkily over MCP
     When an agent calls a tool through the bridge
     Then the bridge neither starts another window nor reports Blokkily missing
     And the call is answered once the window starts listening
+
+  Scenario: Closing the window that serves MCP hands it to another
+    Given two windows open, the first serving an agent through its bridge
+    When the first window closes
+    Then the other window takes MCP over, and the agent's next call is answered there
+    And the bridge neither gives up nor starts a window of its own
+
+  Scenario: A call leaves the narration's attribution as it found it
+    Given the guide is stamping what happens, as during a lesson
+    When the agent calls a tool
+    Then what happens afterwards is still the guide's, not the user's

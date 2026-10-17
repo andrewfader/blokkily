@@ -32,6 +32,26 @@ bool McpServer::listen(const QString& path, const blokkily::mcp::SocketLock& loc
     return false;
 }
 
+bool McpServer::serveWhenFree(const QString& path, int retry_ms) {
+    takeover_.disconnect();
+    takeover_.setInterval(retry_ms);
+    const auto attempt = [this, path] {
+        takeover_lock_.emplace(path);
+        if (takeover_lock_->held() && listen(path, *takeover_lock_)) {
+            takeover_.stop();
+            return true;
+        }
+        takeover_lock_.reset();
+        return false;
+    };
+    if (attempt()) return true;
+    QObject::connect(&takeover_, &QTimer::timeout, this, [this, attempt, path] {
+        if (attempt()) emit tookOver(path);
+    });
+    takeover_.start();
+    return false;
+}
+
 void McpServer::accept() {
     while (QLocalSocket* socket = server_.nextPendingConnection()) {
         // A long tool (a render) turns the event loop while it works, so an

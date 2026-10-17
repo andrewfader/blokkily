@@ -21,6 +21,12 @@ namespace open_channel {
 // $BLOKKILY_OPEN_SOCKET, else blokkily-open.sock in the runtime folder.
 [[nodiscard]] QString socketPath();
 
+// The channel of the window holding `file` (features/multiple_windows.feature):
+// every window listens on one named for its song, beside socketPath(), so a
+// song already open in some window is brought forward there rather than
+// opened a second time.
+[[nodiscard]] QString fileSocketPath(const QString& file);
+
 // The absolute local path a launch argument names: a path relative to the
 // working folder, or a file:// URL.
 [[nodiscard]] QString absoluteFile(const QString& argument);
@@ -41,6 +47,8 @@ public:
     // when listening fails (`error` says why).
     bool listen(const QString& socket, QString* error = nullptr);
     [[nodiscard]] bool listening() const { return server_.isListening(); }
+    // Stops listening and gives the socket up, for another window to claim.
+    void close();
 
 signals:
     void fileRequested(const QString& path);

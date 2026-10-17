@@ -135,15 +135,19 @@ McpTools::McpTools(SongModel& song, PatternModel& pattern, AppController& contro
 
 QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
     // The guide's narration feed attributes what follows: everything the call
-    // does is stamped source=mcp, and the stamp is put back afterwards so a
-    // later click is never misattributed.
+    // does is stamped source=mcp, and the stamp it found is put back
+    // afterwards, so a later click is never misattributed and a call that
+    // lands while the assistant is applying its proposal leaves that work
+    // stamped as the assistant's.
     // Both models are stamped: tools reach the pattern model as well as the
     // controller (e.g. through the generic call/invoke tool).
+    const auto controller_source = controller_.eventSource();
+    const auto pattern_source = pattern_.eventSource();
     controller_.setEventSource(blokkily::guide::EventSource::mcp);
     pattern_.setEventSource(blokkily::guide::EventSource::mcp);
     QJsonObject result = dispatch(name, arguments);
-    controller_.setEventSource(blokkily::guide::EventSource::user);
-    pattern_.setEventSource(blokkily::guide::EventSource::user);
+    controller_.setEventSource(controller_source);
+    pattern_.setEventSource(pattern_source);
     return result;
 }
 
