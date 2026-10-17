@@ -784,11 +784,19 @@ void run_mcp(VerifyContext& ctx) {
     check(dressed.value("key").toObject().value("fifths").toInt() == -2);
     check(dressed.value("key").toObject().value("label").toString() == "Bb major");
     check(dressed.value("time").toString() == "3/4");
-    // The E4 is spelled Eb in two flats, and sits somewhere else on bass lines.
+    // The MIDI pitches never move under a new key signature: E4 (MIDI 64)
+    // stays E-natural in Bb major, spelled "E4" — it just needs a natural
+    // sign, which accidentalShown pins. ("Eb4" would misstate the pitch by a
+    // semitone.) The bass clef moves every note to another staff position.
     QStringList respelled;
-    for (const auto& note : dressed.value("notes").toArray())
+    bool e_needs_natural = false;
+    for (const auto& note : dressed.value("notes").toArray()) {
         respelled << note.toObject().value("spelled").toString();
-    check(respelled == QStringList({"C4", "Eb4", "G4"}));
+        if (note.toObject().value("midi").toInt() == 64)
+            e_needs_natural = note.toObject().value("accidentalShown").toBool();
+    }
+    check(respelled == QStringList({"C4", "E4", "G4"}));
+    check(e_needs_natural);
     check(isError(agent.tool("set_clef", {{"clef", "Treble-8vb"}})));
     check(isError(agent.tool("set_key_signature", {{"fifths", 8}})));
     check(isError(agent.tool("set_time_signature", {{"beats", 3}, {"unit", 3}})));
@@ -822,7 +830,9 @@ void run_mcp(VerifyContext& ctx) {
                    {{"track", 0}, {"section", 0}, {"replace", true}, {"path", score_file}})
             .value("structuredContent")
             .toObject();
-    check(imported.value("written").toInt() == 3 && imported.value("refused").toInt() == 0);
+    // Four notes round-trip: the three on track 0 plus the C4 the soundfont
+    // section left on track 1 (export/import cover every part in the section).
+    check(imported.value("written").toInt() == 4 && imported.value("refused").toInt() == 0);
     const auto back =
         agent.tool("get_pattern", {{"track", 0}, {"section", 0}}).value("structuredContent").toObject();
     QList<int> back_keys;
