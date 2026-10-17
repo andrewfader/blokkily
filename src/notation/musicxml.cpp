@@ -12,6 +12,7 @@
 #include "pugixml.hpp"
 
 #include "blokkily/notation/duration.hpp"
+#include "blokkily/notation/lyrics.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -187,6 +188,7 @@ std::string decimal(double value) {
 // MusicXML's note dynamics are a percentage of forte, MIDI velocity 90.
 double dynamics_of(float velocity) { return std::round(velocity * 127.0 / 90.0 * 10000.0) / 100.0; }
 float velocity_of(double dynamics) {
+    if (!std::isfinite(dynamics)) return 0.8F; // "nan", "inf": the default
     return static_cast<float>(std::clamp(dynamics / 100.0 * 90.0 / 127.0, 0.0, 1.0));
 }
 
@@ -345,6 +347,8 @@ int beats_of(const std::string& text) {
         if (part.empty() || *end != '\0' || value < 1 || value > 64)
             throw std::runtime_error("musicxml: <beats> must be a count like 3 or 3+2, not '" + text + "'");
         total += static_cast<int>(value);
+        if (total > 64)
+            throw std::runtime_error("musicxml: <beats> adds up to more than 64: '" + text + "'");
         if (plus == std::string::npos) break;
         at = plus + 1;
     }
@@ -820,7 +824,8 @@ Score parse(const std::string& xml) {
                     const std::string syllabic = xml_lyric.child_value("syllabic");
                     const auto extend = xml_lyric.child("extend");
                     if (!text.empty()) {
-                        lyric = (syllabic == "begin" || syllabic == "middle") ? text + "-" : text;
+                        const bool joins = syllabic == "begin" || syllabic == "middle";
+                        lyric = fit_lyric(joins ? text + "-" : text);
                         extending[where] = static_cast<bool>(extend);
                     } else if (extend) {
                         lyric = "_";

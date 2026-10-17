@@ -21,8 +21,10 @@ class PatternModel final : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int eventCount READ rowCount NOTIFY patternChanged)
     Q_PROPERTY(QVariantList steps READ steps NOTIFY patternChanged)
-    // The open part's lyrics as one line, as setLyrics takes it: its notes'
-    // syllables in time order, a word's syllables joined by their hyphens.
+    // The open part's lyrics as one line, as setLyrics takes it: a syllable
+    // for each time a note starts, a word's syllables joined by their
+    // hyphens, "_" where a note has none (so retyping one word moves no
+    // other), and a space inside a syllable written as a no-break space.
     Q_PROPERTY(QString lyricsText READ lyricsText NOTIFY patternChanged)
     // The pattern's controller movements (wave 4.1): one map per movement
     // with its tick, kind ("bend", "cc", "pressure" or "poly"), controller
@@ -180,9 +182,12 @@ public:
     // in time order (notes that start together share one), as one step of
     // undo: "A-ma-zing grace" is A-, ma-, zing, grace; "_" holds the last
     // syllable over a note. Notes past the last syllable are left without
-    // one. Returns how many syllables found a note.
-    Q_INVOKABLE int setLyrics(const QString& text);
+    // one. Returns how many syllables found a note. `part` is the song's
+    // pattern index to write (the field that was typed in keeps the part it
+    // was opened on); -1 is the open part.
+    Q_INVOKABLE int setLyrics(const QString& text, int part = -1);
     QString lyricsText() const;
+    Q_INVOKABLE QString lyricsTextOf(int part) const;
     // The selected step, as a tracker copies a row: pitch, length, velocity,
     // locks and the rest. An empty row copies as empty, so pasting it clears.
     Q_INVOKABLE void copySelected();

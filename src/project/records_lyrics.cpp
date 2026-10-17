@@ -5,9 +5,12 @@
 //   lyric <pattern-index> <trigger-id> <syllable>
 //
 // The syllable is escaped (any script, spaces included) and at most 256
-// bytes; at most one record per step. Anything else is refused.
+// bytes (a longer syllable is written cut to fit, notation::fit_lyric); at
+// most one record per step. Anything else is refused.
 
 #include "records.hpp"
+
+#include "blokkily/notation/lyrics.hpp"
 
 #include <array>
 
@@ -19,7 +22,7 @@ void write_lyrics(const Project& project, WriteContext& context) {
     for (std::size_t index = 0; index < patterns.size(); ++index)
         for (const auto& trigger : patterns[index].pattern.events())
             if (!trigger.lyric.empty())
-                context.out << "lyric " << index << ' ' << trigger.id << ' ' << escape(trigger.lyric) << '\n';
+                context.out << "lyric " << index << ' ' << trigger.id << ' ' << escape(notation::fit_lyric(trigger.lyric)) << '\n';
 }
 
 bool parse_lyric(const Fields& fields, ParseContext& context) {

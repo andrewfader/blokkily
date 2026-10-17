@@ -14,6 +14,13 @@
 
 namespace blokkily::notation {
 
+// The longest syllable a note carries, in UTF-8 bytes: what a project file
+// holds for one (records_lyrics.cpp).
+inline constexpr std::size_t max_lyric_bytes = 256;
+// `text` cut to max_lyric_bytes, never inside a character, keeping a
+// trailing hyphen.
+[[nodiscard]] std::string fit_lyric(std::string text);
+
 [[nodiscard]] std::vector<std::string> split_lyrics(std::string_view text);
 // The inverse: syllables ending in "-" join the next one, others are
 // separated by a space.

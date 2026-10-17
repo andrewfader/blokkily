@@ -11,6 +11,7 @@
 
 #include "verify/harness.hpp"
 
+#include "blokkily/notation/lyrics.hpp"
 #include "blokkily/notation/musicxml.hpp"
 
 #include <QCoreApplication>
@@ -182,6 +183,64 @@ void run_score_file(VerifyContext& ctx) {
     check(lyrics_of(0).front() == shin);
 
     // ---------------------------------------------------------------------
+    ctx.reached("score-file: retyping keeps every other syllable on its note");
+    // A note left unsung (a melisma a score marks with no lyric) shows as
+    // "_", so changing a word moves no syllable after it.
+    {
+        // A copy: the pattern's own storage moves as it is edited.
+        const auto events = [&] {
+            std::vector<Trigger> copy;
+            if (const auto part = song.song().part(static_cast<std::size_t>(song.currentSection()), 0)) {
+                const auto& live = song.song().patterns[*part].pattern.events();
+                copy.assign(live.begin(), live.end());
+            }
+            return copy;
+        };
+        const auto before = events();
+        check(before.size() == 11);
+        const int second = static_cast<int>(before[1].start / 120);
+        ctx.pattern.setStepLyric(second, QString());
+        settle();
+        const QString line = ctx.pattern.lyricsText();
+        auto syllables = blokkily::notation::split_lyrics(line.toStdString());
+        check(syllables.size() == 11 && syllables[1] == "_");
+        if (field != nullptr && !syllables.empty()) {
+            syllables[0] = "Shin-"; // the first word's first syllable, retyped
+            field->setProperty("text", QString::fromStdString(blokkily::notation::join_lyrics(syllables)));
+            QMetaObject::invokeMethod(field, "accepted");
+        }
+        settle();
+        const auto after = events();
+        bool kept = after.size() == before.size() && after[0].lyric == "Shin-" && after[1].lyric == "_";
+        for (std::size_t i = 2; kept && i < after.size(); ++i) kept = after[i].lyric == before[i].lyric;
+        check(kept);
+        check(song.undo() && song.undo());
+        settle();
+        check(lyrics_of(0).size() == 11 && lyrics_of(0).front() == shin);
+    }
+    // The line being typed belongs to the part it was typed for, even when
+    // another part opens before ENTER.
+    if (field != nullptr) {
+        field->forceActiveFocus();
+        settle();
+        const QString typed_line = QStringLiteral("La la la");
+        field->setProperty("text", typed_line);
+        song.selectTrack(1);
+        settle();
+        check(field->property("text").toString() == typed_line); // not replaced under the cursor
+        QMetaObject::invokeMethod(field, "accepted");
+        settle();
+        check(lyrics_of(0).size() == 3 && lyrics_of(0).front() == "La");
+        check(lyrics_of(1).isEmpty());
+        field->setFocus(false);
+        window->contentItem()->forceActiveFocus();
+        song.selectTrack(0);
+        check(song.undo());
+        settle();
+        check(lyrics_of(0).front() == shin);
+    }
+
+    // ---------------------------------------------------------------------
     ctx.reached("score-file: SCORE OUT writes the song and reads it back");
     const QTemporaryDir folder;
     const QString written = folder.filePath("shalom.musicxml");
@@ -193,6 +252,12 @@ void run_score_file(VerifyContext& ctx) {
     settle();
     check(QFileInfo::exists(written) && controller.lastScoreExportMatches());
     check(controller.exportStatus().contains("plays back the same"));
+    // A tempo change the score cannot hold is said, not passed off as the same.
+    check(song.setTempoPoint(1440.0, 92.0));
+    check(controller.exportMusicXmlFile(QUrl::fromLocalFile(folder.filePath("changes.musicxml")).toString()));
+    check(!controller.lastScoreExportMatches() && controller.exportStatus().contains("leaves out tempo changes"));
+    check(song.undo());
+    settle();
     QFile file(written);
     check(file.open(QIODevice::ReadOnly));
     const auto back = blokkily::notation::parse(file.readAll().toStdString());

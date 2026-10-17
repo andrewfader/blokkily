@@ -129,3 +129,8 @@ Feature: True staff notation as a fourth projection of the pattern
     And the song takes the score's meter and tempo
     When it comes into a song that has notes
     Then it gets new tracks and its clips go after the last, and the song's tempo is left alone
+    When it comes into a song holding only a recorded vocal
+    Then the vocal's track is left as it was, and the score's clips go after the recording at the song's tempo
+    When it comes into a song with no notes whose other tracks are an instrument's second output and a frozen track
+    Then the score takes only the track with an instrument of its own, and adds a new one for its second staff
+    And a long Hebrew title names the section cut between letters, never inside one

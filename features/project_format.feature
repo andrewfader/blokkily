@@ -48,3 +48,5 @@ Feature: Project files keep opening as the program grows
     When a note is given a pointed Hebrew syllable
     Then the saved file reads back with the syllable byte for byte, and saving again gives the same bytes
     And a second lyric for a step, or a lyric for a step or pattern that does not exist, is refused
+    When a note carries a syllable longer than a record holds
+    Then the song still opens again, with the syllable cut to fit between characters, its hyphen kept

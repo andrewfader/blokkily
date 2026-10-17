@@ -32,9 +32,25 @@ Clef clef_named(const std::string& name) {
     return Clef(ClefKind::Treble);
 }
 
-bool has_notes(const Song& song) {
-    return std::any_of(song.patterns.begin(), song.patterns.end(),
-                       [](const PatternSlot& slot) { return !slot.pattern.events().empty(); });
+// Nothing on the song's timeline yet: no notes and no recorded audio.
+bool empty_song(const Song& song) {
+    return song.audio_clips.empty() &&
+           std::none_of(song.patterns.begin(), song.patterns.end(),
+                        [](const PatternSlot& slot) { return !slot.pattern.events().empty(); });
+}
+
+// A track a score's part may take over: one that plays an instrument of its
+// own. Another instrument's output, or a frozen track, keeps what it is.
+bool lendable(const Track& track) { return !track.source && !track.frozen; }
+
+// At most `count` characters of UTF-8 `text`, never cutting one in two.
+std::string first_characters(const std::string& text, std::size_t count) {
+    std::size_t end = 0;
+    for (std::size_t seen = 0; end < text.size(); ++end) {
+        if ((static_cast<unsigned char>(text[end]) & 0xC0U) == 0x80U) continue; // inside a character
+        if (seen++ == count) break;
+    }
+    return text.substr(0, end);
 }
 
 } // namespace
@@ -127,7 +143,7 @@ Score song_score(const Song& song, const std::string& title, std::size_t fallbac
 
 ScoreLanding add_score(Song& song, const Score& score) {
     ScoreLanding landing;
-    landing.fresh = !has_notes(song);
+    landing.fresh = empty_song(song);
 
     // Every staff becomes a track's part, played back at the song's
     // resolution.
@@ -151,10 +167,13 @@ ScoreLanding add_score(Song& song, const Score& score) {
     if (staves.empty()) return landing;
 
     // Tracks: a song with nothing in it lends its own, in order.
-    std::size_t reused = landing.fresh ? std::min(song.tracks.size(), staves.size()) : 0;
+    std::vector<std::size_t> lent;
+    if (landing.fresh)
+        for (std::size_t t = 0; t < song.tracks.size(); ++t)
+            if (lendable(song.tracks[t])) lent.push_back(t);
     for (std::size_t i = 0; i < staves.size(); ++i) {
-        std::size_t track = i;
-        if (i >= reused) {
+        std::size_t track = i < lent.size() ? lent[i] : 0;
+        if (i >= lent.size()) {
             Track added;
             added.name = staves[i].name;
             song.tracks.push_back(std::move(added));
@@ -167,7 +186,7 @@ ScoreLanding add_score(Song& song, const Score& score) {
     }
 
     const Staff& first = *staves.front().staff;
-    landing.section = song.add_section(score.title.empty() ? "SCORE" : score.title.substr(0, 24), length, kTicksPerBeat);
+    landing.section = song.add_section(score.title.empty() ? "SCORE" : first_characters(score.title, 24), length, kTicksPerBeat);
     Section& section = song.sections[landing.section];
     section.key_fifths = first.key.fifths();
     section.unmetered = !first.time.metered();
@@ -195,11 +214,8 @@ ScoreLanding add_score(Song& song, const Score& score) {
             song.tempo.points = {TempoPoint{0, *score.tempo_bpm, false}};
     }
 
-    // Its clips go after the arrangement's last.
-    Tick after = 0;
-    for (const auto& clip : song.clips)
-        if (clip.pattern < song.patterns.size())
-            after = std::max(after, clip.start + clip.span(song.patterns[clip.pattern].pattern.length()));
+    // Its clips go after the arrangement's last, audio included.
+    Tick after = song.clips.empty() && song.audio_clips.empty() ? 0 : song.length();
     // A song with no notes had nothing worth keeping on its timeline.
     if (landing.fresh) {
         after = 0;

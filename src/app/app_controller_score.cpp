@@ -15,6 +15,8 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <QStringList>
+
 #include <cmath>
 #include <tuple>
 
@@ -51,7 +53,14 @@ bool AppController::importMusicXmlFile(const QString& path) {
     if (score.title.empty()) score.title = QFileInfo(file_path).completeBaseName().toUpper().toStdString();
     // The whole import is prepared before the one step of undo.
     auto imported = song_->song();
-    const auto landing = blokkily::notation::add_score(imported, score);
+    blokkily::notation::ScoreLanding landing;
+    try {
+        landing = blokkily::notation::add_score(imported, score);
+    } catch (const std::exception& error) {
+        status_ = QString("MusicXML import failed · %1").arg(QString::fromUtf8(error.what()));
+        emit statusChanged();
+        return false;
+    }
     if (landing.notes == 0) {
         status_ = QStringLiteral("MusicXML import failed · No notes in the score");
         emit statusChanged();
@@ -136,12 +145,20 @@ bool AppController::exportMusicXmlFile(const QString& path) {
     }
     std::sort(heard.begin(), heard.end());
     std::sort(sung.begin(), sung.end());
-    last_score_export_matches_ = heard == sung;
-    export_status_ = QString("%1 · %2 parts · %3")
+    // A score holds one tempo and no recordings: a song with more is not
+    // what the file plays, whatever its notes say.
+    QStringList left_out;
+    if (song.tempo.points.size() > 1) left_out << QStringLiteral("tempo changes");
+    if (!song.audio_clips.empty()) left_out << QStringLiteral("recorded audio");
+    const bool same_tempo = !back.tempo_bpm || song.tempo.points.empty() ||
+                            std::abs(*back.tempo_bpm - song.tempo.points.front().bpm) < 1e-6;
+    last_score_export_matches_ = heard == sung && left_out.isEmpty() && same_tempo;
+    export_status_ = QString("%1 · %2 parts · %3%4")
                          .arg(QFileInfo(file_path).fileName())
                          .arg(score.parts.size())
                          .arg(last_score_export_matches_ ? QStringLiteral("plays back the same")
-                                                         : QStringLiteral("differs where notation cannot say it"));
+                                                         : QStringLiteral("differs where notation cannot say it"),
+                              left_out.isEmpty() ? QString() : QStringLiteral(" · leaves out ") + left_out.join(", "));
     emit exportStatusChanged();
     return true;
 }

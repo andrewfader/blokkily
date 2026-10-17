@@ -96,9 +96,21 @@ Rectangle {
                 Layout.fillWidth: true
                 font.pixelSize: 12
                 placeholderText: "A-ma-zing grace how sweet the sound"
-                text: patternModel.lyricsText
-                onAccepted: patternModel.setLyrics(text)
-                onEditingFinished: if (text !== patternModel.lyricsText) patternModel.setLyrics(text)
+                // The part being typed for: the one open when typing began,
+                // even if playback or an agent opens another meanwhile.
+                property int part: -1
+                onActiveFocusChanged: if (activeFocus) part = songModel.currentPattern
+                function commit() {
+                    if (text !== patternModel.lyricsTextOf(part)) patternModel.setLyrics(text, part);
+                }
+                onAccepted: commit()
+                onEditingFinished: commit()
+            }
+            // The open part's lyrics, except while a line is being typed.
+            Binding {
+                target: lyricsField; property: "text"
+                value: patternModel.lyricsText
+                when: !lyricsField.activeFocus
             }
         }
 

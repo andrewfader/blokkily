@@ -1129,7 +1129,7 @@ QString PatternModel::stepLyric(int step) const {
 
 void PatternModel::setStepLyric(int step, const QString& syllable) {
     const auto* existing = triggerAt(step);
-    const std::string text = syllable.trimmed().toStdString();
+    const std::string text = blokkily::notation::fit_lyric(syllable.trimmed().toStdString());
     if (existing == nullptr || existing->lyric == text) return;
     song_->checkpoint();
     beginResetModel();
@@ -1141,14 +1141,17 @@ void PatternModel::setStepLyric(int step, const QString& syllable) {
     emit contentChanged();
 }
 
-int PatternModel::setLyrics(const QString& text) {
+int PatternModel::setLyrics(const QString& text, int part) {
+    auto& patterns = song_->song().patterns;
+    const bool other = part >= 0 && static_cast<std::size_t>(part) < patterns.size();
+    auto& target = other ? patterns[static_cast<std::size_t>(part)].pattern : pattern();
     const auto syllables = blokkily::notation::split_lyrics(text.toStdString());
     // The notes in time order, one per onset: notes that start together are
     // sung as one, on the first of them.
     std::vector<std::pair<blokkily::EventId, std::string>> wanted;
     blokkily::Tick last = -1;
     std::size_t next = 0;
-    for (const auto& trigger : pattern().events()) {
+    for (const auto& trigger : target.events()) {
         std::string syllable;
         if (trigger.start != last && next < syllables.size()) syllable = syllables[next++];
         last = trigger.start;
@@ -1158,9 +1161,9 @@ int PatternModel::setLyrics(const QString& text) {
         song_->checkpoint();
         beginResetModel();
         for (const auto& [id, syllable] : wanted) {
-            auto replacement = *pattern().find(id);
+            auto replacement = *target.find(id);
             replacement.lyric = syllable;
-            (void)pattern().update(id, replacement);
+            (void)target.update(id, replacement);
         }
         endResetModel();
         emit patternChanged();
@@ -1169,11 +1172,38 @@ int PatternModel::setLyrics(const QString& text) {
     return static_cast<int>(next);
 }
 
-QString PatternModel::lyricsText() const {
-    std::vector<std::string> syllables;
-    for (const auto& trigger : pattern().events())
-        if (!trigger.lyric.empty()) syllables.push_back(trigger.lyric);
-    return QString::fromStdString(blokkily::notation::join_lyrics(syllables));
+namespace {
+
+// One syllable per onset, as setLyrics lays them back: the first one sung at
+// each time a note starts, "_" for an onset with none before the last sung.
+QString lyrics_line(const blokkily::Pattern& pattern) {
+    std::vector<std::string> onsets;
+    blokkily::Tick last = -1;
+    for (const auto& trigger : pattern.events()) {
+        if (trigger.start != last) onsets.emplace_back();
+        last = trigger.start;
+        if (!onsets.back().empty() || trigger.lyric.empty()) continue;
+        std::string syllable;
+        for (const char c : trigger.lyric) {
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') syllable += "\xC2\xA0";
+            else syllable += c;
+        }
+        onsets.back() = syllable == "-" ? "_" : syllable;
+    }
+    while (!onsets.empty() && onsets.back().empty()) onsets.pop_back();
+    for (auto& syllable : onsets)
+        if (syllable.empty()) syllable = "_";
+    return QString::fromStdString(blokkily::notation::join_lyrics(onsets));
+}
+
+} // namespace
+
+QString PatternModel::lyricsText() const { return lyrics_line(pattern()); }
+
+QString PatternModel::lyricsTextOf(int part) const {
+    const auto& patterns = song_->song().patterns;
+    if (part < 0 || static_cast<std::size_t>(part) >= patterns.size()) return lyricsText();
+    return lyrics_line(patterns[static_cast<std::size_t>(part)].pattern);
 }
 
 void PatternModel::copySelected() {

@@ -252,6 +252,22 @@ int main() {
                 check(!ProjectFile::parse(text + bad, &broken).has_value() && !broken.empty(),
                       "lyrics: a second lyric for a step, or one for a step or pattern that does not exist, is refused");
             }
+            // Regression: a syllable longer than a record holds (a long
+            // Hebrew line without ASCII spaces) made the saved song refuse
+            // to open. It is saved cut to fit, on a character boundary.
+            std::string long_line;
+            while (long_line.size() < 400) long_line += "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D\xC2\xA0"; // shalom + NBSP
+            first.lyric = long_line + "-";
+            (void)pattern.update(first.id, first);
+            std::string why;
+            const auto reopened = ProjectFile::parse(ProjectFile::serialize(*project), &why);
+            if (!reopened) std::cerr << why << '\n';
+            check(reopened.has_value(), "lyrics: a song with an over-long syllable opens again");
+            if (reopened) {
+                const auto& kept = reopened->song.patterns[0].pattern.events().front().lyric;
+                check(kept.size() <= 256 && kept.back() == '-' && long_line.starts_with(kept.substr(0, kept.size() - 1)),
+                      "lyrics: the over-long syllable is kept cut to fit, whole characters and its hyphen");
+            }
         }
     }
 

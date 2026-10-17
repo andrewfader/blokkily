@@ -35,12 +35,23 @@ Feature: Scores come in and go out of the window as MusicXML
     Then its syllables land on the voice's notes in order, the rest of the line left over
     And one UNDO puts the Hebrew back
 
+  # bdd_score_file "score-file: retyping keeps every other syllable on its note"
+  Scenario: Retyping keeps every other syllable on its note
+    Given a note of the hymn sung with no syllable
+    Then the LYRICS field shows "_" in its place
+    When the producer retypes the first syllable
+    Then every other syllable stays on its own note
+    When the producer is typing a line and another part opens before ENTER
+    Then the line is not replaced under the cursor, and ENTER lays it on the part it was typed for
+
   # bdd_score_file "score-file: SCORE OUT writes the song and reads it back"
   Scenario: SCORE OUT writes the song and reads it back
     When the producer presses SCORE OUT, which opens its file dialog, and names a file
     Then the file is written, read back, and plays the song's notes exactly, as the status says
     And it holds three parts and the tempo
     And importing it again adds a second copy of the hymn, lyrics and all
+    When the song has a tempo change and the producer exports it again
+    Then the status says the score leaves out tempo changes, not that it plays back the same
 
   # bdd_score_file "score-file: a broken file is refused and changes nothing"
   Scenario: A broken file is refused and changes nothing

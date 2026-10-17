@@ -764,4 +764,7 @@ meter and tempo. The new tracks play on the song's first instrument, or the
 default sound. SCORE OUT, beside it, writes the whole song as a MusicXML score, a part per
 track, and reads the file back: the export status says whether it plays back
 the same (it differs only where a part holds what notation cannot say, such as
-timing off the 128th-note grid).
+timing off the 128th-note grid), and names what a score cannot hold: tempo
+changes after the first tempo, and recorded audio. A song that already has
+recorded audio keeps its tracks when a score comes in; the score gets new ones
+after the recording.

@@ -541,7 +541,10 @@ void test_lyrics() {
     require((sung_lyrics == std::vector<std::string>{syllables[0], "", "grace", ""}),
             "the syllable is on the first piece of the tie and the chord's first note only");
     std::vector<std::string> back;
-    for (const Trigger& t : to_pattern(staff, 480).events()) back.push_back(t.lyric);
+    // Held in a variable: a range-for over a temporary's events() reads a
+    // pattern already destroyed (it passed on GCC and failed on macOS).
+    const Pattern returned = to_pattern(staff, 480);
+    for (const Trigger& t : returned.events()) back.push_back(t.lyric);
     require((back == std::vector<std::string>{syllables[0], "grace", ""}), "lyrics come back on their notes");
 
     // Through a MusicXML file and back, with the tempo.
@@ -645,6 +648,55 @@ void test_add_score() {
     const auto second = add_score(busy, score);
     require(!second.fresh && busy.tracks.size() == tracks_before + 2, "a song with notes gets new tracks");
     require(second.start == 2 * 1440 && busy.tempo.points.front().bpm == 66.0, "the clips go after the last one");
+
+    // Regression: a song holding only a recorded vocal was taken for an
+    // empty one - its track renamed and given notes, its tempo replaced and
+    // the score's clips laid over the recording.
+    Song vocal;
+    vocal.adopt_sections();
+    vocal.tracks[0].name = "VOCAL";
+    vocal.audio_files.push_back({"/take.wav", 48000 * 4, 48000, 1});
+    AudioClip take;
+    take.id = 1;
+    take.track = 0;
+    take.length_frames = 48000 * 4; // four seconds: eight beats at 120
+    vocal.audio_clips.push_back(take);
+    const auto over_vocal = add_score(vocal, score);
+    require(!over_vocal.fresh && vocal.tracks[0].name == "VOCAL" &&
+                std::find(over_vocal.tracks.begin(), over_vocal.tracks.end(), 0U) == over_vocal.tracks.end(),
+            "a song with recorded audio keeps its tracks: the score gets new ones");
+    require(vocal.tempo.points.front().bpm == 120.0 && over_vocal.start >= 8 * 480,
+            "its tempo stays, and the score's clips go after the recording");
+
+    // Regression: a multi-output channel or a frozen track is not lent to a
+    // part, even in a song with no notes.
+    Song channels;
+    channels.adopt_sections();
+    channels.tracks.push_back(channels.tracks[0]);
+    channels.tracks.push_back(channels.tracks[0]);
+    channels.add_track_parts(1);
+    channels.add_track_parts(2);
+    channels.tracks[1].source = InstrumentOutput{0, 2};
+    channels.tracks[2].frozen = true;
+    const auto into_channels = add_score(channels, score);
+    require((into_channels.tracks == std::vector<std::size_t>{0, 3}) && channels.tracks[1].source &&
+                channels.tracks[1].name == "Track" && channels.tracks[2].name == "Track",
+            "the score takes the track that plays its own instrument, and adds the rest");
+
+    // Regression: a long title in Hebrew was cut inside a character.
+    Score titled = score;
+    titled.title = "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D \xD7\xA2\xD7\x9C\xD7\x99\xD7\x9B\xD7\x9D "
+                   "\xD7\x9E\xD7\x9C\xD7\x90\xD7\x9B\xD7\x99 \xD7\x94\xD7\xA9\xD7\xA8\xD7\xAA";
+    titled.title = "AB " + titled.title + " " + titled.title; // the 24th byte falls inside a letter
+    Song named;
+    named.adopt_sections();
+    const auto named_landing = add_score(named, titled);
+    const std::string& kept = named.sections[named_landing.section].name;
+    std::size_t characters = 0;
+    for (const char c : kept) characters += (static_cast<unsigned char>(c) & 0xC0U) != 0x80U;
+    const bool whole = !kept.empty() && titled.title.starts_with(kept) &&
+                       (static_cast<unsigned char>(titled.title[kept.size()]) & 0xC0U) != 0x80U;
+    require(characters <= 24 && whole, "a Hebrew title is cut between characters");
 }
 
 } // namespace

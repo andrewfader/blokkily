@@ -393,6 +393,21 @@ int main() {
               "refused: a forward a trillion quarters long");
         const Score additive = parse(document("<divisions>1</divisions><time><beats>3+2</beats><beat-type>8</beat-type></time>", ""));
         check(additive.parts[0].staves[0].time == TimeSignature(5, 8), "accepted: 3+2/8 is five eighths");
+        // Regression: 40+40 parsed as 80 beats, which a song cannot save.
+        check(throws<std::runtime_error>(
+                  document("<divisions>1</divisions><time><beats>40+40</beats><beat-type>4</beat-type></time>", "")),
+              "refused: an additive meter of more than 64 beats");
+        // Dynamics that are not a number (nan, inf) play at the default velocity.
+        for (const char* odd : {"nan", "inf", "-inf"}) {
+            const Score loud = parse(document("<divisions>1</divisions>",
+                                              std::string("<note dynamics=\"") + odd +
+                                                  "\"><pitch><step>C</step><octave>4</octave></pitch>"
+                                                  "<duration>1</duration><voice>1</voice><type>quarter</type></note>"));
+            const Pattern played = to_pattern(loud.parts[0].staves[0], 480);
+            const auto* note = played.events().empty() ? nullptr : std::get_if<Note>(&played.events().front().musical_data);
+            check(note != nullptr && std::isfinite(note->velocity) && note->velocity > 0.0F,
+                  "accepted: dynamics that are not a number play at the default velocity");
+        }
         const Score high = parse(document("<divisions>1</divisions>",
                                           "<note><pitch><step>C</step><octave>10</octave></pitch><duration>1</duration>"
                                           "<voice>1</voice><type>quarter</type></note>"));

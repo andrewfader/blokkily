@@ -65,4 +65,6 @@ Feature: MusicXML import and export
     When each is read
     Then each is refused with an error
     And an additive 3+2/8 meter reads as five eighths
+    But an additive meter adding up to more than 64 beats is refused
+    And note dynamics that are not a number play at the default velocity
     And a note above MIDI 127 reads, and is left out when played
