@@ -7,7 +7,11 @@ import "Format.js" as Format
 // chord's strum, probability, ratchets and a chord's inversion, and its
 // parameter lock.
 Rectangle {
+    id: inspector
     objectName: "stepInspector"
+    // The selected step, read once per change: every field below reads
+    // this, not the model (whose map is rebuilt on each read).
+    readonly property var selection: patternModel.selected
     Layout.fillWidth: true
     Layout.preferredHeight: 264
     Layout.minimumHeight: 264
@@ -16,7 +20,7 @@ Rectangle {
     // Nothing selected, or an empty step: say so and say what to do.
     ColumnLayout {
         anchors.centerIn: parent
-        visible: !patternModel.selected.exists
+        visible: !inspector.selection.exists
         spacing: 4
         Label {
             text: "STEP " + Format.fmt2(patternModel.selectedStep + 1) + " IS EMPTY"
@@ -34,7 +38,7 @@ Rectangle {
     GridLayout {
         anchors.fill: parent; anchors.margins: 12
         columns: 2; columnSpacing: 18; rowSpacing: 10
-        visible: patternModel.selected.exists
+        visible: inspector.selection.exists
 
         // Identity + pitch
         RowLayout {
@@ -44,8 +48,8 @@ Rectangle {
             SectionLabel { text: "STEP " + Format.fmt2(patternModel.selectedStep + 1) }
             Label {
                 objectName: "inspectorNote"
-                text: patternModel.selected.noteName !== undefined
-                      ? patternModel.selected.noteName : ""
+                text: inspector.selection.noteName !== undefined
+                      ? inspector.selection.noteName : ""
                 color: Theme.amber; font.pixelSize: 26; font.bold: true
                 font.family: Theme.mono
             }
@@ -69,7 +73,7 @@ Rectangle {
                         required property var modelData
                         objectName: "duration" + modelData
                         text: modelData + "ST"
-                        on: Math.round(patternModel.selected.duration / 120)
+                        on: Math.round(inspector.selection.duration / 120)
                             === modelData
                         onClicked: patternModel.setSelectedDuration(modelData * 120)
                     }
@@ -85,21 +89,21 @@ Rectangle {
             ValueDial {
                 Layout.fillWidth: true
                 label: "VELOCITY"; from: 0; to: 1
-                value: patternModel.selected.velocity !== undefined
-                       ? patternModel.selected.velocity : 0
-                readout: patternModel.selected.velocityUnits !== undefined
-                         ? patternModel.selected.velocityUnits : 0
+                value: inspector.selection.velocity !== undefined
+                       ? inspector.selection.velocity : 0
+                readout: inspector.selection.velocityUnits !== undefined
+                         ? inspector.selection.velocityUnits : 0
                 onMoved: function(v) { patternModel.setSelectedVelocity(v) }
             }
             ValueDial {
                 Layout.fillWidth: true
                 label: "MICRO"; from: -59; to: 59
                 accent: Theme.blue
-                value: patternModel.selected.micro !== undefined
-                       ? patternModel.selected.micro : 0
-                readout: (patternModel.selected.micro > 0 ? "+" : "") +
-                         (patternModel.selected.micro !== undefined
-                          ? patternModel.selected.micro : 0)
+                value: inspector.selection.micro !== undefined
+                       ? inspector.selection.micro : 0
+                readout: (inspector.selection.micro > 0 ? "+" : "") +
+                         (inspector.selection.micro !== undefined
+                          ? inspector.selection.micro : 0)
                 onMoved: function(v) { patternModel.setSelectedMicroOffset(Math.round(v)) }
             }
             // Ticks from one voice of a chord to the next, lowest voice first.
@@ -108,11 +112,11 @@ Rectangle {
                 Layout.fillWidth: true
                 label: "STRUM"; from: 0; to: 60; grip: 16
                 accent: Theme.blue
-                enabled: patternModel.selected.voices > 1
-                value: patternModel.selected.strum !== undefined
-                       ? patternModel.selected.strum : 0
-                readout: patternModel.selected.voices > 1
-                         ? patternModel.selected.strum + " TK" : "chords"
+                enabled: inspector.selection.voices > 1
+                value: inspector.selection.strum !== undefined
+                       ? inspector.selection.strum : 0
+                readout: inspector.selection.voices > 1
+                         ? inspector.selection.strum + " TK" : "chords"
                 onMoved: function(v) { patternModel.setSelectedStrum(Math.round(v)) }
             }
         }
@@ -125,10 +129,10 @@ Rectangle {
                 Layout.fillWidth: true
                 label: "PROBABILITY"; from: 0; to: 1
                 accent: Theme.amber
-                value: patternModel.selected.probability !== undefined
-                       ? patternModel.selected.probability : 1
-                readout: Math.round((patternModel.selected.probability !== undefined
-                         ? patternModel.selected.probability : 1) * 100) + "%"
+                value: inspector.selection.probability !== undefined
+                       ? inspector.selection.probability : 1
+                readout: Math.round((inspector.selection.probability !== undefined
+                         ? inspector.selection.probability : 1) * 100) + "%"
                 onMoved: function(v) { patternModel.setSelectedProbability(v) }
             }
             ColumnLayout {
@@ -146,7 +150,7 @@ Rectangle {
                         Chip {
                             required property var modelData
                             text: "×" + modelData
-                            on: patternModel.selected.ratchets === modelData
+                            on: inspector.selection.ratchets === modelData
                             onClicked: patternModel.setSelectedRatchets(modelData)
                         }
                     }
@@ -163,13 +167,13 @@ Rectangle {
                 Chip {
                     objectName: "invertDown"
                     text: "▼ INV"; accent: Theme.blue
-                    enabled: patternModel.selected.voices > 1
+                    enabled: inspector.selection.voices > 1
                     onClicked: patternModel.invertSelected(-1)
                 }
                 Chip {
                     objectName: "invertUp"
                     text: "INV ▲"; accent: Theme.blue
-                    enabled: patternModel.selected.voices > 1
+                    enabled: inspector.selection.voices > 1
                     onClicked: patternModel.invertSelected(1)
                 }
             }
@@ -185,23 +189,23 @@ Rectangle {
                 Chip {
                     objectName: "lockAutomation"
                     text: "AUTO"
-                    on: patternModel.selected.hasLock === true &&
-                        patternModel.selected.lockModulation === false
+                    on: inspector.selection.hasLock === true &&
+                        inspector.selection.lockModulation === false
                     onClicked: patternModel.setSelectedLock(
-                        patternModel.selected.lockIndex,
-                        patternModel.selected.lockValue, false)
+                        inspector.selection.lockIndex,
+                        inspector.selection.lockValue, false)
                 }
                 Chip {
                     objectName: "lockModulation"
                     text: "MOD"; accent: Theme.blue
-                    on: patternModel.selected.lockModulation === true
+                    on: inspector.selection.lockModulation === true
                     onClicked: patternModel.setSelectedLock(
-                        patternModel.selected.lockIndex,
-                        patternModel.selected.lockValue, true)
+                        inspector.selection.lockIndex,
+                        inspector.selection.lockValue, true)
                 }
                 Chip {
                     text: "CLEAR"
-                    enabled: patternModel.selected.hasLock === true
+                    enabled: inspector.selection.hasLock === true
                     onClicked: patternModel.clearSelectedLock()
                 }
             }
@@ -211,13 +215,13 @@ Rectangle {
             RowLayout {
                 id: lockTargetRow
                 Layout.fillWidth: true; spacing: 6
-                readonly property int slot: patternModel.selected.lockSlot !== undefined
-                                            ? patternModel.selected.lockSlot : -1
-                readonly property string kind: patternModel.selected.lockKind !== undefined
-                                               ? patternModel.selected.lockKind : "track"
+                readonly property int slot: inspector.selection.lockSlot !== undefined
+                                            ? inspector.selection.lockSlot : -1
+                readonly property string kind: inspector.selection.lockKind !== undefined
+                                               ? inspector.selection.lockKind : "track"
                 readonly property int bus: kind === "track" ? songModel.selectedTrack
-                                           : (patternModel.selected.lockBus !== undefined
-                                              ? patternModel.selected.lockBus : 0)
+                                           : (inspector.selection.lockBus !== undefined
+                                              ? inspector.selection.lockBus : 0)
                 readonly property var choices: songModel.lockTargetChoices(songModel.selectedTrack)
                 readonly property var targets: choices.map(choice => choice.name)
                 readonly property var parameters: appController.insertParameters(kind, bus, slot)
@@ -256,8 +260,8 @@ Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 22
                     choices: lockTargetRow.parameterNames()
-                    value: patternModel.selected.hasLock === true
-                           ? patternModel.selected.lockName : "—"
+                    value: inspector.selection.hasLock === true
+                           ? inspector.selection.lockName : "—"
                     onPicked: name => {
                         for (var i = 0; i < lockTargetRow.parameters.length; ++i)
                             if (lockTargetRow.parameters[i].name === name)
@@ -270,15 +274,15 @@ Rectangle {
             ValueDial {
                 Layout.fillWidth: true
                 label: "VALUE"; from: 0; to: 1
-                enabled: patternModel.selected.hasLock === true
-                accent: patternModel.selected.lockModulation ? Theme.blue : Theme.acid
-                value: patternModel.selected.lockValue !== undefined
-                       ? patternModel.selected.lockValue : 0
-                readout: patternModel.selected.hasLock
-                         ? patternModel.selected.lockText : "none"
+                enabled: inspector.selection.hasLock === true
+                accent: inspector.selection.lockModulation ? Theme.blue : Theme.acid
+                value: inspector.selection.lockValue !== undefined
+                       ? inspector.selection.lockValue : 0
+                readout: inspector.selection.hasLock
+                         ? inspector.selection.lockText : "none"
                 onMoved: function(v) {
-                    patternModel.setSelectedLock(patternModel.selected.lockIndex, v,
-                                                 patternModel.selected.lockModulation)
+                    patternModel.setSelectedLock(inspector.selection.lockIndex, v,
+                                                 inspector.selection.lockModulation)
                 }
             }
             RowLayout {
@@ -291,7 +295,7 @@ Rectangle {
                         required property var modelData
                         text: modelData === 0 ? "LOOP" : modelData + "×"
                         accent: Theme.amber
-                        on: patternModel.selected.loop === modelData
+                        on: inspector.selection.loop === modelData
                         onClicked: patternModel.setSelectedPlayOnLoop(modelData)
                     }
                 }
@@ -307,8 +311,8 @@ Rectangle {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignTop
             spacing: 4
-            visible: patternModel.selected.voices !== undefined
-                     && patternModel.selected.voices > 1
+            visible: inspector.selection.voices !== undefined
+                     && inspector.selection.voices > 1
             RowLayout {
                 Layout.fillWidth: true; spacing: 6
                 SectionLabel { text: "VOICE VELOCITY" }
@@ -324,16 +328,16 @@ Rectangle {
                     // A count rather than the list of velocities: every edit
                     // hands out a new list, and a Repeater given a new list
                     // rebuilds its bars, dropping the one being dragged.
-                    model: patternModel.selected.voices !== undefined
-                           && patternModel.selected.voices > 1
-                           ? patternModel.selected.voices : 0
+                    model: inspector.selection.voices !== undefined
+                           && inspector.selection.voices > 1
+                           ? inspector.selection.voices : 0
                     ColumnLayout {
                         id: voiceColumn
                         required property int index
                         readonly property real modelData:
-                            patternModel.selected.voiceVelocities !== undefined
-                            && index < patternModel.selected.voiceVelocities.length
-                            ? patternModel.selected.voiceVelocities[index] : 0
+                            inspector.selection.voiceVelocities !== undefined
+                            && index < inspector.selection.voiceVelocities.length
+                            ? inspector.selection.voiceVelocities[index] : 0
                         spacing: 2
                         Rectangle {
                             objectName: "voiceVel" + voiceColumn.index
@@ -353,8 +357,8 @@ Rectangle {
                             Label {
                                 anchors.top: parent.top; anchors.topMargin: 2
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: patternModel.selected.voiceUnits
-                                      ? patternModel.selected.voiceUnits[voiceColumn.index] : ""
+                                text: inspector.selection.voiceUnits
+                                      ? inspector.selection.voiceUnits[voiceColumn.index] : ""
                                 color: voiceColumn.modelData > 0.8 ? Theme.bg : Theme.ink
                                 font.pixelSize: 10; font.family: Theme.mono; font.bold: true
                             }
@@ -382,15 +386,15 @@ Rectangle {
                         }
                         Label {
                             Layout.alignment: Qt.AlignHCenter
-                            text: patternModel.selected.voiceNames
-                                  ? patternModel.selected.voiceNames[voiceColumn.index] : ""
+                            text: inspector.selection.voiceNames
+                                  ? inspector.selection.voiceNames[voiceColumn.index] : ""
                             color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                         }
                         Label {
                             objectName: "voiceLen" + voiceColumn.index
                             Layout.alignment: Qt.AlignHCenter
-                            text: patternModel.selected.voiceLengths
-                                  ? (patternModel.selected.voiceLengths[voiceColumn.index] / 120)
+                            text: inspector.selection.voiceLengths
+                                  ? (inspector.selection.voiceLengths[voiceColumn.index] / 120)
                                         .toFixed(1)
                                   : ""
                             color: Theme.blue; font.pixelSize: 9; font.family: Theme.mono

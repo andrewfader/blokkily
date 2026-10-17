@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <numeric>
 #include <stdexcept>
 
 namespace blokkily {
@@ -67,8 +66,7 @@ EventId Pattern::add(Trigger trigger) {
     validate(trigger);
     trigger.id = next_id_++;
     const auto id = trigger.id;
-    events_.push_back(std::move(trigger));
-    sort();
+    insert_in_order(std::move(trigger));
     return id;
 }
 
@@ -76,18 +74,25 @@ bool Pattern::restore(Trigger trigger) {
     if (trigger.id == 0 || find(trigger.id) != nullptr) return false;
     validate(trigger);
     next_id_ = std::max(next_id_, trigger.id + 1);
-    events_.push_back(std::move(trigger));
-    sort();
+    insert_in_order(std::move(trigger));
     return true;
 }
 
 bool Pattern::update(EventId id, const Trigger& replacement) {
     validate(replacement);
-    auto* current = const_cast<Trigger*>(find(id));
-    if (current == nullptr) return false;
-    *current = replacement;
-    current->id = id;
-    sort();
+    const auto current = std::find_if(events_.begin(), events_.end(),
+                                      [id](const Trigger& event) { return event.id == id; });
+    if (current == events_.end()) return false;
+    // Most edits leave a note where it starts: no reordering at all.
+    if (current->start == replacement.start) {
+        *current = replacement;
+        current->id = id;
+        return true;
+    }
+    Trigger moved = replacement;
+    moved.id = id;
+    events_.erase(current);
+    insert_in_order(std::move(moved));
     return true;
 }
 
@@ -165,30 +170,14 @@ Pattern Pattern::with_length(Tick length) const {
     return resized;
 }
 
-void Pattern::sort() {
-    // GCC 16's libstdc++ false-positives -Wmaybe-uninitialized inside the
-    // insertion-sort path of std::stable_sort whenever the value type holds
-    // a std::variant (note: the diagnostic escapes a #pragma diagnostic
-    // ignored because the warning is raised inside an inlined destructor
-    // in <bits/move.h>, not at the call site). Sort an index permutation
-    // instead — behaviourally identical because id is unique and already
-    // breaks ties, and avoids the move-construction codegen the warning
-    // tracks.
-    const auto n = events_.size();
-    if (n < 2) return;
-    std::vector<std::size_t> order(n);
-    std::iota(order.begin(), order.end(), 0U);
-    std::stable_sort(order.begin(), order.end(),
-        [this](std::size_t a, std::size_t b) {
-            const auto& x = events_[a];
-            const auto& y = events_[b];
-            if (x.start != y.start) return x.start < y.start;
-            return x.id < y.id;
-        });
-    std::vector<Trigger> reordered;
-    reordered.reserve(n);
-    for (auto i : order) reordered.push_back(std::move(events_[i]));
-    events_ = std::move(reordered);
+void Pattern::insert_in_order(Trigger trigger) {
+    // Ties at one start keep id order, so the order never depends on how
+    // the triggers came in.
+    const auto at = std::upper_bound(events_.begin(), events_.end(), trigger,
+                                     [](const Trigger& x, const Trigger& y) {
+                                         return x.start != y.start ? x.start < y.start : x.id < y.id;
+                                     });
+    events_.insert(at, std::move(trigger));
 }
 
 } // namespace blokkily

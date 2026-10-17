@@ -366,6 +366,41 @@ int main() {
 
     assert(pattern.events().front().id == ratchet_id);
     assert(pattern.find(chord_id) != nullptr);
+    {
+        // Edits keep the events in time order, ties at one start in id
+        // order, however they came: moved later, moved earlier, changed in
+        // place, or restored with an old id.
+        Pattern ordered(1920, 480);
+        std::vector<EventId> ids;
+        for (const Tick start : {480, 0, 960, 480}) {
+            Trigger t;
+            t.start = start;
+            t.duration = 120;
+            t.musical_data = Note{60, 0.8F, 0.0F};
+            ids.push_back(ordered.add(t));
+        }
+        const auto order = [&] {
+            std::vector<std::pair<Tick, EventId>> seen;
+            for (const auto& t : ordered.events()) seen.emplace_back(t.start, t.id);
+            return seen;
+        };
+        using Seen = std::vector<std::pair<Tick, EventId>>;
+        assert((order() == Seen{{0, ids[1]}, {480, ids[0]}, {480, ids[3]}, {960, ids[2]}}));
+        auto moved = *ordered.find(ids[1]);
+        moved.start = 480; // later, into a tie: after the lower id
+        assert(ordered.update(ids[1], moved));
+        assert((order() == Seen{{480, ids[0]}, {480, ids[1]}, {480, ids[3]}, {960, ids[2]}}));
+        moved = *ordered.find(ids[2]);
+        moved.start = 120; // earlier
+        assert(ordered.update(ids[2], moved));
+        auto louder = *ordered.find(ids[3]);
+        std::get<Note>(louder.musical_data).velocity = 1.0F; // in place
+        assert(ordered.update(ids[3], louder));
+        assert((order() == Seen{{120, ids[2]}, {480, ids[0]}, {480, ids[1]}, {480, ids[3]}}));
+        const auto kept = *ordered.find(ids[0]);
+        assert(ordered.remove(ids[0]) && ordered.restore(kept));
+        assert((order() == Seen{{120, ids[2]}, {480, ids[0]}, {480, ids[1]}, {480, ids[3]}}));
+    }
 
     const auto notes = Scheduler{}.render_loop(pattern, 1, 42);
     assert(notes.size() == 6);

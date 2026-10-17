@@ -23,6 +23,8 @@ Rectangle {
     property bool warnedNoFont: false
 
     FontLoader { id: bravura; source: "qrc:/fonts/Bravura.otf" }
+    // Laid out only while it is on screen.
+    Binding { target: scoreModel; property: "active"; value: root.visible }
 
     FileDialog {
         id: importScoreDialog

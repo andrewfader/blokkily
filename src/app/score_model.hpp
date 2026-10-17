@@ -73,6 +73,10 @@ class ScoreModel final : public QObject {
     // The note selected on the staff (its step and key), -1 for none.
     Q_PROPERTY(int selectedStep READ selectedStep NOTIFY scoreChanged)
     Q_PROPERTY(int selectedKey READ selectedKey NOTIFY scoreChanged)
+    // Whether the score is on screen. Changes it follows are laid out once
+    // per turn of the event loop while it is, and once it is shown again
+    // while it is not.
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
 
 public:
     ScoreModel(PatternModel* pattern, SongModel* song, QObject* parent = nullptr);
@@ -107,6 +111,8 @@ public:
     void setNoteValue(int value);
     bool dotted() const noexcept { return dotted_; }
     void setDotted(bool dotted);
+    bool active() const noexcept { return active_; }
+    void setActive(bool active);
     int selectedStep() const noexcept { return selected_step_; }
     int selectedKey() const noexcept { return selected_key_; }
 
@@ -134,9 +140,13 @@ public:
 signals:
     void scoreChanged();
     void entryChanged();
+    void activeChanged();
 
 private:
     void rebuild();
+    // A change it follows: rebuilt on the next turn of the event loop, or
+    // when the score is next shown.
+    void queueRebuild();
     void layout(const blokkily::notation::Staff& staff);
     void write(const QVariantMap& settings);
     bool select(int step, int key);
@@ -161,6 +171,9 @@ private:
     bool dotted_ = false;
     int selected_step_ = -1;
     int selected_key_ = -1;
+    bool active_ = true;
+    bool stale_ = false;  // a change came while hidden or not yet laid out
+    bool queued_ = false; // a rebuild is waiting for the event loop
     // (x, tick) at every column and barline, in order: the staff's time axis.
     std::vector<std::pair<double, blokkily::Tick>> time_map_;
 };

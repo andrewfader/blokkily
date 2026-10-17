@@ -440,7 +440,9 @@ QVariantList SongModel::returnMeters() const {
 }
 
 void SongModel::setReturnMeters(const std::vector<float>& peaks) {
-    return_peaks_ = peaks;
-    return_peaks_.resize(song_.returns.size(), 0.0F);
+    auto held = peaks;
+    held.resize(song_.returns.size(), 0.0F);
+    if (held == return_peaks_) return; // nothing moved
+    return_peaks_ = std::move(held);
     emit metersChanged();
 }

@@ -75,8 +75,12 @@ QVariantList SongModel::meters() const {
 }
 
 void SongModel::setMeters(const std::vector<float>& track_peaks, float master_peak) {
-    peaks_ = track_peaks;
-    peaks_.resize(song_.tracks.size(), 0.0F);
+    auto peaks = track_peaks;
+    peaks.resize(song_.tracks.size(), 0.0F);
+    // A silent, stopped song polls the same zeros thirty times a second:
+    // the strips are only told when a meter moved.
+    if (peaks == peaks_ && master_peak == master_peak_) return;
+    peaks_ = std::move(peaks);
     master_peak_ = master_peak;
     emit metersChanged();
 }

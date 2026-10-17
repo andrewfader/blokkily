@@ -54,7 +54,9 @@ public:
 
 private:
     void validate(const Trigger& event) const;
-    void sort();
+    // Puts a trigger where it belongs in the order events() keeps (start,
+    // then id), moving only what comes after it.
+    void insert_in_order(Trigger trigger);
 
     Tick length_;
     Tick ticks_per_beat_;

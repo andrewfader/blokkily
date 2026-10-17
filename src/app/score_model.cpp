@@ -7,6 +7,8 @@
 #include "pattern_model.hpp"
 #include "song_model.hpp"
 
+#include <QTimer>
+
 #include "blokkily/notation/layout.hpp"
 #include "blokkily/notation/pattern_bridge.hpp"
 #include "blokkily/notation/pitch.hpp"
@@ -51,11 +53,12 @@ struct Entry {
 
 ScoreModel::ScoreModel(PatternModel* pattern, SongModel* song, QObject* parent)
     : QObject(parent), pattern_(pattern), song_(song) {
-    if (pattern_ != nullptr) connect(pattern_, &PatternModel::patternChanged, this, &ScoreModel::rebuild);
+    if (pattern_ != nullptr) connect(pattern_, &PatternModel::patternChanged, this, &ScoreModel::queueRebuild);
     if (song_ != nullptr) {
-        // The selection, an undo, a load: anything but a fader move.
-        connect(song_, &SongModel::arrangementChanged, this, &ScoreModel::rebuild);
-        connect(song_, &SongModel::notationChanged, this, &ScoreModel::rebuild);
+        // The selection, an undo, a load: anything but a fader move. One
+        // edit often says so on several signals; it is laid out once.
+        connect(song_, &SongModel::arrangementChanged, this, &ScoreModel::queueRebuild);
+        connect(song_, &SongModel::notationChanged, this, &ScoreModel::queueRebuild);
     }
     rebuild();
 }
@@ -96,6 +99,23 @@ void ScoreModel::setUnmetered(bool unmetered) {
 }
 
 void ScoreModel::refresh() { rebuild(); }
+
+void ScoreModel::queueRebuild() {
+    stale_ = true;
+    if (!active_ || queued_) return;
+    queued_ = true;
+    QTimer::singleShot(0, this, [this] {
+        if (queued_ && stale_) rebuild();
+        queued_ = false;
+    });
+}
+
+void ScoreModel::setActive(bool active) {
+    if (active == active_) return;
+    active_ = active;
+    if (active_ && stale_) rebuild();
+    emit activeChanged();
+}
 
 void ScoreModel::setNoteValue(int value) {
     if (value != 1 && value != 2 && value != 4 && value != 8 && value != 16) return;
@@ -253,6 +273,7 @@ int ScoreModel::clefRefPos() const {
 
 void ScoreModel::rebuild() {
     if (pattern_ == nullptr) return;
+    stale_ = false;
     QVariantMap settings;
     if (song_ != nullptr) settings = song_->notationSettings(song_->selectedTrack(), song_->currentSection());
     clef_kind_ = std::max(0, static_cast<int>(clefNames().indexOf(settings.value("clef", "Treble").toString())));

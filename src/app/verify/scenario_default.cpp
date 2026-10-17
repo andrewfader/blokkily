@@ -1316,6 +1316,12 @@ struct DefaultScenario {
                 song.setMeters(std::vector<float>(levels.size(), 0.0F), 0.0F);
                 lay_out();
                 valid = valid && fill != nullptr && fill->width() < 0.5;
+                // Silence polled again moves nothing, so nothing is redrawn.
+                int redraws = 0;
+                const auto counting = QObject::connect(&song, &SongModel::metersChanged, [&redraws] { ++redraws; });
+                for (int poll = 0; poll < 3; ++poll) song.setMeters(std::vector<float>(levels.size(), 0.0F), 0.0F);
+                QObject::disconnect(counting);
+                valid = valid && redraws == 0;
             }
             reached("workflow: the track meter moves");
 

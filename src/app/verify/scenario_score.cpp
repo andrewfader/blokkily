@@ -345,6 +345,26 @@ void run_score(VerifyContext& ctx) {
     if (key_picker != nullptr) QMetaObject::invokeMethod(key_picker, "picked", Q_ARG(QString, QStringLiteral("0")));
     settle();
 
+    // ---------------------------------------------------------------------
+    ctx.reached("score: a hidden score is laid out when it is shown again");
+    const auto drawn_key = [&](int key) {
+        for (const auto& item : notes())
+            if (item.toMap().value("key").toInt() == key) return true;
+        return false;
+    };
+    check(window->setProperty("view", "ROLL"));
+    settle();
+    check(!prop("active").toBool());
+    pattern.addRollNote(8, 72); // written in the piano roll while the score is away
+    settle();
+    check(!drawn_key(72));      // not laid out for nobody
+    check(window->setProperty("view", "SCORE"));
+    settle();
+    check(prop("active").toBool() && drawn_key(72)); // and up to date when it comes back
+    pattern.eraseRollNote(8, 72);
+    settle();
+    check(!drawn_key(72));
+
     ctx.finish(" SCORE view, clefs saved and undone, chant, key signatures, chords and voices, note entry");
 }
 

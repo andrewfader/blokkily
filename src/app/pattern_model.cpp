@@ -1137,8 +1137,8 @@ void PatternModel::setStepLyric(int step, const QString& syllable) {
     replacement.lyric = text;
     (void)pattern().update(replacement.id, replacement);
     endResetModel();
+    // Nothing that sounds reads a lyric: the engine is not recompiled.
     emit patternChanged();
-    emit contentChanged();
 }
 
 int PatternModel::setLyrics(const QString& text, int part) {
@@ -1166,8 +1166,7 @@ int PatternModel::setLyrics(const QString& text, int part) {
             (void)target.update(id, replacement);
         }
         endResetModel();
-        emit patternChanged();
-        emit contentChanged();
+        emit patternChanged(); // not contentChanged: lyrics are not heard
     }
     return static_cast<int>(next);
 }
