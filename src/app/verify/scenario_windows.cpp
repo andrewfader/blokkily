@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QMetaObject>
 #include <QSaveFile>
 #include <QUrl>
@@ -134,9 +135,21 @@ void run_windows(VerifyContext& ctx) {
     check(s.dirty() && s.song().tracks[0].name == "STAYS HERE" && c.projectName() == "Untitled");
     ctx.reached("multiple windows: OPEN NEW opens the project beside this song");
 
-    // Ctrl+O still opens in this window, asking first.
+    // Ctrl+O still opens in this window, asking first. A shortcut answers
+    // only in the focused window, and a chooser drawn as a window of its own
+    // leaves none focused when it closes, as a producer's click would not.
+    check(!chooser || wait_for([&] { return !chooser->property("visible").toBool(); }, 3000));
+    ctx.window->requestActivate();
+    check(wait_for([&] { return QGuiApplication::focusWindow() == ctx.window; }, 3000));
     ctx.chord_key(Qt::Key_O, Qt::ControlModifier);
-    check(dialog && wait_for([&] { return dialog->property("opened").toBool(); }, 3000));
+    const bool asked = dialog && wait_for([&] { return dialog->property("opened").toBool(); }, 3000);
+    if (!asked)
+        std::cerr << "Ctrl+O asked nothing; chooser visible: "
+                  << (chooser && chooser->property("visible").toBool()) << ", focus window: "
+                  << (QGuiApplication::focusWindow() ? qPrintable(QGuiApplication::focusWindow()->objectName())
+                                                     : "none")
+                  << '\n';
+    check(asked);
     if (dialog) QMetaObject::invokeMethod(dialog, "reject");
     check(wait_for([&] { return !(dialog && dialog->property("opened").toBool()); }, 3000));
     check(s.song().tracks[0].name == "STAYS HERE");
