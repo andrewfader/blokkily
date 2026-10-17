@@ -462,8 +462,9 @@ blokkily::InstrumentSlot AppController::defaultSlot(const std::filesystem::path&
     // the synth through one path.
     const std::string state = slot.path + '\n' + std::to_string(preset.bank) + '\n' +
                               std::to_string(preset.program);
-    slot.state.resize(state.size());
-    std::memcpy(slot.state.data(), state.data(), state.size());
+    std::vector<std::byte> bytes(state.size());
+    std::memcpy(bytes.data(), state.data(), state.size());
+    slot.state = std::move(bytes);
     return slot;
 }
 

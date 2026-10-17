@@ -135,8 +135,9 @@ void run_engine_seams(VerifyContext& ctx) {
         check(first != nullptr && log.created > 0);
         constexpr float dialled = 0.6F;
         blokkily::InstrumentSlot second_slot{"CLAP", clap.toStdString(), "dev.blokkily.test", {}};
-        second_slot.state.resize(sizeof dialled);
-        std::memcpy(second_slot.state.data(), &dialled, sizeof dialled);
+        std::vector<std::byte> dial(sizeof dialled);
+        std::memcpy(dial.data(), &dialled, sizeof dialled);
+        second_slot.state = std::move(dial);
         song.setInstrument(1, second_slot);
         const auto after = fixture_log(clap);
         check(controller.rebuildCount() == rebuilds + 1 && controller.adoptedProcessors() == 1);

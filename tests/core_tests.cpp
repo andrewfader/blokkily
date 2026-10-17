@@ -367,6 +367,20 @@ int main() {
     assert(pattern.events().front().id == ratchet_id);
     assert(pattern.find(chord_id) != nullptr);
     {
+        // A plugin's state is shared by the song's copies (every step of
+        // undo holds one), and replacing it in one copy leaves the others.
+        Song song;
+        song.tracks[0].instrument = {"CLAP", "/x.clap", "x", std::vector<std::byte>(1 << 20, std::byte{7})};
+        const Song step = song;
+        assert(step.tracks[0].instrument.state.data() == song.tracks[0].instrument.state.data());
+        assert(step.tracks[0].instrument == song.tracks[0].instrument);
+        song.tracks[0].instrument.state = std::vector<std::byte>{std::byte{1}};
+        assert(song.tracks[0].instrument.state.size() == 1 && step.tracks[0].instrument.state.size() == (1U << 20));
+        assert(step.tracks[0].instrument.state[5] == std::byte{7} && !(step.tracks[0].instrument == song.tracks[0].instrument));
+        const std::vector<std::byte>& plain = step.tracks[0].instrument.state;
+        assert(plain.size() == (1U << 20) && step.tracks[0].instrument.state == plain);
+    }
+    {
         // Edits keep the events in time order, ties at one start in id
         // order, however they came: moved later, moved earlier, changed in
         // place, or restored with an old id.

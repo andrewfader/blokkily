@@ -10,6 +10,7 @@
 #include "blokkily/model/processor_address.hpp"
 #include "blokkily/model/scale.hpp"
 #include "blokkily/model/scene_launcher.hpp"
+#include "blokkily/model/state_blob.hpp"
 #include "blokkily/model/timebase.hpp"
 #include "blokkily/model/tuning.hpp"
 
@@ -30,7 +31,7 @@ struct InstrumentSlot {
     std::string format;     // "CLAP", "VST3", or "SoundFont"
     std::string path;       // module, bundle, or SF2/SF3 file
     std::string identifier; // CLAP plugin id or VST3 identifier; may be empty
-    std::vector<std::byte> state;
+    StateBlob state; // shared by the song's copies (undo, versions)
 
     friend bool operator==(const InstrumentSlot&, const InstrumentSlot&) = default;
 };
