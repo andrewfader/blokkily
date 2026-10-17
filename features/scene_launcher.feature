@@ -24,8 +24,7 @@ Feature: Scene launcher
   queue refuses or drops what does not fit, counts it and says so in the
   status line.
 
-  Not done: a scene has no tempo of its own (the song's tempo map is the only
-  tempo); an export is the arrangement, so launched tracks are not in it; a
+  Not done: an export is the arrangement, so launched tracks are not in it; a
   launched pattern with probability repeats its random choices every 16
   loops (or its loop conditions' cycle, up to 64), so that its takes print
   exactly. A trimmed clip does not chase a controller value set before its

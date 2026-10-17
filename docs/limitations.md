@@ -47,10 +47,11 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Modulation
 
-- Modulation is evaluated once per block, up to the device's block size. A
-  synced LFO therefore turns on in the block after its beat.
+- Modulation is evaluated once per chunk of at most 128 samples, whatever the
+  device's block size. A synced LFO therefore turns on at the first chunk
+  after its beat, up to 127 samples late.
 - A follower targeting its own track, or a track that the render order cannot
-  place after its source, receives the previous block's level.
+  place after its source, receives the previous chunk's level.
 
 ## Arrangement loop
 
@@ -75,8 +76,9 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Output recording
 
-- Output recording selects one bus per pass. Bounce additional racks to build
-  a set of stems.
+- Live output recording captures one bus per pass. A full set of stems is
+  exported offline in one step instead: STEMS writes every track and return
+  to a file of its own.
 - A partial live pass ends when recording stops and does not automatically add
   effect tails. Offline stems include tails.
 - Track stems exclude send returns. Track and return stems sum to the signal
@@ -98,6 +100,7 @@ on Windows, and an X11 window on Linux. On a Wayland desktop a CLAP plugin with
 Wayland support embeds natively, and other editors embed through XWayland when
 an X server is available; without one they are refused. Offscreen verification
 checks the embedding lifecycle. Display checks read real editor pixels back on
-an X server, under XWayland, and on macOS and Windows; they have been run with
-the suite's own test plugins at standard pixel density. See
+an X server, under XWayland, and on macOS and Windows; they run with the
+suite's own test plugins, and on macOS and Windows also with Dexed, at
+standard pixel density only. See
 [verification](verification.md) for display-check requirements and skips.
