@@ -203,6 +203,88 @@ void soundfont_effects_follow_the_bank() {
     assert(difference(raised, without_sends) > 1e-6 * energy(without_sends));
     std::filesystem::remove(dry_bank);
 }
+// A copy of a real bank whose every preset is moved to `bank`, numbered from
+// `program`: a file with nothing at General MIDI's bank 0, program 0, as many
+// game SoundFonts are.
+std::filesystem::path bank_renumbered(const std::filesystem::path& source,
+                                      const std::filesystem::path& copy, int bank, int program) {
+    std::ifstream in(source, std::ios::binary);
+    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)),
+                                     std::istreambuf_iterator<char>());
+    const auto u16 = [&](std::size_t at) {
+        return static_cast<std::size_t>(bytes[at] | (bytes[at + 1] << 8U));
+    };
+    const auto u32 = [&](std::size_t at) { return u16(at) | (u16(at + 2) << 16U); };
+    const auto put16 = [&](std::size_t at, int value) {
+        bytes[at] = static_cast<unsigned char>(value & 0xFF);
+        bytes[at + 1] = static_cast<unsigned char>((value >> 8) & 0xFF);
+    };
+    int edited = 0;
+    for (std::size_t at = 12; at + 12 <= bytes.size();) {
+        const std::size_t size = u32(at + 4);
+        if (std::memcmp(&bytes[at], "LIST", 4) == 0 && std::memcmp(&bytes[at + 8], "pdta", 4) == 0)
+            for (std::size_t sub = at + 12; sub + 8 <= at + 8 + size;) {
+                const std::size_t length = u32(sub + 4);
+                // Each 38-byte preset header holds its program and bank after
+                // a 20-byte name; the last header only closes the list.
+                if (std::memcmp(&bytes[sub], "phdr", 4) == 0)
+                    for (std::size_t record = sub + 8; record + 2 * 38 <= sub + 8 + length;
+                         record += 38) {
+                        put16(record + 20, program + edited);
+                        put16(record + 22, bank);
+                        ++edited;
+                    }
+                sub += 8 + length + (length & 1U);
+            }
+        at += 8 + size + (size & 1U);
+    }
+    assert(edited > 0);
+    std::ofstream(copy, std::ios::binary)
+        .write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return copy;
+}
+
+// A bank with no preset at 0:0 still opens, on the first preset it holds, and
+// a preset it does hold can be chosen. The fallback to 0:0 used to be the only
+// one, so such a file refused every preset and its track stayed silent.
+void soundfont_without_the_first_general_midi_preset_opens() {
+    const auto bank = bank_renumbered(BLOKKILY_TEST_SF2_PATH,
+                                      std::filesystem::temp_directory_path() / "blokkily-bank-one.sf2",
+                                      1, 5);
+    const auto state_for = [&](int b, int p) {
+        const std::string text = bank.string() + "\n" + std::to_string(b) + "\n" + std::to_string(p);
+        const auto* data = reinterpret_cast<const std::byte*>(text.data());
+        return std::vector<std::byte>(data, data + text.size());
+    };
+    const auto heard = [](SoundFontSynth& synth) {
+        assert(synth.activate(48000.0, 1, 512));
+        std::vector<float> left(512), right(512);
+        float peak = 0.0F;
+        for (int block = 0; block < 8; ++block) {
+            const PluginEvent note{PluginEvent::Type::note_on, 0, 60, 1.0};
+            synth.process({left, right}, block == 0 ? std::span{&note, 1} : std::span<const PluginEvent>{});
+            for (const auto sample : left) peak = std::max(peak, std::abs(sample));
+        }
+        return peak;
+    };
+    {
+        SoundFontSynth synth;
+        assert(synth.load(bank));
+        const auto state = synth.save_state();
+        const std::string text(reinterpret_cast<const char*>(state.data()), state.size());
+        assert(text.size() > 4 && text.substr(text.size() - 4) == "\n1\n5");
+        assert(heard(synth) > 0.01F);
+    }
+    {
+        SoundFontSynth chosen;
+        assert(chosen.load_state(state_for(1, 5)));
+        assert(heard(chosen) > 0.01F);
+        // A preset the file does not hold is still refused.
+        SoundFontSynth missing;
+        assert(!missing.load_state(state_for(0, 0)));
+    }
+    std::filesystem::remove(bank);
+}
 #endif
 
 #if defined(BLOKKILY_TEST_SF2_PATH) && defined(__linux__)
@@ -247,6 +329,7 @@ int main() {
 #endif
 #ifdef BLOKKILY_TEST_SF2_PATH
     soundfont_effects_follow_the_bank();
+    soundfont_without_the_first_general_midi_preset_opens();
 #endif
     const auto catalog_dir = std::filesystem::temp_directory_path() /
                              "blokkily-soundfont-catalog-test";

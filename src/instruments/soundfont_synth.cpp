@@ -17,7 +17,9 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace blokkily {
@@ -264,7 +266,19 @@ bool SoundFontSynth::load(const std::filesystem::path& path) {
     // file is still loaded, so it falls back to the first General MIDI program
     // rather than being reported as a failure and going silent.
     if (select_preset(bank_, program_)) return true;
-    return select_preset(0, 0);
+    if (select_preset(0, 0)) return true;
+    // Many game SoundFonts hold nothing at 0:0 (every preset of one in bank
+    // 1, say), and falling back to it alone refused every preset they hold.
+    // Such a file opens on the lowest bank and program it does hold.
+    auto* soundfont = fluid_synth_get_sfont(renderers_.front().synth.get(), 0);
+    if (soundfont == nullptr) return false;
+    std::optional<std::pair<int, int>> first;
+    fluid_sfont_iteration_start(soundfont);
+    while (auto* preset = fluid_sfont_iteration_next(soundfont)) {
+        const std::pair<int, int> found{fluid_preset_get_banknum(preset), fluid_preset_get_num(preset)};
+        if (!first || found < *first) first = found;
+    }
+    return first && select_preset(first->first, first->second);
 }
 
 bool SoundFontSynth::select_in(Renderer& renderer, int bank, int program) {

@@ -156,3 +156,10 @@ Feature: Edit a musical pattern through synchronized projections
     When the internal SoundFont instrument receives middle C
     Then it renders a non-silent stereo audio block
     And its selected file and preset can be restored from project state
+
+  Scenario: A SoundFont with nothing at bank 0, program 0 still plays
+    Given a copy of the SF2 fixture whose only preset sits at bank 1, program 5
+    When the internal SoundFont instrument opens it with no preset asked for
+    Then it opens on bank 1, program 5 and renders a non-silent block for middle C
+    And bank 1, program 5 can be chosen from project state and is heard
+    And bank 0, program 0, which the file does not hold, is refused
