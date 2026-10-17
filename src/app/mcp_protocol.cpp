@@ -87,6 +87,11 @@ QJsonArray toolDefinitions() {
     const QJsonObject track = integer("Track index, from 0. Defaults to the selected track.");
     const QJsonObject section =
         integer("Pattern (section) index, from 0. Defaults to the open pattern.");
+    const QJsonObject slot = integer("-1 for the instrument (the default), 0.. for an effect.");
+    const QJsonObject on_return =
+        integer("A return bus's effect instead of a track's: the return's index, from 0.");
+    const QJsonObject on_master{{"type", "boolean"},
+                                {"description", "The master bus's effect instead of a track's."}};
     QJsonObject note{
         {"type", "object"},
         {"properties",
@@ -103,18 +108,24 @@ QJsonArray toolDefinitions() {
                                   "\"F#3\" or \"Bb2\"."}}},
              {"velocity", QJsonObject{{"type", "number"},
                                       {"description", "0 to 1. Default 0.8."}}},
+             {"cents", QJsonObject{{"type", "number"},
+                                   {"description",
+                                    "Retunes the note from its key, -100 to 100 cents, for a "
+                                    "pitch between keys (50 is a quarter tone up). Default 0."}}},
          }},
         {"required", QJsonArray{"step", "key"}},
     };
     return {
         tool("get_session",
-             "The whole session at a glance: tracks with their instruments and mixer settings, "
-             "the patterns, where clips sit in the arrangement, tempo, meter, the transport, "
-             "what is selected, and whether there are unsaved changes.",
+             "The whole session at a glance: tracks with their instruments, mixer settings, "
+             "effects and sends, the returns and the master's effects, the patterns with their "
+             "length and swing, where clips sit in the arrangement, tempo, meter, the "
+             "transport, what is selected, and whether there are unsaved changes.",
              schema({})),
         tool("get_pattern",
              "The notes of one track's part of one pattern: start step, length in steps, key "
-             "and velocity of each, and the parameter locks a note holds.",
+             "and velocity of each, its cents when it is retuned from its key, and the "
+             "parameter locks a note holds.",
              schema({{"track", track}, {"section", section}})),
         tool("write_notes",
              "Writes notes into one track's part of one pattern, as one step of undo. Opens "
@@ -126,6 +137,23 @@ QJsonArray toolDefinitions() {
                                               "Empty the part before writing. Default false."}}},
                      {"notes", QJsonObject{{"type", "array"}, {"items", note}}}},
                     {"notes"})),
+        tool("set_section",
+             "Sets a pattern's (section's) length in steps, its swing, or its name, for every "
+             "track's part of it. Safe while the song plays: the pattern is named, not taken "
+             "from what is open.",
+             schema({{"section", integer("Pattern (section) index, from 0.")},
+                     {"steps", integer("Length in sixteenth-note steps (16 is a bar of 4/4).")},
+                     {"swing", integer("0 to 100.")},
+                     {"name", QJsonObject{{"type", "string"}}}},
+                    {"section"})),
+        tool("place_section",
+             "Places a pattern (section) in the arrangement at a bar: a clip of each track's "
+             "part, or of one track's with track. Bars already holding a clip are left as "
+             "they are.",
+             schema({{"section", integer("Pattern (section) index, from 0.")},
+                     {"bar", integer("The bar, from 0.")},
+                     {"track", integer("Only this track's part.")}},
+                    {"section", "bar"})),
         tool("transport",
              "Plays, stops, rewinds, arms recording, or moves the playhead to a bar.",
              schema({{"action", QJsonObject{{"type", "string"},
@@ -144,15 +172,18 @@ QJsonArray toolDefinitions() {
                     {"plugin"})),
         tool("list_parameters",
              "The parameters of a track's instrument (slot -1) or of one of its effects (slot "
-             "0, 1, ...): id, name, minimum, maximum and default of each, for set_parameter.",
-             schema({{"track", track},
-                     {"slot", integer("-1 for the instrument (the default), 0.. for an effect.")}})),
+             "0, 1, ...), or of an effect on a return or the master: id, name, minimum, "
+             "maximum and default of each, for set_parameter.",
+             schema({{"track", track}, {"slot", slot}, {"return", on_return}, {"master", on_master}})),
         tool("set_parameter",
-             "Sets one parameter of a track's instrument or effect for the whole song, as a "
-             "lane holding that value (heard from the next play). A synth's preset is usually "
-             "a parameter called Preset.",
+             "Sets one parameter of a track's instrument or effect, or of an effect on a return "
+             "or the master, for the whole song, as a lane holding that value (heard from the "
+             "next play). A return's or the master's lane is kept on the selected track. A "
+             "synth's preset is usually a parameter called Preset.",
              schema({{"track", track},
-                     {"slot", integer("-1 for the instrument (the default), 0.. for an effect.")},
+                     {"slot", slot},
+                     {"return", on_return},
+                     {"master", on_master},
                      {"parameter", QJsonObject{{"description", "Its id, or its name."}}},
                      {"value", QJsonObject{{"type", "number"}}}},
                     {"parameter", "value"})),
@@ -203,8 +234,9 @@ QString instructions() {
         "a song: tracks (each owns an instrument and a mixer strip), patterns (sections; each "
         "track has its own part of each), and clips that place patterns on the arrangement's "
         "bars. Every index is from 0. Steps are sixteenth notes. Start with get_session. "
-        "write_notes writes notes; transport plays them. set_instrument, set_soundfont_preset "
-        "and set_parameter choose sounds. Anything else the interface can do "
+        "write_notes writes notes, each retuned from its key by cents if asked; set_section "
+        "sizes a pattern and place_section arranges it; transport plays them. set_instrument, set_soundfont_preset and set_parameter choose sounds; "
+        "set_parameter also reaches an effect on a return or the master. Anything else the interface can do "
         "is a method: describe lists them, call runs one (e.g. songModel.setTrackGain(track, "
         "dB), songModel.addPattern(), songModel.placeClip(track, bar), appController.setTempo"
         "(bpm), appController.setStepLock(track, pattern, step, slot, parameter, value, "

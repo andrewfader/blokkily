@@ -54,6 +54,43 @@ QJsonObject pick(const QVariantMap& row, std::initializer_list<const char*> keys
     return picked;
 }
 
+// The processor a parameter tool addresses: a track's instrument or insert by
+// default, or an insert on a return or the master.
+struct Bus {
+    QString kind;
+    int bus = 0;
+    blokkily::BusKind address_kind = blokkily::BusKind::track;
+    QString error;
+};
+
+Bus busOf(const QJsonObject& arguments, int selected_track, int tracks, int returns) {
+    const bool on_return = arguments.contains("return");
+    const bool on_master = arguments.value("master").toBool();
+    if (int(arguments.contains("track")) + int(on_return) + int(on_master) > 1)
+        return {.error = QStringLiteral("Name a track, a return or the master, not more than one.")};
+    if (on_master) return {QStringLiteral("master"), 0, blokkily::BusKind::master, {}};
+    if (on_return) {
+        const int bus = arguments.value("return").toInt(-1);
+        if (bus < 0 || bus >= returns) return {.error = QStringLiteral("There is no return %1.").arg(bus)};
+        return {QStringLiteral("return"), bus, blokkily::BusKind::ret, {}};
+    }
+    const int track = arguments.value("track").toInt(selected_track);
+    if (track < 0 || track >= tracks) return {.error = QStringLiteral("There is no track %1.").arg(track)};
+    return {QStringLiteral("track"), track, blokkily::BusKind::track, {}};
+}
+
+// Says in a result which bus was addressed, as the arguments did.
+void nameBus(QJsonObject& result, const Bus& bus) {
+    if (bus.kind == "master") result.insert("master", true);
+    else result.insert(bus.kind, bus.bus);
+}
+
+QString busName(const Bus& bus) {
+    return bus.kind == "master" ? QStringLiteral("The master")
+         : bus.kind == "return" ? QStringLiteral("Return %1").arg(bus.bus)
+                                : QStringLiteral("Track %1").arg(bus.bus);
+}
+
 bool listed(const QMetaMethod& method) {
     return method.access() == QMetaMethod::Public &&
            (method.methodType() == QMetaMethod::Method || method.methodType() == QMetaMethod::Slot);
@@ -82,6 +119,8 @@ QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
     if (name == "get_session") return getSession();
     if (name == "get_pattern") return getPattern(arguments);
     if (name == "write_notes") return writeNotes(arguments);
+    if (name == "set_section") return setSection(arguments);
+    if (name == "place_section") return placeSection(arguments);
     if (name == "transport") return runTransport(arguments);
     if (name == "list_plugins") return listPlugins();
     if (name == "set_instrument") return setInstrument(arguments);
@@ -113,14 +152,56 @@ QJsonObject McpTools::transportState() const {
             {"recordArmed", controller_.recordArmed()}};
 }
 
+QJsonArray McpTools::effects(const std::vector<blokkily::EffectSlot>& chain) const {
+    QJsonArray rows;
+    for (std::size_t slot = 0; slot < chain.size(); ++slot)
+        rows.append(QJsonObject{{"slot", static_cast<int>(slot)},
+                                {"name", song_.effectLabel(chain[slot].plugin)},
+                                {"bypass", chain[slot].bypass}});
+    return rows;
+}
+
 QJsonObject McpTools::getSession() const {
+    const auto& song = song_.song();
     QJsonArray tracks;
-    for (const auto& row : song_.tracks())
-        tracks.append(pick(row.toMap(), {"index", "name", "instrument", "hasInstrument", "gainDb",
-                                         "pan", "mute", "solo", "armed", "selected", "inserts"}));
+    const auto rows = song_.tracks();
+    for (int index = 0; index < rows.size(); ++index) {
+        auto track = pick(rows.at(index).toMap(), {"index", "name", "instrument", "hasInstrument", "gainDb",
+                                                   "pan", "mute", "solo", "armed", "selected", "inserts"});
+        if (static_cast<std::size_t>(index) < song.tracks.size()) {
+            const auto& model = song.tracks[static_cast<std::size_t>(index)];
+            track.insert("effects", effects(model.inserts));
+            QJsonArray sends;
+            for (const auto& send : model.sends)
+                sends.append(QJsonObject{{"return", static_cast<int>(send.bus)},
+                                         {"levelDb", send.level_db},
+                                         {"preFader", send.pre_fader}});
+            track.insert("sends", sends);
+        }
+        tracks.append(track);
+    }
+    QJsonArray returns;
+    for (std::size_t index = 0; index < song.returns.size(); ++index) {
+        const auto& bus = song.returns[index];
+        returns.append(QJsonObject{{"index", static_cast<int>(index)},
+                                   {"name", QString::fromStdString(bus.name)},
+                                   {"gainDb", bus.mix.gain_db},
+                                   {"pan", bus.mix.pan},
+                                   {"mute", bus.mix.mute},
+                                   {"effects", effects(bus.inserts)}});
+    }
     QJsonArray patterns;
-    for (const auto& row : song_.sections())
-        patterns.append(pick(row.toMap(), {"index", "name", "events", "current"}));
+    const auto sections = song_.sections();
+    for (int index = 0; index < sections.size(); ++index) {
+        auto section = pick(sections.at(index).toMap(), {"index", "name", "events", "current"});
+        const int part = song_.partOf(index, 0);
+        if (part >= 0) {
+            const auto& pattern = song.patterns.at(static_cast<std::size_t>(part)).pattern;
+            section.insert("steps", static_cast<int>(pattern.length() / std::max<blokkily::Tick>(1, pattern.ticks_per_beat() / 4)));
+            section.insert("swing", pattern.swing());
+        }
+        patterns.append(section);
+    }
     QJsonArray clips;
     for (const auto& row : song_.clips())
         clips.append(pick(row.toMap(), {"track", "name", "bar", "bars"}));
@@ -142,6 +223,8 @@ QJsonObject McpTools::getSession() const {
         {"scale", song_.scaleName()},
         {"root", song_.rootName()},
         {"masterGainDb", song_.masterGainDb()},
+        {"returns", returns},
+        {"masterEffects", effects(song.master_inserts)},
         {"transport", transportState()},
         {"status", controller_.status()},
     });
@@ -165,6 +248,7 @@ QJsonObject McpTools::getPattern(const QJsonObject& arguments) const {
         if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
             entry.insert("key", note->key);
             entry.insert("velocity", note->velocity);
+            if (note->cents != 0.0) entry.insert("cents", note->cents);
         } else if (const auto* chord = std::get_if<blokkily::Chord>(&trigger.musical_data)) {
             QJsonArray keys;
             for (const auto interval : chord->intervals) keys.append(chord->root + interval);
@@ -209,6 +293,7 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         double length;
         int key;
         float velocity;
+        double cents;
     };
     std::vector<Wanted> wanted;
     const auto notes = arguments.value("notes").toArray();
@@ -218,11 +303,14 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         const double step = note.value("step").toDouble(-1.0);
         const double length = note.value("length").toDouble(1.0);
         const double velocity = note.value("velocity").toDouble(0.8);
+        const double cents = note.value("cents").toDouble(0.0);
         if (!key) return failure(QStringLiteral("Note %1: key must be 0 to 127 or a name like C4.").arg(index));
         if (step < 0) return failure(QStringLiteral("Note %1: step must be 0 or more.").arg(index));
         if (length <= 0) return failure(QStringLiteral("Note %1: length must be more than 0.").arg(index));
         if (velocity < 0 || velocity > 1) return failure(QStringLiteral("Note %1: velocity must be 0 to 1.").arg(index));
-        wanted.push_back({step, length, *key, static_cast<float>(velocity)});
+        if (!(cents >= -100.0 && cents <= 100.0))
+            return failure(QStringLiteral("Note %1: cents must be -100 to 100.").arg(index));
+        wanted.push_back({step, length, *key, static_cast<float>(velocity), cents});
     }
     // The part is opened, as a click on its lane would, so the editors show
     // what is written.
@@ -250,7 +338,7 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         trigger.duration = std::max<blokkily::Tick>(
             1, std::min<blokkily::Tick>(static_cast<blokkily::Tick>(std::llround(note.length * step_ticks)),
                                         pattern.length() - trigger.start));
-        trigger.musical_data = blokkily::Note{static_cast<std::int16_t>(note.key), note.velocity, 0.0F};
+        trigger.musical_data = blokkily::Note{static_cast<std::int16_t>(note.key), note.velocity, 0.0F, note.cents};
         if (pattern.add(std::move(trigger)) != 0) ++written;
     }
     song_.notifyStructureChanged();
@@ -259,6 +347,58 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
                                   {"track", track},
                                   {"pattern", section},
                                   {"notes", static_cast<int>(pattern.events().size())}});
+}
+
+// Opening the section and acting on it happen in one call: while the song
+// plays, the window opens whichever section the playhead is in, so an open
+// section chosen by one call may be gone by the next.
+QJsonObject McpTools::setSection(const QJsonObject& arguments) {
+    const int section = arguments.value("section").toInt(-1);
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    const bool steps = arguments.contains("steps"), swing = arguments.contains("swing"),
+               name = arguments.contains("name");
+    if (!steps && !swing && !name) return failure(QStringLiteral("Give steps, swing or name."));
+    // Every value is checked before anything changes.
+    if (steps && arguments.value("steps").toInt(0) < 1)
+        return failure(QStringLiteral("steps must be 1 or more."));
+    const int amount = arguments.value("swing").toInt(-1);
+    if (swing && (amount < 0 || amount > 100)) return failure(QStringLiteral("swing is 0 to 100."));
+    if (name && arguments.value("name").toString().trimmed().isEmpty())
+        return failure(QStringLiteral("name must not be empty."));
+    song_.selectSection(section);
+    if (steps && !song_.setPatternSteps(arguments.value("steps").toInt()))
+        return failure(QStringLiteral("Pattern %1 could not be made %2 steps long.").arg(section).arg(arguments.value("steps").toInt()));
+    if (swing) (void)song_.setPatternSwing(amount);
+    if (name) song_.renamePattern(section, arguments.value("name").toString().trimmed());
+    const auto& open = song_.editPattern();
+    return jsonResult(QJsonObject{
+        {"section", section},
+        {"name", song_.sections().at(section).toMap().value("name").toString()},
+        {"steps", static_cast<int>(open.length() / std::max<blokkily::Tick>(1, open.ticks_per_beat() / 4))},
+        {"swing", open.swing()}});
+}
+
+QJsonObject McpTools::placeSection(const QJsonObject& arguments) {
+    const int section = arguments.value("section").toInt(-1);
+    const int bar = arguments.value("bar").toInt(-1);
+    if (section < 0 || section >= song_.sections().size())
+        return failure(QStringLiteral("There is no pattern %1.").arg(section));
+    if (bar < 0) return failure(QStringLiteral("bar must be 0 or more."));
+    const bool one = arguments.contains("track");
+    const int track = arguments.value("track").toInt(-1);
+    if (one && (track < 0 || track >= song_.trackCount()))
+        return failure(QStringLiteral("There is no track %1.").arg(track));
+    const auto before = song_.song().clips.size();
+    song_.selectSection(section);
+    if (one) song_.placeClip(track, bar);
+    else song_.placeSection(bar);
+    const auto placed = static_cast<int>(song_.song().clips.size() - before);
+    if (placed <= 0)
+        return failure(one ? QStringLiteral("Track %1 already has a clip at bar %2.").arg(track).arg(bar)
+                           : QStringLiteral("Every track already has a clip at bar %1.").arg(bar));
+    return jsonResult(QJsonObject{{"section", section}, {"bar", bar}, {"placed", placed},
+                                  {"bars", song_.bars()}});
 }
 
 QJsonObject McpTools::runTransport(const QJsonObject& arguments) {
@@ -323,28 +463,30 @@ QJsonObject McpTools::analyzeRender(const QJsonObject& arguments) {
 }
 
 QJsonObject McpTools::listParameters(const QJsonObject& arguments) const {
-    const int track = arguments.value("track").toInt(song_.selectedTrack());
-    const int slot = arguments.value("slot").toInt(-1);
-    if (track < 0 || track >= song_.trackCount())
-        return failure(QStringLiteral("There is no track %1.").arg(track));
-    const auto rows = controller_.insertParameters(QStringLiteral("track"), track, slot);
+    const auto bus = busOf(arguments, song_.selectedTrack(), song_.trackCount(),
+                           static_cast<int>(song_.song().returns.size()));
+    if (!bus.error.isEmpty()) return failure(bus.error);
+    const int slot = arguments.value("slot").toInt(bus.kind == "track" ? -1 : 0);
+    const auto rows = controller_.insertParameters(bus.kind, bus.bus, slot);
     if (rows.isEmpty())
-        return failure(slot < 0 ? QStringLiteral("Track %1's instrument has no parameters to set (or none is loaded).").arg(track)
-                                : QStringLiteral("Track %1 has no effect in slot %2 with parameters.").arg(track).arg(slot));
+        return failure(slot < 0 ? QStringLiteral("%1's instrument has no parameters to set (or none is loaded).").arg(busName(bus))
+                                : QStringLiteral("%1 has no effect in slot %2 with parameters.").arg(busName(bus)).arg(slot));
     QJsonArray parameters;
     for (const auto& row : rows) parameters.append(QJsonObject::fromVariantMap(row.toMap()));
-    return jsonResult(QJsonObject{{"track", track}, {"slot", slot}, {"parameters", parameters}});
+    QJsonObject result{{"slot", slot}, {"parameters", parameters}};
+    nameBus(result, bus);
+    return jsonResult(result);
 }
 
 QJsonObject McpTools::setParameter(const QJsonObject& arguments) {
-    const int track = arguments.value("track").toInt(song_.selectedTrack());
-    const int slot = arguments.value("slot").toInt(-1);
-    if (track < 0 || track >= song_.trackCount())
-        return failure(QStringLiteral("There is no track %1.").arg(track));
+    const auto bus = busOf(arguments, song_.selectedTrack(), song_.trackCount(),
+                           static_cast<int>(song_.song().returns.size()));
+    if (!bus.error.isEmpty()) return failure(bus.error);
+    const int slot = arguments.value("slot").toInt(bus.kind == "track" ? -1 : 0);
     // The parameter by its id, or by its name as list_parameters shows it.
     const auto wanted = arguments.value("parameter");
     QVariantMap found;
-    for (const auto& row : controller_.insertParameters(QStringLiteral("track"), track, slot)) {
+    for (const auto& row : controller_.insertParameters(bus.kind, bus.bus, slot)) {
         const auto entry = row.toMap();
         if ((wanted.isDouble() && entry.value("id").toInt() == wanted.toInt()) ||
             (wanted.isString() && entry.value("name").toString().compare(wanted.toString(), Qt::CaseInsensitive) == 0))
@@ -358,23 +500,39 @@ QJsonObject McpTools::setParameter(const QJsonObject& arguments) {
     if (value < low || value > high)
         return failure(QStringLiteral("%1 takes %2 to %3.").arg(found.value("name").toString()).arg(low).arg(high));
     const int id = found.value("id").toInt();
-    if (!controller_.automateInsert(QStringLiteral("track"), track, slot, id))
-        return failure(QStringLiteral("%1 could not be given a lane.").arg(found.value("name").toString()));
+    const blokkily::ProcessorAddress where{bus.address_kind, static_cast<std::uint32_t>(bus.bus), slot};
+    // The track whose lane holds the parameter: a track's own, or for a
+    // return or the master, whichever track already has a lane for it, else
+    // the selected track, where the window's controls would put one.
+    const auto lane_on = [&](int owner) {
+        const auto& lanes = song_.song().tracks.at(static_cast<std::size_t>(owner)).automation;
+        for (std::size_t index = 0; index < lanes.size(); ++index)
+            if (lanes[index].target.kind == blokkily::AutomationTarget::Kind::parameter &&
+                lanes[index].target.processor == where && lanes[index].target.parameter_index == id)
+                return static_cast<int>(index);
+        return -1;
+    };
+    int owner = bus.kind == "track" ? bus.bus : song_.selectedTrack();
+    if (bus.kind != "track")
+        for (int track = 0; track < song_.trackCount(); ++track)
+            if (lane_on(track) >= 0) owner = track;
+    if (lane_on(owner) < 0) {
+        if (!controller_.automateInsert(bus.kind, bus.bus, slot, id))
+            return failure(QStringLiteral("%1 could not be given a lane.").arg(found.value("name").toString()));
+    }
     // The lane the parameter has: one value for the whole song, unless it is
     // already automated, which is the producer's to edit.
-    const auto& lanes = song_.song().tracks.at(static_cast<std::size_t>(track)).automation;
-    int lane = -1;
-    for (std::size_t index = 0; index < lanes.size(); ++index)
-        if (lanes[index].target.kind == blokkily::AutomationTarget::Kind::parameter &&
-            lanes[index].target.processor.slot == slot && lanes[index].target.parameter_index == id)
-            lane = static_cast<int>(index);
+    const int lane = lane_on(owner);
     if (lane < 0) return failure(QStringLiteral("The lane could not be found."));
+    const auto& lanes = song_.song().tracks.at(static_cast<std::size_t>(owner)).automation;
     if (lanes[static_cast<std::size_t>(lane)].points.size() > 1)
         return failure(QStringLiteral("%1 is automated across the song; edit its lane instead.").arg(found.value("name").toString()));
-    if (song_.moveAutomationPoint(track, lane, 0, 0.0, value) < 0)
+    if (song_.moveAutomationPoint(owner, lane, 0, 0.0, value) < 0)
         return failure(QStringLiteral("%1 could not be set.").arg(found.value("name").toString()));
-    return jsonResult(QJsonObject{{"track", track}, {"slot", slot}, {"parameter", id},
-                                  {"name", found.value("name").toString()}, {"value", value}});
+    QJsonObject result{{"slot", slot}, {"parameter", id}, {"name", found.value("name").toString()},
+                       {"value", value}, {"laneTrack", owner}};
+    nameBus(result, bus);
+    return jsonResult(result);
 }
 
 QJsonObject McpTools::setSoundFontPreset(const QJsonObject& arguments) {

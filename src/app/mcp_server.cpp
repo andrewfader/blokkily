@@ -34,7 +34,14 @@ bool McpServer::listen(const QString& path, const blokkily::mcp::SocketLock& loc
 
 void McpServer::accept() {
     while (QLocalSocket* socket = server_.nextPendingConnection()) {
-        QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
+        // A long tool (a render) turns the event loop while it works, so an
+        // agent can hang up while its request is being answered. Its socket
+        // is then still on the stack, in serve() and in the signal that
+        // called it, and is deleted only once serve() has returned.
+        QObject::connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
+            if (serving_.contains(socket)) hung_up_.insert(socket);
+            else socket->deleteLater();
+        });
         // A message may arrive in pieces, or several in one read; each whole
         // line is answered in order.
         QObject::connect(socket, &QLocalSocket::readyRead, this, [this, socket] { serve(socket); });
@@ -42,12 +49,21 @@ void McpServer::accept() {
 }
 
 void McpServer::serve(QLocalSocket* socket) {
-    while (!held_ && socket->canReadLine()) {
+    if (serving_.contains(socket)) return;
+    serving_.insert(socket);
+    while (!held_ && !hung_up_.contains(socket) && socket->canReadLine()) {
         const QByteArray line = socket->readLine();
-        if (const auto reply = session_.handleLine(line)) {
+        const auto reply = session_.handleLine(line);
+        // An agent that hung up meanwhile is owed nothing.
+        if (reply && !hung_up_.contains(socket)) {
             socket->write(*reply);
             socket->write("\n");
         }
+    }
+    serving_.remove(socket);
+    if (hung_up_.remove(socket)) {
+        socket->deleteLater();
+        return;
     }
     socket->flush();
 }

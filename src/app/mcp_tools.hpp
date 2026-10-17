@@ -6,6 +6,9 @@
 // heard from the next block, drawn in every editor, and undone by UNDO.
 // Main (GUI) thread only.
 
+#include "blokkily/model/song.hpp"
+
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
 
@@ -29,6 +32,9 @@ private:
     QJsonObject getSession() const;
     QJsonObject getPattern(const QJsonObject& arguments) const;
     QJsonObject writeNotes(const QJsonObject& arguments);
+    QJsonObject setSection(const QJsonObject& arguments);
+    QJsonObject placeSection(const QJsonObject& arguments);
+    QJsonArray effects(const std::vector<blokkily::EffectSlot>& chain) const;
     QJsonObject runTransport(const QJsonObject& arguments);
     QJsonObject listPlugins() const;
     QJsonObject setInstrument(const QJsonObject& arguments);

@@ -6,6 +6,7 @@
 // window's event loop keeps turning, because it is the window that answers.
 
 #include "verify/harness.hpp"
+#include "load_progress.hpp"
 #include "mcp_server.hpp"
 #include "mcp_tools.hpp"
 
@@ -77,6 +78,16 @@ public:
         return std::nullopt;
     }
     void notify(const QString& method) { send({{"jsonrpc", "2.0"}, {"method", method}}); }
+    // Asks for a tool and does not wait for the answer.
+    void post(const QString& name, const QJsonObject& arguments = {}) {
+        send({{"jsonrpc", "2.0"}, {"id", ++next_id_}, {"method", "tools/call"},
+              {"params", QJsonObject{{"name", name}, {"arguments", arguments}}}});
+    }
+    // The agent gives up and kills its bridge, as a client that times out does.
+    void hangUp() {
+        bridge_.kill();
+        bridge_.waitForFinished(2000);
+    }
 
     // A tool's result, or an empty object when the call itself failed.
     QJsonObject tool(const QString& name, const QJsonObject& arguments = {}) {
@@ -177,7 +188,8 @@ void run_mcp(VerifyContext& ctx) {
     if (listed)
         for (const auto& entry : listed->value("result").toObject().value("tools").toArray())
             names << entry.toObject().value("name").toString();
-    for (const char* expected : {"get_session", "get_pattern", "write_notes", "transport",
+    for (const char* expected : {"get_session", "get_pattern", "write_notes", "set_section",
+                                 "place_section", "transport",
                                  "list_plugins", "set_instrument", "list_parameters",
                                  "set_parameter", "set_soundfont_preset", "screenshot",
                                  "describe", "call", "get_property", "analyze_render"})
@@ -526,6 +538,207 @@ void run_mcp(VerifyContext& ctx) {
     check(isError(agent.tool("analyze_render", {{"file", exports.filePath("missing.wav")}})));
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent writes a note between keys, and it is heard there");
+    double cents_ratio = 0.0;
+    {
+        // One long A4 on the fixture's sine, then the same note a quarter
+        // tone up: its pitch, read off the render, rises by 50 cents.
+        const auto a4 = [&](double cents) {
+            return agent.tool("write_notes",
+                              {{"track", 0}, {"section", 0}, {"replace", true},
+                               {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", "A4"},
+                                                                {"length", 16}, {"cents", cents}}}}});
+        };
+        check(!isError(a4(0.0)));
+        const double plain = analyze({{"track", 0}}).value("spectralCentroidHz").toDouble();
+        check(!isError(a4(50.0)));
+        const auto read = agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
+                              .value("structuredContent").toObject().value("notes").toArray();
+        check(read.size() == 1 && read.at(0).toObject().value("cents").toDouble() == 50.0);
+        const double raised = analyze({{"track", 0}}).value("spectralCentroidHz").toDouble();
+        cents_ratio = raised / plain;
+        check(std::abs(plain - 440.0) < 5.0);
+        check(std::abs(cents_ratio - std::pow(2.0, 50.0 / 1200.0)) < 0.004);
+        // Out of range is refused, and the part keeps its note.
+        check(isError(agent.tool("write_notes",
+                                 {{"track", 0}, {"section", 0},
+                                  {"notes", QJsonArray{QJsonObject{{"step", 1}, {"key", 60}, {"cents", 150}}}}})));
+        check(agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
+                  .value("structuredContent").toObject().value("notes").toArray().size() == 1);
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent sets an effect on a return and on the master by name");
+    double master_drop = 0.0, return_drop = 0.0;
+    {
+        int saturation = -1;
+        for (const auto& entry : agent.tool("list_plugins").value("structuredContent").toObject().value("plugins").toArray())
+            if (entry.toObject().value("name").toString() == "Saturation" &&
+                entry.toObject().value("kind").toString() == "effect")
+                saturation = entry.toObject().value("index").toInt();
+        check(saturation >= 0);
+        const auto call = [&agent](const char* object, const char* method, const QJsonArray& args) {
+            return agent.tool("call", {{"object", QLatin1String(object)}, {"method", QLatin1String(method)}, {"args", args}});
+        };
+        // Saturation on the master, and on a return that track 0 sends to.
+        check(!isError(call("songModel", "selectRack", {"master", 0})));
+        check(textOf(call("appController", "addEffect", {saturation})) == "true");
+        const int bus = textOf(call("songModel", "addReturn", {})).toInt();
+        check(bus >= 0 && bus < static_cast<int>(song.song().returns.size()));
+        check(!isError(call("songModel", "setSendLevel", {0, bus, 0.0})));
+        check(!isError(call("songModel", "selectRack", {"return", bus})));
+        check(textOf(call("appController", "addEffect", {saturation})) == "true");
+        // Each is listed and set by name, as a track's is.
+        bool has_output = false;
+        for (const auto& entry : agent.tool("list_parameters", {{"master", true}, {"slot", 0}})
+                                     .value("structuredContent").toObject().value("parameters").toArray())
+            has_output = has_output || entry.toObject().value("name").toString() == "Output";
+        check(has_output);
+        check(!isError(agent.tool("list_parameters", {{"return", bus}})));
+        const auto set = [&agent](const QJsonObject& where, double value) {
+            QJsonObject arguments = where;
+            arguments.insert("parameter", "output");
+            arguments.insert("value", value);
+            return agent.tool("set_parameter", arguments);
+        };
+        const int lanes_before = static_cast<int>(song.song().tracks.at(0).automation.size());
+        song.selectTrack(0);
+        check(!isError(set({{"master", true}}, 0.0)));
+        const double master_open = analyze({}).value("integratedLufs").toDouble(1.0);
+        const auto lowered = set({{"master", true}}, -12.0).value("structuredContent").toObject();
+        check(lowered.value("laneTrack").toInt() == 0 && lowered.value("master").toBool());
+        // The second value moves the one lane rather than adding another.
+        check(static_cast<int>(song.song().tracks.at(0).automation.size()) == lanes_before + 1);
+        master_drop = master_open - analyze({}).value("integratedLufs").toDouble(1.0);
+        check(std::abs(master_drop - 12.0) < 0.1);
+        check(!isError(set({{"return", bus}}, 0.0)));
+        const double return_open = analyze({{"return", bus}}).value("integratedLufs").toDouble(1.0);
+        check(!isError(set({{"return", bus}}, -12.0)));
+        return_drop = return_open - analyze({{"return", bus}}).value("integratedLufs").toDouble(1.0);
+        check(std::abs(return_drop - 12.0) < 0.1);
+        // A lane already on another track is the one that moves.
+        song.selectTrack(1);
+        check(set({{"master", true}}, -6.0).value("structuredContent").toObject().value("laneTrack").toInt() == 0);
+        song.selectTrack(0);
+        // Refusals.
+        check(isError(set({{"return", bus + 1}}, 0.0)));
+        check(isError(set({{"master", true}, {"track", 0}}, 0.0)));
+        check(isError(set({{"master", true}}, 99.0)));
+        check(isError(agent.tool("list_parameters", {{"master", true}, {"slot", -1}})));
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the session shows each bus's effects and sends");
+    {
+        const auto view = agent.tool("get_session").value("structuredContent").toObject();
+        const auto named_saturation = [](const QJsonArray& effects) {
+            return effects.size() == 1 &&
+                   effects.at(0).toObject().value("name").toString().contains("saturation", Qt::CaseInsensitive) &&
+                   effects.at(0).toObject().value("slot").toInt() == 0;
+        };
+        check(named_saturation(view.value("masterEffects").toArray()));
+        const auto returns = view.value("returns").toArray();
+        check(returns.size() == static_cast<int>(song.song().returns.size()) && !returns.isEmpty());
+        check(named_saturation(returns.last().toObject().value("effects").toArray()));
+        const auto lead = view.value("tracks").toArray().at(0).toObject();
+        check(lead.value("effects").toArray().isEmpty());
+        const auto sends = lead.value("sends").toArray();
+        check(sends.size() == 1 && sends.at(0).toObject().value("return").toInt() == returns.size() - 1 &&
+              sends.at(0).toObject().value("levelDb").toDouble() == 0.0);
+        check(view.value("patterns").toArray().at(0).toObject().value("steps").toInt() == 16);
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent shapes and places a pattern while the song plays");
+    {
+        const auto call = [&agent](const char* object, const char* method, const QJsonArray& args) {
+            return agent.tool("call", {{"object", QLatin1String(object)}, {"method", QLatin1String(method)}, {"args", args}});
+        };
+        check(!isError(call("songModel", "addPattern", {})));
+        const int added = static_cast<int>(song.song().sections.size()) - 1;
+        check(added >= 1);
+        // The playhead keeps the section it plays open, as the window does.
+        check(!isError(call("appController", "setFollowPlayback", {true})));
+        check(!isError(agent.tool("transport", {{"action", "seek"}, {"bar", 0}})));
+        check(!isError(agent.tool("transport", {{"action", "play"}})));
+        (void)heard(8);
+        check(song.currentSection() == 0);
+        const auto shaped = agent.tool("set_section", {{"section", added}, {"steps", 32}, {"swing", 25}, {"name", "BRIDGE"}});
+        check(!isError(shaped));
+        const auto section_length = [&](int section) {
+            blokkily::Tick length = -1;
+            for (const auto& slot : song.song().patterns)
+                if (static_cast<int>(slot.section) == section) {
+                    if (length >= 0 && slot.pattern.length() != length) return blokkily::Tick{-2};
+                    length = slot.pattern.length();
+                }
+            return length;
+        };
+        check(section_length(added) == 32 * 120);
+        check(section_length(0) == 16 * 120);
+        check(song.song().patterns.at(static_cast<std::size_t>(song.partOf(added, 0))).pattern.swing() == 25);
+        check(song.sections().at(added).toMap().value("name").toString() == "BRIDGE");
+        const auto placed = agent.tool("place_section", {{"section", added}, {"bar", 8}});
+        check(!isError(placed) &&
+              placed.value("structuredContent").toObject().value("placed").toInt() ==
+                  static_cast<int>(song.song().tracks.size()));
+        bool at_bar_eight = false;
+        for (const auto& entry : agent.tool("get_session").value("structuredContent").toObject().value("clips").toArray())
+            at_bar_eight = at_bar_eight || (entry.toObject().value("bar").toInt() == 8 &&
+                                            entry.toObject().value("name").toString() == "BRIDGE" &&
+                                            entry.toObject().value("bars").toInt() == 2);
+        check(at_bar_eight);
+        const auto one = agent.tool("place_section", {{"section", added}, {"bar", 12}, {"track", 0}});
+        check(!isError(one) && one.value("structuredContent").toObject().value("placed").toInt() == 1);
+        // Refusals change nothing.
+        const auto clips = song.song().clips.size();
+        check(isError(agent.tool("place_section", {{"section", added}, {"bar", 8}})));
+        check(isError(agent.tool("place_section", {{"section", 99}, {"bar", 16}})));
+        check(isError(agent.tool("place_section", {{"section", added}, {"bar", 16}, {"track", 9}})));
+        check(song.song().clips.size() == clips);
+        check(isError(agent.tool("set_section", {{"section", 99}, {"steps", 16}})));
+        check(isError(agent.tool("set_section", {{"section", added}, {"steps", 0}})));
+        check(isError(agent.tool("set_section", {{"section", added}, {"swing", 150}})));
+        check(isError(agent.tool("set_section", {{"section", added}})));
+        check(section_length(added) == 32 * 120);
+        check(!isError(agent.tool("transport", {{"action", "stop"}})));
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: an agent that hangs up during a long call leaves the window running");
+    {
+        // The render draws frames while it works; the agent hangs up on the
+        // first, so the window learns of it with the answer still owed.
+        Agent impatient(socket, false);
+        check(impatient.started());
+        check(impatient.request("initialize", {{"protocolVersion", "2025-06-18"}}).has_value());
+        // Every percent is drawn at once, so the render pumps the event loop
+        // from its start.
+        controller.progress()->setTiming(0, 0);
+        bool hung_up = false;
+        const auto hang_up = QObject::connect(controller.progress(), &LoadProgress::frameDrawn, [&] {
+            if (hung_up) return;
+            hung_up = true;
+            impatient.hangUp();
+        });
+        impatient.post("analyze_render");
+        QElapsedTimer clock;
+        clock.start();
+        while (!hung_up && clock.elapsed() < 15000) QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        // Whatever the render still owes is answered into the closed line.
+        for (int turn = 0; turn < 50; ++turn) QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        QObject::disconnect(hang_up);
+        controller.progress()->setTiming(LoadProgress::default_reveal_ms, LoadProgress::default_frame_ms);
+        check(hung_up);
+        // The window still answers the next agent.
+        Agent next(socket, false);
+        check(next.started());
+        check(next.request("initialize", {{"protocolVersion", "2025-06-18"}}).has_value());
+        check(!isError(next.tool("get_session")));
+        check(next.close());
+    }
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: without a window the bridge still answers, and says why calls fail");
     {
         Agent alone(socket + "-nobody", false);
@@ -622,7 +835,8 @@ void run_mcp(VerifyContext& ctx) {
             << " | set_parameter 0 -> " << set_to_zero << ", 0.25 -> " << set_up
             << " | soundfont preset heard " << soundfont_heard << " | mix " << mix_lufs
             << " LUFS, lead " << lead_lufs << " LUFS, lowMid share " << lead_low_mid
-            << ", fader -6 dB -> " << fader_drop << " LU";
+            << ", fader -6 dB -> " << fader_drop << " LU | +50 cents -> pitch x" << cents_ratio
+            << " | master output -12 dB -> " << master_drop << " LU, return -> " << return_drop << " LU";
     ctx.finish(details.str());
 }
 

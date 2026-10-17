@@ -29,14 +29,16 @@ Blokkily can connect.
 
 | Tool | Use |
 | --- | --- |
-| `get_session` | Read the session |
+| `get_session` | Read the session, including each bus's effects and sends |
 | `get_pattern` | Read a pattern |
-| `write_notes` | Write notes |
+| `write_notes` | Write notes, each retuned from its key by up to ±100 `cents` |
+| `set_section` | Set a pattern's length, swing or name |
+| `place_section` | Place a pattern's clips at a bar, on every track or one |
 | `transport` | Control playback |
 | `list_plugins` | List plugins |
 | `set_instrument` | Assign an instrument |
-| `list_parameters` | List parameters |
-| `set_parameter` | Set a synth preset or knob by name |
+| `list_parameters` | List the parameters of a track's instrument or effect, or of an effect on a `return` or the `master` |
+| `set_parameter` | Set a synth preset or knob by name, on a track, a `return` or the `master` |
 | `set_soundfont_preset` | Set a General MIDI bank and program |
 | `screenshot` | Capture the window |
 | `analyze_render` | Measure the mix, a track, a return or a WAVE file: loudness, peaks, stereo image, band energy |
@@ -44,6 +46,18 @@ Blokkily can connect.
 
 The generic tools cover mixer controls, effects, automation, clips, tempo,
 tuning, saving, exporting and undo.
+
+`set_section` and `place_section` name the pattern they act on, so they are
+safe while the song plays: the window keeps open whichever pattern the playhead
+is in, and a pattern opened by one call may be gone by the next.
+
+`set_parameter` holds a parameter at one value for the whole song with a lane.
+A track's lane is on that track. An effect on a return or the master has its
+lane on the selected track, or on whichever track already has one for it.
+
+A call is answered when its work is done; an export or `analyze_render` takes
+as long as the render. An agent that hangs up before then is owed nothing, and
+the window carries on.
 
 ## Measuring a render
 

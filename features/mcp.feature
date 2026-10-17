@@ -85,6 +85,45 @@ Feature: An agent drives Blokkily over MCP
     And a track or return that does not exist, a track and a file together, or a missing file is refused
     And measuring leaves the transport stopped where it was
 
+  Scenario: The agent writes a note between keys, and it is heard there
+    Given the CLAP track plays one long A4 sine, written with write_notes
+    When the agent writes the same note with cents 50
+    Then get_pattern reads the note back with its 50 cents
+    And the track's rendered pitch is a quarter tone higher than the plain A4's
+    And a note retuned by more than 100 cents is refused, and the part keeps its note
+
+  Scenario: The agent sets an effect on a return and on the master by name
+    Given a Saturation on the master, and one on a return that the CLAP track sends to
+    When the agent calls list_parameters for the master's slot 0
+    Then it reads Output with its range, and the return's effect is listed too
+    When it sets the master's "output" from 0 to -12 with set_parameter
+    Then the master renders 12 LU quieter, from one lane kept on the selected track
+    When it sets the return's "output" from 0 to -12
+    Then the return renders 12 LU quieter
+    And with another track selected, the master's existing lane is the one that moves
+    And a return that does not exist, a track named beside the master, a value out of range, or the master's instrument slot is refused
+
+  Scenario: The session shows each bus's effects and sends
+    Given Saturation on the master and on a return that the CLAP track sends to
+    When the agent calls get_session
+    Then it reads the master's and the return's effects by name and slot
+    And the track's send to that return with its level, and each pattern's length
+
+  Scenario: The agent shapes and places a pattern while the song plays
+    Given the song plays with the window following the playhead, which keeps the first pattern open
+    When the agent adds a pattern and calls set_section for it with 32 steps, swing 25 and the name BRIDGE
+    Then every part of that pattern is 32 steps long with swing 25, and the open first pattern keeps its 16
+    When it calls place_section for BRIDGE at bar 8
+    Then every track has a two-bar BRIDGE clip there, and get_session reads it back
+    And place_section with a track places that track's part alone
+    And a bar already taken, a pattern or track that does not exist, a length under one step, a swing over 100, or no change at all is refused, changing nothing
+
+  Scenario: An agent that hangs up during a long call leaves the window running
+    Given an agent has asked for analyze_render
+    When it kills its bridge while the window is still rendering
+    Then the window drops the answer it owed instead of writing it to the closed connection
+    And the next agent that connects is answered
+
   Scenario: Without a window the bridge still answers, and says why calls fail
     Given nothing is listening on the bridge's socket and it may not start Blokkily
     When an agent initializes and lists the tools

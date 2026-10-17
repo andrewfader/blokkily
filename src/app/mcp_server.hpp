@@ -10,6 +10,7 @@
 
 #include <QLocalServer>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 class McpServer final : public QObject {
@@ -37,6 +38,11 @@ private:
 
     McpTools& tools_;
     blokkily::mcp::Session session_;
+    // Sockets whose requests are being answered, and those of them whose
+    // agent hung up meanwhile. Declared before the server, whose sockets
+    // still say they disconnected while it is destroyed.
+    QSet<class QLocalSocket*> serving_;
+    QSet<class QLocalSocket*> hung_up_;
     QLocalServer server_;
     QString error_;
     bool held_ = false;

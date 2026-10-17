@@ -373,6 +373,8 @@ public:
     [[nodiscard]] blokkily::TunedPitch pitchForDegree(int degree) const;
     // The degree a played one becomes once the scale has its say.
     [[nodiscard]] int snapDegree(int degree) const;
+    // What an effect is called in the racks, so every reader names it alike.
+    [[nodiscard]] QString effectLabel(const blokkily::PluginSlot& slot) const;
 
     // --- Audio clips (song_model_audio.cpp) ---------------------------------
     // Every edit names its clip by AudioClip::id, which survives other clips
@@ -718,7 +720,6 @@ private:
     std::vector<int> instrument_outputs_;
     std::map<std::string, QString> plugin_names_;
     ParameterNamer parameter_namer_;
-    [[nodiscard]] QString effectLabel(const blokkily::PluginSlot& slot) const;
     [[nodiscard]] bool validTrack(int track) const;
     bool editArpeggiator(int track, const std::function<void(blokkily::Arpeggiator&)>& edit);
     [[nodiscard]] blokkily::Modulator* modulatorAt(int modulator);
