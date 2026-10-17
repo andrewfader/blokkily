@@ -19,52 +19,6 @@
 
 namespace blokkily {
 
-namespace {
-// RtAudio 5.x added RtAudio::getApiName(), getApiDisplayName() and
-// getCompiledApiByName(); the RtAudio 4.1.2 this tree builds against predates
-// them. These local equivalents use the same names 5.x uses, so the behavior
-// is identical whichever RtAudio compiles this file.
-std::string rtaudio_api_name(RtAudio::Api api) {
-    switch (api) {
-        case RtAudio::UNSPECIFIED: return "unspecified";
-        case RtAudio::LINUX_ALSA: return "alsa";
-        case RtAudio::LINUX_PULSE: return "pulse";
-        case RtAudio::LINUX_OSS: return "oss";
-        case RtAudio::UNIX_JACK: return "jack";
-        case RtAudio::MACOSX_CORE: return "core";
-        case RtAudio::WINDOWS_WASAPI: return "wasapi";
-        case RtAudio::WINDOWS_ASIO: return "asio";
-        case RtAudio::WINDOWS_DS: return "ds";
-        case RtAudio::RTAUDIO_DUMMY: return "dummy";
-        default: return "unspecified";
-    }
-    return "unspecified";
-}
-std::string rtaudio_api_display_name(RtAudio::Api api) {
-    switch (api) {
-        case RtAudio::UNSPECIFIED: return "Unspecified";
-        case RtAudio::LINUX_ALSA: return "ALSA";
-        case RtAudio::LINUX_PULSE: return "PulseAudio";
-        case RtAudio::LINUX_OSS: return "OSS";
-        case RtAudio::UNIX_JACK: return "JACK";
-        case RtAudio::MACOSX_CORE: return "Core Audio";
-        case RtAudio::WINDOWS_WASAPI: return "WASAPI";
-        case RtAudio::WINDOWS_ASIO: return "ASIO";
-        case RtAudio::WINDOWS_DS: return "DirectSound";
-        case RtAudio::RTAUDIO_DUMMY: return "Dummy";
-        default: return "Unspecified";
-    }
-    return "Unspecified";
-}
-RtAudio::Api rtaudio_compiled_api_by_name(const std::string& name) {
-    std::vector<RtAudio::Api> apis;
-    RtAudio::getCompiledApi(apis);
-    for (const auto api : apis)
-        if (rtaudio_api_name(api) == name) return api;
-    return RtAudio::UNSPECIFIED;
-}
-} // namespace
-
 RealtimePlayback::RealtimePlayback(std::unique_ptr<PluginInstance> instrument)
     : instrument_(std::move(instrument)) {}
 
@@ -295,7 +249,7 @@ bool RtAudioOutput::Impl::open_jack(std::string* error) {
     }
     round_trip = latency_of(jack, playback.front(), JackPlaybackLatency) +
                  (input_channels > 0 ? latency_of(jack, capture.front(), JackCaptureLatency) : 0);
-    info.api = rtaudio_api_display_name(RtAudio::UNIX_JACK);
+    info.api = RtAudio::getApiDisplayName(RtAudio::UNIX_JACK);
     info.device = device_of(playback.front());
     info.input_device = input_channels > 0 ? device_of(capture.front()) : std::string{};
     info.input_channels = input_channels;
@@ -362,7 +316,7 @@ RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::mak
     impl_->deterministic = mode == Mode::deterministic;
     if (impl_->deterministic) return;
 #if BLOKKILY_HAVE_JACK
-    if (api == rtaudio_api_name(RtAudio::UNIX_JACK)) {
+    if (api == RtAudio::getApiName(RtAudio::UNIX_JACK)) {
         impl_->use_jack = true;
         return;
     }
@@ -371,7 +325,7 @@ RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::mak
         impl_->audio = std::make_unique<RtAudio>();
         return;
     }
-    const auto chosen = rtaudio_compiled_api_by_name(api);
+    const auto chosen = RtAudio::getCompiledApiByName(api);
     if (chosen == RtAudio::UNSPECIFIED) {
         impl_->missing_api = api;
         return;
@@ -389,7 +343,7 @@ std::vector<RtAudioOutput::AudioSystem> RtAudioOutput::audio_systems() {
     std::vector<AudioSystem> systems;
     for (const auto api : apis) {
         if (api == RtAudio::RTAUDIO_DUMMY) continue;
-        systems.push_back({rtaudio_api_name(api), rtaudio_api_display_name(api)});
+        systems.push_back({RtAudio::getApiName(api), RtAudio::getApiDisplayName(api)});
     }
     return systems;
 }
@@ -449,22 +403,8 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     // (item 3.2). A server that refuses it - a capture device at another rate,
     // one that is busy - still gets an output-only stream: playing never
     // depends on recording being possible.
-    // RtAudio 4.1.2 reports failures by throwing RtAudioError rather than
-    // returning a status code: translate that into the open/fallback flow.
     unsigned int frames = requested_frames;
-    std::string open_error;
-    const auto try_open = [&](RtAudio::StreamParameters* in) {
-        try {
-            impl_->audio->openStream(&parameters, in, RTAUDIO_FLOAT32, sample_rate,
-                                     &frames, &Impl::callback, impl_.get(), &options);
-            return true;
-        } catch (const RtAudioError& e) {
-            open_error = e.getMessage();
-            if (impl_->audio->isStreamOpen()) impl_->audio->closeStream();
-            return false;
-        }
-    };
-    bool opened = false;
+    auto result = RTAUDIO_INVALID_USE;
     const auto input_device = impl_->want_input ? impl_->audio->getDefaultInputDevice() : 0U;
     const auto input_info = input_device != 0 ? impl_->audio->getDeviceInfo(input_device)
                                               : RtAudio::DeviceInfo{};
@@ -476,19 +416,23 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
         // its pair on an interface with several.
         input.nChannels = std::min(input_info.inputChannels, 8U);
         input.firstChannel = 0;
-        if (try_open(&input)) {
-            opened = true;
+        result = impl_->audio->openStream(&parameters, &input, RTAUDIO_FLOAT32, sample_rate,
+                                          &frames, &Impl::callback, impl_.get(), &options);
+        if (result == RTAUDIO_NO_ERROR) {
             impl_->input_channels = input.nChannels;
             impl_->info.input_device = input_info.name;
+        } else if (impl_->audio->isStreamOpen()) {
+            impl_->audio->closeStream();
         }
     }
-    if (!opened) {
+    if (result != RTAUDIO_NO_ERROR) {
         frames = requested_frames;
-        opened = try_open(nullptr);
+        result = impl_->audio->openStream(&parameters, nullptr, RTAUDIO_FLOAT32, sample_rate,
+                                          &frames, &Impl::callback, impl_.get(), &options);
     }
     requested_frames = frames;
-    if (!opened) {
-        if (error) *error = open_error;
+    if (result != RTAUDIO_NO_ERROR) {
+        if (error) *error = impl_->audio->getErrorText();
         return false;
     }
     impl_->info.input_channels = impl_->input_channels;
@@ -496,24 +440,7 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     impl_->info.round_trip_frames = impl_->round_trip;
     // openStream writes the block size it actually negotiated back into
     // requested_frames, which is rarely what was asked for.
-    // RtAudio 4.1.2 has no getApiDisplayName (a 5.x addition): name the API
-    // from its enum directly.
-    const auto api_display_name = [](RtAudio::Api api) {
-        switch (api) {
-            case RtAudio::LINUX_ALSA: return "ALSA";
-            case RtAudio::LINUX_PULSE: return "PulseAudio";
-            case RtAudio::LINUX_OSS: return "OSS";
-            case RtAudio::UNIX_JACK: return "JACK";
-            case RtAudio::MACOSX_CORE: return "CoreAudio";
-            case RtAudio::WINDOWS_WASAPI: return "WASAPI";
-            case RtAudio::WINDOWS_ASIO: return "ASIO";
-            case RtAudio::WINDOWS_DS: return "DirectSound";
-            case RtAudio::RTAUDIO_DUMMY: return "Dummy";
-            case RtAudio::UNSPECIFIED:
-            default: return "Unspecified";
-        }
-    };
-    impl_->info.api = api_display_name(impl_->audio->getCurrentApi());
+    impl_->info.api = RtAudio::getApiDisplayName(impl_->audio->getCurrentApi());
     impl_->info.device = impl_->audio->getDeviceInfo(parameters.deviceId).name;
     // The server decides the rate, not the caller: a device locked to 44.1 kHz
     // opens at the nearest rate it supports, and a song prepared for the rate
@@ -538,14 +465,10 @@ bool RtAudioOutput::start(std::string* error) {
         if (error) *error = "audio system '" + impl_->missing_api + "' is not available in this build";
         return false;
     }
-    // RtAudio 5.x throws RtAudioError instead of returning a status code.
-    try {
-        impl_->audio->startStream();
-        return true;
-    } catch (const RtAudioError& e) {
-        if (error) *error = e.getMessage();
-        return false;
-    }
+    const auto result = impl_->audio->startStream();
+    if (result == RTAUDIO_NO_ERROR) return true;
+    if (error) *error = impl_->audio->getErrorText();
+    return false;
 }
 
 void RtAudioOutput::stop() noexcept {
