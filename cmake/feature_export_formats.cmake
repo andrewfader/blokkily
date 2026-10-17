@@ -22,7 +22,7 @@ if(BLOKKILY_BUILD_TESTS)
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
         BLOKKILY_EXPORT_WORK="${CMAKE_BINARY_DIR}/export-formats-tests")
     add_dependencies(blokkily_export_formats_tests blokkily_test_clap)
-    foreach(case mp3 ogg extension stems stems_sum
+    foreach(case mp3 ogg extension stems stems_sum stems_one_pass range cancel
             dither_quiet dither_distortion dither_deterministic dither_bounce)
         add_test(NAME export_formats_${case} COMMAND blokkily_export_formats_tests ${case})
         set_tests_properties(export_formats_${case} PROPERTIES

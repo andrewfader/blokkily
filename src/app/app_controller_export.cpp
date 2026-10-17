@@ -44,6 +44,16 @@ std::optional<std::vector<float>> mono_of(const std::filesystem::path& file, std
 
 bool AppController::exportTrackFiles(const QString& directory, const QString& format,
                                      const QString& depth, bool dither) {
+    return exportStems(directory, format, depth, dither, 0, -1);
+}
+
+bool AppController::exportTrackFilesRange(const QString& directory, int fromBar, int toBar,
+                                          const QString& format, const QString& depth) {
+    return exportStems(directory, format, depth, false, fromBar, toBar);
+}
+
+bool AppController::exportStems(const QString& directory, const QString& format,
+                                const QString& depth, bool dither, int fromBar, int toBar) {
     if (!engine_ || !song_) {
         export_status_ = "Load an instrument before exporting";
         emit exportStatusChanged();
@@ -56,10 +66,17 @@ bool AppController::exportTrackFiles(const QString& directory, const QString& fo
     blokkily::BounceOptions options;
     options.container = container;
     options.dither = dither;
+    QString out_of_song;
+    if (!barRange(fromBar, toBar, options, &out_of_song)) {
+        export_status_ = QString("Stem export failed · %1").arg(out_of_song);
+        emit exportStatusChanged();
+        return false;
+    }
     std::string error;
     std::optional<std::vector<blokkily::StemFile>> stems;
     withEngineStopped([&](std::uint64_t tail) {
         options.progress = bounceProgress(engine_->sample_rate());
+        options.cancelled = render_cancel_;
         stems = blokkily::bounce_stems(*engine_, song_->song(), folder.toStdString(),
                                        wave_depth(depth), tail, options, &error);
     });

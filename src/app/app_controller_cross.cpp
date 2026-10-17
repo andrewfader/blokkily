@@ -43,10 +43,16 @@ QVariantList AppController::insertParameters(const QString& kind, int bus, int s
     const auto* instance = where && engine_ ? engine_->processor(*where) : nullptr;
     if (instance)
         for (const auto& parameter : instance->parameters())
-            if (parameter.automatable) result.push_back(QVariantMap{{"id", static_cast<int>(parameter.id)},
-                {"name", QString::fromStdString(parameter.name)},
-                {"minimum", parameter.min}, {"maximum", parameter.max},
-                {"default", parameter.default_value}});
+            if (parameter.automatable) {
+                QVariantMap row{{"id", static_cast<int>(parameter.id)},
+                                {"name", QString::fromStdString(parameter.name)},
+                                {"minimum", parameter.min}, {"maximum", parameter.max},
+                                {"default", parameter.default_value}};
+                // What it is set to now, without modulation, when the
+                // processor can say.
+                if (const auto value = instance->parameter_value(parameter.id)) row.insert("value", *value);
+                result.push_back(row);
+            }
     return result;
 }
 

@@ -1,6 +1,8 @@
 #include "mcp_protocol.hpp"
 
 #include <QJsonDocument>
+
+#include <cmath>
 #include <QJsonParseError>
 #include <QStandardPaths>
 #include <QDir>
@@ -112,6 +114,11 @@ QJsonArray toolDefinitions() {
                                    {"description",
                                     "Retunes the note from its key, -100 to 100 cents, for a "
                                     "pitch between keys (50 is a quarter tone up). Default 0."}}},
+             {"offset", QJsonObject{{"type", "integer"},
+                                    {"description",
+                                     "Pushes the note off its step by this many ticks (120 to a "
+                                     "step), -59 to 59, for feel: a late snare, a loose double. "
+                                     "Default 0."}}},
              {"lyric", QJsonObject{{"type", "string"},
                                    {"description",
                                     "The syllable sung on the note, in any script: \"Al-\" goes "
@@ -123,12 +130,14 @@ QJsonArray toolDefinitions() {
         tool("get_session",
              "The whole session at a glance: tracks with their instruments, mixer settings, "
              "effects and sends, the returns and the master's effects, the patterns with their "
-             "length and swing, where clips sit in the arrangement, tempo, meter, the "
+             "length and swing, where clips sit in the arrangement, the song's length in bars "
+             "(lengthBars: where the last clip ends) and its meter changes, tempo, the "
              "transport, what is selected, and whether there are unsaved changes.",
              schema({})),
         tool("get_pattern",
              "The notes of one track's part of one pattern: start step, length in steps, key "
-             "and velocity of each, its cents when it is retuned from its key, and the "
+             "and velocity of each, its cents when it is retuned from its key, its offset "
+             "in ticks when it is pushed off its step, and the "
              "parameter locks a note holds.",
              schema({{"track", track}, {"section", section}})),
         tool("write_notes",
@@ -162,7 +171,8 @@ QJsonArray toolDefinitions() {
         tool("place_section",
              "Places a pattern (section) in the arrangement at a bar: a clip of each track's "
              "part, or of one track's with track. Bars already holding a clip are left as "
-             "they are.",
+             "they are. Placing it where it already is changes nothing and answers "
+             "alreadyPlaced; a refusal names the clips in the way.",
              schema({{"section", integer("Pattern (section) index, from 0.")},
                      {"bar", integer("The bar, from 0.")},
                      {"track", integer("Only this track's part.")}},
@@ -186,7 +196,7 @@ QJsonArray toolDefinitions() {
         tool("list_parameters",
              "The parameters of a track's instrument (slot -1) or of one of its effects (slot "
              "0, 1, ...), or of an effect on a return or the master: id, name, minimum, "
-             "maximum and default of each, for set_parameter.",
+             "maximum, default and current value of each, for set_parameter.",
              schema({{"track", track}, {"slot", slot}, {"return", on_return}, {"master", on_master}})),
         tool("set_parameter",
              "Sets one parameter of a track's instrument or effect, or of an effect on a return "
@@ -217,9 +227,16 @@ QJsonArray toolDefinitions() {
              "bass 60-250, lowMid 250-500, mid 500-2k, highMid 2-4k, presence 4-6k, air 6-20k). "
              "With no arguments it measures the master mix; with track or return, that bus alone "
              "after its inserts, fader and pan; with file, a WAVE file already written, such as "
-             "a reference mix. Silent levels read null. Changes nothing in the song.",
+             "a reference mix; with all, the master, every track and every return from one "
+             "render (a list under buses, each with its source and name). fromBar and toBar "
+             "measure only those bars, starting from silence. Silent levels read null. "
+             "Changes nothing in the song.",
              schema({{"track", integer("Measure this track's bus alone.")},
                      {"return", integer("Measure this return bus alone.")},
+                     {"all", QJsonObject{{"type", "boolean"},
+                                         {"description", "Measure the master and every bus from one render."}}},
+                     {"fromBar", integer("The first bar to render, from 0. Default 0.")},
+                     {"toBar", integer("The bar to stop before. Default: the song's end.")},
                      {"file", QJsonObject{{"type", "string"},
                                           {"description", "Measure this WAVE file instead of rendering."}}}})),
         tool("describe",
@@ -283,6 +300,16 @@ QJsonArray toolDefinitions() {
                       QJsonObject{{"type", "boolean"},
                                   {"description", "Follow the song's meter again."}}}},
                     {})),
+        tool("set_meter",
+             "The song's time signature from a bar on, until the next change: it sets how "
+             "long that bar and the ones after it are, where clips are placed and how the "
+             "song plays (7/8 is 14 steps a bar). Clips and tempo points keep their bar "
+             "numbers. One step of undo. set_time_signature only changes how a pattern is "
+             "written.",
+             schema({{"bar", integer("The bar it takes effect at, from 0.")},
+                     {"numerator", integer("Beats in the bar, 1 to 64.")},
+                     {"denominator", integer("Beat unit: 1, 2, 4, 8, 16 or 32.")}},
+                    {"bar", "numerator", "denominator"})),
         tool("export_musicxml",
              "Writes a pattern as a MusicXML 4.0 partwise file: one part per track that "
              "has a part of it (or one track's with track). The file is read back and "
@@ -370,10 +397,13 @@ QString instructions() {
         "setInsertStepLock(track, pattern, step, kind, bus, slot, ...) for a return's or the "
         "master's insert), "
         "songModel.undo(), appController.saveProjectFile(path), "
-        "appController.exportAudioFile(path), appController.importMusicXmlFile(path) and "
+        "appController.exportAudioFile(path), exportAudioRange(path, fromBar, toBar) and "
+        "exportTrackFilesRange(directory, fromBar, toBar) for some bars of it, "
+        "appController.importMusicXmlFile(path) and "
         "exportMusicXmlFile(path) for a whole score). Every edit can be undone. screenshot shows the "
         "window. analyze_render measures how the mix sounds: loudness, peaks and where the "
-        "energy sits. get_score reads a part as staff notation (spelled notes plus "
+        "energy sits, of the master, one bus, or every bus at once, over the song or some "
+        "bars of it. set_meter changes the song's time signature from a bar on. get_score reads a part as staff notation (spelled notes plus "
         "MusicXML); set_clef, set_key_signature and set_time_signature dress the "
         "score; export_musicxml writes a MusicXML file and import_musicxml reads one "
         "back as one undo step. guide_events narrates what happened lately, "
@@ -402,6 +432,63 @@ QJsonObject errorResponse(const QJsonValue& id, int code, const QString& message
     return {{"jsonrpc", "2.0"},
             {"id", id},
             {"error", QJsonObject{{"code", code}, {"message", message}}}};
+}
+
+namespace {
+
+QString typeOf(const QJsonValue& value) {
+    switch (value.type()) {
+    case QJsonValue::Bool: return QStringLiteral("a boolean");
+    case QJsonValue::Double: return QStringLiteral("a number");
+    case QJsonValue::String: return QStringLiteral("a string");
+    case QJsonValue::Array: return QStringLiteral("an array");
+    case QJsonValue::Object: return QStringLiteral("an object");
+    default: return QStringLiteral("null");
+    }
+}
+
+}  // namespace
+
+QString argumentProblem(const QJsonObject& schema, const QJsonObject& arguments, const QString& where) {
+    const auto properties = schema.value("properties").toObject();
+    for (auto it = arguments.begin(); it != arguments.end(); ++it) {
+        const auto property = properties.value(it.key()).toObject();
+        const QString type = property.value("type").toString();
+        const QJsonValue value = it.value();
+        const QString name = where.isEmpty() ? it.key() : QStringLiteral("%1.%2").arg(where, it.key());
+        bool fits = true;
+        if (type == "integer")
+            fits = value.isDouble() && std::isfinite(value.toDouble()) &&
+                   value.toDouble() == std::floor(value.toDouble());
+        else if (type == "number") fits = value.isDouble();
+        else if (type == "boolean") fits = value.isBool();
+        else if (type == "string") fits = value.isString();
+        else if (type == "array") fits = value.isArray();
+        else if (type == "object") fits = value.isObject();
+        if (!fits)
+            return QStringLiteral("%1 must be %2, not %3.")
+                .arg(name,
+                     type == "integer" ? QStringLiteral("a whole number")
+                     : type == "number" ? QStringLiteral("a number")
+                     : type == "boolean" ? QStringLiteral("true or false")
+                     : QStringLiteral("a ") + type,
+                     typeOf(value));
+        if (const auto allowed = property.value("enum").toArray(); !allowed.isEmpty() && !allowed.contains(value))
+            return QStringLiteral("%1 is not one of the choices.").arg(name);
+        // An array's items are checked against the items' schema, one by one.
+        const auto items = property.value("items").toObject();
+        if (type == "array" && items.value("type").toString() == "object") {
+            const auto entries = value.toArray();
+            for (int index = 0; index < entries.size(); ++index) {
+                const QString item = QStringLiteral("%1[%2]").arg(name).arg(index);
+                if (!entries.at(index).isObject())
+                    return QStringLiteral("%1 must be an object, not %2.").arg(item, typeOf(entries.at(index)));
+                const auto problem = argumentProblem(items, entries.at(index).toObject(), item);
+                if (!problem.isEmpty()) return problem;
+            }
+        }
+    }
+    return {};
 }
 
 std::optional<QByteArray> Session::handleLine(const QByteArray& line) {
@@ -441,11 +528,17 @@ std::optional<QJsonObject> Session::handle(const QJsonObject& message) {
     if (method == "tools/call") {
         const auto params = message.value("params").toObject();
         const QString name = params.value("name").toString();
-        bool known = false;
+        std::optional<QJsonObject> input;
         for (const auto& entry : toolDefinitions())
-            if (entry.toObject().value("name").toString() == name) known = true;
-        if (!known) return errorResponse(id, -32602, QStringLiteral("Unknown tool: %1").arg(name));
-        return answer(run_tool_(name, params.value("arguments").toObject()));
+            if (entry.toObject().value("name").toString() == name)
+                input = entry.toObject().value("inputSchema").toObject();
+        if (!input) return errorResponse(id, -32602, QStringLiteral("Unknown tool: %1").arg(name));
+        // An argument of the wrong type is refused before the tool runs, so a
+        // list given as a track can never fall back to the selected track.
+        const auto arguments = params.value("arguments").toObject();
+        if (const auto problem = argumentProblem(*input, arguments); !problem.isEmpty())
+            return answer(textResult(problem, true));
+        return answer(run_tool_(name, arguments));
     }
     return errorResponse(id, -32601, QStringLiteral("Method not found: %1").arg(method));
 }

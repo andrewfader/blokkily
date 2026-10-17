@@ -41,6 +41,9 @@ public:
     // A load the window is showing holds them (load_progress.hpp), so an
     // agent never edits a song half way through opening.
     void setHeld(bool held);
+    // Whether the agent whose request is being answered has hung up: a
+    // render it asked for is then abandoned (AppController::setRenderCancel).
+    bool abandoned() const { return current_ != nullptr && hung_up_.contains(current_); }
 
 signals:
     // Listening began at `path` after waiting for another window to let it go.
@@ -57,6 +60,8 @@ private:
     // still say they disconnected while it is destroyed.
     QSet<class QLocalSocket*> serving_;
     QSet<class QLocalSocket*> hung_up_;
+    // The socket whose request is being answered now.
+    class QLocalSocket* current_ = nullptr;
     QLocalServer server_;
     QString error_;
     bool held_ = false;

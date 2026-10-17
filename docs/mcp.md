@@ -29,20 +29,21 @@ Blokkily can connect.
 
 | Tool | Use |
 | --- | --- |
-| `get_session` | Read the session, including each bus's effects and sends |
+| `get_session` | Read the session, including each bus's effects and sends, the song's length in bars and its meter changes |
 | `get_pattern` | Read a pattern |
-| `write_notes` | Write notes, each retuned from its key by up to ±100 `cents` |
+| `write_notes` | Write notes, each retuned from its key by up to ±100 `cents` and pushed off its step by up to ±59 ticks of `offset` |
 | `set_section` | Set a pattern's length, swing or name |
 | `set_lyrics` | Lay a line of lyrics on a part, one syllable per note, in any script |
 | `place_section` | Place a pattern's clips at a bar, on every track or one |
+| `set_meter` | Set the song's time signature from a bar on: how long its bars are and where clips land |
 | `transport` | Control playback |
 | `list_plugins` | List plugins |
 | `set_instrument` | Assign an instrument |
-| `list_parameters` | List the parameters of a track's instrument or effect, or of an effect on a `return` or the `master` |
+| `list_parameters` | List the parameters of a track's instrument or effect, or of an effect on a `return` or the `master`, with each one's current value |
 | `set_parameter` | Set a synth preset or knob by name, on a track, a `return` or the `master` |
 | `set_soundfont_preset` | Set a General MIDI bank and program |
 | `screenshot` | Capture the window |
-| `analyze_render` | Measure the mix, a track, a return or a WAVE file: loudness, peaks, stereo image, band energy |
+| `analyze_render` | Measure the mix, a track, a return, every bus at once or a WAVE file, over the song or some bars: loudness, peaks, stereo image, band energy |
 | `get_score` | Read a part as staff notation: spelled notes plus the MusicXML document |
 | `set_clef` | The clef a track's part of a pattern is read in |
 | `set_key_signature` | The key signature a pattern's parts are spelled in |
@@ -57,17 +58,36 @@ Blokkily can connect.
 The generic tools cover mixer controls, effects, automation, clips, tempo,
 tuning, saving, exporting and undo.
 
+Every argument is checked against the tool's schema before the tool runs: a
+track, section or bar must be a whole number, a step a number, and an action
+one of its choices. A list or a string where a number belongs is refused by
+name, never read as the selected track.
+
 `set_section` and `place_section` name the pattern they act on, so they are
 safe while the song plays: the window keeps open whichever pattern the playhead
-is in, and a pattern opened by one call may be gone by the next.
+is in, and a pattern opened by one call may be gone by the next. Placing a
+pattern where it already is changes nothing and answers `alreadyPlaced`; a
+placement that is blocked names the clips in the way.
+
+`set_meter` changes the song's own time signature from a bar on (7/8 is 14
+steps a bar), so odd-meter sections line up with the arrangement's bars. Clips
+and tempo points keep their bar numbers, and it is one step of undo.
+`set_time_signature` only changes how a pattern is written. `get_session`
+lists the meter changes and `lengthBars`, where the last clip ends; its `bars`
+is what the arrangement shows (a spare bar, at least eight).
+
+`write_notes` takes an `offset` in ticks (120 to a step), -59 to 59, that plays
+a note early or late without moving it off its step, for a laid-back snare or
+a loose double; `get_pattern` reads it back.
 
 `set_parameter` holds a parameter at one value for the whole song with a lane.
 A track's lane is on that track. An effect on a return or the master has its
 lane on the selected track, or on whichever track already has one for it.
 
 A call is answered when its work is done; an export or `analyze_render` takes
-as long as the render. An agent that hangs up before then is owed nothing, and
-the window carries on.
+as long as the render. An agent that hangs up before then is owed nothing: the
+render it asked for is abandoned (an export's half-written file is removed),
+and the window carries on.
 ## Staff notation
 
 `get_score` reads one track's part of one pattern as the SCORE view draws it:
@@ -129,9 +149,18 @@ the file back and reports what an engineer would read off meters:
   `lowMid` 250-500, `mid` 500-2k, `highMid` 2-4k, `presence` 4-6k, `air` 6-20k
 
 With no arguments it measures the master. `track` or `return` measures that bus
-alone, after its inserts, fader and pan. `file` measures a WAVE file that is
-already written, such as an earlier export or a reference mix. Levels of
-silence are `null`. Measuring does not change the song.
+alone, after its inserts, fader and pan. `all` measures the master, every track
+and every return from a single render, as a list under `buses`, each with its
+`source` and `name`: one render instead of one per bus. `fromBar` and `toBar`
+measure bars `fromBar` up to (not including) `toBar`, starting from silence as
+playback from `fromBar` does. `file` measures a WAVE file that is already
+written, such as an earlier export or a reference mix. Levels of silence are
+`null`. Measuring does not change the song.
+
+Through `call`, `appController.exportAudioRange(path, fromBar, toBar)` and
+`exportTrackFilesRange(directory, fromBar, toBar)` export some bars of the
+song; a `toBar` of -1 is the song's end. A stem export renders the song once,
+however many tracks and returns it writes.
 
 ## Environment variables
 

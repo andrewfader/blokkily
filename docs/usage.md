@@ -329,7 +329,8 @@ STEMS asks for a folder and writes every track, then every return, as a file
 of its own in the chosen type: `01 Lead.wav`, `02 Bass.wav`, ... Each is the
 bus after its inserts, fader and pan, as long as the bounce and aligned with
 it; with nothing on the master they add up to the bounce. A muted track's
-stem is silent, and the click is never in a stem.
+stem is silent, and the click is never in a stem. The song is rendered once
+for all of them, so a stem export takes about as long as one bounce.
 
 SCOPE VIDEO renders an oscilloscope video in the manner of corrscope: a lane
 for every track and a wide master lane beneath, each triggered so a steady

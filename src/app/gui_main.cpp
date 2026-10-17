@@ -248,6 +248,8 @@ int main(int argc, char* argv[]) {
     McpTools mcp_tools(song, pattern, controller, transport,
                        qobject_cast<QQuickWindow*>(engine.rootObjects().front()), &guide);
     McpServer mcp_server(mcp_tools);
+    // A render an agent asked for is abandoned when the agent hangs up.
+    controller.setRenderCancel([&mcp_server] { return mcp_server.abandoned(); });
     QObject::connect(controller.progress(), &LoadProgress::holdRequests, &mcp_server,
                      &McpServer::setHeld);
     if (serve_mcp) {

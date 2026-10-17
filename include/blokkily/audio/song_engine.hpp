@@ -125,6 +125,18 @@ public:
     // returned by process(). All buses still render normally.
     void set_bounce_tap(std::optional<OutputTap> source) noexcept { bounce_tap_ = source; }
     [[nodiscard]] std::optional<OutputTap> bounce_tap() const noexcept { return bounce_tap_; }
+    // Offline bounce only, with the device stopped: every block, each listed
+    // bus's signal is copied as it passes, so one render writes every stem.
+    // The buffers are sized here, never in process(). Empty stops copying.
+    void set_stem_taps(std::vector<OutputTap> taps);
+    [[nodiscard]] const std::vector<OutputTap>& stem_taps() const noexcept { return stem_taps_; }
+    // What stem tap `index` carried in the last processed block.
+    [[nodiscard]] std::span<const float> stem_left(std::size_t index) const noexcept {
+        return stem_left_[index];
+    }
+    [[nodiscard]] std::span<const float> stem_right(std::size_t index) const noexcept {
+        return stem_right_[index];
+    }
     // An external clock's tempo (features/midi_clock_input.feature): while
     // set, the next prepare() or recompile() places the song at this one
     // tempo instead of its own tempo map, which is left as it is. Control
@@ -504,6 +516,8 @@ private:
     std::optional<OutputTap> bounce_tap_;
     std::optional<double> tempo_override_;
     std::vector<float> tap_left_, tap_right_;
+    std::vector<OutputTap> stem_taps_;
+    std::vector<std::vector<float>> stem_left_, stem_right_;
     friend struct engine::TestAccess;
     using Arrangement = engine::Arrangement;
     using TrackPlayback = engine::TrackPlayback;

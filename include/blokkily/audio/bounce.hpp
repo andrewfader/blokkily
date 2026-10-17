@@ -59,6 +59,17 @@ struct BounceOptions {
     // TPDF dither when a WAV is written at 16 or 24 bits (WaveWriter::
     // set_dither). The same mix still writes the same bytes.
     bool dither = false;
+    // A stretch of the song instead of all of it, in samples from its start:
+    // the transport starts at `start_sample` from silence, as playback from
+    // there does (a note begun earlier is not heard), and stops at
+    // `end_sample`, after which the tail still rings. No end is the song's
+    // end; a range past the song is refused.
+    std::uint64_t start_sample = 0;
+    std::optional<std::uint64_t> end_sample{};
+    // Asked between blocks; true abandons the render, removes what was
+    // written and fails with "cancelled". The session is put back as a
+    // finished render leaves it.
+    std::function<bool()> cancelled{};
 };
 
 [[nodiscard]] std::optional<BounceReport> bounce_song(
@@ -74,15 +85,32 @@ struct StemFile {
 };
 
 // Bounces every track, then every return, to a file of its own in
-// `directory`, each a full bounce_song() of that bus's tap (post-insert,
-// post-fader/pan, before master processing), so the files line up sample for
-// sample with one another and with a bounce of the master. Files are named
-// "NN Name.ext" after the bus, in mixer order. `options.source` is ignored and
-// the click is never in a stem. `progress` is told about the whole export.
+// `directory`, each that bus's tap (post-insert, post-fader/pan, before master
+// processing) exactly as bounce_song() of the tap writes it, so the files
+// line up sample for sample with one another and with a bounce of the master.
+// One render writes them all: the song is played once, however many buses it
+// has. Files are named "NN Name.ext" after the bus, in mixer order.
+// `options.source` is ignored and the click is never in a stem. `progress` is
+// told about the whole export.
 [[nodiscard]] std::optional<std::vector<StemFile>> bounce_stems(
     SongEngine& engine, const Song& song, const std::filesystem::path& directory,
     WaveFormat format, std::uint64_t tail_frames, const BounceOptions& options,
     std::string* error = nullptr);
+
+// One bus of a single-pass render (bounce_taps): its tap and the file it is
+// written to.
+struct TapFile {
+    OutputTap source;
+    std::filesystem::path file;
+    BounceReport report;
+};
+
+// Renders the song once and writes every tap in `taps` to its own file, each
+// what bounce_song() with that tap as `options.source` writes. The click is
+// never in them. `progress` counts frames of one tap.
+[[nodiscard]] bool bounce_taps(SongEngine& engine, std::vector<TapFile>& taps, WaveFormat format,
+                               std::uint64_t tail_frames, const BounceOptions& options,
+                               std::string* error = nullptr);
 
 // A file-name-safe form of a bus name: path separators and control
 // characters become spaces, and an empty result is "Track".

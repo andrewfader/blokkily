@@ -56,6 +56,14 @@ private:
 // Every tool the server offers, as tools/list returns them.
 QJsonArray toolDefinitions();
 
+// Why `arguments` do not fit a tool's input `schema`, or empty when they do:
+// each argument the schema types must have that type (an integer a whole
+// number), an enum's value must be one of its choices, and the objects in an
+// array whose items are objects are checked the same way. `where` prefixes
+// the names in the message.
+QString argumentProblem(const QJsonObject& schema, const QJsonObject& arguments,
+                        const QString& where = {});
+
 // What the server tells an agent about driving it, sent with initialize.
 QString instructions();
 

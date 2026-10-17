@@ -6,6 +6,8 @@
 // window's event loop keeps turning, because it is the window that answers.
 
 #include "verify/harness.hpp"
+#include "blokkily/audio/wave_file.hpp"
+#include "blokkily/model/timebase.hpp"
 #include "load_progress.hpp"
 #include "mcp_server.hpp"
 #include "mcp_tools.hpp"
@@ -195,7 +197,7 @@ void run_mcp(VerifyContext& ctx) {
                                  "describe", "call", "get_property", "analyze_render",
                                  "get_score", "set_clef", "set_key_signature",
                                  "set_time_signature", "export_musicxml", "import_musicxml",
-                                 "guide_events", "guide_lesson", "guide_ask"})
+                                 "guide_events", "guide_lesson", "guide_ask", "set_meter"})
         check(names.contains(QLatin1String(expected)));
 
     // ---------------------------------------------------------------------
@@ -275,6 +277,19 @@ void run_mcp(VerifyContext& ctx) {
     check(isError(agent.tool("write_notes",
                              {{"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", 60}},
                                                    QJsonObject{{"step", 1}, {"key", 200}}}}})));
+    check(ctx.pattern.rowCount() == 0);
+    // An argument of the wrong type is refused before anything happens: a
+    // list, a string or a fraction given as the track is never read as the
+    // selected track.
+    const QJsonArray one_note{QJsonObject{{"step", 0}, {"key", 60}}};
+    const auto listed_track = agent.tool("write_notes", {{"track", QJsonArray{1, 2}}, {"notes", one_note}});
+    check(isError(listed_track) && textOf(listed_track).contains("track must be a whole number"));
+    check(isError(agent.tool("write_notes", {{"track", "0"}, {"notes", one_note}})));
+    check(isError(agent.tool("write_notes", {{"track", 0.5}, {"notes", one_note}})));
+    const auto worded_step = agent.tool(
+        "write_notes", {{"notes", QJsonArray{QJsonObject{{"step", "0"}, {"key", 60}}}}});
+    check(isError(worded_step) && textOf(worded_step).contains("notes[0].step"));
+    check(isError(agent.tool("transport", {{"action", "dance"}})));
     check(ctx.pattern.rowCount() == 0);
     const auto missing = agent.tool("call", {{"object", "songModel"}, {"method", "noSuchMethod"}});
     check(isError(missing) && textOf(missing).contains("describe"));
@@ -364,11 +379,20 @@ void run_mcp(VerifyContext& ctx) {
     }
     check(has_level);
     check(!isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "level"}, {"value", 0.0}})));
+    // Each parameter says what it is set to now.
+    const auto level_now = [&agent] {
+        for (const auto& entry : agent.tool("list_parameters", {{"track", 0}})
+                                     .value("structuredContent").toObject().value("parameters").toArray())
+            if (entry.toObject().value("name").toString() == "Level") return entry.toObject().value("value");
+        return QJsonValue{};
+    };
     const float set_to_zero = play_bar();
     check(set_to_zero == 0.0F);
+    check(level_now().isDouble() && level_now().toDouble() == 0.0);
     check(!isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", 0}, {"value", 0.25}})));
     const float set_up = play_bar();
     check(set_up > 0.001F);
+    check(level_now().isDouble() && std::abs(level_now().toDouble() - 0.25) < 1e-6);
     check(isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "level"}, {"value", 99}})));
     check(isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", "no such knob"}, {"value", 0}})));
 
@@ -550,6 +574,66 @@ void run_mcp(VerifyContext& ctx) {
     check(isError(agent.tool("analyze_render", {{"file", exports.filePath("missing.wav")}})));
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent measures some bars, and every bus from one render");
+    {
+        // The song's one clip runs four bars: bar 1 alone is a stretch
+        // shorter than the song.
+        const int song_bars = agent.tool("get_session").value("structuredContent").toObject().value("lengthBars").toInt();
+        check(song_bars == 4);
+        controller.flushRecompile();
+        const auto rate = controller.engine()->sample_rate();
+        const auto bar_seconds = [&](int bar) {
+            const auto& meter = song.song().meter;
+            const auto& clock = controller.engine()->published_clock();
+            return static_cast<double>(
+                       blokkily::sample_for_tick(clock, static_cast<double>(meter.bar_start(bar + 1))) -
+                       blokkily::sample_for_tick(clock, static_cast<double>(meter.bar_start(bar)))) / rate;
+        };
+        const auto second_bar = analyze({{"track", 0}, {"fromBar", 1}, {"toBar", 2}});
+        check(second_bar.value("source").toString() == "track 0");
+        check(std::abs(second_bar.value("seconds").toDouble() - (bar_seconds(1) + 0.5)) < 0.01);
+        // Bar 1 plays what every bar of the clip plays: it measures as the
+        // whole song did.
+        check(std::abs(second_bar.value("integratedLufs").toDouble() - lead_lufs) < 0.5);
+        const auto whole_lead = analyze({{"track", 0}});
+        const auto every = analyze({{"all", true}}).value("buses").toArray();
+        const auto bus_count = 1 + song.song().tracks.size() + song.song().returns.size();
+        check(static_cast<std::size_t>(every.size()) == bus_count);
+        check(!every.isEmpty() && every.at(0).toObject().value("source").toString() == "master");
+        check(every.size() > 1 && every.at(1).toObject().value("source").toString() == "track 0" &&
+              every.at(1).toObject().value("name").toString() == "LEAD");
+        // One render measures each bus as its own render does.
+        check(every.size() > 1 &&
+              std::abs(every.at(1).toObject().value("integratedLufs").toDouble() -
+                       whole_lead.value("integratedLufs").toDouble()) < 0.011);
+        check(!every.isEmpty() &&
+              std::abs(every.at(0).toObject().value("integratedLufs").toDouble() -
+                       analyze({}).value("integratedLufs").toDouble()) < 0.011);
+        // Exports of some bars: the file and every stem are that stretch.
+        const QString stretch = exports.filePath("bar-two.wav");
+        check(textOf(agent.tool("call", {{"object", "appController"}, {"method", "exportAudioRange"},
+                                         {"args", QJsonArray{stretch, 1, 2}}})) == "true");
+        check(std::abs(analyze({{"file", stretch}}).value("seconds").toDouble() - (bar_seconds(1) + 0.5)) < 0.01);
+        const QString stems = exports.filePath("stems");
+        QDir().mkpath(stems);
+        check(textOf(agent.tool("call", {{"object", "appController"}, {"method", "exportTrackFilesRange"},
+                                         {"args", QJsonArray{stems, 1, 2, "WAV", "FLOAT32"}}})) == "true");
+        const auto stem_files = QDir(stems).entryList({"*.wav"}, QDir::Files, QDir::Name);
+        check(static_cast<std::size_t>(stem_files.size()) == bus_count - 1);
+        for (const auto& name : stem_files)
+            check(std::abs(analyze({{"file", QDir(stems).filePath(name)}}).value("seconds").toDouble() -
+                           (bar_seconds(1) + 0.5)) < 0.01);
+        // Bars outside the song, an empty stretch, or a range on a file are refused.
+        check(isError(agent.tool("analyze_render", {{"fromBar", song_bars + 1}, {"toBar", song_bars + 5}})));
+        check(isError(agent.tool("analyze_render", {{"fromBar", 1}, {"toBar", 1}})));
+        check(isError(agent.tool("analyze_render", {{"file", stretch}, {"fromBar", 1}})));
+        check(isError(agent.tool("analyze_render", {{"all", true}, {"track", 0}})));
+        check(textOf(agent.tool("call", {{"object", "appController"}, {"method", "exportAudioRange"},
+                                         {"args", QJsonArray{stretch, song_bars, song_bars + 4}}})) == "false");
+        check(!ctx.transport.playing());
+    }
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: the agent writes a note between keys, and it is heard there");
     double cents_ratio = 0.0;
     {
@@ -577,6 +661,54 @@ void run_mcp(VerifyContext& ctx) {
                                   {"notes", QJsonArray{QJsonObject{{"step", 1}, {"key", 60}, {"cents", 150}}}}})));
         check(agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
                   .value("structuredContent").toObject().value("notes").toArray().size() == 1);
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent pushes a note off its step, and it is heard there");
+    {
+        // A short C4 on step 4, then the same note 40 ticks late: the soloed
+        // track's export starts sounding 40 ticks' worth of samples later.
+        const QTemporaryDir offsets;
+        const auto onset = [&](int offset) -> std::optional<double> {
+            if (isError(agent.tool("write_notes",
+                                   {{"track", 0}, {"section", 0}, {"replace", true},
+                                    {"notes", QJsonArray{QJsonObject{{"step", 4}, {"key", "C4"},
+                                                                     {"length", 2}, {"offset", offset}}}}})))
+                return std::nullopt;
+            const QString file = offsets.filePath(QStringLiteral("offset-%1.wav").arg(offset));
+            agent.tool("call", {{"object", "appController"}, {"method", "exportAudioFile"}, {"args", QJsonArray{file}}});
+            std::string error;
+            const auto wave = blokkily::read_wave(file.toStdString(), &error);
+            if (!wave) return std::nullopt;
+            for (std::size_t frame = 0; frame < static_cast<std::size_t>(wave->frames); ++frame)
+                if (std::abs(wave->interleaved[frame * wave->channels]) > 0.001F)
+                    return static_cast<double>(frame);
+            return std::nullopt;
+        };
+        check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "toggleSolo"}, {"args", QJsonArray{0}}})));
+        const auto on_step = onset(0);
+        const auto late = onset(40);
+        check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "toggleSolo"}, {"args", QJsonArray{0}}})));
+        const auto read = agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
+                              .value("structuredContent").toObject().value("notes").toArray();
+        check(read.size() == 1 && read.at(0).toObject().value("offset").toInt() == 40 &&
+              read.at(0).toObject().value("step").toDouble() == 4.0);
+        const auto& clock = controller.engine()->published_clock();
+        const double forty = static_cast<double>(blokkily::sample_for_tick(clock, 4 * 120 + 40) -
+                                                 blokkily::sample_for_tick(clock, 4 * 120));
+        check(on_step && late && std::abs((*late - *on_step) - forty) <= 2.0);
+        // Half a step or more, or a fraction of a tick, is refused, and the part keeps its note.
+        check(isError(agent.tool("write_notes", {{"track", 0}, {"section", 0},
+                                                 {"notes", QJsonArray{QJsonObject{{"step", 1}, {"key", 60}, {"offset", 60}}}}})));
+        check(isError(agent.tool("write_notes", {{"track", 0}, {"section", 0},
+                                                 {"notes", QJsonArray{QJsonObject{{"step", 1}, {"key", 60}, {"offset", 2.5}}}}})));
+        check(agent.tool("get_pattern", {{"track", 0}, {"section", 0}})
+                  .value("structuredContent").toObject().value("notes").toArray().size() == 1);
+        // The long A4 a quarter tone up is put back for what follows.
+        check(!isError(agent.tool("write_notes",
+                                  {{"track", 0}, {"section", 0}, {"replace", true},
+                                   {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", "A4"},
+                                                                    {"length", 16}, {"cents", 50}}}}})));
     }
 
     // ---------------------------------------------------------------------
@@ -704,7 +836,13 @@ void run_mcp(VerifyContext& ctx) {
         check(!isError(one) && one.value("structuredContent").toObject().value("placed").toInt() == 1);
         // Refusals change nothing.
         const auto clips = song.song().clips.size();
-        check(isError(agent.tool("place_section", {{"section", added}, {"bar", 8}})));
+        // Placing it where it already is asks for what the song already holds.
+        const auto again = agent.tool("place_section", {{"section", added}, {"bar", 8}}).value("structuredContent").toObject();
+        check(again.value("alreadyPlaced").toBool() && again.value("placed").toInt() == 0);
+        check(song.song().clips.size() == clips);
+        // A stretch that is taken is refused, naming what is in the way.
+        const auto blocked = agent.tool("place_section", {{"section", 0}, {"bar", 9}});
+        check(isError(blocked) && textOf(blocked).contains("BRIDGE from bar 8"));
         check(isError(agent.tool("place_section", {{"section", 99}, {"bar", 16}})));
         check(isError(agent.tool("place_section", {{"section", added}, {"bar", 16}, {"track", 9}})));
         check(song.song().clips.size() == clips);
@@ -714,6 +852,45 @@ void run_mcp(VerifyContext& ctx) {
         check(isError(agent.tool("set_section", {{"section", added}})));
         check(section_length(added) == 32 * 120);
         check(!isError(agent.tool("transport", {{"action", "stop"}})));
+    }
+
+    // ---------------------------------------------------------------------
+    ctx.reached("mcp: the agent sets the song's meter, and its bars follow it");
+    {
+        const auto meters_before = song.song().meter;
+        const auto set = agent.tool("set_meter", {{"bar", 20}, {"numerator", 7}, {"denominator", 8}});
+        check(!isError(set));
+        const auto meters = agent.tool("get_session").value("structuredContent").toObject().value("meters").toArray();
+        check(meters.size() == 2 && meters.at(1).toObject().value("bar").toInt() == 20 &&
+              meters.at(1).toObject().value("numerator").toInt() == 7 &&
+              meters.at(1).toObject().value("denominator").toInt() == 8);
+        check(song.song().meter.bar_length(20) == 1680 && song.song().meter.bar_length(19) == 1920);
+        // A 14-step section fills a bar of 7/8: placed in bars 20 and 21, the
+        // second starts one 7/8 bar after the first.
+        check(!isError(agent.tool("call", {{"object", "songModel"}, {"method", "addPattern"}})));
+        const int seven = static_cast<int>(song.song().sections.size()) - 1;
+        check(!isError(agent.tool("set_section", {{"section", seven}, {"steps", 14}, {"name", "SEVEN"}})));
+        check(!isError(agent.tool("place_section", {{"section", seven}, {"bar", 20}, {"track", 0}})));
+        check(!isError(agent.tool("place_section", {{"section", seven}, {"bar", 21}, {"track", 0}})));
+        std::vector<blokkily::Tick> starts;
+        const auto part = static_cast<std::size_t>(song.partOf(seven, 0));
+        for (const auto& clip : song.song().clips)
+            if (clip.track == 0 && clip.pattern == part) starts.push_back(clip.start);
+        std::sort(starts.begin(), starts.end());
+        check(starts.size() == 2 && starts.at(0) == song.song().meter.bar_start(20) &&
+              starts.at(1) - starts.at(0) == 1680);
+        check(agent.tool("get_session").value("structuredContent").toObject().value("lengthBars").toInt() == 22);
+        // A unit that is not a power of two, no beats, or a bar before the
+        // first is refused, changing nothing.
+        const auto meter_now = song.song().meter;
+        check(isError(agent.tool("set_meter", {{"bar", 4}, {"numerator", 7}, {"denominator", 6}})));
+        check(isError(agent.tool("set_meter", {{"bar", 4}, {"numerator", 0}, {"denominator", 4}})));
+        check(isError(agent.tool("set_meter", {{"bar", -1}, {"numerator", 3}, {"denominator", 4}})));
+        check(song.song().meter == meter_now);
+        // UNDO takes it all back, the meter last.
+        for (int step = 0; step < 8 && !(song.song().meter == meters_before); ++step)
+            check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+        check(song.song().meter == meters_before);
     }
 
     // ---------------------------------------------------------------------
@@ -728,8 +905,12 @@ void run_mcp(VerifyContext& ctx) {
         // from its start.
         controller.progress()->setTiming(0, 0);
         bool hung_up = false;
+        int frames_after = 0;
         const auto hang_up = QObject::connect(controller.progress(), &LoadProgress::frameDrawn, [&] {
-            if (hung_up) return;
+            if (hung_up) {
+                ++frames_after;
+                return;
+            }
             hung_up = true;
             impatient.hangUp();
         });
@@ -742,6 +923,10 @@ void run_mcp(VerifyContext& ctx) {
         QObject::disconnect(hang_up);
         controller.progress()->setTiming(LoadProgress::default_reveal_ms, LoadProgress::default_frame_ms);
         check(hung_up);
+        // The render nobody is waiting for is abandoned: it draws no more
+        // than the frame or two it was in, where a finished one draws one per
+        // percent.
+        check(frames_after < 10);
         // The window still answers the next agent.
         Agent next(socket, false);
         check(next.started());

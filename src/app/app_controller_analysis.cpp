@@ -4,6 +4,7 @@
 #include "app_controller.hpp"
 
 #include "blokkily/audio/analysis.hpp"
+#include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/wave_file.hpp"
 
 #include <QDir>
@@ -58,7 +59,7 @@ QVariantMap analyze_file(const QString& path) {
 
 }  // namespace
 
-QVariantMap AppController::analyzeRender(const QString& kind, int bus) {
+QVariantMap AppController::analyzeRender(const QString& kind, int bus, int fromBar, int toBar) {
     if (!engine_ || song_ == nullptr) return failed("Load an instrument before analyzing a render");
     blokkily::BounceOptions options;
     QString source = QStringLiteral("master");
@@ -74,6 +75,8 @@ QVariantMap AppController::analyzeRender(const QString& kind, int bus) {
     } else if (kind != "master") {
         return failed(QStringLiteral("Analyze \"master\", a \"track\" or a \"return\", not \"%1\"").arg(kind));
     }
+    QString out_of_song;
+    if (!barRange(fromBar, toBar, options, &out_of_song)) return failed(out_of_song);
     const QTemporaryDir directory;
     if (!directory.isValid()) return failed("No temporary folder to render into");
     const auto file = QDir(directory.path()).filePath("analysis.wav");
@@ -84,6 +87,51 @@ QVariantMap AppController::analyzeRender(const QString& kind, int bus) {
     auto analysis = analyze_file(file);
     analysis.insert("source", source);
     return analysis;
+}
+
+QVariantList AppController::analyzeEveryBus(int fromBar, int toBar) {
+    if (!engine_ || song_ == nullptr) return {failed("Load an instrument before analyzing a render")};
+    blokkily::BounceOptions options;
+    QString out_of_song;
+    if (!barRange(fromBar, toBar, options, &out_of_song)) return {failed(out_of_song)};
+    const QTemporaryDir directory;
+    if (!directory.isValid()) return {failed("No temporary folder to render into")};
+    const auto& song = song_->song();
+    // The master and every bus, written by the one render.
+    std::vector<blokkily::TapFile> taps;
+    QStringList sources;
+    const auto add = [&](blokkily::BusKind kind, std::size_t bus, const QString& name) {
+        taps.push_back({{kind, static_cast<std::uint32_t>(bus)},
+                        QDir(directory.path()).filePath(QStringLiteral("%1.wav").arg(taps.size())).toStdString(),
+                        {}});
+        sources << name;
+    };
+    add(blokkily::BusKind::master, 0, QStringLiteral("master"));
+    for (std::size_t track = 0; track < song.tracks.size(); ++track)
+        add(blokkily::BusKind::track, track, QStringLiteral("track %1").arg(track));
+    for (std::size_t ret = 0; ret < song.returns.size(); ++ret)
+        add(blokkily::BusKind::ret, ret, QStringLiteral("return %1").arg(ret));
+    const LoadProgress::Scope analyzing(progress_, QStringLiteral("ANALYZING EVERY BUS"));
+    std::string error;
+    bool rendered = false;
+    withEngineStopped([&](std::uint64_t tail) {
+        options.progress = bounceProgress(engine_->sample_rate());
+        options.cancelled = render_cancel_;
+        rendered = blokkily::bounce_taps(*engine_, taps, blokkily::WaveFormat::float32, tail,
+                                         options, &error);
+    });
+    if (!rendered) return {failed(QStringLiteral("The render failed: %1").arg(QString::fromStdString(error)))};
+    QVariantList analyses;
+    for (std::size_t index = 0; index < taps.size(); ++index) {
+        auto analysis = analyze_file(QString::fromStdString(taps[index].file.string()));
+        analysis.insert("source", sources.at(static_cast<int>(index)));
+        if (index > 0 && index <= song.tracks.size())
+            analysis.insert("name", QString::fromStdString(song.tracks[index - 1].name));
+        else if (index > song.tracks.size())
+            analysis.insert("name", QString::fromStdString(song.returns[index - 1 - song.tracks.size()].name));
+        analyses.append(analysis);
+    }
+    return analyses;
 }
 
 QVariantMap AppController::analyzeAudioFile(const QString& path) const {

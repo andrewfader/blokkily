@@ -342,6 +342,77 @@ void run(const std::string& test) {
             require(silent.has_value(), error);
             require((*silent)[1].report.peak == 0.0F, "a muted track's stem is silent");
         }
+    } else if (test == "stems_one_pass") {
+        // Every stem is written by the same render: the song is played once,
+        // a block at a time, so progress is told once a block, not once a
+        // block for every stem.
+        BounceOptions options;
+        std::uint64_t calls = 0;
+        options.progress = [&](std::uint64_t, std::uint64_t) { ++calls; };
+        std::string error;
+        const auto stems = bounce_stems(engine, song, directory / "stems", WaveFormat::float32,
+                                        4800, options, &error);
+        require(stems.has_value(), error);
+        const auto blocks = (master.frames + 511) / 512;
+        require(calls >= blocks - 1 && calls <= blocks + 2, "one block of render writes every stem");
+    } else if (test == "range") {
+        // Bar 2 alone: it starts from silence at its first sample and keeps
+        // its tail, and holds what bar 2 of the whole bounce holds.
+        const std::uint64_t bar = 96000;  // a bar of 4/4 at 120 BPM, 48 kHz
+        BounceOptions options;
+        options.start_sample = bar;
+        options.end_sample = 2 * bar;
+        std::string error;
+        const auto report = bounce_song(engine, directory / "bar2.wav", WaveFormat::float32, 4800,
+                                        options, &error);
+        require(report.has_value(), error);
+        require(report->frames == bar + 4800, "the stretch and its tail");
+        const auto stretch = decode(directory / "bar2.wav");
+        double difference = 0.0, level = 0.0;
+        for (std::size_t i = 0; i < bar; ++i) {
+            const double d = static_cast<double>(stretch.left[i]) - reference.left[bar + i];
+            difference += d * d;
+            level += static_cast<double>(reference.left[bar + i]) * reference.left[bar + i];
+        }
+        require(level > 0.0 && difference < level * 1e-4, "the stretch is bar 2 of the song");
+        // Its stems are the same stretch.
+        const auto stems = bounce_stems(engine, song, directory / "stems", WaveFormat::float32,
+                                        4800, options, &error);
+        require(stems.has_value(), error);
+        for (const auto& stem : *stems) require(stem.report.frames == bar + 4800, "a stem of the stretch");
+        // A stretch that is empty or runs past the song is refused.
+        BounceOptions past;
+        past.start_sample = bar;
+        past.end_sample = 3 * bar;
+        require(!bounce_song(engine, directory / "past.wav", WaveFormat::float32, 0, past, &error) &&
+                    !std::filesystem::exists(directory / "past.wav"),
+                "a range past the song is refused");
+        BounceOptions empty;
+        empty.start_sample = bar;
+        empty.end_sample = bar;
+        require(!bounce_song(engine, directory / "empty.wav", WaveFormat::float32, 0, empty, &error),
+                "an empty range is refused");
+    } else if (test == "cancel") {
+        // Abandoned after a few blocks: nothing is left behind, and the next
+        // export is the song as before.
+        BounceOptions options;
+        int asked = 0;
+        options.cancelled = [&] { return ++asked >= 3; };
+        std::string error;
+        const auto report = bounce_song(engine, directory / "abandoned.wav", WaveFormat::float32,
+                                        4800, options, &error);
+        require(!report && error == "cancelled", "the render is abandoned");
+        require(asked == 3, "it stops as soon as it is asked to");
+        require(!std::filesystem::exists(directory / "abandoned.wav"), "its file is removed");
+        BounceOptions stems_options;
+        stems_options.cancelled = [] { return true; };
+        require(!bounce_stems(engine, song, directory / "stems", WaveFormat::float32, 4800,
+                              stems_options, &error) &&
+                    !std::filesystem::exists(directory / "stems" / "01 Lead Hook.wav"),
+                "abandoned stems leave no files");
+        (void)bounce(engine, directory / "after.wav");
+        require(decode(directory / "after.wav").left == reference.left,
+                "an abandoned render leaves the next one unchanged");
     } else throw std::runtime_error("unknown case");
 }
 } // namespace

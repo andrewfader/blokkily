@@ -996,6 +996,39 @@ bool AppController::importMidiFile(const QString& path) {
 
 bool AppController::exportAudioFile(const QString& path, const QString& depth, bool withClick,
                                     bool dither) {
+    return exportAudio(path, depth, withClick, dither, 0, -1);
+}
+
+bool AppController::exportAudioRange(const QString& path, int fromBar, int toBar,
+                                     const QString& depth) {
+    return exportAudio(path, depth, false, false, fromBar, toBar);
+}
+
+bool AppController::barRange(int fromBar, int toBar, blokkily::BounceOptions& options,
+                             QString* why) const {
+    if (fromBar == 0 && toBar < 0) return true;
+    const auto& meter = song_->song().meter;
+    const auto song_end = engine_->song_samples();
+    const auto sample_of = [&](int bar) {
+        return blokkily::sample_for_tick(engine_->published_clock(),
+                                         static_cast<double>(meter.bar_start(bar)));
+    };
+    const auto start = sample_of(std::max(0, fromBar));
+    const auto end = toBar < 0 ? song_end : std::min<std::uint64_t>(sample_of(toBar), song_end);
+    if (fromBar < 0 || (toBar >= 0 && toBar <= fromBar) || start >= end) {
+        if (why != nullptr)
+            *why = QStringLiteral("Bars %1 to %2 are not inside the song's %3 bars.")
+                       .arg(fromBar).arg(toBar).arg(meter.bar_at(std::max<blokkily::Tick>(
+                                                       0, song_->song().length() - 1)) + 1);
+        return false;
+    }
+    options.start_sample = start;
+    options.end_sample = end;
+    return true;
+}
+
+bool AppController::exportAudio(const QString& path, const QString& depth, bool withClick,
+                                bool dither, int fromBar, int toBar) {
     if (!engine_) {
         export_status_ = "Load an instrument before exporting";
         emit exportStatusChanged();
@@ -1012,6 +1045,12 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
     // encoded, anything else is a WAV at the chosen depth.
     options.container = blokkily::container_for_path(local_path(path).toStdString());
     options.dither = dither;
+    QString out_of_song;
+    if (!barRange(fromBar, toBar, options, &out_of_song)) {
+        export_status_ = QString("Export failed · %1").arg(out_of_song);
+        emit exportStatusChanged();
+        return false;
+    }
     std::string error;
     const auto report = bounceThroughEngine(local_path(path).toStdString(), format, options, &error);
     if (!report) {
@@ -1040,6 +1079,7 @@ std::optional<blokkily::BounceReport> AppController::bounceThroughEngine(
     std::optional<blokkily::BounceReport> report;
     withEngineStopped([&](std::uint64_t tail) {
         options.progress = bounceProgress(engine_->sample_rate());
+        options.cancelled = render_cancel_;
         report = bounce_song(*engine_, file, format, tail, options, error);
     });
     return report;

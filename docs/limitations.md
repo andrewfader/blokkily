@@ -78,7 +78,7 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 - Live output recording captures one bus per pass. A full set of stems is
   exported offline in one step instead: STEMS writes every track and return
-  to a file of its own.
+  to a file of its own, from one render.
 - A partial live pass ends when recording stops and does not automatically add
   effect tails. Offline stems include tails.
 - Track stems exclude send returns. Track and return stems sum to the signal

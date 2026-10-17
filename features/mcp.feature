@@ -35,6 +35,8 @@ Feature: An agent drives Blokkily over MCP
   Scenario: A bad request is refused without changing the song
     When the agent writes a note with key 200, or calls a method that does not exist
     Then the call is answered as an error and the pattern is unchanged
+    When it gives a track as a list, a string or a fraction, a note's step as a string, or an action that is not one of the choices
+    Then the call is refused, naming the argument, before anything is written
 
   Scenario: The agent sees the window
     When the agent calls screenshot
@@ -54,6 +56,7 @@ Feature: An agent drives Blokkily over MCP
     Then it reads Level with its range
     When it sets "level" to 0 with set_parameter
     Then the song renders silent, and set to 0.25 it is heard again
+    And list_parameters reads Level's value as 0, then as 0.25
     And a value out of range, or a parameter that does not exist, is refused
 
   Scenario: The agent locks a parameter on one step, by its address
@@ -85,12 +88,30 @@ Feature: An agent drives Blokkily over MCP
     And a track or return that does not exist, a track and a file together, or a missing file is refused
     And measuring leaves the transport stopped where it was
 
+  Scenario: The agent measures some bars, and every bus from one render
+    Given the CLAP track's clip runs four bars, and get_session reads its lengthBars as 4
+    When the agent calls analyze_render for track 0 with fromBar 1 and toBar 2
+    Then it measures one bar plus the export's half second of tail, as loud as the whole song
+    When it calls analyze_render with all
+    Then it reads the master, every track and every return, each named, from one render
+    And each measures as its own render does
+    When it calls appController.exportAudioRange and exportTrackFilesRange for bar 1
+    Then the file and every stem hold that bar and its tail
+    And bars outside the song, an empty stretch, a range on a file, or all beside a track is refused
+
   Scenario: The agent writes a note between keys, and it is heard there
     Given the CLAP track plays one long A4 sine, written with write_notes
     When the agent writes the same note with cents 50
     Then get_pattern reads the note back with its 50 cents
     And the track's rendered pitch is a quarter tone higher than the plain A4's
     And a note retuned by more than 100 cents is refused, and the part keeps its note
+
+  Scenario: The agent pushes a note off its step, and it is heard there
+    Given the CLAP track is soloed with one short C4 on step 4
+    When the agent writes the same note with offset 40
+    Then get_pattern reads it back on step 4 with offset 40
+    And the exported track starts sounding 40 ticks' worth of samples later
+    And an offset of 60 ticks or a fraction of a tick is refused, and the part keeps its note
 
   Scenario: The agent sets an effect on a return and on the master by name
     Given a Saturation on the master, and one on a return that the CLAP track sends to
@@ -116,12 +137,23 @@ Feature: An agent drives Blokkily over MCP
     When it calls place_section for BRIDGE at bar 8
     Then every track has a two-bar BRIDGE clip there, and get_session reads it back
     And place_section with a track places that track's part alone
-    And a bar already taken, a pattern or track that does not exist, a length under one step, a swing over 100, or no change at all is refused, changing nothing
+    When it places BRIDGE at bar 8 again
+    Then nothing changes and the answer says it is already placed
+    And a bar already taken is refused, naming the clip in the way
+    And a pattern or track that does not exist, a length under one step, a swing over 100, or no change at all is refused, changing nothing
+
+  Scenario: The agent sets the song's meter, and its bars follow it
+    When the agent calls set_meter for 7/8 from bar 20
+    Then get_session reads the change, and bar 20 lasts 1680 ticks while bar 19 keeps 1920
+    When it places a 14-step section on track 0 at bars 20 and 21
+    Then the second clip starts one 7/8 bar after the first, and the song is 22 bars long
+    And a unit that is not a power of two, no beats, or a bar before the first is refused, changing nothing
+    And UNDO takes the clips, the section and the meter back
 
   Scenario: An agent that hangs up during a long call leaves the window running
     Given an agent has asked for analyze_render
     When it kills its bridge while the window is still rendering
-    Then the window drops the answer it owed instead of writing it to the closed connection
+    Then the window abandons the render and drops the answer it owed instead of writing it to the closed connection
     And the next agent that connects is answered
 
   Scenario: Without a window the bridge still answers, and says why calls fail

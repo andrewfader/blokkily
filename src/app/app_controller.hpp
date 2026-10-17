@@ -414,6 +414,15 @@ public:
     // `dither` adds TPDF dither when a WAV is written at 16 or 24 bits.
     Q_INVOKABLE bool exportAudioFile(const QString& path, const QString& depth = "FLOAT32",
                                      bool withClick = false, bool dither = false);
+    // The same bounce of bars fromBar up to (not including) toBar only; a
+    // toBar of -1 is the song's end. The stretch starts from silence, as
+    // playback from fromBar does, and keeps its tail.
+    Q_INVOKABLE bool exportAudioRange(const QString& path, int fromBar, int toBar = -1,
+                                      const QString& depth = "FLOAT32");
+    // Asked between the blocks of every render (an export, a stem export, an
+    // analysis); true abandons it. The MCP server answers whether the agent
+    // that asked for the render has hung up.
+    void setRenderCancel(std::function<bool()> cancelled) { render_cancel_ = std::move(cancelled); }
     // --- Autosave and crash recovery (app_controller_recovery.cpp) -----------
     // Keeps an unsaved song in `directory` (recovery.hpp) every `interval_ms`
     // while it has changes, and finds what earlier windows left there. An
@@ -483,6 +492,10 @@ public:
     // "WAV", "MP3" or "OGG"; `depth` is the WAV's.
     Q_INVOKABLE bool exportTrackFiles(const QString& directory, const QString& format = "WAV",
                                       const QString& depth = "PCM24", bool dither = false);
+    // The stems of bars fromBar up to (not including) toBar; -1 is the end.
+    Q_INVOKABLE bool exportTrackFilesRange(const QString& directory, int fromBar, int toBar = -1,
+                                           const QString& format = "WAV",
+                                           const QString& depth = "PCM24");
     // An oscilloscope video (corrscope's kind) of the song: every track's
     // waveform in a lane of its own and the master's beneath them, with the
     // master bounce as its sound, encoded by ffmpeg as H.264 and AAC.
@@ -495,7 +508,13 @@ public:
     // stereo image and the energy in each band. `kind` "master" measures the
     // mix; "track" or "return" measures that bus alone, after its inserts,
     // fader and pan. A map with "error" when there is nothing to render.
-    Q_INVOKABLE QVariantMap analyzeRender(const QString& kind = "master", int bus = 0);
+    // fromBar and toBar measure bars fromBar up to (not including) toBar
+    // only; -1 is the song's end.
+    Q_INVOKABLE QVariantMap analyzeRender(const QString& kind = "master", int bus = 0,
+                                          int fromBar = 0, int toBar = -1);
+    // The master, every track and every return measured from one render:
+    // a list of analyses, each with its "source", or one map with "error".
+    Q_INVOKABLE QVariantList analyzeEveryBus(int fromBar = 0, int toBar = -1);
     // The same measurements of a WAVE file already written: an earlier
     // export, or a reference mix to compare against.
     Q_INVOKABLE QVariantMap analyzeAudioFile(const QString& path) const;
@@ -1022,6 +1041,14 @@ private:
     std::optional<blokkily::BounceReport> bounceThroughEngine(
         const std::filesystem::path& file, blokkily::WaveFormat format,
         blokkily::BounceOptions options, std::string* error);
+    // Puts bars [fromBar, toBar) into `options` as samples; toBar -1 is the
+    // song's end. False, with why, for a range that is not in the song.
+    bool barRange(int fromBar, int toBar, blokkily::BounceOptions& options, QString* why) const;
+    bool exportAudio(const QString& path, const QString& depth, bool withClick, bool dither,
+                     int fromBar, int toBar);
+    bool exportStems(const QString& directory, const QString& format, const QString& depth,
+                     bool dither, int fromBar, int toBar);
+    std::function<bool()> render_cancel_;
     bool follow_playback_ = true;
     // Opens the pattern under the playhead on the selected track (followPlayback).
     void followPlayhead();

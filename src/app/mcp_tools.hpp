@@ -58,6 +58,7 @@ private:
     QJsonObject setClef(const QJsonObject& arguments);
     QJsonObject setKeySignature(const QJsonObject& arguments);
     QJsonObject setTimeSignature(const QJsonObject& arguments);
+    QJsonObject setMeter(const QJsonObject& arguments);
     QJsonObject exportMusicXml(const QJsonObject& arguments);
     QJsonObject importMusicXml(const QJsonObject& arguments);
     // The floating guide (feature/staff-notation): its narration feed, its

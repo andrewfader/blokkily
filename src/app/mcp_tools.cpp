@@ -46,6 +46,10 @@ using blokkily::mcp::textResult;
 
 QJsonObject failure(const QString& text) { return textResult(text, true); }
 
+// How far a note may be pushed off its step, in ticks: under half a
+// sixteenth either way, as the step editor's microtiming allows.
+constexpr int max_offset = 59;
+
 // "C4" is 60, as the window names keys; a sharp or flat follows the letter.
 std::optional<int> keyOf(const QJsonValue& value) {
     if (value.isDouble()) {
@@ -173,6 +177,7 @@ QJsonObject McpTools::dispatch(const QString& name, const QJsonObject& arguments
     if (name == "set_clef") return setClef(arguments);
     if (name == "set_key_signature") return setKeySignature(arguments);
     if (name == "set_time_signature") return setTimeSignature(arguments);
+    if (name == "set_meter") return setMeter(arguments);
     if (name == "export_musicxml") return exportMusicXml(arguments);
     if (name == "import_musicxml") return importMusicXml(arguments);
     if (name == "guide_events") return guideEvents(arguments);
@@ -251,6 +256,15 @@ QJsonObject McpTools::getSession() const {
     QJsonArray clips;
     for (const auto& row : song_.clips())
         clips.append(pick(row.toMap(), {"track", "name", "bar", "bars"}));
+    QJsonArray meters;
+    for (const auto& change : song.meter.changes)
+        meters.append(QJsonObject{{"bar", change.bar},
+                                  {"numerator", change.numerator},
+                                  {"denominator", change.denominator}});
+    // Where the last clip ends, in bars: the song an export renders. `bars`
+    // is what the arrangement shows, a spare bar and at least eight.
+    const auto length = song.length();
+    const int length_bars = length > 0 ? song.meter.bar_at(length - 1) + 1 : 0;
     const auto& open = song_.editPattern();
     return jsonResult(QJsonObject{
         {"project", controller_.projectPath()},
@@ -261,6 +275,8 @@ QJsonObject McpTools::getSession() const {
         {"patterns", patterns},
         {"clips", clips},
         {"bars", song_.bars()},
+        {"lengthBars", length_bars},
+        {"meters", meters},
         {"selectedTrack", song_.selectedTrack()},
         {"openPattern", song_.currentSection()},
         {"openPatternSteps",
@@ -291,6 +307,7 @@ QJsonObject McpTools::getPattern(const QJsonObject& arguments) const {
     for (const auto& trigger : pattern.events()) {
         QJsonObject entry{{"step", static_cast<double>(trigger.start) / step},
                           {"length", static_cast<double>(trigger.duration) / step}};
+        if (trigger.micro_offset != 0) entry.insert("offset", static_cast<int>(trigger.micro_offset));
         if (const auto* note = std::get_if<blokkily::Note>(&trigger.musical_data)) {
             entry.insert("key", note->key);
             entry.insert("velocity", note->velocity);
@@ -342,6 +359,7 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         float velocity;
         double cents;
         std::string lyric;
+        blokkily::Tick offset;
     };
     std::vector<Wanted> wanted;
     const auto notes = arguments.value("notes").toArray();
@@ -352,15 +370,20 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
         const double length = note.value("length").toDouble(1.0);
         const double velocity = note.value("velocity").toDouble(0.8);
         const double cents = note.value("cents").toDouble(0.0);
+        const double offset = note.value("offset").toDouble(0.0);
         if (!key) return failure(QStringLiteral("Note %1: key must be 0 to 127 or a name like C4.").arg(index));
         if (step < 0) return failure(QStringLiteral("Note %1: step must be 0 or more.").arg(index));
         if (length <= 0) return failure(QStringLiteral("Note %1: length must be more than 0.").arg(index));
         if (velocity < 0 || velocity > 1) return failure(QStringLiteral("Note %1: velocity must be 0 to 1.").arg(index));
         if (!(cents >= -100.0 && cents <= 100.0))
             return failure(QStringLiteral("Note %1: cents must be -100 to 100.").arg(index));
+        if (!(offset >= -max_offset && offset <= max_offset) || offset != std::floor(offset))
+            return failure(QStringLiteral("Note %1: offset must be a whole number of ticks, -%2 to %2.")
+                               .arg(index).arg(max_offset));
         const std::string lyric = note.value("lyric").toString().trimmed().toStdString();
         if (lyric.size() > 256) return failure(QStringLiteral("Note %1: a lyric is one syllable, at most 256 bytes.").arg(index));
-        wanted.push_back({step, length, *key, static_cast<float>(velocity), cents, lyric});
+        wanted.push_back({step, length, *key, static_cast<float>(velocity), cents, lyric,
+                          static_cast<blokkily::Tick>(offset)});
     }
     // The part is opened, as a click on its lane would, so the editors show
     // what is written.
@@ -390,6 +413,7 @@ QJsonObject McpTools::writeNotes(const QJsonObject& arguments) {
                                         pattern.length() - trigger.start));
         trigger.musical_data = blokkily::Note{static_cast<std::int16_t>(note.key), note.velocity, 0.0F, note.cents};
         trigger.lyric = note.lyric;
+        trigger.micro_offset = note.offset;
         if (pattern.add(std::move(trigger)) != 0) ++written;
     }
     song_.notifyStructureChanged();
@@ -466,14 +490,48 @@ QJsonObject McpTools::placeSection(const QJsonObject& arguments) {
     const int track = arguments.value("track").toInt(-1);
     if (one && (track < 0 || track >= song_.trackCount()))
         return failure(QStringLiteral("There is no track %1.").arg(track));
-    const auto before = song_.song().clips.size();
+    // Placing a section where it already is changes nothing and is no
+    // error: the arrangement is already what was asked for.
+    const auto& song = song_.song();
+    const auto start = song.meter.bar_start(bar);
+    std::vector<int> wanted_tracks;
+    for (int index = 0; index < song_.trackCount(); ++index)
+        if ((!one || index == track) && song_.partOf(section, index) >= 0) wanted_tracks.push_back(index);
+    const auto there = [&](int index) {
+        const auto part = static_cast<std::size_t>(song_.partOf(section, index));
+        return std::any_of(song.clips.begin(), song.clips.end(), [&](const blokkily::Clip& clip) {
+            return static_cast<int>(clip.track) == index && clip.pattern == part && clip.start == start;
+        });
+    };
+    if (!wanted_tracks.empty() && std::all_of(wanted_tracks.begin(), wanted_tracks.end(), there))
+        return jsonResult(QJsonObject{{"section", section}, {"bar", bar}, {"placed", 0},
+                                      {"alreadyPlaced", true}, {"bars", song_.bars()}});
+    const auto before = song.clips.size();
     song_.selectSection(section);
     if (one) song_.placeClip(track, bar);
     else song_.placeSection(bar);
     const auto placed = static_cast<int>(song_.song().clips.size() - before);
-    if (placed <= 0)
-        return failure(one ? QStringLiteral("Track %1 already has a clip at bar %2.").arg(track).arg(bar)
-                           : QStringLiteral("Every track already has a clip at bar %1.").arg(bar));
+    if (placed <= 0) {
+        // Name what is in the way: a clip anywhere in the section's span
+        // blocks it, not only one starting at `bar`.
+        const auto part = song_.partOf(section, one ? track : wanted_tracks.empty() ? 0 : wanted_tracks.front());
+        const auto span = part >= 0 ? song.patterns.at(static_cast<std::size_t>(part)).pattern.length() : 0;
+        QStringList blocking;
+        for (const auto& clip : song.clips) {
+            if (one && static_cast<int>(clip.track) != track) continue;
+            const auto clip_span = clip.span(song.patterns.at(clip.pattern).pattern.length());
+            if (clip.start < start + span && start < clip.start + clip_span)
+                blocking << QStringLiteral("track %1 has %2 from bar %3")
+                                .arg(clip.track)
+                                .arg(QString::fromStdString(song.patterns.at(clip.pattern).name))
+                                .arg(song.meter.bar_at(clip.start));
+            if (blocking.size() == 3) break;
+        }
+        return failure(QStringLiteral("Nothing was placed: the bars from %1 are taken (%2).")
+                           .arg(bar)
+                           .arg(blocking.isEmpty() ? QStringLiteral("no track has a part of it")
+                                                   : blocking.join(QStringLiteral("; "))));
+    }
     return jsonResult(QJsonObject{{"section", section}, {"bar", bar}, {"placed", placed},
                                   {"bars", song_.bars()}});
 }
@@ -528,13 +586,24 @@ QJsonObject McpTools::analyzeRender(const QJsonObject& arguments) {
     const bool track = arguments.contains("track");
     const bool bus = arguments.contains("return");
     const bool file = arguments.contains("file");
-    if (int(track) + int(bus) + int(file) > 1)
-        return failure(QStringLiteral("Analyze one of track, return or file, or none for the master."));
+    const bool all = arguments.value("all").toBool();
+    if (int(track) + int(bus) + int(file) + int(all) > 1)
+        return failure(QStringLiteral("Analyze one of track, return, all or file, or none for the master."));
+    const int from = arguments.value("fromBar").toInt(0);
+    const int to = arguments.value("toBar").toInt(-1);
+    if (file && (arguments.contains("fromBar") || arguments.contains("toBar")))
+        return failure(QStringLiteral("fromBar and toBar choose bars of the song, not of a file."));
+    if (all) {
+        const auto analyses = controller_.analyzeEveryBus(from, to);
+        if (analyses.size() == 1 && analyses.front().toMap().contains("error"))
+            return failure(analyses.front().toMap().value("error").toString());
+        return jsonResult(QJsonObject{{"buses", QJsonArray::fromVariantList(analyses)}});
+    }
     const auto analysis =
         file ? controller_.analyzeAudioFile(arguments.value("file").toString())
-        : track ? controller_.analyzeRender(QStringLiteral("track"), arguments.value("track").toInt(-1))
-        : bus ? controller_.analyzeRender(QStringLiteral("return"), arguments.value("return").toInt(-1))
-              : controller_.analyzeRender(QStringLiteral("master"), 0);
+        : track ? controller_.analyzeRender(QStringLiteral("track"), arguments.value("track").toInt(-1), from, to)
+        : bus ? controller_.analyzeRender(QStringLiteral("return"), arguments.value("return").toInt(-1), from, to)
+              : controller_.analyzeRender(QStringLiteral("master"), 0, from, to);
     if (analysis.contains("error")) return failure(analysis.value("error").toString());
     return jsonResult(QJsonObject::fromVariantMap(analysis));
 }
@@ -945,6 +1014,29 @@ QJsonObject McpTools::setKeySignature(const QJsonObject& arguments) {
     return jsonResult(QJsonObject{{"pattern", section},
                                   {"fifths", *fifths},
                                   {"label", QString::fromStdString(blokkily::notation::KeySignature(*fifths).label())}});
+}
+
+// The song's own meter, which places its bars and plays: every bar from `bar`
+// on is numerator/denominator until the next change. Clips and tempo points
+// keep their bar numbers.
+QJsonObject McpTools::setMeter(const QJsonObject& arguments) {
+    const auto bar = wholeNumber(arguments.value("bar"));
+    const auto numerator = wholeNumber(arguments.value("numerator"));
+    const auto denominator = wholeNumber(arguments.value("denominator"));
+    if (!bar || *bar < 0) return failure(QStringLiteral("bar must be 0 or more."));
+    if (!numerator || *numerator < 1 || *numerator > 64)
+        return failure(QStringLiteral("numerator must be 1 to 64."));
+    if (!denominator || (*denominator != 1 && *denominator != 2 && *denominator != 4 &&
+                         *denominator != 8 && *denominator != 16 && *denominator != 32))
+        return failure(QStringLiteral("denominator must be 1, 2, 4, 8, 16 or 32."));
+    if (!song_.setMeter(*bar, *numerator, *denominator))
+        return failure(QStringLiteral("The meter could not be set at bar %1.").arg(*bar));
+    QJsonArray meters;
+    for (const auto& change : song_.song().meter.changes)
+        meters.append(QJsonObject{{"bar", change.bar},
+                                  {"numerator", change.numerator},
+                                  {"denominator", change.denominator}});
+    return jsonResult(QJsonObject{{"meters", meters}, {"transport", transportState()}});
 }
 
 QJsonObject McpTools::setTimeSignature(const QJsonObject& arguments) {

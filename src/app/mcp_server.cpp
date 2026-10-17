@@ -73,7 +73,10 @@ void McpServer::serve(QLocalSocket* socket) {
     serving_.insert(socket);
     while (!held_ && !hung_up_.contains(socket) && socket->canReadLine()) {
         const QByteArray line = socket->readLine();
+        auto* const outer = current_;
+        current_ = socket;
         const auto reply = session_.handleLine(line);
+        current_ = outer;
         // An agent that hung up meanwhile is owed nothing.
         if (reply && !hung_up_.contains(socket)) {
             socket->write(*reply);

@@ -31,6 +31,26 @@ Feature: Export as MP3, Ogg, stems and a scope video
     And a muted track's stem is silent, as it was heard
     And the click is never in a stem
 
+  # export_formats_stems_one_pass
+  Scenario: Every stem comes from one render of the song
+    Given two panned CLAP tracks and a return fed by a send
+    When the stems are exported
+    Then the song is rendered once, a block at a time, however many stems it writes
+
+  # export_formats_range, bdd_mcp
+  Scenario: Some bars of the song are exported
+    Given a two-bar song
+    When bar 2 alone is bounced
+    Then the file is that bar and its tail, and holds what bar 2 of the whole bounce holds
+    And its stems are the same stretch
+    And a stretch that is empty or runs past the song is refused
+
+  # export_formats_cancel, bdd_mcp
+  Scenario: An abandoned render leaves nothing behind
+    When a bounce or a stem export is told to stop after a few blocks
+    Then it stops there, fails as cancelled and removes what it wrote
+    And the next bounce is the song as before
+
   # bdd_export_formats
   Scenario: The rail chooses the format
     Given the real window
