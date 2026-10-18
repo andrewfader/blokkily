@@ -236,8 +236,11 @@ ColumnLayout {
         // How many samples earlier than the device reports a recorded take
         // is placed, on top of its round trip: for a device that misreports
         // its latency. Typed, applied on Return or when the field is left.
+        // Shown while some track records audio input, the only time it does
+        // anything, so the plugin list below keeps its rows otherwise.
         RowLayout {
             Layout.fillWidth: true; spacing: 6
+            visible: songModel.tracks.some(function(track) { return track.takesAudio === true })
             SectionLabel { text: "OFFSET"; Layout.preferredWidth: midiOutPanel.labelWidth }
             TextField {
                 id: recordOffsetField

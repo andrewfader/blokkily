@@ -1,7 +1,7 @@
 // features/audio_input.feature (plan item 3.2, "record everything" part 3), run
 // on its own by the bdd_record_audio gate (`--scenario record_audio`). The
 // deterministic device is given two inputs and a 128-frame round trip, and
-// the rail's OFFSET field adds 32 samples to it. An
+// the rail's OFFSET row adds 32 samples to it. An
 // audio track is set to IN 1-2 and armed from the chips on its mixer strip,
 // beside a CLAP track armed for notes; the input is heard while the song is
 // stopped. With the song recording, a key is performed and then a burst is
@@ -156,6 +156,9 @@ void run_record_audio(VerifyContext& ctx) {
     settle(20);
     lay_out();
     check(controller.engine() != nullptr && controller.engine()->track_count() == 2);
+    // No track records the inputs yet: the rail has no OFFSET row, and its
+    // plugin list keeps the room.
+    check(ctx.named("recordOffset") != nullptr && !ctx.named("recordOffset")->isVisible());
     reached("record audio: a CLAP track, an audio track, and two device inputs");
 
     // The strip's input and monitor chips are there and big enough to use.
@@ -201,10 +204,12 @@ void run_record_audio(VerifyContext& ctx) {
     check(std::abs(right_heard - (-0.125F)) < 1e-5F && std::abs(left_heard) < 1e-5F);
     reached("record audio: the armed input is heard while the song is stopped");
 
-    // The device misreports its round trip by 32 samples: the OFFSET field
-    // in the rail corrects it, without a step of history.
+    // The device misreports its round trip by 32 samples: the OFFSET row in
+    // the rail, shown once a track records the inputs, corrects it without a
+    // step of history.
     constexpr std::int64_t record_offset = 32;
     {
+        // Shown because track 1 records the inputs.
         auto* field = ctx.named("recordOffset");
         check(VerifyContext::usable(field, 50, 18));
         if (field != nullptr) {
@@ -225,7 +230,7 @@ void run_record_audio(VerifyContext& ctx) {
         check(song.recordOffset() == SongModel::kMaxRecordOffset);
         song.setRecordOffset(static_cast<int>(record_offset));
     }
-    reached("record audio: the rail's OFFSET field corrects the device's round trip");
+    reached("record audio: the rail's OFFSET row corrects the device's round trip");
 
     // Record: from the start of the song, a performed key on track 0, then
     // the burst into the inputs.

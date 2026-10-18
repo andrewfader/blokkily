@@ -122,10 +122,13 @@ Feature: Record everything, part 3 - audio input into audio clips
     When levels are played into the inputs with the song stopped
     Then the right of the bus carries input 2
 
-  # gate step "record audio: the rail's OFFSET field corrects the device's round trip"
+  # gate step "record audio: the rail's OFFSET row corrects the device's round trip"
   Scenario: The record offset is set in the window
     Given a device that reports its round trip 32 samples short
-    When the producer types 32 into the OFFSET field in the rail and presses Return
+    And no track recording its inputs, so the rail shows no OFFSET row
+    When the audio track is set to record IN 1-2
+    Then the rail shows an OFFSET row
+    When the producer types 32 into it and presses Return
     Then the song's record offset is 32 samples, and undo and redo leave it alone
     And an offset beyond 96000 samples either way is held to 96000
 

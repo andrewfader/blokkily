@@ -295,8 +295,9 @@ To record a take:
 
 The clip is placed where you heard the song, not where the input received it.
 It is moved earlier by the device's round trip, the plugin latency on the way
-out, and the song's record offset: the OFFSET field in the left rail, in samples,
-for a device that reports its round trip wrongly. The offset is saved with
+out, and the song's record offset: the OFFSET row in the left rail, shown while a
+track records audio input, in samples, for a device that reports its round
+trip wrongly. The offset is saved with
 the song but is not a step of history. With PUNCH, only what
 is played between IN and OUT is kept. With LOOP, each pass is a take of the
 same bars (see [Punch and comping](#punch-and-comping)). The audio clips and
