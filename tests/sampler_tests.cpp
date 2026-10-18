@@ -774,6 +774,66 @@ void pattern_locks() {
             "the modulation lock adds to it: " + number(locked.second / plain.first));
 }
 
+// Poly pressure and per-note pressure swell a pressed key, by up to double at
+// full pressure, as the CLAP fixture does; no pressure leaves it as it was.
+void pressure() {
+    // From a pattern's POLY lane, through the engine: key 60 is held from
+    // sample 0, pressed fully at sample 2000 and let go at sample 4000;
+    // key 62, held beside it, is never pressed.
+    constexpr Tick length = 8192;   // one tick per sample at 120 BPM, 48 kHz
+    Pattern pattern(length, 24000);
+    for (const int key : {60, 62}) {
+        Trigger note;
+        note.start = 0;
+        note.duration = 6000;
+        note.musical_data = Note{static_cast<std::int16_t>(key), 1.0F, 0.0F};
+        (void)pattern.add(note);
+    }
+    pattern.add_continuous({2000, ContinuousEvent::Kind::poly_pressure, 60, 127});
+    pattern.add_continuous({4000, ContinuousEvent::Kind::poly_pressure, 60, 0});
+    Song song;
+    song.patterns = {{"Pressure", std::move(pattern)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    const auto heard = [&song](std::vector<SamplerZone> zones) {
+        SongEngine engine;
+        engine.set_instrument(0, sampler_with(keyed(std::move(zones))));
+        std::string error;
+        require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
+        engine.set_playing(true);
+        std::vector<float> left(6144), right(6144);
+        for (std::size_t at = 0; at < left.size(); at += block)
+            engine.process({std::span<float>(left.data() + at, block),
+                            std::span<float>(right.data() + at, block)});
+        return left;
+    };
+    // Only key 60 sounds: the pressed key swells to double, and back.
+    auto pressed = dc_zone();
+    const auto alone = heard({pressed});
+    const auto at = [&alone](std::size_t from) { return mean(std::span<const float>(alone).subspan(from, 1000)); };
+    const double rest = at(500);
+    require(rest > 0.1, "the held key sounds");
+    require(std::abs(at(2800) / rest - 2.0) < 1e-3, "full poly pressure doubles the key: " + number(at(2800) / rest));
+    require(std::abs(at(4800) / rest - 1.0) < 1e-3, "let go, the key is as loud as before: " + number(at(4800) / rest));
+    require(max_step(std::span<const float>(alone).subspan(1900, 400)) < 0.01, "the swell is smoothed, not a step");
+    // Only key 62 sounds: pressing key 60 leaves it alone.
+    auto beside = dc_zone();
+    beside.low_key = beside.high_key = beside.root_key = 62;
+    const auto other = heard({beside});
+    require(std::abs(mean(std::span<const float>(other).subspan(2800, 1000)) /
+                     mean(std::span<const float>(other).subspan(500, 1000)) - 1.0) < 1e-6,
+            "the key beside it is not pressed");
+
+    // Per-note pressure (MPE) on the playing note does the same.
+    auto sampler = sampler_with(keyed({dc_zone()}));
+    PluginEvent press{PluginEvent::Type::note_expression, 0, 60, 0.5};
+    press.expression = note_dimension::pressure;
+    const auto mpe = render(*sampler, 6000, {note_on(0, 60), {2000, press}});
+    const double before = mean(mpe.window(500, 1000));
+    require(std::abs(mean(mpe.window(3000, 1000)) / before - 1.5) < 1e-3,
+            "half pressure is half again as loud: " + number(mean(mpe.window(3000, 1000)) / before));
+}
+
 // The live kit handoff: a new program reaches the running sampler without
 // cutting sounding voices, and old kits are freed once nothing reads them.
 void kit_handoff() {
@@ -832,6 +892,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"relative_paths", relative_paths},
     {"parameters", parameters},
     {"pattern_locks", pattern_locks},
+    {"pressure", pressure},
     {"kit_handoff", kit_handoff},
 };
 

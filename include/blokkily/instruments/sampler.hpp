@@ -138,6 +138,13 @@ private:
         // Per-note pitch expression (MPE), in semitones, on top of the tune
         // parameter and the wheel.
         double expression_semitones = 0.0;
+        // Pressure (0..1) swells the voice by up to double: its own per-note
+        // pressure (MPE) or its key's poly pressure, whichever is more,
+        // reached by a short ramp so a press never clicks.
+        double note_pressure = 0.0;
+        double pressure = 0.0;
+        double pressure_target = 0.0;
+        double pressure_step = 0.0;
         enum class Stage : std::uint8_t { attack, decay, sustain, release } stage = Stage::attack;
         bool active = false;
         bool backward = false;     // ping-pong direction
@@ -145,12 +152,15 @@ private:
         bool may_loop = false;     // started before the loop's end
         bool pedal_held = false;   // released while the sustain pedal was down
     };
-    // Per-note expression (MPE): the pitch of every voice of that key; the
-    // sampler has no timbre and no pressure, so those are ignored.
+    // Per-note expression (MPE): the pitch and the pressure of every voice
+    // of that key; the sampler has no timbre, so that is ignored.
     void apply_expression(const PluginEvent& event) noexcept;
-    // Raw MIDI (wave 4.1): the pitch wheel (two semitones either way) and the
-    // sustain pedal (CC 64); the rest is ignored.
+    // Raw MIDI (wave 4.1): the pitch wheel (two semitones either way), the
+    // sustain pedal (CC 64) and poly pressure (per key, kept until the key's
+    // next message); the rest is ignored.
     void apply_midi(std::uint32_t raw) noexcept;
+    // Points the voice's pressure ramp at what its note and its key say now.
+    void retarget_pressure(Voice& voice) const noexcept;
 
     void start_note(const PluginEvent& event) noexcept;
     void release_key(int key) noexcept;
@@ -190,6 +200,8 @@ private:
     // Audio thread only: where the wheel is, in semitones, and the pedal.
     double bend_semitones_ = 0.0;
     bool pedal_down_ = false;
+    // Audio thread only: each key's poly pressure, 0..1.
+    std::array<double, 128> poly_pressure_{};
 };
 
 } // namespace blokkily

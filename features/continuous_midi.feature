@@ -48,13 +48,14 @@ Feature: Continuous MIDI: the wheel, controllers, pressure and the sustain pedal
     announces (a larger per-note bend is clamped there), timbre CC 74 (which
     stays on the channel until changed), pressure channel pressure. No
     VST3 note-expression events are sent.
-    Sampler: per-note pitch only; timbre and pressure are ignored.
+    Sampler: per-note pitch, and pressure, which swells the note by up to
+    double, as poly pressure does; timbre is ignored.
   Master-channel messages, and other CCs on a member channel, still reach
   the whole instrument.
 
   Controller movements keep their timing to the sample, as notes do
   (features/midi_timing.feature). Not done: Per-note expression is not drawn or edited in any editor (it
-  travels with its step when the step is moved, copied or transposed). The built-in sampler ignores poly pressure; the SoundFont and VST3
+  travels with its step when the step is moved, copied or transposed). The built-in sampler swells a pressed key by up to double; the SoundFont and VST3
   paths send it on the channel holding its key.
 
   Executable: tests/continuous_midi_tests.cpp (CTest continuous_midi_<case>),

@@ -224,6 +224,7 @@ void SamplerInstrument::reset() {
     for (auto& voice : fading_) voice.active = false;
     bend_semitones_ = 0.0;
     pedal_down_ = false;
+    poly_pressure_.fill(0.0);
 }
 
 std::vector<std::byte> SamplerInstrument::save_state() {
@@ -325,6 +326,9 @@ void SamplerInstrument::start_note(const PluginEvent& event) noexcept {
         voice.age = ++voice_clock_;
         voice.key = key;
         voice.active = true;
+        // A key already pressed starts pressed, without a ramp.
+        voice.pressure = voice.pressure_target =
+            key >= 0 && key < 128 ? poly_pressure_[static_cast<std::size_t>(key)] : 0.0;
         voice.position = position;
         const double rate_ratio = zone.file_rate / engine_rate_;
         voice.step = zone.track_pitch
@@ -416,7 +420,12 @@ bool SamplerInstrument::render_voice(Voice& voice, StereoBlock audio, std::size_
         const double fraction = voice.position - whole;
         const double left = hermite(zone.left, index, fraction);
         const double right = stereo ? hermite(zone.right, index, fraction) : left;
-        const double level = voice.level * gain;
+        if (voice.pressure != voice.pressure_target) {
+            voice.pressure += voice.pressure_step;
+            if ((voice.pressure_step > 0.0) == (voice.pressure >= voice.pressure_target))
+                voice.pressure = voice.pressure_target;
+        }
+        const double level = voice.level * gain * (1.0 + voice.pressure);
         audio.left[frame] += static_cast<float>(left * level * voice.left_gain);
         audio.right[frame] += static_cast<float>(right * level * voice.right_gain);
 
@@ -468,11 +477,28 @@ bool SamplerInstrument::render_voice(Voice& voice, StereoBlock audio, std::size_
     return true;
 }
 
+void SamplerInstrument::retarget_pressure(Voice& voice) const noexcept {
+    // About 5 ms at 48 kHz: short enough to follow a hand, long enough not
+    // to click.
+    constexpr double ramp_frames = 256.0;
+    const double key = voice.key >= 0 && voice.key < 128
+                           ? poly_pressure_[static_cast<std::size_t>(voice.key)] : 0.0;
+    voice.pressure_target = std::clamp(std::max(voice.note_pressure, key), 0.0, 1.0);
+    voice.pressure_step = (voice.pressure_target - voice.pressure) / ramp_frames;
+}
+
 void SamplerInstrument::apply_expression(const PluginEvent& event) noexcept {
-    if (event.expression != note_dimension::pitch) return;
-    for (auto& voice : voices_)
-        if (voice.active && voice.key == event.key_or_parameter)
-            voice.expression_semitones = std::clamp(event.value, -96.0, 96.0);
+    if (event.expression == note_dimension::pitch) {
+        for (auto& voice : voices_)
+            if (voice.active && voice.key == event.key_or_parameter)
+                voice.expression_semitones = std::clamp(event.value, -96.0, 96.0);
+    } else if (event.expression == note_dimension::pressure) {
+        for (auto& voice : voices_)
+            if (voice.active && voice.key == event.key_or_parameter) {
+                voice.note_pressure = std::clamp(event.value, 0.0, 1.0);
+                retarget_pressure(voice);
+            }
+    }
 }
 
 void SamplerInstrument::apply_midi(std::uint32_t raw) noexcept {
@@ -482,6 +508,10 @@ void SamplerInstrument::apply_midi(std::uint32_t raw) noexcept {
     if (kind == 0xE0U) {
         const auto wheel = static_cast<double>(first | (second << 7));
         bend_semitones_ = (wheel - 8192.0) / 8192.0 * 2.0;
+    } else if (kind == 0xA0U) {
+        poly_pressure_[first] = static_cast<double>(second) / 127.0;
+        for (auto& voice : voices_)
+            if (voice.active && voice.key == static_cast<int>(first)) retarget_pressure(voice);
     } else if (kind == 0xB0U && first == 64) {
         pedal_down_ = second >= 64;
         if (pedal_down_) return;

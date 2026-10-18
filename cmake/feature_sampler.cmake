@@ -47,6 +47,7 @@ if(BLOKKILY_BUILD_TESTS)
             relative_paths
             parameters
             pattern_locks
+            pressure
             kit_handoff)
         add_test(NAME sampler_${sampler_case}
             COMMAND blokkily_sampler_tests ${sampler_case})

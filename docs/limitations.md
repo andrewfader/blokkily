@@ -7,13 +7,13 @@ in the [usage guide](usage.md).
 
 - VST3 instruments receive per-note pitch only within a two-semitone channel
   bend. SoundFonts have no CC 74 timbre response unless the SF2 maps it. The
-  sampler supports per-note pitch only.
+  sampler has no timbre: per-note pitch and pressure reach it, and pressure
+  (per-note or poly) swells the note by up to double.
 - Following an external clock follows its tempo and its Start, Stop,
   Continue and position; it does not phase-lock to every tick, so over a long
   take the two can drift by a few milliseconds. A tempo change is followed a
   beat of ticks after it is played. A track played through a MIDI output
   sends no microtonal retuning.
-- The built-in sampler ignores poly pressure.
 
 MIDI file exchange also omits plugin state, parameter automation, per-note
 expression, audio clips and microtonal retuning. Tempo ramps export as

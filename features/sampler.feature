@@ -106,6 +106,14 @@ Feature: A sampler plays recorded sound as an instrument
     Then the rendered level follows the lock and then the lock plus the modulation
     And a later value leaves the modulation as an offset, never folded into the base
 
+  # sampler_pressure
+  Scenario: Pressure swells a pressed key
+    Given a sampler holding keys 60 and 62 from a pattern
+    When the pattern's POLY lane presses key 60 fully and then lets it go
+    Then key 60 is heard at double its level, reached without a step, and then as before
+    And key 62 is not pressed
+    And per-note pressure of one half on a playing note makes it half again as loud
+
   # sampler_kit_handoff
   Scenario: A new program reaches a running sampler without cutting it
     Given a sampler holding a note
