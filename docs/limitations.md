@@ -99,8 +99,7 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 - Notation leaves out what it cannot write: timing off the 128th-note grid,
   probability, ratchets, loop conditions, parameter locks and chord strum.
   A MusicXML export reports when a part does not play back the same.
-- A staff's transposition holds for the whole part; a change of it partway
-  through a MusicXML file is not read. Grace and cue notes are skipped.
+- Grace and cue notes in a MusicXML file are skipped.
 
 ## LV2
 

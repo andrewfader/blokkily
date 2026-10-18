@@ -125,6 +125,12 @@ keeps the layout consistent across desktops.
   meter saved with the song. Write notes straight onto the staff with the
   mouse and arrow keys. Bring a hymn or a choral score in from notation
   software with SCORE IN, and send the song out with SCORE OUT, as MusicXML.
+
+  ![The SCORE view showing an imported hymn in F major and 3/4 with Hebrew lyrics under the staff](docs/images/blokkily-score.png)
+
+  The screenshot comes from the `bdd_score_file` verification session: a
+  MusicXML hymn brought in with SCORE IN, its Hebrew lyrics drawn under the
+  notes, as voice and organ tracks in the arrangement above.
 - Press F1 or HELP for a guided tour of the window. CLEAR empties the session
   in one undo step.
 - Press GUIDE for a mascot that narrates what you and your agent do and why,
