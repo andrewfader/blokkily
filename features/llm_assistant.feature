@@ -6,7 +6,7 @@ Feature: LLM composition assistant
   answer is checked like any other input, and nothing reaches the song until
   the producer applies it. The producer picks where prompts are answered:
   a local model (Ollama) by default, or a cloud model they have keyed
-  (Gemini, MiniMax, ChatGPT or OpenRouter). Tests never touch a network:
+  (Gemini, MiniMax, ChatGPT, OpenRouter or Claude). Tests never touch a network:
   canned replies stand in for the model.
 
   Scenario: A reply in the wire dialect becomes triggers
@@ -87,6 +87,7 @@ Feature: LLM composition assistant
       | OpenRouter | openrouter |
       | Gemini     | gemini     |
       | Ollama     | ollama     |
+      | Claude     | claude     |
 
   Scenario Outline: A backend's answer feeds the wire-dialect parser unchanged
     Given a <backend> answer whose text is a valid triggers object
@@ -101,6 +102,7 @@ Feature: LLM composition assistant
       | OpenRouter | openrouter |
       | Gemini     | gemini     |
       | Ollama     | ollama     |
+      | Claude     | claude     |
 
   Scenario Outline: A cloud backend without its key says which to set
     Given the <backend> backend with no key
@@ -115,6 +117,7 @@ Feature: LLM composition assistant
       | ChatGPT    | openai     | BLOKKILY_OPENAI_KEY     |
       | OpenRouter | openrouter | BLOKKILY_OPENROUTER_KEY |
       | Gemini     | gemini     | BLOKKILY_GEMINI_KEY     |
+      | Claude     | claude     | BLOKKILY_ANTHROPIC_KEY  |
 
   Scenario Outline: A transport failure names the backend that failed
     Given the <backend> backend whose connection is refused
@@ -129,6 +132,7 @@ Feature: LLM composition assistant
       | OpenRouter | openrouter |
       | Gemini     | gemini     |
       | Ollama     | ollama     |
+      | Claude     | claude     |
 
   Scenario Outline: The provider's own refusal reaches the producer
     Given the <backend> backend whose provider answers HTTP 401 with its
@@ -145,6 +149,7 @@ Feature: LLM composition assistant
       | OpenRouter | openrouter |
       | Gemini     | gemini     |
       | Ollama     | ollama     |
+      | Claude     | claude     |
 
   Scenario Outline: The URL and model variables override the defaults
     Given the <backend> backend with a custom URL and model in the environment
@@ -159,6 +164,15 @@ Feature: LLM composition assistant
       | ChatGPT    | openai     |
       | OpenRouter | openrouter |
       | Ollama     | ollama     |
+      | Claude     | claude     |
+
+  Scenario: Claude's refusal reaches the producer
+    Given the Claude backend whose provider declines the request with
+      stop_reason "refusal" and a category
+    When the producer sends a prompt
+    Then the reply is not ok and the error says Claude declined, with the
+      category
+    Checked by llm_claude_backend_refusal_is_readable.
 
   Scenario: A proposal is previewed, applied, and undone — end to end
     Given the application with a scripted backend

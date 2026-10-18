@@ -38,7 +38,7 @@ QString providerError(const QByteArray& body) {
 QStringList backendNames() {
     return {QStringLiteral("ollama"), QStringLiteral("gemini"),
             QStringLiteral("minimax"), QStringLiteral("chatgpt"),
-            QStringLiteral("openrouter")};
+            QStringLiteral("openrouter"), QStringLiteral("claude")};
 }
 
 std::unique_ptr<LlmBackend> makeBackend(const QString& name, QObject* parent) {
@@ -47,6 +47,7 @@ std::unique_ptr<LlmBackend> makeBackend(const QString& name, QObject* parent) {
     if (name == QLatin1String("minimax")) return makeMinimaxBackend(parent);
     if (name == QLatin1String("chatgpt")) return makeOpenAiBackend(parent);
     if (name == QLatin1String("openrouter")) return makeOpenRouterBackend(parent);
+    if (name == QLatin1String("claude")) return makeAnthropicBackend(parent);
     return nullptr;
 }
 

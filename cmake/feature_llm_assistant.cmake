@@ -1,7 +1,7 @@
 # Feature fragment: the LLM composition assistant. A producer describes what
 # they want in musical words; the assistant shows the session to a model
-# (local Ollama by default; Gemini, MiniMax, ChatGPT or OpenRouter on
-# request), checks the reply, and writes
+# (local Ollama by default; Gemini, MiniMax, ChatGPT, OpenRouter or Claude
+# on request), checks the reply, and writes
 # the approved proposal into the canonical pattern as one undo step.
 # features/llm_assistant.feature maps each scenario to a check below.
 #
@@ -22,6 +22,7 @@ if(BLOKKILY_BUILD_GUI)
         src/llm/openai_compatible_backend.cpp
         src/llm/ollama_backend.cpp
         src/llm/gemini_backend.cpp
+        src/llm/anthropic_backend.cpp
         src/llm/scripted_backend.cpp
         src/llm/scripted_backend.hpp
         src/llm/system_prompt.cpp
@@ -53,7 +54,8 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
         src/llm/scripted_backend.cpp
         src/llm/system_prompt.cpp
         src/llm/ollama_backend.cpp
-        src/llm/gemini_backend.cpp)
+        src/llm/gemini_backend.cpp
+        src/llm/anthropic_backend.cpp)
     target_include_directories(blokkily_llm_tests PRIVATE src/llm tests)
     target_link_libraries(blokkily_llm_tests PRIVATE blokkily_core
         Qt6::Core Qt6::Network)
@@ -67,8 +69,8 @@ if(BLOKKILY_BUILD_TESTS AND BLOKKILY_BUILD_GUI)
         parse_rejects_prose parse_clamps_and_repairs parse_drops_out_of_pattern
         roundtrip_triggers scripted_backend_answers prompt_documents_schema
         cassette_records_and_replays cassette_unrecorded_request_fails
-        cassette_scrubs_credentials)
-    foreach(vendor minimax openai openrouter gemini ollama)
+        cassette_scrubs_credentials claude_backend_refusal_is_readable)
+    foreach(vendor minimax openai openrouter gemini ollama claude)
         foreach(backend_case ${llm_backend_cases})
             list(APPEND llm_cases ${vendor}_backend_${backend_case})
         endforeach()
@@ -112,7 +114,7 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     # from the cassette. No key, no network: the key variable only has to be
     # set for the backend to send, and the URL and model are pinned to the
     # defaults the cassette was recorded against.
-    foreach(backend minimax chatgpt openrouter gemini ollama)
+    foreach(backend minimax chatgpt openrouter gemini ollama claude)
         set(cassette ${CMAKE_SOURCE_DIR}/tests/fixtures/llm_cassettes/${backend}.jsonl)
         if(NOT EXISTS ${cassette})
             continue()
@@ -120,6 +122,8 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
         string(TOUPPER ${backend} vendor)
         if(backend STREQUAL "chatgpt")
             set(vendor OPENAI)
+        elseif(backend STREQUAL "claude")
+            set(vendor ANTHROPIC)
         endif()
         add_test(NAME bdd_llm_live_${backend}
             COMMAND blokkily --verify --scenario llm_live

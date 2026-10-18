@@ -7,7 +7,7 @@ Do NOT duplicate any of it:
 
 - **LLM composition assistant** (`docs/llm-assistant.md`, `src/llm/`,
   `src/app/llm_model.*`, `ui/PromptBar.qml`): Ollama (local default), Gemini,
-  MiniMax, ChatGPT, OpenRouter backends; scripted backend + HTTP cassettes for
+  MiniMax, ChatGPT, OpenRouter, Claude backends; scripted backend + HTTP cassettes for
   tests; JSON wire dialect for writing notes; proposal → Apply writes through
   the canonical pattern as one undo step. This is the "LLM help" seam.
 - **MCP server** (`docs/mcp.md`, `src/app/mcp_{bridge,protocol,server,tools}.*`,

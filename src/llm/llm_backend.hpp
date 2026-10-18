@@ -68,7 +68,8 @@ private:
 };
 
 // The provider's own explanation in an HTTP answer's body, when it gave one:
-// {"error": {"message": "..."}} (OpenAI-compatible vendors and Gemini) or
+// {"error": {"message": "..."}} (OpenAI-compatible vendors, Gemini and
+// Anthropic) or
 // {"error": "..."} (Ollama). Providers send it with a 4xx/5xx status, so a
 // backend reads it before falling back on the transport's reason.
 [[nodiscard]] QString providerError(const QByteArray& body);
@@ -78,11 +79,12 @@ private:
 [[nodiscard]] std::unique_ptr<LlmBackend> makeMinimaxBackend(QObject* parent = nullptr);
 [[nodiscard]] std::unique_ptr<LlmBackend> makeOpenAiBackend(QObject* parent = nullptr);
 [[nodiscard]] std::unique_ptr<LlmBackend> makeOpenRouterBackend(QObject* parent = nullptr);
+[[nodiscard]] std::unique_ptr<LlmBackend> makeAnthropicBackend(QObject* parent = nullptr);
 
 // The names the backend picker offers, in the order it offers them.
 [[nodiscard]] QStringList backendNames();
 // Builds the backend `name` selects. "ollama", "gemini", "minimax",
-// "chatgpt" and "openrouter" are live; any other name is an empty
+// "chatgpt", "openrouter" and "claude" are live; any other name is an empty
 // optional. Configuration comes from the environment:
 //   BLOKKILY_OLLAMA_URL        (default http://localhost:11434)
 //   BLOKKILY_OLLAMA_MODEL      (default llama3.1)
@@ -108,6 +110,11 @@ private:
 //   BLOKKILY_OPENROUTER_MODEL  (default openrouter/free: OpenRouter
 //                              routes to whichever free model is up,
 //                              so an unfunded key still answers)
+//   BLOKKILY_ANTHROPIC_KEY     API key for Anthropic's Messages API; the
+//                              Claude backend is offered without one but
+//                              answers every request with an error
+//   BLOKKILY_ANTHROPIC_URL     (default https://api.anthropic.com)
+//   BLOKKILY_ANTHROPIC_MODEL   (default claude-opus-5-5)
 [[nodiscard]] std::unique_ptr<LlmBackend> makeBackend(const QString& name,
                                                       QObject* parent = nullptr);
 

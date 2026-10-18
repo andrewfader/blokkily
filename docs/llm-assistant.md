@@ -27,6 +27,7 @@ src/llm/
   openai_compatible_backend.cpp
                             -- MiniMax, ChatGPT and OpenRouter: one class,
                                three vendor descriptions
+  anthropic_backend.cpp     -- Claude, BLOKKILY_ANTHROPIC_KEY
   scripted_backend.{hpp,cpp}-- a script-driven backend for the gate
 src/app/
   llm_model.{hpp,cpp}       -- QML-facing bridge: ask, proposal, apply, discard
@@ -86,9 +87,10 @@ drops triggers past the pattern's end, and admits every repair in
 | `minimax`    | `https://api.minimax.io` (`BLOKKILY_MINIMAX_URL`)          | `BLOKKILY_MINIMAX_KEY`    | `MiniMax-M3`         |
 | `chatgpt`    | `https://api.openai.com` (`BLOKKILY_OPENAI_URL`)           | `BLOKKILY_OPENAI_KEY`     | `gpt-4o-mini`        |
 | `openrouter` | `https://openrouter.ai/api` (`BLOKKILY_OPENROUTER_URL`)    | `BLOKKILY_OPENROUTER_KEY` | `openrouter/free`    |
+| `claude`     | `https://api.anthropic.com` (`BLOKKILY_ANTHROPIC_URL`)     | `BLOKKILY_ANTHROPIC_KEY`  | `claude-opus-5-5`    |
 
 Every model is overridable with `BLOKKILY_<NAME>_MODEL` (`BLOKKILY_OPENAI_MODEL`
-for ChatGPT). `BLOKKILY_LLM_BACKEND` picks the backend the bar opens on;
+for ChatGPT, `BLOKKILY_ANTHROPIC_MODEL` for Claude). `BLOKKILY_LLM_BACKEND` picks the backend the bar opens on;
 without it the bar opens on the local Ollama, so nothing leaves the machine
 unless the producer chooses a cloud backend.
 
@@ -96,7 +98,13 @@ MiniMax, ChatGPT and OpenRouter speak the OpenAI chat-completions dialect at
 `<url>/v1/chat/completions` with a Bearer key and force
 `response_format: {type: "json_object"}` so the wire dialect survives
 untouched. Gemini receives its key in the `x-goog-api-key` header, never in
-the URL. A cloud backend without its key stays in the picker and answers
+the URL. Claude speaks Anthropic's Messages API at `<url>/v1/messages` with
+the key in `x-api-key`, the instructions as the top-level `system` field, and
+effort `low` so an answer fits the guide's 30-second wait; it has no JSON
+switch, so the system prompt alone asks for the wire dialect. The default
+model also asks for a server-side fallback (`fallbacks: "default"`), so a
+request its safety classifier declines is re-run on another model; a refusal
+that survives reads "Claude declined the request (category)". A cloud backend without its key stays in the picker and answers
 with an error naming the variable to set. When a provider refuses a request
 (bad key, no credit, unknown model) its own message is shown, not the HTTP
 status.
@@ -149,7 +157,7 @@ actually said. `http_cassette.cpp` records like a VCR:
 
 ```
 scripts/record-llm-cassettes.sh minimax      # any of: minimax chatgpt
-                                             # openrouter gemini ollama
+                                             # openrouter gemini ollama claude
 ```
 
 runs the live gate against the provider with its key, and on `BDD PASS`

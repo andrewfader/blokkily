@@ -725,8 +725,8 @@ or transport shortcuts.
 
 The prompt bar above the editors asks an LLM to write into the open pattern.
 For example, try "a minor pentatonic ascending" or "offbeat hats". The default
-backend is a local Ollama model. Gemini, MiniMax, ChatGPT and OpenRouter are
-also available with their API keys.
+backend is a local Ollama model. Gemini, MiniMax, ChatGPT, OpenRouter and
+Claude are also available with their API keys.
 
 Replies are parsed and clamped like other input and shown as proposals. Nothing
 changes in the song until you click Apply. Each generation is one undo step.

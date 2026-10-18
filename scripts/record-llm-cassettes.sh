@@ -5,7 +5,7 @@
 # (keys scrubbed). Configure and build again afterwards: each cassette becomes
 # a bdd_llm_live_<backend> gate that replays it with no key and no network.
 #
-#   scripts/record-llm-cassettes.sh minimax [chatgpt openrouter gemini ollama]
+#   scripts/record-llm-cassettes.sh minimax [chatgpt openrouter gemini ollama claude]
 #
 # Needs the backend's key in the environment (BLOKKILY_MINIMAX_KEY and so on,
 # docs/llm-assistant.md) and a build in build/. The URL and model variables are
@@ -24,6 +24,7 @@ status=0
 for backend in "$@"; do
     vendor=${backend^^}
     [[ $backend == chatgpt ]] && vendor=OPENAI
+    [[ $backend == claude ]] && vendor=ANTHROPIC
     key_var=BLOKKILY_${vendor}_KEY
     if [[ $backend != ollama && -z ${!key_var:-} ]]; then
         echo "$backend: $key_var is not set; skipped" >&2

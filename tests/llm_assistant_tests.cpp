@@ -376,9 +376,9 @@ void runBackend(LlmBackend* backend, Request request, Reply& out) {
 
 // Every live backend, described once so each scenario runs against all of
 // the backends it applies to. `dialect` picks the wire shape: the
-// OpenAI-compatible chat endpoint, Gemini's generateContent, or Ollama's
-// generate.
-enum class Dialect { chat, gemini, ollama };
+// OpenAI-compatible chat endpoint, Gemini's generateContent, Ollama's
+// generate, or Anthropic's messages.
+enum class Dialect { chat, gemini, ollama, anthropic };
 
 struct Vendor {
     const char* name;       // the picker key, and the case-name prefix
@@ -407,6 +407,9 @@ const std::vector<Vendor>& vendors() {
          "gemini-2.5-flash"},
         {"ollama", Dialect::ollama, "Ollama", nullptr, "BLOKKILY_OLLAMA_URL",
          "BLOKKILY_OLLAMA_MODEL", "http://localhost:11434/api/generate", "llama3.1"},
+        {"claude", Dialect::anthropic, "Claude", "BLOKKILY_ANTHROPIC_KEY",
+         "BLOKKILY_ANTHROPIC_URL", "BLOKKILY_ANTHROPIC_MODEL",
+         "https://api.anthropic.com/v1/messages", "claude-opus-5-5"},
     };
     return all;
 }
@@ -444,6 +447,13 @@ QByteArray successBody(Dialect dialect, const QString& content) {
             {"content", QJsonObject{{"parts", QJsonArray{QJsonObject{{"text", content}}}}}}}};
         break;
     case Dialect::ollama: root["response"] = content; break;
+    case Dialect::anthropic:
+        // A thinking block (empty, as the API sends it by default) before
+        // the answer: only the text blocks are the model's reply.
+        root["stop_reason"] = "end_turn";
+        root["content"] = QJsonArray{QJsonObject{{"type", "thinking"}, {"thinking", ""}},
+                                     QJsonObject{{"type", "text"}, {"text", content}}};
+        break;
     }
     return QJsonDocument(root).toJson();
 }
@@ -451,6 +461,11 @@ QByteArray successBody(Dialect dialect, const QString& content) {
 // The provider's refusal, shaped the way that provider shapes it.
 QByteArray errorBody(Dialect dialect, const QString& message) {
     if (dialect == Dialect::ollama) return QJsonDocument(QJsonObject{{"error", message}}).toJson();
+    if (dialect == Dialect::anthropic)
+        return QJsonDocument(QJsonObject{{"type", "error"},
+                                         {"error", QJsonObject{{"type", "authentication_error"},
+                                                               {"message", message}}}})
+            .toJson();
     return QJsonDocument(QJsonObject{{"error", QJsonObject{{"message", message}, {"code", 401}}}})
         .toJson();
 }
@@ -517,6 +532,27 @@ void backend_builds_request_case(const Vendor& vendor) {
         require(body.value("system").toString() == "system", "the system prompt must be sent");
         require(!body.value("stream").toBool(true), "Ollama must answer in one piece");
         break;
+    case Dialect::anthropic: {
+        require(sent.rawHeader("x-api-key") == "test-key", "the key must travel in x-api-key");
+        require(sent.rawHeader("anthropic-version") == "2023-06-01",
+                "the API version must be pinned");
+        require(body.value("model").toString() == vendor.model, "default model id must be sent");
+        require(body.value("max_tokens").toInt() > 0, "the Messages API needs max_tokens");
+        require(body.value("system").toString() == "system",
+                "the system prompt must be the top-level system field");
+        require(body.value("fallbacks").toString() == "default" &&
+                    sent.rawHeader("anthropic-beta") == "server-side-fallback-2026-07-01",
+                "the default model must ask for a server-side fallback on a refusal");
+        const auto messages = body.value("messages").toArray();
+        // the earlier turn and its outcome, then the new line.
+        require(messages.size() == 3, "one earlier exchange + the new line");
+        require(messages.first().toObject().value("role").toString() == "user",
+                "the conversation must open with the producer");
+        require(messages.last().toObject().value("content").toString().contains(
+                    "four-on-the-floor hats"),
+                "the producer's prompt must be in the last user turn");
+        break;
+    }
     }
 }
 
@@ -596,8 +632,9 @@ void backend_uses_custom_url_and_model_case(const Vendor& vendor) {
     runBackend(backend.get(), sampleRequest(), reply);
     require(reply.ok, "reply must succeed: " + reply.error.toStdString());
     // The override replaces the API root; the backend's own path follows it.
-    const auto path = vendor.dialect == Dialect::ollama ? QStringLiteral("/api/generate")
-                                                        : QStringLiteral("/v1/chat/completions");
+    const auto path = vendor.dialect == Dialect::ollama      ? QStringLiteral("/api/generate")
+                      : vendor.dialect == Dialect::anthropic ? QStringLiteral("/v1/messages")
+                                                             : QStringLiteral("/v1/chat/completions");
     require(nam->capture.request.url().toString() == "https://example.test/llm" + path,
             "the custom URL must be honoured: " +
                 nam->capture.request.url().toString().toStdString());
@@ -606,6 +643,29 @@ void backend_uses_custom_url_and_model_case(const Vendor& vendor) {
             "the custom model must be honoured");
     require(backend->displayName().contains("custom-model-1"),
             "the picker must name the model in use");
+    // A model that cannot take a server-side fallback must not be sent one.
+    if (vendor.dialect == Dialect::anthropic)
+        require(!QJsonDocument::fromJson(nam->capture.body).object().contains("fallbacks") &&
+                    nam->capture.request.rawHeader("anthropic-beta").isEmpty(),
+                "only a model that takes fallbacks may be asked for one");
+}
+
+// Scenario: a declined request reaches the producer as a refusal, not as an
+// empty answer. Anthropic declines with HTTP 200 and stop_reason "refusal".
+void backend_refusal_is_readable_case(const Vendor& vendor) {
+    QCoreApplication app(dummy_argc, dummy_argv);
+    CapturingNetworkAccessManager* nam = nullptr;
+    auto backend = standUp(vendor, nam, &app);
+    nam->capture.response_body = QJsonDocument(QJsonObject{
+        {"stop_reason", "refusal"},
+        {"stop_details", QJsonObject{{"type", "refusal"}, {"category", "cyber"}}},
+        {"content", QJsonArray{}}}).toJson();
+    Reply reply;
+    runBackend(backend.get(), sampleRequest(), reply);
+    require(!reply.ok, "a refusal must not succeed");
+    require(reply.error.contains("Claude declined") && reply.error.contains("cyber"),
+            "the refusal and its category must reach the producer: " +
+                reply.error.toStdString());
 }
 
 const QByteArray secretKey = "sk-cassette-secret-0123456789";
@@ -758,6 +818,8 @@ bool runBackendCase(const std::string& name) {
         else if (scenario == "network_error_is_readable") backend_network_error_is_readable_case(vendor);
         else if (scenario == "server_error_is_readable") backend_server_error_is_readable_case(vendor);
         else if (scenario == "uses_custom_url_and_model") backend_uses_custom_url_and_model_case(vendor);
+        else if (scenario == "refusal_is_readable" && vendor.dialect == Dialect::anthropic)
+            backend_refusal_is_readable_case(vendor);
         else return false;
         return true;
     }
