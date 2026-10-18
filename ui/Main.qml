@@ -719,46 +719,78 @@ ApplicationWindow {
                     columns: 1
                     rowSpacing: 10
 
-                    RowLayout {
+                    // The pattern's name, its stem, its controls, the keys
+                    // and HELP, GUIDE and SETTINGS. Short of room (both bars
+                    // docked in a narrow window) the controls drop to a row
+                    // of their own rather than squeezing the names.
+                    ColumnLayout {
+                        id: editorHeader
+                        objectName: "editorHeader"
                         Layout.row: 0
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 6
+                        readonly property real wanted: patternTitle.implicitWidth + patternStem.implicitWidth
+                            + patternControls.implicitWidth + settingsChip.implicitWidth
+                            + helpChip.implicitWidth + guideChip.implicitWidth + 6 * 10 + 60
+                        readonly property bool wraps: width < wanted
+                        // Not even the names and the chips fit: the names elide.
+                        readonly property bool squeezed: width < patternTitle.implicitWidth + patternStem.implicitWidth
+                            + settingsChip.implicitWidth + helpChip.implicitWidth + guideChip.implicitWidth + 5 * 10 + 20
+                    RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        // However little room the editors have (both bars
-                        // docked in a narrow window), this row never widens
-                        // the column under them: its names elide instead.
+                        // However little room the editors have, this row
+                        // never widens the column under them: its names
+                        // elide instead.
                         Layout.minimumWidth: 0
                         Label {
+                            id: patternTitle
                             objectName: "patternTitle"
                             text: songModel.patterns[songModel.currentPattern] !== undefined
                                   ? songModel.patterns[songModel.currentPattern].name : ""
                             color: Theme.ink; font.pixelSize: 16; font.bold: true
                             font.letterSpacing: 0.5
-                            // Only an item that fills can be squeezed;
-                            // it never grows past its name.
-                            Layout.fillWidth: true
+                            // Only an item that fills can be squeezed, and
+                            // only then; it never grows past its name.
+                            Layout.fillWidth: editorHeader.squeezed
                             Layout.maximumWidth: implicitWidth
                             Layout.minimumWidth: Math.min(implicitWidth, 48)
                             elide: Text.ElideRight
                         }
                         // Whose part of the pattern the editors below show.
                         Label {
+                            id: patternStem
                             objectName: "patternStem"
                             text: songModel.trackNames[songModel.selectedTrack] !== undefined
                                   ? "· " + songModel.trackNames[songModel.selectedTrack] : ""
                             color: Theme.acid; font.pixelSize: 11; font.bold: true
                             font.letterSpacing: 0.5
-                            Layout.fillWidth: true
+                            Layout.fillWidth: editorHeader.squeezed
                             Layout.maximumWidth: implicitWidth
                             Layout.minimumWidth: Math.min(implicitWidth, 40)
                             elide: Text.ElideRight
                         }
-                        PatternLength {}
-                        PatternSwing {}
-                        PatternGroove {}
-                        Rectangle {
-                            implicitWidth: 52; implicitHeight: 18; radius: 3
-                            color: "transparent"; border.color: Theme.line
-                            Label { anchors.centerIn: parent; text: songModel.bars + " BARS"
-                                color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 0.5 }
+                        // Where the controls sit when the row has room.
+                        Item {
+                            id: controlsBeside
+                            visible: !editorHeader.wraps
+                            implicitWidth: patternControls.implicitWidth
+                            implicitHeight: patternControls.implicitHeight
+                            RowLayout {
+                                id: patternControls
+                                objectName: "patternControls"
+                                parent: editorHeader.wraps ? controlsBelow : controlsBeside
+                                spacing: 10
+                                PatternLength {}
+                                PatternSwing {}
+                                PatternGroove {}
+                                Rectangle {
+                                    implicitWidth: 52; implicitHeight: 18; radius: 3
+                                    color: "transparent"; border.color: Theme.line
+                                    Label { anchors.centerIn: parent; text: songModel.bars + " BARS"
+                                        color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 0.5 }
+                                }
+                            }
                         }
                         // The hint gives way first: it elides before the
                         // title, the stem or the length is pushed off.
@@ -808,7 +840,7 @@ ApplicationWindow {
                         // The guided tour, at the end of the keys it explains.
                         // Lit while the tour runs; a press starts it or sends
                         // it away. The hints beside it elide to make room.
-                        Chip { objectName: "helpButton"; text: "HELP"
+                        Chip { id: helpChip; objectName: "helpButton"; text: "HELP"
                                implicitHeight: 20
                                accessibleLabel: "Help: a guided tour"
                                on: tutorial.running
@@ -818,7 +850,7 @@ ApplicationWindow {
                         // teaches. Lit while it is on; a press opens its
                         // bubble (turning it on first), or closes it. It is
                         // turned off from the bubble.
-                        Chip { objectName: "guideButton"; text: "GUIDE"
+                        Chip { id: guideChip; objectName: "guideButton"; text: "GUIDE"
                                implicitHeight: 20
                                accessibleLabel: "Guide: the floating assistant"
                                on: guideController.guideEnabled
@@ -827,6 +859,14 @@ ApplicationWindow {
                                    if (guideController.bubbleVisible) guideController.dismiss()
                                    else guideController.open()
                                } }
+                    }
+                    // Where they go when it has not.
+                    Item {
+                        id: controlsBelow
+                        visible: editorHeader.wraps
+                        Layout.fillWidth: true
+                        implicitHeight: patternControls.implicitHeight
+                    }
                     }
 
                     // A plugin that crashed, hung or threw is silenced; this

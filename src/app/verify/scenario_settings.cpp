@@ -91,6 +91,14 @@ void run_settings(VerifyContext& ctx) {
     std::cerr << "GUIDE ends at " << guide_right << " of " << area_right << '\n';
     check(VerifyContext::usable(ctx.named("viewSETTINGS"), 24, 18));
     check(column && area && guide_right <= area_right - 10 && column->width() <= area->width());
+    // And a long pattern name and its stem read whole: short of room the
+    // pattern controls take a row of their own instead.
+    ctx.song.renamePattern(ctx.song.currentSection(), QStringLiteral("CHORUS REPRISE"));
+    layout();
+    for (const char* name : {"patternTitle", "patternStem"}) {
+        auto* label = ctx.named(QString::fromLatin1(name));
+        check(label && VerifyContext::reads_whole(label, label->property("text").toString()));
+    }
     // SETTINGS, beside HELP, opens in the editors' place.
     check(click("viewSETTINGS"));
     check(ctx.window->property("view").toString() == "SETTINGS");
