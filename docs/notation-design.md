@@ -126,8 +126,7 @@ octave; a tied end never prints one, and nothing prints in a bar whose clef
   screenshots (treble, French violin, three sharps, chant, a long two-voice
   part), and the save/undo of the settings.
 - Still open (follow-ups, not regressions): no note entry on the staff (lyrics
-  are typed in the LYRICS field); one part at a time (no full score); no beams (flags only); tuplets show their number but no
-  bracket; spacing is proportional but not Gould's; the bridge never fills lyrics from a
+  are typed in the LYRICS field); one part at a time (no full score); no beams (flags only); spacing is proportional but not Gould's; the bridge never fills lyrics from a
   pattern - lyrics now live on the pattern's notes themselves.
 
 ## Lyrics

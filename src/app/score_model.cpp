@@ -310,11 +310,17 @@ void ScoreModel::rebuild() {
 
     // The step grid writes notes shorter than their step (a gate under 100%):
     // drawn exactly they would read as dotted 32nds and rests. A note that
-    // starts on a step is drawn to the end of the steps it sounds in.
+    // starts on a step is drawn to the end of the steps it sounds in, unless
+    // it is exactly a tuplet's value (a triplet eighth from a take or a
+    // score), which is drawn as the tuplet it is.
     blokkily::Pattern shown = std::as_const(*pattern_).pattern();
     const Tick step = std::max<Tick>(1, shown.ticks_per_beat() / 4);
     for (const auto& trigger : std::as_const(*pattern_).pattern().events()) {
         if (trigger.start % step != 0 || trigger.duration % step == 0) continue;
+        if (trigger.duration > 0) {
+            const auto written = notation::notate_ticks(trigger.duration, shown.ticks_per_beat());
+            if (written.size() == 1 && written.front().tuplet()) continue;
+        }
         auto drawn = trigger;
         drawn.duration = std::min((trigger.duration + step - 1) / step * step, shown.length() - trigger.start);
         (void)shown.update(trigger.id, drawn);
@@ -472,6 +478,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
         // A tuplet's number goes on its first note, over the group it opens.
         int tuplet = 0;
         double tuplet_end = at;
+        int tuplet_pos = 0;
         if (note.duration.tuplet() && !note.chord) {
             Tick before = 0;
             for (std::size_t k = i; k-- > 0;) {
@@ -489,14 +496,19 @@ void ScoreModel::layout(const notation::Staff& staff) {
             if (group > 0 && before % group == 0) {
                 tuplet = note.duration.tuplet_actual;
                 Tick covered = 0;
+                // The bracket clears every member, chord tones too, as if
+                // each had a stem up from it, and never sits in the staff.
+                int top = 8;
                 for (std::size_t k = i; k < entries.size() && covered < group; ++k) {
                     if (entries[k].voice != entry.voice || entries[k].measure != entry.measure) continue;
                     const auto* member = std::get_if<notation::NotationNote>(entries[k].object);
+                    top = std::max(top, member != nullptr ? pos_of(*member) + 7 : 6);
                     if (member != nullptr && member->chord) continue;
                     tuplet_end = column_x[{entries[k].measure, entries[k].onset}];
                     covered += entries[k].length;
                 }
-                highest_pos_ = std::max(highest_pos_, high + 10);
+                tuplet_pos = top + 2;
+                highest_pos_ = std::max({highest_pos_, high + 10, tuplet_pos + 2});
             }
         }
 
@@ -541,6 +553,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
             {"hyphenToX", hyphen_to},
             {"tuplet", tuplet},
             {"tupletEndX", tuplet_end},
+            {"tupletPos", tuplet_pos},
         });
     }
     if (lyrics) lowest_pos_ = std::min(lowest_pos_, -6);

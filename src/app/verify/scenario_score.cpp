@@ -252,6 +252,62 @@ void run_score(VerifyContext& ctx) {
     shot("long-part");
 
     // ---------------------------------------------------------------------
+    ctx.reached("score: a tuplet is bracketed over the notes it counts");
+    if (scroller != nullptr) scroller->setProperty("contentX", 0.0);
+    clear();
+    check(song.setPatternSteps(16)); // one bar
+    // Two groups of eighth-note triplets, the second climbing above the
+    // staff, written into the part the way a recorded take or an import
+    // writes them (steps hold sixteenths, not triplets).
+    {
+        const int triplet_keys[] = {67, 71, 74, 79, 84, 88};
+        auto& part = song.editPattern();
+        for (int index = 0; index < 6; ++index) {
+            Trigger note;
+            note.start = 160 * index;
+            note.duration = 160;
+            note.musical_data = Note{static_cast<std::int16_t>(triplet_keys[index]), 0.8F, 0.0F};
+            (void)part.add(note);
+        }
+        pattern.notifyRecorded();
+    }
+    settle();
+    {
+        const auto drawn = notes();
+        int groups = 0;
+        bool clear_of_members = drawn.size() == 6;
+        for (int first = 0; first < drawn.size(); ++first) {
+            const auto opener = drawn[first].toMap();
+            if (opener.value("tuplet").toInt() != 3) continue;
+            ++groups;
+            const double from = opener.value("x").toDouble();
+            const double to = opener.value("tupletEndX").toDouble();
+            const int bracket = opener.value("tupletPos").toInt();
+            int members = 0;
+            for (const auto& item : drawn) {
+                const auto note = item.toMap();
+                const double x = note.value("x").toDouble();
+                if (x < from - 1e-9 || x > to + 1e-9) continue;
+                ++members;
+                const int top = note.value("stem").toBool() && note.value("stemUp").toBool()
+                                    ? note.value("stemTo").toInt() : note.value("pos").toInt();
+                clear_of_members = clear_of_members && bracket > top && bracket > 8;
+            }
+            check(to > from && members == 3);
+        }
+        check(groups == 2 && clear_of_members);
+        if (!(groups == 2 && clear_of_members))
+            for (const auto& item : drawn) {
+                const auto note = item.toMap();
+                std::cerr << "triplets: x " << note.value("x").toDouble() << " pos " << note.value("pos").toInt()
+                          << " value " << note.value("value").toInt() << " tuplet " << note.value("tuplet").toInt()
+                          << " end " << note.value("tupletEndX").toDouble() << " bracket "
+                          << note.value("tupletPos").toInt() << " stemTo " << note.value("stemTo").toInt() << '\n';
+            }
+    }
+    shot("triplets");
+
+    // ---------------------------------------------------------------------
     ctx.reached("score: notes are written and edited on the staff");
     if (scroller != nullptr) scroller->setProperty("contentX", 0.0);
     clear();

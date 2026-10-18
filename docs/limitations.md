@@ -89,8 +89,8 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   full score of every part together yet.
 - Lyrics are one verse: a note carries one syllable. Hebrew and other scripts
   are drawn correctly, but cantillation marks (te'amim) are not.
-- Flags are drawn instead of beams, and a tuplet shows its number without a
-  bracket. Spacing follows the rhythm but is not engraving-grade.
+- Flags are drawn instead of beams. Spacing follows the rhythm but is not
+  engraving-grade.
 - Notation leaves out what it cannot write: timing off the 128th-note grid,
   probability, ratchets, loop conditions, parameter locks and chord strum.
   A MusicXML export reports when a part does not play back the same.

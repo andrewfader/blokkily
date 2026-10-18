@@ -370,10 +370,18 @@ Rectangle {
                             ctx.quadraticCurveTo((x + x2 + nhw) / 2, y + side * 1.6 * sp, x2 + nhw * 0.2, y + side * 0.6 * sp);
                             ctx.stroke();
                         }
-                        // a tuplet's number over the group it opens
+                        // a tuplet's bracket over the group it opens, its
+                        // number in a gap at the middle: flags have no beam
+                        // to say which notes the number counts
                         if (o.tuplet > 0) {
-                            var tx = (x + xAt(o.tupletEndX) + nhw) / 2;
-                            text(String(o.tuplet), tx, yPos(Math.max(o.stemTo, o.pos) + 3), Math.max(9, 1.3 * sp), "center");
+                            var bx0 = x, bx1 = xAt(o.tupletEndX) + nhw;
+                            var tx = (bx0 + bx1) / 2, by = yPos(o.tupletPos);
+                            var gap = 0.9 * sp, hook = 0.6 * sp;
+                            ctx.fillRect(bx0, by, lineW, hook);
+                            ctx.fillRect(bx1 - lineW, by, lineW, hook);
+                            if (tx - gap > bx0) ctx.fillRect(bx0, by, tx - gap - bx0, lineW);
+                            if (bx1 > tx + gap) ctx.fillRect(tx + gap, by, bx1 - tx - gap, lineW);
+                            text(String(o.tuplet), tx, by + 0.45 * sp, Math.max(9, 1.3 * sp), "center");
                         }
                         // lyric syllable, the hyphen to the next syllable of its
                         // word (between the two, whichever way the script

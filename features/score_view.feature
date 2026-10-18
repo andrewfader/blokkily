@@ -53,6 +53,13 @@ Feature: The pattern is also shown as true staff notation
     Then there are eight bars, the triad has one stem, and the two voices' stems point apart
     And the staff fits its highest and lowest notes, and scrolls sideways to the end of the part
 
+  # bdd_score "score: a tuplet is bracketed over the notes it counts"
+  Scenario: A tuplet is bracketed over the notes it counts
+    Given two groups of eighth-note triplets, the second climbing above the staff
+    When the part is drawn
+    Then each group's first note carries a 3 and a bracket over its three notes
+    And each bracket clears every head and stem under it, above the staff
+
   # bdd_score "score: notes are written and edited on the staff"
   Scenario: Notes are written and edited on the staff
     Given the SCORE view shows an empty bar and the quarter note is chosen

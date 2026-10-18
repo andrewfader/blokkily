@@ -46,7 +46,9 @@ class ScoreModel final : public QObject {
     // stemless, ledger (ledger lines needed), tieStart, tieToX, lyric (the
     // syllable without its hyphen), hyphen and hyphenToX (the word goes on
     // to the next sung note, at that x), extend (holds the previous
-    // syllable), tuplet and tupletEndX (on the first note of a tuplet group),
+    // syllable), tuplet, tupletEndX and tupletPos (on the first note of a
+    // tuplet group: its number, the x of its last member, and the position
+    // of the bracket over it, clear of every member's head and stem),
     // step and key (the pattern note it draws: its step, -1 off the grid,
     // and its sounding MIDI key) and selected.
     Q_PROPERTY(QVariantList objects READ objects NOTIFY scoreChanged)
