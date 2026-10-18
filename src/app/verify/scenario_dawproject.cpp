@@ -170,7 +170,12 @@ void run_dawproject(VerifyContext& ctx) {
               b.instrument.identifier == a.instrument.identifier &&
               b.instrument.state.bytes() == a.instrument.state.bytes());
         check(std::abs(a.mix.pan - b.mix.pan) < 1e-9 && std::abs(a.mix.gain_db - b.mix.gain_db) < 1e-9);
-        check(a.sends == b.sends);
+        // A level goes out linear and comes back through log10, which is
+        // exact in glibc and a few ulps off in other C libraries.
+        check(a.sends.size() == b.sends.size() &&
+              std::equal(a.sends.begin(), a.sends.end(), b.sends.begin(), [](const auto& x, const auto& y) {
+                  return x.bus == y.bus && x.pre_fader == y.pre_fader && std::abs(x.level_db - y.level_db) < 1e-9;
+              }));
         std::vector<std::tuple<long long, long long, int>> was, now;
         for (const auto& note : original.arrange(t, 0).notes) was.emplace_back(note.start, note.duration, note.key);
         for (const auto& note : opened.arrange(t, 0).notes) now.emplace_back(note.start, note.duration, note.key);

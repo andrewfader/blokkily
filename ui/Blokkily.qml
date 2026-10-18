@@ -49,7 +49,7 @@ Item {
         var glyph = art[row].charAt(column)
         if (blinking && (glyph === "W" || glyph === "P"))
             glyph = row === 8 ? "K" : "G"
-        return colours[glyph]
+        return colours[glyph] || "transparent"
     }
 
     Item {

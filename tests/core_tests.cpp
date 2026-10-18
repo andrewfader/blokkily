@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -907,7 +908,10 @@ int main() {
     (void)mix_song.patterns[0].pattern.add(held);
     mix_song.clips = {{0, 0, 0, 1}, {1, 0, 0, 1}};
 
-    SongEngine engine;
+    // An engine is about 1 MB, and main holds a great deal more: it lives on
+    // the heap, so MSVC's frame for main stays inside the 8 MB stack.
+    const auto engine_owner = std::make_unique<SongEngine>();
+    auto& engine = *engine_owner;
     for (std::size_t track = 0; track < 2; ++track) {
         auto voice = ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &clap_error);
@@ -992,7 +996,9 @@ int main() {
         tail_note.musical_data = Note{60, 1.0F, 0.0F};
         const auto tail_id = live_song.patterns[0].pattern.add(tail_note);
 
-        SongEngine live;
+        const auto live_owner = std::make_unique<SongEngine>();
+
+        auto& live = *live_owner;
         auto live_voice = ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &clap_error);
         assert(live_voice != nullptr);
@@ -1088,7 +1094,8 @@ int main() {
     // so a longer callback wrote past the per-track buffers prepare() sized,
     // and what it rendered depended on the caller's block size.
     {
-        SongEngine chunked;
+        const auto chunked_owner = std::make_unique<SongEngine>();
+        auto& chunked = *chunked_owner;
         auto voice = ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &clap_error);
         assert(voice != nullptr);
@@ -1117,7 +1124,8 @@ int main() {
     // features/song_and_mixer.feature: Stopping releases arrangement notes;
     // an export tail never starts another pass of the arrangement.
     {
-        SongEngine checked;
+        const auto checked_owner = std::make_unique<SongEngine>();
+        auto& checked = *checked_owner;
         auto voice = ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &clap_error);
         assert(voice);
@@ -1227,7 +1235,8 @@ int main() {
     assert(!read_wave(artifacts / "does-not-exist.wav").has_value());
 
     // A song nobody prepared cannot be bounced, and says why.
-    SongEngine unprepared;
+    const auto unprepared_owner = std::make_unique<SongEngine>();
+    auto& unprepared = *unprepared_owner;
     bounce_error.clear();
     assert(!bounce_song(unprepared, artifacts / "never.wav", WaveFormat::float32, 0,
                         &bounce_error).has_value());
@@ -1634,7 +1643,9 @@ int main() {
     tuned_note.musical_data = Note{tuned_pitch.key, 1.0F, 0.0F, tuned_pitch.cents};
     (void)tuned_song.patterns[0].pattern.add(tuned_note);
 
-    SongEngine tuned_engine;
+    const auto tuned_engine_owner = std::make_unique<SongEngine>();
+
+    auto& tuned_engine = *tuned_engine_owner;
     {
         auto voice = ClapPluginInstance::create(BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test",
                                                 &clap_error);
@@ -1830,7 +1841,8 @@ int main() {
         Song song;
         song.tracks = {Track{}, Track{}};
         song.clips = {{1, 0, 0, 1}};
-        SongEngine engine;
+        const auto engine_owner = std::make_unique<SongEngine>();
+        auto& engine = *engine_owner;
         std::string midi_error;
         engine.set_instrument(1, ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &midi_error));
@@ -1921,7 +1933,8 @@ int main() {
         // heard once the bounce hands the engine back.
         Song silent;
         silent.tracks = {Track{}, Track{}};
-        SongEngine quiet;
+        const auto quiet_owner = std::make_unique<SongEngine>();
+        auto& quiet = *quiet_owner;
         quiet.set_instrument(1, ClapPluginInstance::create(
             BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", &midi_error));
         assert(quiet.prepare(silent, 48000.0, 256, 0, &midi_error));
