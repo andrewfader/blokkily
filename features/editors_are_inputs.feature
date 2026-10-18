@@ -170,3 +170,13 @@ Feature: Write music in whichever editor is open
     Given the window is 1280 by 1080 with all editors visible
     Then the complete step inspector fits inside the visible window
     And its controls retain a usable size
+
+  # bdd_roll_zoom
+  Scenario: The piano roll zooms, and draws velocities
+    Given notes on the four beats of the selected track's part
+    When the roll is zoomed in twice
+    Then every step is four times as wide, the roll scrolls, and a click over a step in view writes that step
+    And zoomed out it fits again; K- narrows the pitch window by six keys and K+ widens it
+    When VELOCITY is picked for the CTRL lane and a rising drag crosses the four beats
+    Then each note takes the level it was crossed at, rising to 0.8, and one undo takes the whole drag back
+

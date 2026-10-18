@@ -56,6 +56,9 @@ class PatternModel final : public QAbstractListModel {
     // of the roll moves them without anything in the pattern changing.
     Q_PROPERTY(int lowKey READ lowKey NOTIFY rollRangeChanged)
     Q_PROPERTY(int highKey READ highKey NOTIFY rollRangeChanged)
+    // The notes' velocities, for the roll's VELOCITY lane: each a map
+    // {step, tick, level (the loudest voice, 0..1)}, in time order.
+    Q_PROPERTY(QVariantList noteVelocities READ noteVelocities NOTIFY patternChanged)
     // How many sixteenth steps the open pattern has: sixteen for a 4/4 bar,
     // fourteen for a 7/8 one, or whatever its LEN was set to. The grid, the
     // tracker and the roll each draw this many columns.
@@ -121,6 +124,11 @@ public:
     // Looking is not editing: no history, and the engine is not told. The
     // window follows the pattern again when another pattern is opened.
     Q_INVOKABLE void scrollRoll(int semitones);
+    // Widens the roll's pitch window by `semitones` (narrows it when
+    // negative) about its middle: an octave at the least, all 128 keys at
+    // the most. The view's, not the pattern's: no step of history.
+    Q_INVOKABLE void zoomRoll(int semitones);
+    QVariantList noteVelocities() const;
     // The open pattern's length in steps; a length that is not a whole number
     // of steps counts its last, partial step.
     int stepCount() const;

@@ -626,7 +626,8 @@ foreach(blokkily_feature
         scene_tempo
         dawproject
         window_layout
-        plugin_isolation)
+        plugin_isolation
+        roll_zoom)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

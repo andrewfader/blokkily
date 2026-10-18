@@ -778,6 +778,32 @@ void PatternModel::scrollRoll(int semitones) {
     emit rollRangeChanged(); // the view moved; the pattern did not
 }
 
+void PatternModel::zoomRoll(int semitones) {
+    const int low = lowKey();
+    const int high = highKey();
+    const int span = qBound(12, high - low + semitones, 127);
+    const int middle = (low + high) / 2;
+    const int moved = qBound(0, middle - span / 2, 127 - span);
+    roll_pattern_ = song_ != nullptr ? song_->currentPattern() : -1;
+    if (roll_low_ && *roll_low_ == moved && roll_span_ == span) return;
+    roll_low_ = moved;
+    roll_span_ = span;
+    emit rollRangeChanged(); // the view moved; the pattern did not
+}
+
+QVariantList PatternModel::noteVelocities() const {
+    QVariantList notes;
+    for (int row = 0; row < rowCount(); ++row) {
+        const auto at = index(row);
+        double loudest = 0.0;
+        for (const auto& voice : data(at, VoiceVelocitiesRole).toList()) loudest = std::max(loudest, voice.toDouble());
+        const int step = data(at, StepRole).toInt();
+        notes.push_back(QVariantMap{{"step", step}, {"tick", step * static_cast<int>(ticks_per_step)},
+                                    {"level", loudest}});
+    }
+    return notes;
+}
+
 int PatternModel::stepCount() const {
     const auto length = pattern().length();
     return std::max(1, static_cast<int>((length + ticks_per_step - 1) / ticks_per_step));

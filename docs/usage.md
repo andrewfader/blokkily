@@ -67,6 +67,13 @@ lanes to draw a phrase. Drag a note's body to move it, or its right edge to
 change its duration. The arrow buttons shift the pitch window by octaves,
 covering MIDI keys 0–127.
 
+Zoom with + and − (or Ctrl with the wheel, under the pointer): each step gets
+wider, up to eight times, and the roll scrolls sideways. K− and K+ (or Alt with
+the wheel) show fewer or more keys, an octave at the least and all 128 at the
+most. Under the roll, the CTRL lane's VELOCITY shows each note's velocity as a
+stalk on its step; drag across it to set the velocities of the notes you pass,
+as one step of undo.
+
 ### Pattern and track management
 
 DUP copies the open pattern into a new one. Right-click a pattern to rename,

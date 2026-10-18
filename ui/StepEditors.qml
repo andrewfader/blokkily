@@ -814,6 +814,37 @@ ColumnLayout {
                     // The roll's pitch window moves an octave a press (or a
                     // semitone a wheel notch over the roll, an octave with
                     // Shift), so any of the 128 keys can be drawn on.
+                    // Zoom: the pitch window narrower or wider, and the
+                    // steps wider or back to fitting the roll (Alt and Ctrl
+                    // with the wheel do the same under the pointer).
+                    Chip {
+                        objectName: "rollSpanIn"; text: "K−"
+                        implicitHeight: 20; implicitWidth: 30
+                        accessibleLabel: "Fewer keys, taller lanes"
+                        enabled: patternModel.highKey - patternModel.lowKey > 12
+                        onClicked: patternModel.zoomRoll(-6)
+                    }
+                    Chip {
+                        objectName: "rollSpanOut"; text: "K+"
+                        implicitHeight: 20; implicitWidth: 30
+                        accessibleLabel: "More keys, shorter lanes"
+                        enabled: patternModel.highKey - patternModel.lowKey < 127
+                        onClicked: patternModel.zoomRoll(6)
+                    }
+                    Chip {
+                        objectName: "rollZoomOut"; text: "−"
+                        implicitHeight: 20; implicitWidth: 24
+                        accessibleLabel: "Zoom the roll out"
+                        enabled: rollArea.zoom > 1
+                        onClicked: rollArea.setZoom(rollArea.zoom / 2)
+                    }
+                    Chip {
+                        objectName: "rollZoomIn"; text: "+"
+                        implicitHeight: 20; implicitWidth: 24
+                        accessibleLabel: "Zoom the roll in"
+                        enabled: rollArea.zoom < 8
+                        onClicked: rollArea.setZoom(rollArea.zoom * 2)
+                    }
                     Chip {
                         objectName: "rollDown"; text: "▼"
                         implicitHeight: 20; implicitWidth: 26
@@ -842,7 +873,19 @@ ColumnLayout {
                     // longer pattern keeps them so and the roll scrolls
                     // sideways, its controller lane with it.
                     readonly property real viewWidth: Math.max(0, width - gutter)
-                    readonly property real laneWidth: Math.max(10, viewWidth / columns)
+                    // 1 fits the pattern (down to drawable columns); more
+                    // widens every step and the roll scrolls.
+                    property real zoom: 1
+                    readonly property real laneWidth: Math.max(10, viewWidth / columns) * zoom
+                    // Zooms keeping the step under `anchorX` (or the middle) put.
+                    function setZoom(next, anchorX) {
+                        var clamped = Math.max(1, Math.min(8, next))
+                        if (clamped === zoom) return
+                        var at = anchorX === undefined ? viewWidth / 2 : anchorX
+                        var step = (scrollX + at) / laneWidth
+                        zoom = clamped
+                        scrollX = Math.max(0, Math.min(maxScroll, step * laneWidth - at))
+                    }
                     readonly property real maxScroll: Math.max(0, columns * laneWidth - viewWidth)
                     property real scrollX: 0
                     onMaxScrollChanged: scrollX = Math.max(0, Math.min(scrollX, maxScroll))
@@ -884,6 +927,18 @@ ColumnLayout {
                         objectName: "rollWheel"
                         property real pending: 0
                         onWheel: function(event) {
+                            // Ctrl zooms the steps under the pointer, Alt
+                            // the pitch window.
+                            if (event.modifiers & Qt.ControlModifier) {
+                                rollArea.setZoom(rollArea.zoom * (event.angleDelta.y > 0 ? 2 : 0.5),
+                                                 event.x - rollArea.gutter)
+                                return
+                            }
+                            if (event.modifiers & Qt.AltModifier) {
+                                var delta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x
+                                patternModel.zoomRoll(delta > 0 ? -6 : 6)
+                                return
+                            }
                             pending += event.angleDelta.y
                             // A sideways wheel moves along the pattern.
                             if (event.angleDelta.x !== 0) {
@@ -1206,7 +1261,9 @@ ColumnLayout {
                     readonly property bool noteLane: laneKind.indexOf("note") === 0
                     readonly property var selectedNote: patternModel.selected
                     readonly property bool bend: laneKind === "bend" || laneKind === "notepitch"
+                    readonly property bool velocityLane: laneKind === "velocity"
                     readonly property string laneName: laneKind === "bend" ? "BEND"
+                        : laneKind === "velocity" ? "VELOCITY"
                         : laneKind === "pressure" ? "PRESSURE"
                         : laneKind === "poly" ? "POLY"
                         : laneKind === "notepitch" ? "NOTE PITCH"
@@ -1214,7 +1271,8 @@ ColumnLayout {
                         : laneKind === "notepressure" ? "NOTE PRESS"
                         : laneController === 1 ? "MOD"
                         : laneController === 11 ? "EXPR" : "CC"
-                    readonly property var lanePoints: (noteLane ? patternModel.noteExpression : marks)
+                    readonly property var lanePoints: velocityLane ? patternModel.noteVelocities
+                        : (noteLane ? patternModel.noteExpression : marks)
                         .filter(function(mark) {
                             return mark.kind === laneKind &&
                                    ((laneKind !== "cc" && laneKind !== "poly" && !noteLane) ||
@@ -1224,6 +1282,7 @@ ColumnLayout {
                     readonly property var noteNames: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
                     function pick(name) {
                         if (name === "BEND") laneKind = "bend"
+                        else if (name === "VELOCITY") laneKind = "velocity"
                         else if (name === "PRESSURE") laneKind = "pressure"
                         else if (name === "POLY") {
                             laneKind = "poly"
@@ -1257,7 +1316,7 @@ ColumnLayout {
                             objectName: "controllerLanePicker"
                             implicitHeight: 20
                             choices: ["BEND", "MOD", "EXPR", "CC", "PRESSURE", "POLY",
-                                      "NOTE PITCH", "NOTE TIMBRE", "NOTE PRESS"]
+                                      "NOTE PITCH", "NOTE TIMBRE", "NOTE PRESS", "VELOCITY"]
                             value: rollControls.laneName
                             onPicked: function(name) { rollControls.pick(name) }
                         }
@@ -1290,6 +1349,7 @@ ColumnLayout {
                             text: rollControls.noteLane && !(rollControls.selectedNote
                                                                  && rollControls.selectedNote.exists)
                                   ? "select a note to draw its own expression"
+                                  : rollControls.velocityLane ? "drag sets each note's velocity"
                                   : "drag draws  |  drag a point to move  |  right-click erases"
                             color: Theme.muted; font.pixelSize: 9
                         }
@@ -1343,7 +1403,8 @@ ColumnLayout {
                                 width: 3
                                 y: Math.min(levelY, base)
                                 height: Math.max(2, Math.abs(base - levelY))
-                                color: rollControls.noteLane ? Theme.record
+                                color: rollControls.velocityLane ? Theme.acid
+                                     : rollControls.noteLane ? Theme.record
                                      : rollControls.bend ? Theme.amber
                                      : rollControls.laneKind === "cc" ? Theme.blue : Theme.acid
                             }
@@ -1384,9 +1445,23 @@ ColumnLayout {
                                 patternModel.eraseControls(rollControls.laneKind,
                                                            rollControls.laneController, from, to)
                             }
+                            // The velocity lane: the note on the step under the
+                            // pointer takes the level it is at.
+                            property int lastVelocityStep: -1
+                            function setVelocity(px, py) {
+                                var step = Math.floor(tickAt(px) / 120)
+                                if (!patternModel.hasStep(step)) return
+                                lastVelocityStep = step
+                                patternModel.setStepVelocity(step, Math.max(0.01, levelAt(py)))
+                            }
                             onPressed: function(mouse) {
                                 if (root.focusHome) root.focusHome.forceActiveFocus()
                                 songModel.beginGesture()
+                                if (rollControls.velocityLane) {
+                                    lastVelocityStep = -1
+                                    if (mouse.button === Qt.LeftButton) setVelocity(mouse.x, mouse.y)
+                                    return
+                                }
                                 grabbed = -1
                                 erasing = mouse.button === Qt.RightButton
                                 lastTick = tickAt(mouse.x)
@@ -1404,6 +1479,10 @@ ColumnLayout {
                             }
                             onPositionChanged: function(mouse) {
                                 if (!pressed) return
+                                if (rollControls.velocityLane) {
+                                    if (mouse.buttons & Qt.LeftButton) setVelocity(mouse.x, mouse.y)
+                                    return
+                                }
                                 var tick = tickAt(mouse.x)
                                 var level = levelAt(mouse.y)
                                 if (erasing) {
