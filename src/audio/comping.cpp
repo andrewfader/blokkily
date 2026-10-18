@@ -95,4 +95,75 @@ int split_takes(Song& song, std::size_t track, Tick at) {
     return cut;
 }
 
+namespace {
+
+Tick clip_end(const Song& song, const Clip& clip) {
+    return clip.start + clip.span(song.patterns[clip.pattern].pattern.length());
+}
+
+bool clips_overlap(const Song& song, const Clip& a, const Clip& b) {
+    return a.track == b.track && a.start < clip_end(song, b) && b.start < clip_end(song, a);
+}
+
+} // namespace
+
+bool is_midi_take(const Song& song, std::size_t clip) {
+    if (clip >= song.clips.size()) return false;
+    const auto pattern = song.clips[clip].pattern;
+    if (pattern >= song.patterns.size()) return false;
+    const auto section = song.patterns[pattern].section;
+    return section < song.sections.size() && song.sections[section].take;
+}
+
+std::vector<std::size_t> midi_take_stack(const Song& song, std::size_t clip) {
+    std::vector<std::size_t> stack;
+    if (!is_midi_take(song, clip)) return stack;
+    for (std::size_t other = 0; other < song.clips.size(); ++other)
+        if (other == clip ||
+            (is_midi_take(song, other) && clips_overlap(song, song.clips[clip], song.clips[other])))
+            stack.push_back(other);
+    return stack;
+}
+
+bool choose_midi_take(Song& song, std::size_t clip) {
+    if (!is_midi_take(song, clip)) return false;
+    song.clips[clip].comped_out = false;
+    const auto chosen = song.clips[clip];
+    for (std::size_t other = 0; other < song.clips.size(); ++other)
+        if (other != clip && is_midi_take(song, other) &&
+            clips_overlap(song, chosen, song.clips[other]))
+            song.clips[other].comped_out = true;
+    return true;
+}
+
+std::size_t place_midi_take(Song& song, std::size_t track, std::size_t pattern, Tick start) {
+    Clip clip;
+    clip.track = track;
+    clip.pattern = pattern;
+    clip.start = start;
+    song.clips.push_back(clip);
+    const auto index = song.clips.size() - 1;
+    (void)choose_midi_take(song, index);
+    return index;
+}
+
+int split_midi_takes(Song& song, std::size_t track, Tick at) {
+    int cut = 0;
+    const auto count = song.clips.size();
+    for (std::size_t index = 0; index < count; ++index) {
+        if (song.clips[index].track != track || !is_midi_take(song, index)) continue;
+        const auto& clip = song.clips[index];
+        const Tick end = clip_end(song, clip);
+        if (!(clip.start < at && at < end)) continue;
+        Clip tail = clip;
+        tail.start = at;
+        tail.offset = clip.offset + (at - clip.start);
+        tail.length = end - at;
+        song.clips[index].length = at - clip.start;
+        song.clips.push_back(tail);
+        ++cut;
+    }
+    return cut;
+}
+
 } // namespace blokkily

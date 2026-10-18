@@ -139,8 +139,10 @@ ScheduledEvents Song::arrange(std::size_t track, std::uint64_t seed) const {
     // other loop keeps alternating whether the bars were one clip with
     // repeats or several placements in a row.
     std::vector<const Clip*> ordered;
+    // A take comped out is kept, not played.
     for (const auto& clip : clips)
-        if (clip.track == track && clip.pattern < patterns.size()) ordered.push_back(&clip);
+        if (clip.track == track && clip.pattern < patterns.size() && !clip.comped_out)
+            ordered.push_back(&clip);
     std::stable_sort(ordered.begin(), ordered.end(),
                      [](const Clip* a, const Clip* b) { return a->start < b->start; });
     std::size_t previous_pattern = patterns.size();

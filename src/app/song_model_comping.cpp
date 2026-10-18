@@ -6,6 +6,9 @@
 
 #include "blokkily/audio/comping.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 void SongModel::setPunch(bool on) {
     // Punch needs a range: the loop's, set as the LOOP chip sets one.
     if (on && song_.loop.end <= song_.loop.start) {
@@ -48,11 +51,42 @@ qint64 SongModel::nextTake(qint64 id) const {
     return static_cast<qint64>(stack[(playing + 1) % stack.size()]);
 }
 
+void SongModel::setMidiTakes(bool on) {
+    if (song_.loop.midi_takes == on) return;
+    song_.loop.midi_takes = on;
+    emit loopChanged();
+}
+
+bool SongModel::chooseMidiTake(int clip) {
+    if (clip < 0 || !blokkily::is_midi_take(song_, static_cast<std::size_t>(clip))) return false;
+    const auto stack = blokkily::midi_take_stack(song_, static_cast<std::size_t>(clip));
+    const bool settled = !song_.clips[static_cast<std::size_t>(clip)].comped_out &&
+                         std::none_of(stack.begin(), stack.end(), [&](std::size_t other) {
+                             return other != static_cast<std::size_t>(clip) && !song_.clips[other].comped_out;
+                         });
+    if (settled) return true;
+    checkpoint();
+    (void)blokkily::choose_midi_take(song_, static_cast<std::size_t>(clip));
+    notifyStructureChanged();
+    return true;
+}
+
+int SongModel::nextMidiTake(int clip) const {
+    if (clip < 0) return -1;
+    const auto stack = blokkily::midi_take_stack(song_, static_cast<std::size_t>(clip));
+    if (stack.size() < 2) return -1;
+    std::size_t playing = 0;
+    for (std::size_t index = 0; index < stack.size(); ++index)
+        if (!song_.clips[stack[index]].comped_out) playing = index;
+    return static_cast<int>(stack[(playing + 1) % stack.size()]);
+}
+
 int SongModel::splitTakes(int track, double tick) {
     if (!validTrack(track) || tick <= 0.0) return 0;
     auto changed = song_;
-    const int cut = blokkily::split_takes(changed, static_cast<std::size_t>(track),
-                                          static_cast<blokkily::Tick>(std::llround(tick)));
+    const auto at = static_cast<blokkily::Tick>(std::llround(tick));
+    const int cut = blokkily::split_takes(changed, static_cast<std::size_t>(track), at) +
+                    blokkily::split_midi_takes(changed, static_cast<std::size_t>(track), at);
     if (cut == 0) return 0;
     checkpoint();
     song_ = std::move(changed);

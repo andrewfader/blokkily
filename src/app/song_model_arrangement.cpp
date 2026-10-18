@@ -1,5 +1,7 @@
 #include "song_model.hpp"
 
+#include "blokkily/audio/comping.hpp"
+
 #include "blokkily/audio/mixer.hpp"
 
 #include <QFileInfo>
@@ -11,13 +13,19 @@
 const blokkily::Clip* SongModel::clipAt(int track, int bar) const {
     if (!validTrack(track) || bar < 0) return nullptr;
     const auto tick = barStart(bar);
-    const auto found = std::find_if(song_.clips.begin(), song_.clips.end(),
-        [&](const blokkily::Clip& clip) {
-            if (clip.track != static_cast<std::size_t>(track)) return false;
-            if (clip.pattern >= song_.patterns.size()) return false;
-            const auto span = clip.span(song_.patterns[clip.pattern].pattern.length());
-            return tick >= clip.start && tick < clip.start + span;
-        });
+    const auto covers = [&](const blokkily::Clip& clip) {
+        if (clip.track != static_cast<std::size_t>(track)) return false;
+        if (clip.pattern >= song_.patterns.size()) return false;
+        const auto span = clip.span(song_.patterns[clip.pattern].pattern.length());
+        return tick >= clip.start && tick < clip.start + span;
+    };
+    // A take playing there is the bar's clip, over what it was recorded on
+    // (features/comping_and_punch.feature); otherwise the first in the song.
+    for (std::size_t index = 0; index < song_.clips.size(); ++index)
+        if (covers(song_.clips[index]) && !song_.clips[index].comped_out &&
+            blokkily::is_midi_take(song_, index))
+            return &song_.clips[index];
+    const auto found = std::find_if(song_.clips.begin(), song_.clips.end(), covers);
     return found == song_.clips.end() ? nullptr : &*found;
 }
 
@@ -37,7 +45,15 @@ QVariantList SongModel::lanes() const {
     std::vector<std::vector<const blokkily::Clip*>> at(
         static_cast<std::size_t>(std::max(0, trackCount())),
         std::vector<const blokkily::Clip*>(static_cast<std::size_t>(std::max(0, bar_count)), nullptr));
-    for (const auto& clip : song_.clips) {
+    // The takes playing go first, so a bar shows the take over what it was
+    // recorded on; then the song's order, first clip winning.
+    std::vector<const blokkily::Clip*> order;
+    for (std::size_t index = 0; index < song_.clips.size(); ++index)
+        if (!song_.clips[index].comped_out && blokkily::is_midi_take(song_, index))
+            order.push_back(&song_.clips[index]);
+    for (const auto& clip : song_.clips) order.push_back(&clip);
+    for (const auto* placed : order) {
+        const auto& clip = *placed;
         if (clip.track >= at.size() || clip.pattern >= song_.patterns.size()) continue;
         const auto span = clip.span(song_.patterns[clip.pattern].pattern.length());
         if (span <= 0) continue;
@@ -67,6 +83,18 @@ QVariantList SongModel::lanes() const {
             cell["name"] = clip == nullptr
                                ? QString()
                                : QString::fromStdString(song_.patterns[clip->pattern].name);
+            // A take: its place in its stack, for the TAKE badge.
+            const auto index = clip == nullptr ? song_.clips.size()
+                                               : static_cast<std::size_t>(clip - song_.clips.data());
+            const bool take = clip != nullptr && blokkily::is_midi_take(song_, index);
+            cell["clip"] = clip == nullptr ? -1 : static_cast<int>(index);
+            cell["take"] = take;
+            if (take) {
+                const auto stack = blokkily::midi_take_stack(song_, index);
+                const auto at_stack = std::find(stack.begin(), stack.end(), index);
+                cell["takeIndex"] = static_cast<int>(at_stack - stack.begin()) + 1;
+                cell["takeCount"] = static_cast<int>(stack.size());
+            }
             lane.push_back(cell);
         }
         all.push_back(lane);

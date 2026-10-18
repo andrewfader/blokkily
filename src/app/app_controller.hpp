@@ -1111,6 +1111,30 @@ private:
     // track is never paired with a release on another. The first note written
     // checkpoints history, so a take is one step of undo.
     std::vector<blokkily::TakeRecorder> takes_;
+    // Looped MIDI passes as takes (features/comping_and_punch.feature): per
+    // track, the notes played inside the loop's range in loop-relative ticks,
+    // the pass each held key was pressed in, and the take section each pass
+    // of each track was given.
+    struct LapKey {
+        std::int16_t key = 0;
+        std::uint32_t lap = 0;
+    };
+    struct LapNote {
+        std::size_t track = 0;
+        std::uint32_t lap = 0;
+        blokkily::PlayedNote note;
+    };
+    struct LapControl {
+        std::size_t track = 0;
+        std::uint32_t lap = 0;
+        blokkily::ContinuousEvent control;
+    };
+    std::vector<blokkily::TakeRecorder> lap_takes_;
+    std::vector<std::vector<LapKey>> lap_held_;
+    std::map<std::pair<std::size_t, std::uint32_t>, std::size_t> lap_sections_;
+    void commitLapTake(std::vector<LapNote> notes, std::vector<LapControl> controls);
+    std::size_t lapSection(std::size_t track, std::uint32_t lap);
+    void forgetLapTakes();
     // Automation passes of the take being played (item 3.1), and the strip
     // controls being held.
     blokkily::AutomationTake automation_take_;

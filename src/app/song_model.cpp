@@ -141,6 +141,8 @@ QVariantList SongModel::sections() const {
         row["name"] = QString::fromStdString(song_.sections[index].name);
         row["events"] = events;
         row["current"] = static_cast<int>(index) == current_section_;
+        // A looped pass's take: placed by its clip, not offered as a pattern.
+        row["take"] = song_.sections[index].take;
         rows.push_back(row);
     }
     return rows;

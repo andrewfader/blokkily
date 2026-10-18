@@ -1,4 +1,5 @@
 #include "app_controller.hpp"
+#include "blokkily/audio/comping.hpp"
 #include "blokkily/instruments/soundfont_catalog.hpp"
 #include "blokkily/instruments/soundfont_synth.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
@@ -145,6 +146,7 @@ void AppController::toggleRecord() {
     if (record_armed_) finishTake();
     record_armed_ = !record_armed_;
     takes_.clear();
+    forgetLapTakes();
     if (song_ != nullptr) song_->newTake();
     if (engine_) engine_->set_recording(record_armed_);
     if (record_armed_) startAudioTake();
@@ -222,11 +224,72 @@ void AppController::drainTake() {
     const auto length = song_->song().length();
     std::vector<std::pair<std::size_t, blokkily::PlayedNote>> finished;
     std::vector<std::pair<std::size_t, blokkily::ContinuousEvent>> controls;
+    // Looped with takes on, what is played inside the loop's range is a take
+    // of its pass (features/comping_and_punch.feature); outside it, and
+    // without takes, it merges into the pattern played there, as before.
+    const auto& loop = song_->song().loop;
+    const bool laps = loop.active() && loop.midi_takes;
+    const blokkily::Tick span = loop.end - loop.start;
+    std::vector<LapNote> lap_finished;
+    std::vector<LapControl> lap_controls;
     for (const auto& event : heard) {
         const std::size_t track = event.track;
         if (takes_.size() <= track) takes_.resize(track + 1, blokkily::TakeRecorder(length));
-        const auto at = event.tick;
+        auto at = event.tick;
         const auto key = static_cast<std::int16_t>(event.event.key_or_parameter);
+        if (laps) {
+            auto lap = event.lap;
+            // Heard just past the loop's end, it is the start of the next pass.
+            if (at >= loop.end && at < loop.end + span) {
+                at -= span;
+                ++lap;
+            }
+            if (lap_takes_.size() <= track) {
+                lap_takes_.resize(track + 1, blokkily::TakeRecorder(span));
+                lap_held_.resize(track + 1);
+            }
+            auto& recorder = lap_takes_[track];
+            auto& held = lap_held_[track];
+            const auto relative = at - loop.start;
+            const bool inside = at >= loop.start && at < loop.end;
+            const auto type = event.event.type;
+            if (type == blokkily::PluginEvent::Type::note_on && inside) {
+                recorder.note_on(relative, key, static_cast<float>(event.event.value), event.event.cents);
+                held.push_back({key, lap});
+                continue;
+            }
+            if (type == blokkily::PluginEvent::Type::note_off) {
+                if (auto note = recorder.note_off(inside ? relative : span - 1, key)) {
+                    // The pass the key went down in owns the note.
+                    const auto pressed = std::find_if(held.rbegin(), held.rend(),
+                                                      [key](const LapKey& k) { return k.key == key; });
+                    std::uint32_t owner = lap;
+                    if (pressed != held.rend()) {
+                        owner = pressed->lap;
+                        held.erase(std::next(pressed).base());
+                    }
+                    // Held past the wrap: the pass's take ends at the loop's end.
+                    note->duration = std::min(note->duration, span - note->start);
+                    lap_finished.push_back({track, owner, std::move(*note)});
+                    continue;
+                }
+            }
+            if (type == blokkily::PluginEvent::Type::note_expression && inside) {
+                const auto dimension = event.event.expression;
+                if (dimension >= blokkily::note_dimension::pitch &&
+                    dimension <= blokkily::note_dimension::pressure)
+                    recorder.expression(relative, key,
+                                        static_cast<blokkily::NoteExpression::Kind>(dimension),
+                                        static_cast<float>(event.event.value));
+                continue;
+            }
+            if (type == blokkily::PluginEvent::Type::midi_raw && inside) {
+                if (auto control = recorder.control(
+                        relative, static_cast<std::uint32_t>(event.event.key_or_parameter)))
+                    lap_controls.push_back({track, lap, *control});
+                continue;
+            }
+        }
         if (event.event.type == blokkily::PluginEvent::Type::note_on) {
             takes_[track].note_on(at, key, static_cast<float>(event.event.value),
                                   event.event.cents);
@@ -249,6 +312,8 @@ void AppController::drainTake() {
     }
     if (!finished.empty() || !controls.empty())
         commitTake(std::move(finished), std::move(controls));
+    if (!lap_finished.empty() || !lap_controls.empty())
+        commitLapTake(std::move(lap_finished), std::move(lap_controls));
 }
 
 void AppController::finishTake() {
@@ -264,8 +329,26 @@ void AppController::finishTake() {
         for (std::size_t track = 0; track < takes_.size(); ++track)
             for (const auto& note : takes_[track].finish(at)) released.emplace_back(track, note);
         if (!released.empty()) commitTake(std::move(released));
+        // Keys held in a looped pass end with the take, at the loop's end at
+        // the latest.
+        const auto& loop = song_->song().loop;
+        std::vector<LapNote> lap_released;
+        for (std::size_t track = 0; track < lap_takes_.size(); ++track) {
+            const auto relative = std::clamp<blokkily::Tick>(at - loop.start, 0, loop.end - loop.start - 1);
+            auto& held = lap_held_[track];
+            for (auto& note : lap_takes_[track].finish(relative)) {
+                const auto pressed = std::find_if(held.begin(), held.end(),
+                                                  [&note](const LapKey& k) { return k.key == note.key; });
+                const std::uint32_t lap = pressed != held.end() ? pressed->lap : 0;
+                if (pressed != held.end()) held.erase(pressed);
+                note.duration = std::min(note.duration, loop.end - loop.start - note.start);
+                lap_released.push_back({track, lap, std::move(note)});
+            }
+        }
+        if (!lap_released.empty()) commitLapTake(std::move(lap_released), {});
     }
     takes_.clear();
+    forgetLapTakes();
     // The audio recorded in the same pass joins the notes' step of history.
     finishAudioTake();
 }
@@ -300,3 +383,61 @@ void AppController::commitTake(
     if (pattern_ != nullptr) pattern_->notifyRecorded();
     else requestRecompile();
 }
+
+void AppController::forgetLapTakes() {
+    lap_takes_.clear();
+    lap_held_.clear();
+    lap_sections_.clear();
+}
+
+// The take section pass `lap` of `track` writes into, made the first time
+// the pass plays something: a section of the loop's length, its part on this
+// track placed over the loop's range as the take that plays.
+std::size_t AppController::lapSection(std::size_t track, std::uint32_t lap) {
+    const auto found = lap_sections_.find({track, lap});
+    if (found != lap_sections_.end()) return found->second;
+    auto& song = song_->song();
+    const auto& loop = song.loop;
+    // Named after the section played there, and numbered among the takes
+    // already over these bars on this track.
+    const int open_part = song_->partOf(song_->currentSection(), static_cast<int>(track));
+    const auto under = blokkily::take_target(song, track, loop.start,
+                                             static_cast<std::size_t>(std::max(0, open_part)));
+    std::string base = "TAKE";
+    if (under.pattern < song.patterns.size() && song.patterns[under.pattern].section < song.sections.size())
+        base = song.sections[song.patterns[under.pattern].section].name;
+    int number = 1;
+    for (std::size_t clip = 0; clip < song.clips.size(); ++clip) {
+        const auto& placed = song.clips[clip];
+        if (placed.track == track && blokkily::is_midi_take(song, clip) && placed.start < loop.end &&
+            loop.start < placed.start + placed.span(song.patterns[placed.pattern].pattern.length()))
+            ++number;
+    }
+    const auto section = song.add_section(base + " TAKE " + std::to_string(number),
+                                          loop.end - loop.start, song.ticks_per_beat());
+    song.sections[section].take = true;
+    const auto part = song.part(section, track);
+    if (part) (void)blokkily::place_midi_take(song, track, *part, loop.start);
+    lap_sections_[{track, lap}] = section;
+    return section;
+}
+
+void AppController::commitLapTake(std::vector<LapNote> notes, std::vector<LapControl> controls) {
+    if (song_ == nullptr || (notes.empty() && controls.empty())) return;
+    // The same step of history as the rest of the take.
+    song_->checkpointTake();
+    auto& song = song_->song();
+    for (auto& [track, lap, note] : notes) {
+        if (track >= song.tracks.size()) continue;
+        const auto part = song.part(lapSection(track, lap), track);
+        if (!part) continue;
+        (void)blokkily::write_played(song.patterns[*part].pattern, note, PatternModel::ticks_per_step);
+    }
+    for (auto& [track, lap, control] : controls) {
+        if (track >= song.tracks.size()) continue;
+        const auto part = song.part(lapSection(track, lap), track);
+        if (part) blokkily::write_continuous(song.patterns[*part].pattern, control);
+    }
+    song_->notifyStructureChanged();
+}
+

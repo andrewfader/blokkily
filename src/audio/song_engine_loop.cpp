@@ -61,6 +61,7 @@ void SongEngine::fold_playhead() noexcept {
     }
     sample_position_ = start + (sample_position_ - end) % length;
     cursors_valid_ = false;
+    ++laps_;
 }
 
 void SongEngine::apply_loop(const Song& song) {

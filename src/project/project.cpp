@@ -94,7 +94,8 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
 
     Project project;
     project_io::ParseContext context{project, static_cast<int>(*version), base_dir, error,
-                                     {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
+                                     {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+                                     {}, {}, false};
 
     while (std::getline(stream, line)) {
         if (line.empty()) continue;

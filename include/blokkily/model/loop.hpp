@@ -17,6 +17,10 @@ struct ArrangementLoop {
     // only what is played between `start` and `end` - the same IN and OUT -
     // whether the loop is on or not. Looped, every pass is a take.
     bool punch = false;
+    // MIDI passes recorded while the loop is on: each a take of its own,
+    // stacked over the loop's range (true), or merged into the pattern
+    // played there, as an overdub (false).
+    bool midi_takes = true;
 
     [[nodiscard]] bool active() const noexcept { return enabled && end > start; }
     [[nodiscard]] bool punching() const noexcept { return punch && end > start; }

@@ -16,8 +16,10 @@ if(BLOKKILY_BUILD_TESTS)
     target_include_directories(blokkily_comping_tests PRIVATE src src/app tests)
     target_link_libraries(blokkily_comping_tests PRIVATE blokkily_core)
     target_compile_definitions(blokkily_comping_tests PRIVATE
-        BLOKKILY_COMPING_WORK="${CMAKE_BINARY_DIR}/comping-tests")
-    foreach(case punch_audio punch_midi comp_passes comp_render records)
+        BLOKKILY_COMPING_WORK="${CMAKE_BINARY_DIR}/comping-tests"
+        BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>")
+    add_dependencies(blokkily_comping_tests blokkily_test_clap)
+    foreach(case punch_audio punch_midi comp_passes comp_render records midi_takes midi_take_records)
         add_test(NAME comping_${case} COMMAND blokkily_comping_tests ${case})
         set_tests_properties(comping_${case} PROPERTIES
             LABELS "bdd;integration;audio;recording;comping"
@@ -32,5 +34,19 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
         --screenshot ${CMAKE_BINARY_DIR}/artifacts/comping.png)
     set_tests_properties(bdd_comping PROPERTIES
         LABELS "bdd;e2e;integration;screenshot;audio;recording;comping;project"
+        ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 120)
+endif()
+
+if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
+    # Looped MIDI passes in the window: three passes are three takes, the
+    # TAKE badge plays the next, TAKES off merges, and all of it is saved;
+    # which pass plays is read from the track's meter.
+    target_sources(blokkily PRIVATE src/app/verify/scenario_midi_takes.cpp)
+    add_test(NAME bdd_midi_takes COMMAND blokkily --verify --scenario midi_takes
+        --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+        --project ${CMAKE_BINARY_DIR}/artifacts/midi-takes/midi-takes.blok
+        --screenshot ${CMAKE_BINARY_DIR}/artifacts/midi-takes.png)
+    set_tests_properties(bdd_midi_takes PROPERTIES
+        LABELS "bdd;e2e;integration;screenshot;midi;recording;comping;project;clap"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 120)
 endif()

@@ -41,6 +41,17 @@ RowLayout {
         on: songModel.punch
         onClicked: songModel.setPunch(!songModel.punch)
     }
+    // Looped MIDI recording: each pass a take of its own, stacked over the
+    // loop's bars (lit), or merged into the pattern there as an overdub.
+    Chip {
+        objectName: "midiTakesButton"
+        text: "TAKES"
+        implicitWidth: 62; implicitHeight: 22
+        accent: Theme.record
+        accessibleLabel: "Looped MIDI passes become takes"
+        on: songModel.midiTakes
+        onClicked: songModel.setMidiTakes(!songModel.midiTakes)
+    }
     // Cuts the selected track's takes at the playhead, so each side can
     // play a different take.
     Chip {

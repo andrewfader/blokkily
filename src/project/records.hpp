@@ -94,6 +94,11 @@ struct ParseContext {
     // Track freeze as read (records_freeze.cpp).
     std::vector<std::size_t> frozen_tracks;
     std::vector<AudioClipId> freeze_clips;
+    // MIDI takes: comped-out clips by index, and the loop's take mode when
+    // it is off (records_comping.cpp); take sections (records_sections.cpp).
+    std::vector<std::size_t> comped_out_clips;
+    std::vector<std::size_t> take_sections;
+    bool midi_merge = false;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }

@@ -505,7 +505,16 @@ plays and the others are kept, drawn faint beneath it. A clip's TAKE badge
 (n/m) plays the next take instead. To build a comp, put the playhead where
 one take should give way to another and press SPLIT: the selected track's
 takes are cut there, and each side's badge chooses its own take. Choosing
-and splitting undo like any edit. See
+and splitting undo like any edit.
+
+MIDI recorded with LOOP on stacks the same way while TAKES (beside PUNCH) is
+lit, as it is unless you switch it off: each pass becomes a take of its own
+over the loop's bars, shown as TAKE n/m on the clip, and the last pass plays.
+The pattern the passes were recorded over keeps playing under them, so a
+take is an overdub you can choose; its badge plays the next pass, and SPLIT
+cuts MIDI takes as it cuts audio ones. A take's pattern is kept with the song
+but not listed among its patterns. With TAKES off, every pass merges into the
+pattern played there, the way an overdub loop on a drum machine builds up. See
 [the scenarios](../features/comping_and_punch.feature).
 
 ## Audio clips and files

@@ -93,6 +93,10 @@ struct CapturedEvent {
     std::uint64_t sample = 0;
     Tick tick = 0;
     PluginEvent event{};
+    // Which pass of the arrangement loop it was heard in: the number of
+    // times the loop had wrapped, counted from when the engine began
+    // (features/comping_and_punch.feature).
+    std::uint32_t lap = 0;
 };
 
 } // namespace blokkily

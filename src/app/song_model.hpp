@@ -141,6 +141,8 @@ class SongModel final : public QObject {
     // Punch (song_model_comping.cpp): recording keeps only what is played
     // between the loop's IN and OUT, looped or not.
     Q_PROPERTY(bool punch READ punch NOTIFY loopChanged)
+    // Looped MIDI passes: each a take (true) or merged (false).
+    Q_PROPERTY(bool midiTakes READ midiTakes NOTIFY loopChanged)
     Q_PROPERTY(int loopStartBar READ loopStartBar NOTIFY loopChanged)
     Q_PROPERTY(int loopEndBar READ loopEndBar NOTIFY loopChanged)
     // Modulators (phase 2, wave 5.1; song_model_modulation.cpp). How many the
@@ -510,6 +512,13 @@ public:
     // Cuts every clip on `track` that spans `tick` in two there, so each
     // section can play a different take. How many were cut; one step.
     Q_INVOKABLE int splitTakes(int track, double tick);
+    bool midiTakes() const noexcept { return song_.loop.midi_takes; }
+    Q_INVOKABLE void setMidiTakes(bool on);
+    // MIDI takes, by clip index (lanes() names it): `clip` plays and the
+    // takes it overlaps are comped out (one step of history); the take after
+    // the one that plays, or -1.
+    Q_INVOKABLE bool chooseMidiTake(int clip);
+    Q_INVOKABLE int nextMidiTake(int clip) const;
     Q_INVOKABLE void toggleLoop();
     Q_INVOKABLE void setLoopStartBar(int bar);
     Q_INVOKABLE void setLoopEndBar(int bar);

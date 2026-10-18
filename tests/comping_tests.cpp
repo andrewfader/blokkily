@@ -11,6 +11,7 @@
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/take_writer.hpp"
 #include "blokkily/audio/wave_file.hpp"
+#include "blokkily/plugins/sandbox.hpp"
 #include "blokkily/project/project.hpp"
 
 #include <algorithm>
@@ -280,6 +281,135 @@ void records() {
             "a clip the file does not have is refused");
 }
 
+// --- MIDI takes ----------------------------------------------------------
+
+// The frequency a stretch of a signal sounds, from its rising zero crossings.
+double frequency(const std::vector<float>& signal, std::size_t from, std::size_t to) {
+    std::size_t first = 0, last = 0, crossings = 0;
+    for (std::size_t index = from + 1; index < to; ++index)
+        if (signal[index - 1] <= 0.0F && signal[index] > 0.0F) {
+            if (crossings == 0) first = index;
+            last = index;
+            ++crossings;
+        }
+    if (crossings < 2) return 0.0;
+    return static_cast<double>(crossings - 1) * rate / static_cast<double>(last - first);
+}
+
+// A take section of one bar whose part on track 0 holds `key` at both halves
+// of the bar, placed as the take that plays.
+std::size_t add_take_pass(Song& song, int key) {
+    const auto section = song.add_section("VERSE TAKE", 1920, 480);
+    song.sections[section].take = true;
+    const auto part = *song.part(section, 0);
+    for (Tick start : {Tick{0}, Tick{960}}) {
+        Trigger note;
+        note.start = start;
+        note.duration = 900;
+        note.musical_data = Note{static_cast<std::int16_t>(key), 1.0F, 0.0F};
+        (void)song.patterns[part].pattern.add(note);
+    }
+    return place_midi_take(song, 0, part, 0);
+}
+
+Song take_song() {
+    Song song;
+    song.patterns.clear();
+    song.clips.clear();
+    song.tracks.assign(1, Track{});
+    song.tracks[0].name = "LEAD";
+    song.tracks[0].instrument = {"CLAP", BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", {}};
+    // The bar the passes were recorded over: a section of its own, played,
+    // with nothing in it.
+    const auto verse = song.add_section("VERSE", 1920, 480);
+    song.clips.push_back({0, *song.part(verse, 0), 0, 1});
+    return song;
+}
+
+// The song bounced by the engine with the real CLAP synth, left channel.
+std::vector<float> render_bar(const Song& song) {
+    SongEngine engine;
+    std::string error;
+    auto voice = create_format_processor(song.tracks[0].instrument, &error);
+    require(voice != nullptr, "the CLAP synth loads: " + error);
+    engine.set_instrument(0, std::move(voice));
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
+    // The synth's Tone (parameter 1) on: a sine at each key's pitch.
+    require(engine.play_live(0, {PluginEvent::Type::parameter_value, 0, 1, 1.0}), "Tone on");
+    const auto file = work("midi-takes") / "bar.wav";
+    require(bounce_song(engine, file, WaveFormat::float32, 0, &error).has_value(), error);
+    const auto wave = read_wave(file, &error);
+    require(wave.has_value(), error);
+    std::vector<float> left(wave->frames);
+    for (std::size_t i = 0; i < left.size(); ++i) left[i] = wave->interleaved[2 * i];
+    return left;
+}
+
+// Scenario: Looped MIDI passes are takes; the last plays
+void midi_takes() {
+    auto song = take_song();
+    const auto first = add_take_pass(song, 60);
+    const auto second = add_take_pass(song, 67);
+    require(song.consistent() && song.sections_whole(), "takes keep the song's sections whole");
+    const auto stack = midi_take_stack(song, second);
+    require(stack == std::vector<std::size_t>({first, second}), "the passes are one stack");
+    require(song.clips[first].comped_out && !song.clips[second].comped_out && !song.clips[0].comped_out,
+            "the last pass plays, the earlier is kept, and the bar they were recorded over plays on");
+    require(!is_midi_take(song, 0), "which is not a take");
+    // 120 BPM: a bar is 96000 samples, each half 48000.
+    const double c4 = 261.63, g4 = 392.0;
+    auto heard = render_bar(song);
+    const double last = frequency(heard, 2000, 40000);
+    std::cout << "midi takes: last pass sounds " << last << " Hz\n";
+    require(std::abs(last - g4) < 3.0, "the last pass is heard");
+    require(choose_midi_take(song, first) && song.clips[second].comped_out, "choosing the first");
+    heard = render_bar(song);
+    require(std::abs(frequency(heard, 2000, 40000) - c4) < 3.0, "plays the first");
+    // Split at the half bar: the first pass before it, the second after.
+    require(split_midi_takes(song, 0, 960) == 2, "both takes cut at the half bar");
+    std::size_t second_tail = song.clips.size();
+    for (std::size_t index = 0; index < song.clips.size(); ++index)
+        if (song.clips[index].start == 960 && song.clips[index].pattern == song.clips[second].pattern)
+            second_tail = index;
+    require(second_tail < song.clips.size() && choose_midi_take(song, second_tail), "the second's tail");
+    heard = render_bar(song);
+    const double before = frequency(heard, 2000, 40000), after = frequency(heard, 50000, 88000);
+    std::cout << "midi takes: split " << before << " Hz then " << after << " Hz\n";
+    require(std::abs(before - c4) < 3.0 && std::abs(after - g4) < 3.0,
+            "the first pass to the cut, the second from it");
+}
+
+// Scenario: MIDI takes are saved
+void midi_take_records() {
+    const auto dir = work("midi-take-records");
+    Project project;
+    project.song = take_song();
+    project.song.tracks[0].instrument = {};
+    const auto first = add_take_pass(project.song, 60);
+    (void)add_take_pass(project.song, 67);
+    project.song.loop.midi_takes = false;
+    const auto text = ProjectFile::serialize(project, dir);
+    require(text.find("comped_out_clip " + std::to_string(first)) != std::string::npos &&
+                text.find("take_section 1") != std::string::npos &&
+                text.find("midi_takes off") != std::string::npos,
+            "comped-out takes, take sections and merging are saved");
+    std::string error;
+    const auto loaded = ProjectFile::parse(text, &error, dir);
+    require(loaded.has_value(), error);
+    require(loaded->song.clips[first].comped_out && loaded->song.sections[1].take &&
+                loaded->song.sections[2].take && !loaded->song.sections[0].take &&
+                !loaded->song.loop.midi_takes,
+            "and load as saved");
+    const auto plain = ProjectFile::serialize(Project{});
+    require(plain.find("comped_out_clip") == std::string::npos &&
+                plain.find("take_section") == std::string::npos &&
+                plain.find("midi_takes") == std::string::npos,
+            "a song without takes saves none of them");
+    require(!ProjectFile::parse(text + "comped_out_clip 99\n", &error, dir).has_value() &&
+                !ProjectFile::parse(text + "take_section 99\n", &error, dir).has_value(),
+            "a clip or a section the file does not have is refused");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -291,6 +421,8 @@ int main(int argc, char** argv) {
         else if (which == "comp_passes") comp_passes();
         else if (which == "comp_render") comp_render();
         else if (which == "records") records();
+        else if (which == "midi_takes") midi_takes();
+        else if (which == "midi_take_records") midi_take_records();
         else throw std::runtime_error("unknown case");
         std::cout << "PASS " << which << '\n';
     } catch (const std::exception& e) {

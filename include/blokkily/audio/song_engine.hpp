@@ -593,6 +593,14 @@ private:
     // Where the listener is when the callback renders `song_position`: the
     // output latency earlier, wrapping at the loop point.
     [[nodiscard]] std::uint64_t heard_position(std::uint64_t song_position) const noexcept;
+    // The loop pass the listener is in at `song_position`: the render
+    // position's lap, less one while what is heard is still the end of the
+    // pass before it.
+    [[nodiscard]] std::uint32_t heard_lap(std::uint64_t song_position) const noexcept;
+    // How many times the arrangement loop has wrapped, and the heard lap of
+    // the chunk being captured. Callback only.
+    std::uint32_t laps_ = 0;
+    std::uint32_t capture_lap_ = 0;
     // The samples playback wraps at and to: the arrangement loop while it is
     // on and well formed, otherwise the song's end and its start.
     [[nodiscard]] std::uint64_t wrap_end_sample() const noexcept;

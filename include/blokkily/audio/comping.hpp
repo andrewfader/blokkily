@@ -34,4 +34,27 @@ int comp_recorded_takes(Song& song, const std::vector<AudioClipId>& recorded);
 // seamless. Returns how many clips were cut.
 int split_takes(Song& song, std::size_t track, Tick at);
 
+// --- MIDI takes ---------------------------------------------------------------
+// A looped MIDI recording makes each pass a take: a take section's part
+// (Section::take) placed by a clip of its own over the loop's range. Takes of
+// the same bars stack and comp each other as audio takes do; the pattern
+// clips they were recorded over are not in the stack and keep playing under
+// them, as an overdub does.
+
+// Whether clip `clip` places a take.
+[[nodiscard]] bool is_midi_take(const Song& song, std::size_t clip);
+// The take clips on `clip`'s track that share any of its time, `clip`
+// included, in the order they were recorded (by clip index).
+[[nodiscard]] std::vector<std::size_t> midi_take_stack(const Song& song, std::size_t clip);
+// Makes take clip `clip` the one that plays: every other take of its stack
+// that overlaps it is comped out. False when there is no such take.
+bool choose_midi_take(Song& song, std::size_t clip);
+// Places pattern `pattern` (a take section's part) on `track` from `start`,
+// for its pattern's length, as the take that plays: every earlier take it
+// overlaps is comped out. Returns the new clip's index.
+std::size_t place_midi_take(Song& song, std::size_t track, std::size_t pattern, Tick start);
+// Cuts every take clip on `track` that spans `at` into two, at `at`, each half
+// keeping whether it is comped out. Returns how many were cut.
+int split_midi_takes(Song& song, std::size_t track, Tick at);
+
 } // namespace blokkily

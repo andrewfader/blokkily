@@ -695,6 +695,19 @@ std::uint64_t SongEngine::heard_position(std::uint64_t song_position) const noex
     return position >= latency ? position - latency : end - (latency - position);
 }
 
+std::uint32_t SongEngine::heard_lap(std::uint64_t song_position) const noexcept {
+    const auto end = wrap_end_sample();
+    if (end == 0 || !loop_enabled()) return laps_;
+    const auto start = wrap_start_sample();
+    const auto span = end > start ? end - start : end;
+    if (span == 0) return laps_;
+    const auto latency = static_cast<std::uint64_t>(output_latency()) % span;
+    auto position = song_position;
+    if (position >= end) position = start + (position - end) % span;
+    if (position < start) return laps_;
+    return position - start >= latency || laps_ == 0 ? laps_ : laps_ - 1;
+}
+
 void SongEngine::set_strip(std::size_t track, const MixerStrip& strip, bool any_solo) {
     if (track >= tracks_.size()) return;
     if (strips_.size() < tracks_.size()) strips_.resize(tracks_.size());
@@ -899,7 +912,7 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
             const auto at = capture_sample + offset;
             (void)captured_.push({routed.track, at,
                                   offset == 0 ? capture_tick : tick_at_sample(clock, at),
-                                  events[count - 1]});
+                                  events[count - 1], capture_lap_});
         }
     }
     const std::size_t timeline_begin = count;
@@ -1182,6 +1195,7 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     // What the performer heard as this block began: the song, the output
     // latency ago (decision 10 compensates every path to it).
     const std::uint64_t capture_sample = capture ? heard_position(song_position) : 0;
+    capture_lap_ = capture ? heard_lap(song_position) : 0;
     const Tick capture_tick = capture ? tick_at_sample(arranged.clock, capture_sample) : 0;
     // Punch: only what the performer heard inside the range is captured.
     capture_from_ = 0;

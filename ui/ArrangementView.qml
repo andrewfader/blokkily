@@ -109,7 +109,8 @@ ColumnLayout {
             Layout.preferredWidth: contentWidth
             Layout.maximumWidth: contentWidth
             Layout.minimumWidth: Math.min(contentWidth, 120)
-            model: songModel.sections
+            // A looped pass's take is placed by its clip, not offered here.
+            model: songModel.sections.filter(section => !section.take)
             delegate: Chip {
                 required property var modelData
                 objectName: "patternChip" + modelData.index
@@ -404,12 +405,46 @@ ColumnLayout {
                                 visible: parent.filled
                                 // The clip is named where it
                                 // starts; its repeats carry on.
-                                text: parent.cell.start ? parent.cell.name : "·"
+                                // A take reads TAKE beside its n/N badge;
+                                // its section's full name is too long here.
+                                text: !parent.cell.start ? "·"
+                                      : parent.cell.take === true && takeBadge.visible ? "TAKE"
+                                      : parent.cell.name
                                 color: parent.hollow ? Theme.muted : "#0e0f12"
                                 font.pixelSize: 9; font.bold: true
                                 elide: Text.ElideRight
-                                width: parent.width - 6
+                                width: parent.width - 6 - (takeBadge.visible ? takeBadge.width + 2 : 0)
                                 horizontalAlignment: Text.AlignHCenter
+                            }
+                            // A take with others under it: which of them
+                            // plays, and a press plays the next.
+                            Rectangle {
+                                id: takeBadge
+                                objectName: "midiTakeBadge" + trackIndex + "-" + index
+                                z: 2
+                                visible: parent.filled && parent.cell.take === true && parent.cell.start
+                                         && parent.cell.takeCount > 1
+                                anchors.right: parent.right; anchors.rightMargin: 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: takeText.implicitWidth + 8; height: 16; radius: 2
+                                color: Theme.record
+                                Label {
+                                    id: takeText
+                                    anchors.centerIn: parent
+                                    text: parent.visible ? parent.parent.cell.takeIndex + "/" + parent.parent.cell.takeCount : ""
+                                    color: "#0e0f12"; font.pixelSize: 8; font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onPressed: function(mouse) {
+                                        mouse.accepted = true
+                                        const clip = takeBadge.parent.cell.clip
+                                        songModel.chooseMidiTake(songModel.nextMidiTake(clip))
+                                    }
+                                }
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Play the next take"
                             }
                             MouseArea {
                                 anchors.fill: parent

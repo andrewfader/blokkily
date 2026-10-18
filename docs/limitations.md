@@ -20,8 +20,9 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Audio and sampling
 
-- Comping chooses between audio takes. MIDI passes recorded in a loop still
-  merge into the pattern rather than stacking as takes.
+- MIDI takes are whole passes of the loop's range: a pass is chosen for a
+  section of it by splitting the stack (SPLIT), not by editing notes across
+  takes. Removing a take's clip keeps its (hidden) take section in the song.
 - Disk streaming handles unwarped audio clips only. Warped clips decode into
   memory before stretching, and the sampler always decodes its samples.
 - A sampler marker moves by whole pixels of the waveform as it is zoomed.
@@ -97,7 +98,8 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 - Left out of an export, and named in its status: the scene launcher, the
   arpeggiator (notes go as written), modulation step locks, LFOs, macros and
   followers, clip gain, an audio clip's pitch shift, sidechain keys and
-  instrument outputs routed to other tracks. SoundFont, sampler, LV2 and
+  instrument outputs routed to other tracks, and MIDI takes that are comped
+  out (the take that plays is exported). SoundFont, sampler, LV2 and
   built-in processors go as placeholder devices other hosts cannot load.
 - Controllers are written normalized to 0..1 (the pitch wheel centred at
   0.5). The format leaves the scale to the host, and this has not been

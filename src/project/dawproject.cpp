@@ -358,7 +358,8 @@ void Writer::write_clips(pugi::xml_node clips, std::size_t track) {
     };
     std::vector<Placement> placements;
     for (const auto& clip : song_.clips) {
-        if (clip.track != track || clip.pattern >= song_.patterns.size()) continue;
+        // A MIDI take kept but not played is not heard, so not exported.
+        if (clip.track != track || clip.pattern >= song_.patterns.size() || clip.comped_out) continue;
         const auto& slot = song_.patterns[clip.pattern];
         Placement placement;
         placement.start = clip.start;

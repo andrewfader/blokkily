@@ -248,6 +248,10 @@ struct Section {
     int meter_beats = 0;
     int meter_unit = 4;
     bool unmetered = false;
+    // One pass of a looped MIDI recording (features/comping_and_punch.feature):
+    // the section exists to hold a take, is placed by the take's clip, and is
+    // not offered among the song's patterns.
+    bool take = false;
 
     friend bool operator==(const Section&, const Section&) = default;
 };
@@ -271,6 +275,9 @@ struct Clip {
     std::uint32_t repeats = 1;
     Tick length = 0;
     Tick offset = 0;
+    // A take kept but not played (features/comping_and_punch.feature), as an
+    // audio clip can be.
+    bool comped_out = false;
 
     // The ticks the clip covers, given its pattern's length.
     [[nodiscard]] Tick span(Tick pattern_length) const noexcept {

@@ -88,7 +88,8 @@ void SongEngine::finish_count_in() noexcept {
                 (void)captured_.push({static_cast<std::uint32_t>(track), start, tick,
                                       {PluginEvent::Type::note_on, 0,
                                        static_cast<std::int32_t>(key), held.velocity,
-                                       held.cents}});
+                                       held.cents},
+                                      laps_});
             }
     }
     std::fill(metronome.held.begin(), metronome.held.end(), engine::HeldNote{});
