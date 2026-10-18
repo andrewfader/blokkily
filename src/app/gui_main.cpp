@@ -110,6 +110,8 @@ int main(int argc, char* argv[]) {
     parser.addOption({"mcp", "Speak MCP on stdin and stdout for an agent, driving the running "
                               "Blokkily (starting it when none is running)."});
     parser.addOption({"mcp-socket", "During verification, serve MCP on this socket.", "path"});
+    parser.addOption({"auto-hide", "During verification, let the side bars auto-hide as they "
+                                   "ship; otherwise a gate docks them."});
     // What the desktop hands over when a .blok is opened from the file
     // manager (resources/blokkily.desktop: Exec=blokkily %f), or a path or
     // file:// URL typed after the command.
@@ -201,6 +203,13 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty("llmModel", &llm);
     engine.rootContext()->setContextProperty("guideController", &guide);
     engine.rootContext()->setContextProperty("scoreModel", &score);
+    // A gate drives the rail and the mixer at the canonical 1280 px, where
+    // they would auto-hide: it docks them unless it is the gate that proves
+    // the auto-hiding (features/window_layout.feature).
+    if (parser.isSet("verify") && !parser.isSet("auto-hide")) {
+        controller.setUiSetting(QStringLiteral("ui/autoHideRail"), false);
+        controller.setUiSetting(QStringLiteral("ui/autoHideMixer"), false);
+    }
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 

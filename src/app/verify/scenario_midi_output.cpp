@@ -53,6 +53,10 @@ void run_midi_output(VerifyContext& ctx) {
     check(controller.midiOutPorts() == QStringList{"Deterministic output"});
     auto* panel = ctx.named("midiOutPanel");
     auto* port_picker = ctx.named("midiOutPort");
+    // The clock is the machine's, so it is set in SETTINGS; the rail beside
+    // it keeps the track's own port.
+    check(window->setProperty("view", "SETTINGS"));
+    lay_out();
     auto* clock_picker = ctx.named("midiClockPort");
     check(VerifyContext::usable(panel, 120, 40) && VerifyContext::usable(port_picker, 60, 18) &&
           VerifyContext::usable(clock_picker, 60, 18));
@@ -98,6 +102,8 @@ void run_midi_output(VerifyContext& ctx) {
     check(strip == "MIDI · Deterministic output · CH 10");
     details << " | strip " << strip.toStdString();
     reached("midi output: track 0 plays the output on channel 10 and the clock goes there too");
+    check(window->setProperty("view", "ALL"));
+    lay_out();
 
     // Played from the start for a little more than a beat, then stopped.
     auto output = controller.midiOutput("Deterministic output");
@@ -166,6 +172,8 @@ void run_midi_output(VerifyContext& ctx) {
             settings.sync();
         };
         controller.rememberMidiClock(file);
+        check(window->setProperty("view", "SETTINGS"));
+        lay_out();
         pick("midiClockPort", 0); // OFF
         check(controller.midiClockPort().isEmpty() && remembered().isEmpty());
         pick("midiClockPort", 1);

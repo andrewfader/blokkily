@@ -27,8 +27,15 @@ ApplicationWindow {
     // grid, tracker and piano roll on screen at once, which is the point of
     // the instrument (the score needs a view of its own to be readable).
     // LAUNCH shows the scene launcher in the editors' place, VERSIONS the
-    // song's saved versions and NOTES its notes.
+    // song's saved versions and NOTES its notes. SETTINGS (the gear beside
+    // HELP) shows the machine's settings there.
     property string view: "ALL"
+    // SETTINGS opens in the editors' place; this is where it goes back to.
+    property string viewBeforeSettings: "ALL"
+    function openSettings() {
+        viewBeforeSettings = view
+        return "SETTINGS"
+    }
     // Bit depth the next bounce is written at.
     property string exportDepth: "PCM24"
     // The file a bounce or stem export is written as: WAV, MP3 or OGG.
@@ -379,7 +386,7 @@ ApplicationWindow {
                onActivated: songModel.redo() }
     // Finding an instrument is a search, so it answers to the search key.
     Shortcut { sequence: StandardKey.Find
-               onActivated: instrumentPanel.findInstrument() }
+               onActivated: { rail.reveal(false); instrumentPanel.findInstrument() } }
     // Return and Home go back to the top of the song: the audio engine's
     // playhead and the one drawn over the editors, which are the same playhead.
     Shortcut { sequence: "Return"; enabled: !root.typing
@@ -578,12 +585,50 @@ ApplicationWindow {
         }
     }
 
-    SplitView {
+    // The window's own preferences (SETTINGS · WINDOW, and what the bars
+    // and panels were dragged to), read through the controller so a gate
+    // never touches the user's file.
+    readonly property var ui: appController.uiSettings
+    function uiFlag(key, fallback) {
+        var value = ui[key]
+        return value === undefined ? fallback : value === true || value === "true"
+    }
+    function uiNumber(key, fallback) {
+        var value = parseFloat(ui[key])
+        return isNaN(value) ? fallback : value
+    }
+
+    // Ctrl+[ and Ctrl+] bring a hidden bar out from the keyboard, or send it
+    // back.
+    Shortcut { sequence: "Ctrl+["; onActivated: rail.toggle() }
+    Shortcut { sequence: "Ctrl+]"; onActivated: mixer.toggle() }
+
+    Item {
+        id: workspace
+        objectName: "workspace"
         anchors.fill: parent
+        // The editors at the width they are designed for, beside both bars:
+        // a window that wide docks the bars whether or not they auto-hide.
+        readonly property bool roomy: width >= rail.barWidth + mixer.barWidth + 1100
 
         // ---------------------------------------------------------------- rail
+        SideBar {
+            id: rail
+            objectName: "rail"
+            z: 2
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            edge: "left"
+            title: "DEVICES"
+            autoHide: root.uiFlag("ui/autoHideRail", true)
+            roomy: workspace.roomy
+            // The tour points at the bars, so they are out while it runs.
+            held: tutorial.running
+            storedWidth: root.uiNumber("ui/railWidth", 232)
+            minimumBarWidth: 200; maximumBarWidth: 420
+            onWidthPicked: width => appController.setUiSetting("ui/railWidth", width)
+
         Rectangle {
-            SplitView.preferredWidth: 232; SplitView.minimumWidth: 200
+            anchors.fill: parent
             color: "#121317"
             // The rail scrolls when what it holds is taller than the window
             // (a sampler's editing tools open, a small screen), so nothing
@@ -635,33 +680,55 @@ ApplicationWindow {
             }
             }
         }
+        }
 
         // -------------------------------------------------------------- editors
         Rectangle {
-            SplitView.fillWidth: true; color: Theme.bg
+            objectName: "editorArea"
+            anchors { left: rail.right; right: mixer.left; top: parent.top; bottom: parent.bottom }
+            color: Theme.bg
             Flickable {
                 id: editorScroll
                 objectName: "editorScroll"
-                anchors.fill: parent; anchors.margins: 14
+                // The left margin holds the panels' grips.
+                anchors.fill: parent; anchors.margins: 14; anchors.leftMargin: 2
                 clip: true
                 contentWidth: width
                 contentHeight: Math.max(height, editorColumn.implicitHeight)
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                ColumnLayout {
+                // The editors' panels, in the order they were dragged into.
+                // Each is placed on its own row of the grid; LAUNCH,
+                // VERSIONS, NOTES and SETTINGS take the editors' row, which
+                // their views hide.
+                GridLayout {
                     id: editorColumn
-                    width: editorScroll.width
+                    objectName: "editorColumn"
+                    x: 12
+                    width: editorScroll.width - 12
                     height: editorScroll.contentHeight
-                    spacing: 10
+                    columns: 1
+                    rowSpacing: 10
 
                     RowLayout {
+                        Layout.row: 0
                         Layout.fillWidth: true; spacing: 10
+                        // However little room the editors have (both bars
+                        // docked in a narrow window), this row never widens
+                        // the column under them: its names elide instead.
+                        Layout.minimumWidth: 0
                         Label {
                             objectName: "patternTitle"
                             text: songModel.patterns[songModel.currentPattern] !== undefined
                                   ? songModel.patterns[songModel.currentPattern].name : ""
                             color: Theme.ink; font.pixelSize: 16; font.bold: true
                             font.letterSpacing: 0.5
+                            // Only an item that fills can be squeezed;
+                            // it never grows past its name.
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: implicitWidth
+                            Layout.minimumWidth: Math.min(implicitWidth, 48)
+                            elide: Text.ElideRight
                         }
                         // Whose part of the pattern the editors below show.
                         Label {
@@ -670,6 +737,10 @@ ApplicationWindow {
                                   ? "· " + songModel.trackNames[songModel.selectedTrack] : ""
                             color: Theme.acid; font.pixelSize: 11; font.bold: true
                             font.letterSpacing: 0.5
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: implicitWidth
+                            Layout.minimumWidth: Math.min(implicitWidth, 40)
+                            elide: Text.ElideRight
                         }
                         PatternLength {}
                         PatternSwing {}
@@ -684,8 +755,47 @@ ApplicationWindow {
                         // title, the stem or the length is pushed off.
                         Label { text: "SPACE play  |  HOME rewind  |  ARROWS move  |  SHIFT+UP/DOWN transpose  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
                             color: Theme.muted; font.pixelSize: 10
-                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                            // It takes only the room left over, so the names
+                            // never elide while it still shows a word.
+                            Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredWidth: 0
                             horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft }
+                        // SETTINGS: the machine's audio, MIDI and window
+                        // settings, in the editors' place. A second press goes
+                        // back to the view it was opened from.
+                        // A gear rather than a word: the row has no room
+                        // for one beside docked bars.
+                        Chip { id: settingsChip
+                               objectName: "viewSETTINGS"; text: ""
+                               implicitWidth: 28; implicitHeight: 20
+                               accessibleLabel: "Settings: audio device, MIDI and window"
+                               on: root.view === "SETTINGS"
+                               onClicked: root.view = root.view === "SETTINGS" ? root.viewBeforeSettings
+                                                                               : root.openSettings()
+                               Item {
+                                   anchors.centerIn: parent
+                                   width: 13; height: 13
+                                   readonly property color ink: settingsChip.on ? "#0e0f12" : Theme.ink
+                                   Repeater {
+                                       model: 4
+                                       Rectangle {
+                                           required property int index
+                                           anchors.centerIn: parent
+                                           width: 3; height: 13; radius: 0.5
+                                           rotation: index * 45
+                                           color: parent.ink
+                                       }
+                                   }
+                                   Rectangle {
+                                       anchors.centerIn: parent
+                                       width: 9; height: 9; radius: 4.5
+                                       color: parent.ink
+                                   }
+                                   Rectangle {
+                                       anchors.centerIn: parent
+                                       width: 4; height: 4; radius: 2
+                                       color: settingsChip.on ? Theme.acid : Theme.bg
+                                   }
+                               } }
                         // The guided tour, at the end of the keys it explains.
                         // Lit while the tour runs; a press starts it or sends
                         // it away. The hints beside it elide to make room.
@@ -712,12 +822,15 @@ ApplicationWindow {
 
                     PromptBar {
                         id: promptBar
+                        Layout.row: 1
                         Layout.fillWidth: true
                         focusHome: noteEntry
                     }
 
                     ArrangementView {
+                        id: arrangementView
                         objectName: "arrangementView"
+                        Layout.row: panelDock.rowOf("arrangement")
                         focusHome: noteEntry
                         onRenameRequested: (kind, index, name) => renamePopup.ask(kind, index, name)
                         onPatternMenuRequested: (index, name) => {
@@ -729,21 +842,32 @@ ApplicationWindow {
                     }
 
                     LauncherView {
+                        Layout.row: panelDock.rowOf("editors")
                         view: root.view
                         focusHome: noteEntry
                     }
 
                     VersionsPanel {
+                        Layout.row: panelDock.rowOf("editors")
                         view: root.view
                         focusHome: noteEntry
                     }
 
                     NotesPanel {
+                        Layout.row: panelDock.rowOf("editors")
+                        view: root.view
+                        focusHome: noteEntry
+                    }
+
+                    SettingsPanel {
+                        Layout.row: panelDock.rowOf("editors")
                         view: root.view
                         focusHome: noteEntry
                     }
 
                     StepEditors {
+                        id: stepEditors
+                        Layout.row: panelDock.rowOf("editors")
                         view: root.view
                         entryOctave: root.entryOctave
                         focusHome: noteEntry
@@ -752,22 +876,72 @@ ApplicationWindow {
                     }
 
                     KeyboardPanel {
+                        id: keyboardPanel
+                        Layout.row: panelDock.rowOf("keyboard")
                         view: root.view
                         focusHome: noteEntry
+                        heightOverride: panelDock.heightOf("keyboard")
                     }
 
                     // The step's inspector and the modulators belong to the
-                    // editors; VERSIONS and NOTES take their place.
-                    Inspector { visible: root.view !== "VERSIONS" && root.view !== "NOTES" }
+                    // editors; VERSIONS, NOTES and SETTINGS take their place.
+                    Inspector {
+                        id: inspectorPanel
+                        Layout.row: panelDock.rowOf("inspector")
+                        visible: root.view !== "VERSIONS" && root.view !== "NOTES" && root.view !== "SETTINGS"
+                    }
 
-                    ModulationPanel { visible: root.view !== "VERSIONS" && root.view !== "NOTES" }
+                    ModulationPanel {
+                        id: modulationPanel
+                        Layout.row: panelDock.rowOf("modulation")
+                        visible: root.view !== "VERSIONS" && root.view !== "NOTES" && root.view !== "SETTINGS"
+                    }
+                }
+
+                // Over the column: each panel's grip in the left margin, and
+                // the gap under a panel that can be sized.
+                PanelDock {
+                    id: panelDock
+                    objectName: "panelDock"
+                    x: editorColumn.x; y: editorColumn.y
+                    width: editorColumn.width; height: editorColumn.height
+                    z: 5
+                    rowBase: 2
+                    spacing: editorColumn.rowSpacing
+                    order: root.ui["ui/editorOrder"] !== undefined ? String(root.ui["ui/editorOrder"]).split(",") : []
+                    heights: ({ "keyboard": root.uiNumber("ui/keyboardHeight", 0) })
+                    panels: ({
+                        "arrangement": arrangementView, "editors": stepEditors,
+                        "keyboard": keyboardPanel, "inspector": inspectorPanel,
+                        "modulation": modulationPanel
+                    })
+                    resizable: ["keyboard"]
+                    onOrderPicked: order => appController.setUiSetting("ui/editorOrder", order.join(","))
+                    onHeightPicked: (key, height) => appController.setUiSetting(
+                        "ui/" + key + "Height", height > 0 ? Math.round(height) : undefined)
                 }
             }
         }
 
-        MixerPanel {
-            onTrackRenameRequested: (index, name) => renamePopup.ask("TRACK", index, name)
-            onTrackMenuRequested: (index, name) => root.showTrackMenu(index, name)
+        SideBar {
+            id: mixer
+            objectName: "mixer"
+            z: 2
+            anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+            edge: "right"
+            title: "MIXER"
+            autoHide: root.uiFlag("ui/autoHideMixer", true)
+            roomy: workspace.roomy
+            held: tutorial.running
+            storedWidth: root.uiNumber("ui/mixerWidth", 250)
+            minimumBarWidth: 210; maximumBarWidth: 420
+            onWidthPicked: width => appController.setUiSetting("ui/mixerWidth", width)
+
+            MixerPanel {
+                anchors.fill: parent
+                onTrackRenameRequested: (index, name) => renamePopup.ask("TRACK", index, name)
+                onTrackMenuRequested: (index, name) => root.showTrackMenu(index, name)
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 // features/audio_systems.feature: the audio systems this build can open, and
 // a device on one that is missing refused with a reason.
+// features/audio_settings.feature: the devices each system offers.
 #include "blokkily/audio/playback.hpp"
 #include "blokkily/audio/song_engine.hpp"
 
@@ -41,6 +42,23 @@ void missing() {
     require(!output.start(&error) && !output.is_running(), "nor does it start");
     output.close();
 }
+
+void devices() {
+    require(RtAudioOutput::devices("no-such-system").empty(),
+            "a system the build lacks offers no devices");
+    // Whatever this machine has: none is fine, but each one listed is named,
+    // plays or records, and offers only rates a device can run at.
+    for (const auto& system : RtAudioOutput::audio_systems()) {
+        for (const auto& device : RtAudioOutput::devices(system.name)) {
+            std::cout << system.name << ": " << device.name << " (" << device.outputs << " out, "
+                      << device.inputs << " in)\n";
+            require(!device.name.empty(), "each device is named");
+            require(device.outputs > 0 || device.inputs > 0, "each plays or records");
+            for (const auto rate : device.sample_rates)
+                require(rate >= 8000 && rate <= 768000, "each rate is one a device runs at");
+        }
+    }
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -49,6 +67,7 @@ int main(int argc, char** argv) {
         const std::string which = argv[1];
         if (which == "listed") listed();
         else if (which == "missing") missing();
+        else if (which == "devices") devices();
         else throw std::runtime_error("unknown case");
         std::cout << "PASS " << which << '\n';
     } catch (const std::exception& e) {

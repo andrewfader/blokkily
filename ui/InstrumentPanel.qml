@@ -152,8 +152,8 @@ ColumnLayout {
     }
 
     // Outboard gear: the selected track plays a MIDI output port on one of
-    // its channels instead of an instrument of its own, and the song can
-    // send MIDI clock to a port so drum machines and sequencers follow it.
+    // its channels instead of an instrument of its own. The MIDI clock and
+    // the audio device are the machine's, and are set in SETTINGS.
     ColumnLayout {
         id: midiOutPanel
         objectName: "midiOutPanel"
@@ -199,40 +199,6 @@ ColumnLayout {
                               songModel.selectedTrack, parseInt(name.slice(3)) - 1)
             }
         }
-        RowLayout {
-            Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "CLOCK"; Layout.preferredWidth: midiOutPanel.labelWidth }
-            Picker {
-                objectName: "midiClockPort"
-                Layout.fillWidth: true; Layout.minimumWidth: 60
-                implicitHeight: 22
-                choices: ["OFF"].concat(appController.midiOutPorts)
-                value: appController.midiClockPort !== "" ? appController.midiClockPort : "OFF"
-                onPicked: name => appController.setMidiClockPort(name === "OFF" ? "" : name)
-            }
-        }
-        // The audio system the device is opened on: JACK is also how
-        // PipeWire's JACK interface is reached.
-        RowLayout {
-            Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "AUDIO"; Layout.preferredWidth: midiOutPanel.labelWidth }
-            Picker {
-                objectName: "audioSystem"
-                Layout.fillWidth: true; Layout.minimumWidth: 60
-                implicitHeight: 22
-                readonly property var systems: appController.audioSystems
-                choices: systems.map(function(system) { return system.display })
-                value: {
-                    for (var i = 0; i < systems.length; ++i)
-                        if (systems[i].name === appController.audioSystem) return systems[i].display
-                    return "AUTO"
-                }
-                onPicked: function(display) {
-                    for (var i = 0; i < systems.length; ++i)
-                        if (systems[i].display === display) appController.setAudioSystem(systems[i].name)
-                }
-            }
-        }
         // How many samples earlier than the device reports a recorded take
         // is placed, on top of its round trip: for a device that misreports
         // its latency. Typed, applied on Return or when the field is left.
@@ -272,28 +238,6 @@ ColumnLayout {
             Label {
                 text: "SMP"; color: Theme.muted
                 font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
-            }
-        }
-        // Following another machine's clock, from the MIDI input: its Start,
-        // Stop and position move the transport, and its tempo is played.
-        RowLayout {
-            Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "SYNC"; Layout.preferredWidth: midiOutPanel.labelWidth }
-            Chip {
-                objectName: "followClock"
-                text: "EXT"; implicitHeight: 22
-                accessibleLabel: "Follow an external MIDI clock"
-                accent: Theme.blue
-                on: appController.followClock
-                onClicked: appController.followClock = !appController.followClock
-            }
-            Label {
-                objectName: "clockStatus"
-                Layout.fillWidth: true; Layout.minimumWidth: 0
-                text: appController.clockStatus
-                color: appController.clockStatus.indexOf("BPM") > 0 ? Theme.blue : Theme.muted
-                font.pixelSize: 9; font.family: Theme.mono; font.bold: true
-                elide: Text.ElideRight
             }
         }
         // The selected track's arpeggiator: the notes it holds play one at a

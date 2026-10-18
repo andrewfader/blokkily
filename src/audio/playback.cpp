@@ -108,6 +108,9 @@ struct RtAudioOutput::Impl {
     std::uint32_t round_trip = 0;
     bool want_input = false;
     bool opened_wanting_input = false;
+    // The devices asked for by name; empty is the default.
+    std::string output_name;
+    std::string input_name;
     // The deterministic device's loopback cable: what each output channel
     // played over the last `round_trip` frames, and the scratch a piece of a
     // block is rendered through.
@@ -348,6 +351,46 @@ std::vector<RtAudioOutput::AudioSystem> RtAudioOutput::audio_systems() {
     return systems;
 }
 
+namespace {
+// RtAudio reports a device it cannot probe on stderr; a list being read is
+// not an error to print.
+void quiet(RtAudioErrorType, const std::string&) {}
+
+// The device called `name` on `audio`, or `fallback` when none is.
+unsigned int device_named(RtAudio& audio, const std::string& name, unsigned int fallback,
+                          bool output) {
+    if (name.empty()) return fallback;
+    for (const auto id : audio.getDeviceIds()) {
+        const auto info = audio.getDeviceInfo(id);
+        if (info.name == name && (output ? info.outputChannels : info.inputChannels) > 0)
+            return id;
+    }
+    return fallback;
+}
+} // namespace
+
+std::vector<RtAudioOutput::AudioDevice> RtAudioOutput::devices(const std::string& api) {
+    std::vector<AudioDevice> found;
+#if BLOKKILY_HAVE_JACK
+    if (api == RtAudio::getApiName(RtAudio::UNIX_JACK)) return found;
+#endif
+    const auto chosen = api.empty() ? RtAudio::UNSPECIFIED : RtAudio::getCompiledApiByName(api);
+    if (!api.empty() && chosen == RtAudio::UNSPECIFIED) return found;
+    RtAudio audio(chosen, &quiet);
+    for (const auto id : audio.getDeviceIds()) {
+        const auto info = audio.getDeviceInfo(id);
+        if (info.name.empty() || (info.outputChannels == 0 && info.inputChannels == 0)) continue;
+        found.push_back({info.name, info.outputChannels, info.inputChannels, info.sampleRates,
+                         info.preferredSampleRate, info.isDefaultOutput, info.isDefaultInput});
+    }
+    return found;
+}
+
+void RtAudioOutput::set_devices(std::string output, std::string input) {
+    impl_->output_name = std::move(output);
+    impl_->input_name = std::move(input);
+}
+
 RtAudioOutput::~RtAudioOutput() {
     stop();
 #if BLOKKILY_HAVE_JACK
@@ -389,7 +432,8 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
         return false;
     }
     RtAudio::StreamParameters parameters;
-    parameters.deviceId = impl_->audio->getDefaultOutputDevice();
+    parameters.deviceId = device_named(*impl_->audio, impl_->output_name,
+                                       impl_->audio->getDefaultOutputDevice(), true);
     parameters.nChannels = 2;
     parameters.firstChannel = 0;
     RtAudio::StreamOptions options;
@@ -405,7 +449,10 @@ bool RtAudioOutput::open(AudioSource& source, unsigned int sample_rate,
     // depends on recording being possible.
     unsigned int frames = requested_frames;
     auto result = RTAUDIO_INVALID_USE;
-    const auto input_device = impl_->want_input ? impl_->audio->getDefaultInputDevice() : 0U;
+    const auto input_device =
+        impl_->want_input ? device_named(*impl_->audio, impl_->input_name,
+                                         impl_->audio->getDefaultInputDevice(), false)
+                          : 0U;
     const auto input_info = input_device != 0 ? impl_->audio->getDeviceInfo(input_device)
                                               : RtAudio::DeviceInfo{};
     impl_->opened_wanting_input = impl_->want_input;

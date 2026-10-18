@@ -624,7 +624,8 @@ foreach(blokkily_feature
         audio_systems
         packaging
         scene_tempo
-        dawproject)
+        dawproject
+        window_layout)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

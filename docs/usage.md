@@ -100,7 +100,7 @@ steps halfway there. HUMAN loosens every step's timing (up to 8 ticks) and
 velocity (up to 0.08), differently each time. Each is one undo step. See
 [the scenarios](../features/quantize_humanize.feature).
 
-The ARP rows under CLOCK switch the selected track's arpeggiator. While it
+The ARP rows under MIDI OUT switch the selected track's arpeggiator. While it
 is ON, the notes held on the track, whether written, launched or played,
 sound one at a time on a grid of 1/4 to 1/32 (T for triplets): UP, DOWN,
 UP/DN, in PLAYED order or at RANDOM, across 1 to 4 octaves, each held for
@@ -344,13 +344,54 @@ note stands still, with the master bounce as its sound. It is 1280 x 720 at
 `BLOKKILY_FFMPEG` naming one). See
 [the export scenarios](../features/export_formats.feature).
 
-## Audio system
+## Settings
 
-AUDIO in the device rail chooses the audio system: ALSA, PulseAudio, or
+SETTINGS, the gear beside HELP above the editors, opens what belongs to the
+machine rather than to the song in the editors' place; a second press goes
+back to the view it was opened from. Everything on it is remembered between
+launches and none of it is saved with a song.
+
+AUDIO · SYSTEM chooses the audio system: ALSA, PulseAudio, or
 JACK - which is also how PipeWire is reached through its JACK interface, as
 a client called Blokkily that any patchbay can route - or AUTO, RtAudio's own
-choice. It is remembered between launches, and `BLOKKILY_AUDIO_API=jack`
-(or `alsa`, `pulse`) overrides it for one run.
+choice. A Windows build offers WASAPI, DirectSound and ASIO, a Mac build
+Core Audio; only the systems the build can open are listed.
+`BLOKKILY_AUDIO_API=jack` (or `alsa`, `pulse`) overrides the choice for one
+run. OUTPUT and INPUT choose the devices on that system (DEFAULT follows the
+system's own default; REFRESH lists a device plugged in since), SAMPLE RATE
+the rate the device is asked for and BUFFER its block size. Each change
+reopens the device at once; the device can still answer with another rate,
+and RUNNING shows what it actually gave. Under JACK the server sets the rate
+and the block and the patchbay chooses the devices, so those are not asked
+for. The input device is only opened while a track records audio input.
+
+MIDI · CLOCK OUT and SYNC are the clock described under
+[outboard gear](#outboard-gear-and-midi-clock) and
+[following an external clock](#following-an-external-clock).
+
+WINDOW · AUTO-HIDE lets the left bar (devices, plugins, project) and the right
+bar (the mixer) tuck into a strip at the window's edge, which is how they
+ship. A tucked-away bar comes back over the editors when the pointer rests on
+its strip, when the strip is clicked, or with Ctrl+[ (left) and Ctrl+] (right);
+passing over the edge on the way somewhere else does not bring it out. It
+stays while the pointer is over it, while something in it has the keyboard
+(the plugin search), while a press that began in it is still held, and while
+a menu is open, and goes a moment after none of that is true. Ctrl+F brings
+the left bar out with its search. A window wide enough for both bars beside
+the editors docks them whether or not they auto-hide; turned off, a bar is
+always docked.
+
+The window's panels can be rearranged and sized. Each editor panel (the
+arrangement, the editors, the keyboard, the inspector and the modulators) has
+a grip of six dots in the margin to its left: drag it up or down to move the
+panel. Drag the gap under the keyboard to size it (double-click the gap for
+the height its keys want), and drag a bar's inner edge to widen it. The
+layout is remembered; LAYOUT · RESET puts everything back. See
+[the settings scenarios](../features/audio_settings.feature) and
+[the layout scenarios](../features/window_layout.feature).
+
+## Audio system
+The audio system is chosen in [SETTINGS](#settings).
 On Linux Blokkily talks to JACK directly, so it plays at whatever block size
 the server runs, which PipeWire changes whenever another application asks for
 a different latency. See
@@ -358,7 +399,7 @@ a different latency. See
 
 ## Following an external clock
 
-EXT in the SYNC row follows the MIDI clock arriving at the MIDI input:
+EXT in the SYNC row of SETTINGS follows the MIDI clock arriving at the MIDI input:
 Start plays from the top, Continue plays on, Stop stops, a song position
 pointer moves the playhead, and the clock's tempo is the one the song plays
 at (shown beside the chip). The song's own tempo is kept and comes back when
@@ -384,7 +425,7 @@ that channel. Each one is timed to the sample it is heard on, so the gear plays
 in time with the rest of the mix. Pick OFF to take the port away. The port and
 channel are saved with the song, and each change is one undo step.
 
-CLOCK sends MIDI clock to a port so a drum machine or sequencer follows the
+CLOCK OUT in SETTINGS sends MIDI clock to a port so a drum machine or sequencer follows the
 song: Start when the song plays from its beginning, Song Position and Continue
 when it plays from anywhere else or jumps, 24 pulses a beat on the song's tempo
 map, and Stop when it stops. An export sends neither notes nor clock. The CLOCK
@@ -736,7 +777,8 @@ or transport shortcuts.
 | Ctrl+L | Solo the selected track |
 | Ctrl+R | Arm recording |
 | Ctrl+E | Bounce the arrangement to disk |
-| Ctrl+F | Focus the plugin browser search |
+| Ctrl+F | Focus the plugin browser search (bringing the left bar out) |
+| Ctrl+[ / Ctrl+] | Bring the auto-hidden left / right bar out, or send it back |
 | Ctrl+K | Focus the assistant prompt bar |
 | Escape in the assistant | Return keyboard focus to the editors |
 | Ctrl+Z | Undo |

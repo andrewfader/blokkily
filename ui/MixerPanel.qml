@@ -10,8 +10,6 @@ Rectangle {
     signal trackRenameRequested(int index, string name)
     signal trackMenuRequested(int index, string name)
     objectName: "mixerPanel"
-    SplitView.preferredWidth: 250; SplitView.minimumWidth: 210
-    SplitView.maximumWidth: 320
     color: "#121317"
 
     ColumnLayout {

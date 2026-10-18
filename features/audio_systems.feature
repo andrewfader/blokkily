@@ -1,5 +1,5 @@
 Feature: Choosing the audio system: ALSA, PulseAudio, JACK and PipeWire
-  The AUDIO picker in the device rail opens the audio device on the system
+  The AUDIO picker in SETTINGS opens the audio device on the system
   chosen - ALSA, PulseAudio, or JACK, which is also how PipeWire's JACK
   interface is reached - or leaves the choice to RtAudio (AUTO). The choice
   is remembered between launches; BLOKKILY_AUDIO_API overrides it. Under

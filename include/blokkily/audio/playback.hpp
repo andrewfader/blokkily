@@ -77,6 +77,25 @@ public:
     // The audio systems this build can open, in RtAudio's order of
     // preference.
     [[nodiscard]] static std::vector<AudioSystem> audio_systems();
+    // A device one audio system offers (features/audio_settings.feature): its
+    // name, how many channels it plays and records, and the rates it takes.
+    struct AudioDevice {
+        std::string name;
+        unsigned int outputs = 0;
+        unsigned int inputs = 0;
+        std::vector<unsigned int> sample_rates;
+        unsigned int preferred_rate = 0;
+        bool default_output = false;
+        bool default_input = false;
+    };
+    // The devices on `api` ("" for RtAudio's own choice). Empty for JACK,
+    // whose server is patched rather than its devices chosen, and for a
+    // system this build does not have.
+    [[nodiscard]] static std::vector<AudioDevice> devices(const std::string& api);
+    // Which devices the next open() plays and records through, by name.
+    // Empty, or a device no longer there, is the system's default. A
+    // deterministic device and JACK ignore it.
+    void set_devices(std::string output, std::string input);
     // How it was made: a real device, or the deterministic pump.
     [[nodiscard]] Mode mode() const noexcept;
     ~RtAudioOutput();

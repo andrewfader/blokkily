@@ -32,6 +32,9 @@ void run_midi_clock(VerifyContext& ctx) {
     check(own_length > 0);
     const bool was_dirty = s.dirty();
 
+    // Following a clock is the machine's setting, in SETTINGS.
+    check(ctx.window->setProperty("view", "SETTINGS"));
+    layout();
     auto* chip = ctx.named("followClock");
     check(VerifyContext::usable(chip, 30, 18));
     if (chip) ctx.click_at(chip, {chip->width() / 2, chip->height() / 2}, Qt::LeftButton);

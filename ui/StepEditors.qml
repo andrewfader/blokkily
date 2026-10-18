@@ -36,6 +36,7 @@ ColumnLayout {
     Layout.fillWidth: true; Layout.fillHeight: true
     objectName: "stepEditors"
     visible: view !== "KEYS" && view !== "LAUNCH" && view !== "VERSIONS" && view !== "NOTES"
+             && view !== "SETTINGS"
     spacing: 10
 
     // ------------------------------------------------------ step grid

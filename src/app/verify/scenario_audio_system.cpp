@@ -21,6 +21,8 @@ void run_audio_system(VerifyContext& ctx) {
         ctx.check(ok);
     };
     const auto layout = [&] { QCoreApplication::processEvents(); (void)ctx.window->grabWindow(); };
+    // The AUDIO picker is in SETTINGS.
+    check(ctx.window->setProperty("view", "SETTINGS"));
     layout();
     auto* picker = ctx.named("audioSystem");
     check(VerifyContext::usable(picker, 60, 18));

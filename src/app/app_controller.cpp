@@ -669,15 +669,23 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     const bool wants_input = songTakesAudioInput();
     if (audio_output_ && !audio_output_->opened_for_input(wants_input)) audio_output_->close();
     if (!audio_output_ || !audio_output_->is_open()) {
+        // Read while the output is still held: a gate's settings are its
+        // deterministic device's, not the user's.
+        const auto asked_rate = static_cast<unsigned int>(audioSampleRate());
+        const auto asked_frames = static_cast<unsigned int>(audioBufferFrames());
+        const auto output_device = audioOutputDevice().toStdString();
+        const auto input_device = audioInputDevice().toStdString();
         auto output = audio_output_ ? std::move(audio_output_)
                                     : std::make_unique<blokkily::RtAudioOutput>(
                                           blokkily::RtAudioOutput::Mode::device,
                                           audioSystem().toStdString());
         output->set_input_wanted(wants_input);
+        output->set_devices(output_device, input_device);
         std::string device_error;
         // Nothing is rendering yet: the stream is opened, not started, so the
-        // callback cannot reach the engine before it is prepared.
-        if (output->open(*next, default_sample_rate, 512, &device_error))
+        // callback cannot reach the engine before it is prepared. The rate
+        // and block are what the SETTINGS view asks for.
+        if (output->open(*next, asked_rate, asked_frames, &device_error))
             audio_output_ = std::move(output);
         else
             device_failure = QString::fromStdString(device_error);

@@ -30,8 +30,11 @@ Rectangle {
     readonly property real wantedHeight: Math.max(168, wantedSurface + 104)
     Layout.fillWidth: true
     Layout.fillHeight: keyboardPanel.view === "KEYS"
-    Layout.preferredHeight: wantedHeight
-    Layout.maximumHeight: keyboardPanel.view === "KEYS" ? 100000 : wantedHeight
+    // The height its gap was dragged to in ALL (0: what its keys want).
+    property real heightOverride: 0
+    readonly property real shownHeight: heightOverride > 0 ? Math.max(140, heightOverride) : wantedHeight
+    Layout.preferredHeight: shownHeight
+    Layout.maximumHeight: keyboardPanel.view === "KEYS" ? 100000 : shownHeight
     Layout.minimumHeight: 140
     visible: keyboardPanel.view === "ALL" || keyboardPanel.view === "KEYS"
     radius: 6; color: Theme.panel; border.color: Theme.line; clip: true

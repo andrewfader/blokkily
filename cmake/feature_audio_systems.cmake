@@ -8,7 +8,7 @@ endif()
 if(BLOKKILY_BUILD_TESTS)
     add_executable(blokkily_audio_systems_tests tests/audio_systems_tests.cpp)
     target_link_libraries(blokkily_audio_systems_tests PRIVATE blokkily_core)
-    foreach(case listed missing)
+    foreach(case listed missing devices)
         add_test(NAME audio_systems_${case} COMMAND blokkily_audio_systems_tests ${case})
         set_tests_properties(audio_systems_${case} PROPERTIES
             LABELS "unit;audio" ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 30)

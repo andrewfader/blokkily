@@ -1,5 +1,5 @@
 Feature: Following an external MIDI clock
-  EXT in the SYNC row follows the clock arriving at the MIDI input,
+  EXT in the SYNC row of SETTINGS follows the clock arriving at the MIDI input,
   as a drum machine or another sequencer sends it: Start plays the song from
   the top, Continue plays on, Stop stops, a Song Position Pointer moves the
   playhead, and the 24 ticks a beat set the tempo the song plays at - read

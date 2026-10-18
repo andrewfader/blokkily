@@ -487,6 +487,47 @@ public:
     // Remembers the system and reopens the device on it. False for one this
     // build does not have.
     Q_INVOKABLE bool setAudioSystem(const QString& name);
+    // The SETTINGS view's audio page (features/audio_settings.feature).
+    // [{name, outputs, inputs, rates}]: the devices the chosen system offers,
+    // as last read by refreshAudioDevices. A gate's deterministic pump is the
+    // only device it has.
+    Q_PROPERTY(QVariantList audioDevices READ audioDevices NOTIFY audioDevicesChanged)
+    // The devices played and recorded through, by name; "" is the system's
+    // default.
+    Q_PROPERTY(QString audioOutputDevice READ audioOutputDevice NOTIFY audioSystemChanged)
+    Q_PROPERTY(QString audioInputDevice READ audioInputDevice NOTIFY audioSystemChanged)
+    // The rate and block the device is asked for. A server that sets its own
+    // (JACK, PipeWire's JACK) is not asked: serverClocked says so.
+    Q_PROPERTY(int audioSampleRate READ audioSampleRate NOTIFY audioSystemChanged)
+    Q_PROPERTY(int audioBufferFrames READ audioBufferFrames NOTIFY audioSystemChanged)
+    Q_PROPERTY(QVariantList audioSampleRates READ audioSampleRates NOTIFY audioDevicesChanged)
+    Q_PROPERTY(QVariantList audioBufferSizes READ audioBufferSizes CONSTANT)
+    Q_PROPERTY(bool serverClocked READ serverClocked NOTIFY audioSystemChanged)
+    QVariantList audioDevices() const { return audio_devices_; }
+    QString audioOutputDevice() const;
+    QString audioInputDevice() const;
+    int audioSampleRate() const;
+    int audioBufferFrames() const;
+    QVariantList audioSampleRates() const;
+    QVariantList audioBufferSizes() const;
+    bool serverClocked() const;
+    // Reads the chosen system's devices again (one plugged in since).
+    Q_INVOKABLE void refreshAudioDevices();
+    // Each remembers the choice and reopens the device with it. False for a
+    // device, rate or block the system does not offer.
+    Q_INVOKABLE bool setAudioOutputDevice(const QString& name);
+    Q_INVOKABLE bool setAudioInputDevice(const QString& name);
+    Q_INVOKABLE bool setAudioSampleRate(int rate);
+    Q_INVOKABLE bool setAudioBufferFrames(int frames);
+    // --- Interface settings (app_controller_audio_system.cpp) -------------
+    // The window's own preferences ("ui/autoHideRail", "ui/editorOrder",
+    // ...), remembered between launches. A gate keeps them in memory, so it
+    // never writes the user's settings.
+    Q_PROPERTY(QVariantMap uiSettings READ uiSettings NOTIFY uiSettingsChanged)
+    QVariantMap uiSettings() const;
+    Q_INVOKABLE void setUiSetting(const QString& key, const QVariant& value);
+    // Forgets every "ui/" preference, so the window is laid out as shipped.
+    Q_INVOKABLE void resetUiSettings();
     // --- Following an external MIDI clock (app_controller_clock.cpp) -------
     // While on, the MIDI input's clock moves the transport (Start plays from
     // the top, Continue plays on, Stop stops, a Song Position Pointer moves
@@ -763,6 +804,8 @@ signals:
     void patternPlayheadChanged();
     void followPlaybackChanged();
     void statusChanged();
+    void audioDevicesChanged();
+    void uiSettingsChanged();
     void pluginsChanged();
     void browserChanged();
     void soundfontStatusChanged();
@@ -957,6 +1000,14 @@ private:
     QString describeControl(const QString& target, int index) const;
     // Chosen this session; null until then (the setting holds the last).
     QString audio_system_;
+    QVariantList audio_devices_;
+    // Settings a gate sets: kept here rather than in the user's file.
+    QVariantMap memory_settings_;
+    bool deterministicAudio() const;
+    QVariant setting(const QString& key, const QVariant& fallback = {}) const;
+    void storeSetting(const QString& key, const QVariant& value);
+    // Closes the device and opens it again with the current settings.
+    void reopenAudio(const QString& what);
     bool follow_clock_ = false;
     blokkily::ClockFollower clock_follower_;
     std::optional<double> followed_bpm_;
