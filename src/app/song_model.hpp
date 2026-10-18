@@ -103,6 +103,7 @@ class SongModel final : public QObject {
     // How many inputs the audio device offers (item 3.2): the choices a
     // strip's input chip steps through. Two when the device has fewer.
     Q_PROPERTY(int audioInputChannels READ audioInputChannels NOTIFY inputChanged)
+    Q_PROPERTY(int recordOffset READ recordOffset WRITE setRecordOffset NOTIFY inputChanged)
     // Effects (item 2.4). The rack is the insert chain being edited: the
     // selected track's, a return's, or the master's, as
     // {kind, bus, title, inserts: [{index, name, format, bypass}]}.
@@ -317,6 +318,12 @@ public:
     Q_INVOKABLE void setInputChannel(int track, int channel);
     // Steps the channel through ALL, 1 .. 16 and round, by `step`.
     Q_INVOKABLE void cycleInputChannel(int track, int step = 1);
+    // How many samples earlier than the device reports a take is placed, on
+    // top of its round trip: a correction for a device that misreports it.
+    // Saved with the song, never history; held to +-kMaxRecordOffset.
+    static constexpr int kMaxRecordOffset = 96000;
+    int recordOffset() const noexcept { return static_cast<int>(song_.record_offset_samples); }
+    Q_INVOKABLE void setRecordOffset(int samples);
     int armedCount() const;
     // --- Audio input (item 3.2; song_model_audio_input.cpp) -----------------
     // Like arm and channel, saved with the song and never history.

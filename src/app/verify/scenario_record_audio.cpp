@@ -1,12 +1,13 @@
 // features/audio_input.feature (plan item 3.2, "record everything" part 3), run
 // on its own by the bdd_record_audio gate (`--scenario record_audio`). The
-// deterministic device is given two inputs and a 128-frame round trip. An
+// deterministic device is given two inputs and a 128-frame round trip, and
+// the rail's OFFSET field adds 32 samples to it. An
 // audio track is set to IN 1-2 and armed from the chips on its mixer strip,
 // beside a CLAP track armed for notes; the input is heard while the song is
 // stopped. With the song recording, a key is performed and then a burst is
 // played into the inputs: the burst is heard as it is played, and when the
 // song stops it is a clip on the audio track that sounds exactly where it was
-// heard - 128 frames before it reached the input - read off what the
+// heard - 160 frames before it reached the input - read off what the
 // production callback renders. One undo takes back the notes and the clip
 // together. The take is written in the session's temporary folder and moves
 // into <project>.audio/ on the first save; the reloaded project plays it, and
@@ -200,6 +201,32 @@ void run_record_audio(VerifyContext& ctx) {
     check(std::abs(right_heard - (-0.125F)) < 1e-5F && std::abs(left_heard) < 1e-5F);
     reached("record audio: the armed input is heard while the song is stopped");
 
+    // The device misreports its round trip by 32 samples: the OFFSET field
+    // in the rail corrects it, without a step of history.
+    constexpr std::int64_t record_offset = 32;
+    {
+        auto* field = ctx.named("recordOffset");
+        check(VerifyContext::usable(field, 50, 18));
+        if (field != nullptr) {
+            ctx.click_at(field, {field->width() / 2, field->height() / 2}, Qt::LeftButton);
+            settle(20);
+            ctx.chord_key(Qt::Key_A, Qt::ControlModifier);
+            for (const QChar character : QString::number(record_offset))
+                ctx.type_key(static_cast<Qt::Key>(character.unicode()), QString(character));
+            ctx.type_key(Qt::Key_Return, "\r");
+            settle(20);
+        }
+        check(song.recordOffset() == record_offset && song.song().record_offset_samples == record_offset);
+        check(!song.canUndo() || song.undo());
+        check(song.recordOffset() == record_offset);
+        check(!song.canRedo() || song.redo());
+        // Held to the range the field accepts.
+        song.setRecordOffset(1'000'000);
+        check(song.recordOffset() == SongModel::kMaxRecordOffset);
+        song.setRecordOffset(static_cast<int>(record_offset));
+    }
+    reached("record audio: the rail's OFFSET field corrects the device's round trip");
+
     // Record: from the start of the song, a performed key on track 0, then
     // the burst into the inputs.
     const auto pattern_events = [&song] {
@@ -240,14 +267,14 @@ void run_record_audio(VerifyContext& ctx) {
     check(recorded.track == 1 && file.channels == 2 && file.sample_rate == 48000);
     check(file.path.parent_path() == temporary && fs::exists(file.path));
     check(fs::path(QDir::tempPath().toStdString()) == temporary.parent_path());
-    check(controller.takeCompensation() == round_trip);
-    check(recorded.start == 0 && recorded.offset_frames == round_trip);
+    check(controller.takeCompensation() == round_trip + record_offset);
+    check(recorded.start == 0 && recorded.offset_frames == round_trip + record_offset);
     check(pattern_events() > events_before);
     check(controller.audioTakeStatus() == "1 audio take recorded" &&
           controller.droppedInputFrames() == 0);
-    // Heard back from the production callback: the burst sounds 128 frames
-    // before it reached the input, to the sample.
-    const auto expected = static_cast<std::int64_t>(burst_start) - round_trip;
+    // Heard back from the production callback: the burst sounds the round
+    // trip and the offset before it reached the input, to the sample.
+    const auto expected = static_cast<std::int64_t>(burst_start) - round_trip - record_offset;
     const auto onset = onset_on_right(14);
     check(onset == expected);
     lay_out();
@@ -285,6 +312,7 @@ void run_record_audio(VerifyContext& ctx) {
     check(song.song().audio_clips.size() == 1 && !song.song().audio_files.empty() &&
           song.song().audio_files.front().path == saved_path);
     check(song.missingAudioFiles() == 0);
+    check(song.recordOffset() == record_offset);
     check(onset_on_right(14) == expected);
     reached("record audio: the take moves into the project's audio folder on save");
 

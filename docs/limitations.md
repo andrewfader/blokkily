@@ -24,8 +24,6 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 - Comping chooses between audio takes. MIDI passes recorded in a loop still
   merge into the pattern rather than stacking as takes.
-- The song's record offset, which moves every audio take by a fixed number of
-  samples, is saved and applied but can be set only in the project file.
 - Disk streaming handles unwarped audio clips only. Warped clips decode into
   memory before stretching, and the sampler always decodes its samples.
 - A streamed clip that crosses the song's wrap point dips briefly at the wrap

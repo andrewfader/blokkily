@@ -233,6 +233,44 @@ ColumnLayout {
                 }
             }
         }
+        // How many samples earlier than the device reports a recorded take
+        // is placed, on top of its round trip: for a device that misreports
+        // its latency. Typed, applied on Return or when the field is left.
+        RowLayout {
+            Layout.fillWidth: true; spacing: 6
+            SectionLabel { text: "OFFSET"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            TextField {
+                id: recordOffsetField
+                objectName: "recordOffset"
+                Layout.fillWidth: true; Layout.minimumWidth: 60
+                implicitHeight: 22
+                padding: 2; leftPadding: 6; rightPadding: 6
+                text: String(songModel.recordOffset)
+                color: Theme.ink
+                font.family: Theme.mono; font.pixelSize: 11; font.bold: true
+                selectByMouse: true
+                horizontalAlignment: TextInput.AlignRight
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                validator: IntValidator { bottom: -96000; top: 96000 }
+                Accessible.name: "Record offset in samples"
+                background: Rectangle {
+                    color: Theme.raised; radius: 3
+                    border.color: recordOffsetField.activeFocus ? Theme.amber : Theme.line
+                }
+                function apply() {
+                    var samples = parseInt(text)
+                    if (!isNaN(samples)) songModel.setRecordOffset(samples)
+                    text = String(songModel.recordOffset)
+                }
+                onEditingFinished: apply()
+                // Return gives the keys back to the editors.
+                onAccepted: focus = false
+            }
+            Label {
+                text: "SMP"; color: Theme.muted
+                font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
+            }
+        }
         // Following another machine's clock, from the MIDI input: its Start,
         // Stop and position move the transport, and its tempo is played.
         RowLayout {

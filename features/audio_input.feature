@@ -122,15 +122,22 @@ Feature: Record everything, part 3 - audio input into audio clips
     When levels are played into the inputs with the song stopped
     Then the right of the bus carries input 2
 
+  # gate step "record audio: the rail's OFFSET field corrects the device's round trip"
+  Scenario: The record offset is set in the window
+    Given a device that reports its round trip 32 samples short
+    When the producer types 32 into the OFFSET field in the rail and presses Return
+    Then the song's record offset is 32 samples, and undo and redo leave it alone
+    And an offset beyond 96000 samples either way is held to 96000
+
   # gate steps "record audio: a key and a burst played while recording",
   #            "record audio: the take is a clip that sounds where it was heard",
   #            "record audio: one undo removes the notes and the clip"
   Scenario: A take becomes a clip in the same step of history as the notes
-    Given a device reporting a 128-frame round trip, and recording
+    Given a device reporting a 128-frame round trip, a 32-sample record offset, and recording
     When a key is performed on the CLAP track and a burst is played into the inputs
     Then the burst is heard as it is played
     And when the song stops it is a clip on the audio track, in the session's temporary folder
-    And played back it sounds 128 frames before it reached the input, to the sample
+    And played back it sounds 160 frames (the round trip and the offset) before it reached the input, to the sample
     And the clip is drawn in the audio track's lane
     When the producer undoes once
     Then the notes and the clip are both gone, and redo brings both back
@@ -143,5 +150,5 @@ Feature: Record everything, part 3 - audio input into audio clips
     Then the take's file is in record-audio.audio/ and no longer in the temporary folder
     And undo and redo keep naming it there
     When the project is loaded again
-    Then the clip plays its file from the project's folder on the same sample
+    Then the clip plays its file from the project's folder on the same sample, with the offset kept
     And the export read back from its file holds the take on the same sample

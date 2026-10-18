@@ -58,6 +58,14 @@ void SongModel::setArmed(int track, bool armed) {
     announceSong();
 }
 
+void SongModel::setRecordOffset(int samples) {
+    const auto wanted = static_cast<std::int64_t>(std::clamp(samples, -kMaxRecordOffset, kMaxRecordOffset));
+    if (song_.record_offset_samples == wanted) return;
+    song_.record_offset_samples = wanted;
+    emit inputChanged();
+    announceSong();
+}
+
 void SongModel::toggleArm(int track) {
     if (!validTrack(track)) return;
     setArmed(track, !song_.tracks[static_cast<std::size_t>(track)].input.armed);
