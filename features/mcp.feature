@@ -217,7 +217,9 @@ Feature: An agent drives Blokkily over MCP
   Scenario: The agent walks a guide lesson and asks it a question
     When the agent lists the guide's lessons
     Then it reads "Your first beat" among them
-    When it starts that lesson
+    When it starts that lesson while the guide is off
+    Then it is refused, and the guide stays off
+    When the producer turns the guide on and the agent starts that lesson
     Then the lesson is active on its first step
     When it steps forward and back, then stops
     Then the lesson is no longer active

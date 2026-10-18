@@ -470,19 +470,25 @@ std::string write(const Score& score) {
                 std::optional<KeySignature> key;
                 std::optional<TimeSignature> time;
                 std::optional<Clef> clef;
+                std::optional<Transposition> transpose;
             };
             std::vector<Declared> declared(part.staves.size());
             bool any = m == 0;
             for (std::size_t s = 0; s < part.staves.size(); ++s) {
                 const Staff& staff = part.staves[s];
                 const Measure* measure = measure_at(staff, m);
-                if (m == 0) declared[s] = {staff.key, staff.time, staff.clef};
+                if (m == 0) {
+                    declared[s] = {staff.key, staff.time, staff.clef, std::nullopt};
+                    if (staff.transposition() != 0)
+                        declared[s].transpose = Transposition{staff.transpose_semitones, staff.transpose_octaves};
+                }
                 if (measure != nullptr) {
                     if (measure->key) declared[s].key = measure->key;
                     if (measure->time) declared[s].time = measure->time;
                     if (measure->clef) declared[s].clef = measure->clef;
+                    if (measure->transpose) declared[s].transpose = measure->transpose;
                 }
-                any = any || declared[s].key || declared[s].time || declared[s].clef;
+                any = any || declared[s].key || declared[s].time || declared[s].clef || declared[s].transpose;
             }
             if (any) {
                 auto attributes = xml_measure.append_child("attributes");
@@ -514,14 +520,14 @@ std::string write(const Score& score) {
                     append_text(clef, "sign", sign);
                     if (line > 0) append_int(clef, "line", line);
                 }
-                for (std::size_t s = 0; m == 0 && s < part.staves.size(); ++s) {
-                    const Staff& staff = part.staves[s];
-                    if (staff.transposition() == 0) continue;
+                // A change back to concert pitch is written too, as zero.
+                for (std::size_t s = 0; s < part.staves.size(); ++s) {
+                    if (!declared[s].transpose) continue;
                     auto transpose = attributes.append_child("transpose");
                     if (multi_staff) transpose.append_attribute("number") = static_cast<int>(s + 1);
-                    append_int(transpose, "chromatic", staff.transpose_semitones);
-                    if (staff.transpose_octaves != 0)
-                        append_int(transpose, "octave-change", staff.transpose_octaves);
+                    append_int(transpose, "chromatic", declared[s].transpose->semitones);
+                    if (declared[s].transpose->octaves != 0)
+                        append_int(transpose, "octave-change", declared[s].transpose->octaves);
                 }
             }
 
@@ -629,6 +635,15 @@ Score parse(const std::string& xml) {
         ensure_staff(0);
 
         long long divisions = kDivisions;
+        // Per staff: what its <transpose> and its clef's octave change say,
+        // which the model adds into one transposition.
+        struct Sounding {
+            int chromatic = 0;
+            int octaves = 0;
+            int clef_octaves = 0;
+            [[nodiscard]] Transposition total() const { return {chromatic, octaves + clef_octaves}; }
+        };
+        std::map<std::size_t, Sounding> sounding;
         // Per staff and voice: whether a held syllable is still running.
         std::map<std::pair<std::size_t, int>, bool> extending;
         std::size_t m = 0;
@@ -653,6 +668,16 @@ Score parse(const std::string& xml) {
                     for (std::size_t s = 0; s < part.staves.size(); ++s) out.push_back(s);
                 return out;
             };
+
+            // The pieces the last note that is not a chord tone was written
+            // as, by where they sit in its measure: a chord tone's pieces go
+            // beside them, each starting with the lead's piece.
+            struct Lead {
+                std::size_t staff = 0;
+                std::vector<std::size_t> at{};
+                std::vector<NoteDuration> values{};
+            };
+            std::optional<Lead> lead;
 
             // Time in this measure, and where each voice of each staff has
             // got to, in kDivisions per quarter.
@@ -696,21 +721,31 @@ Score parse(const std::string& xml) {
                         Clef parsed(ClefKind::Treble);
                         if (!clef_from_sign_line(clef.child_value("sign"), clef.child("line").text().as_int(0), parsed))
                             continue; // a clef the model does not know keeps the current one
-                        const int octave = clef.child("clef-octave-change").text().as_int(0);
+                        const int octave = std::clamp(clef.child("clef-octave-change").text().as_int(0), -2, 2);
+                        const Transposition before = sounding[s].total();
+                        sounding[s].clef_octaves = octave;
                         declare(s,
                                 [&](Staff& st) {
                                     st.clef = parsed;
-                                    st.transpose_octaves += std::clamp(octave, -2, 2);
+                                    st.transpose_octaves += octave;
                                 },
-                                [&](Measure& me) { me.clef = parsed; });
+                                [&](Measure& me) {
+                                    me.clef = parsed;
+                                    if (sounding[s].total() != before) me.transpose = sounding[s].total();
+                                });
                     }
                     for (const auto transpose : child.children("transpose")) {
-                        if (m != 0) continue; // the model transposes a staff throughout
                         const int chromatic = std::clamp(transpose.child("chromatic").text().as_int(0), -24, 24);
                         const int octaves = std::clamp(transpose.child("octave-change").text().as_int(0), -4, 4);
                         for (const auto s : staves_named(transpose)) {
-                            part.staves[s].transpose_semitones = chromatic;
-                            part.staves[s].transpose_octaves += octaves;
+                            sounding[s].chromatic = chromatic;
+                            sounding[s].octaves = octaves;
+                            declare(s,
+                                    [&](Staff& st) {
+                                        st.transpose_semitones = chromatic;
+                                        st.transpose_octaves += octaves;
+                                    },
+                                    [&](Measure& me) { me.transpose = sounding[s].total(); });
                         }
                     }
                     continue;
@@ -739,6 +774,7 @@ Score parse(const std::string& xml) {
                 const auto where = std::make_pair(s, voice);
                 Measure& measure = measure_of(s);
                 const bool chord = static_cast<bool>(xml_note.child("chord"));
+                if (!chord) lead.reset();
                 const long long length =
                     xml_note.child("duration") ? to_units(whole_number(xml_note.child("duration"), "duration")) : -1;
                 if (length < -1) throw std::runtime_error("musicxml: a <duration> is negative");
@@ -835,6 +871,12 @@ Score parse(const std::string& xml) {
                     lyric = "_";
                 }
 
+                // A chord tone split into more values than its lead takes the
+                // lead's values: a piece with nothing to sound beside would
+                // be read as the voice's next note.
+                const bool beside = chord && lead && lead->staff == s && !lead->at.empty();
+                if (beside && values.size() > lead->at.size()) values = lead->values;
+                if (!chord) lead = Lead{s, {}, values};
                 for (std::size_t k = 0; k < values.size(); ++k) {
                     NotationNote piece = note;
                     piece.duration = values[k];
@@ -842,7 +884,18 @@ Score parse(const std::string& xml) {
                     piece.tie_end = k > 0 || has_tie(xml_note, "stop");
                     piece.tie_start = k + 1 < values.size() || has_tie(xml_note, "start");
                     if (k == 0) piece.lyric = lyric;
+                    if (beside) {
+                        // After the lead's k-th piece and the tones already
+                        // beside it; the pieces after it move up one.
+                        const std::size_t where = lead->at[k] + 1;
+                        measure.objects.insert(measure.objects.begin() + static_cast<std::ptrdiff_t>(where),
+                                               std::move(piece));
+                        lead->at[k] = where;
+                        for (std::size_t j = k + 1; j < lead->at.size(); ++j) ++lead->at[j];
+                        continue;
+                    }
                     if (k > 0) piece.chord = false;
+                    if (!chord) lead->at.push_back(measure.objects.size());
                     measure.objects.emplace_back(std::move(piece));
                 }
             }

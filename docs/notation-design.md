@@ -24,7 +24,7 @@ New namespace `blokkily::notation`, headers under
 | `signature.hpp` | `KeySignature{fifths:-7..7}`, `TimeSignature{beats, beat_unit}` plus `unmetered()` |
 | `duration.hpp` | `NoteValue` (breve..128th), dots, tuplets (3 in 2, ...), `ticks()`/`from_ticks()`/`notate_ticks()` against a ticks-per-beat |
 | `note.hpp` | `NotationNote{spelled, duration, tie_start/tie_end, lyric, voice, chord, cents, velocity}`, `Rest{duration, voice}` |
-| `staff.hpp` | `Staff{clef, key, time, transpose_semitones, transpose_octaves}`, `Measure{objects, clef?, key?, time?, pickup}`, `Part{name, staves}`, `Score{parts, title, composer}` |
+| `staff.hpp` | `Staff{clef, key, time, transpose_semitones, transpose_octaves}`, `Measure{objects, clef?, key?, time?, transpose?, pickup}`, `Part{name, staves}`, `Score{parts, title, composer}` |
 | `spelling.hpp` | `spell(midi_key, KeySignature) -> SpelledPitch` — enharmonic spelling |
 | `layout.hpp` | `staff_position(spelled, clef) -> int` (diatonic steps above/below the clef's bottom line), accidental visibility vs key signature |
 | `pattern_bridge.hpp` | `to_staff(pattern, key, clef, time)`, `to_pattern(staff, ticks_per_beat, &dropped)`, `place(staff)` (where each object falls, and which accidentals print), `measure_ticks()` — round-trips through the canonical pattern model; the pattern stays the single source of truth (repo invariant: editors are projections of one canonical pattern) |
@@ -58,12 +58,15 @@ rests, notes are split at barlines and tied over them, and the first voice
 fills every bar. `notate_ticks()` writes an exact value with dots, a triplet
 as a triplet, and anything else as a tied chain rounded to the 128th grid.
 `to_pattern()` plays each voice of each measure from the measure's start,
-joins ties, honours a measure's own meter and pickups, applies the staff's
-transposition, and drops (and counts) notes outside MIDI 0-127.
+joins ties (by voice and pitch, so a tie that stops a rounding short of the
+barline still joins), honours a measure's own meter and pickups, applies the
+transposition in force in each measure, and drops (and counts) notes outside
+MIDI 0-127.
 
 Accidentals print by the bar's rule (`place()`): a note prints one when its
 own differs from what its bar, or else the key, last said for its line and
-octave; a tied end never prints one.
+octave; a tied end never prints one, and nothing prints in a bar whose clef
+(the staff's, or the last one a measure changed to) is not pitched.
 
 ## MusicXML scope
 
@@ -77,7 +80,8 @@ octave; a tied end never prints one.
 - Import: the same back. A note's time comes from its `<duration>`; a
   `<forward>` gap becomes a rest; a `<key>` or `<time>` with no number holds on
   every staff; `<transpose>` (chromatic and octave) and `<clef-octave-change>`
-  set the sounding pitch. Grace and cue notes are skipped; unknown elements
+  set the sounding pitch, from the measure that writes them. A `<chord/>` tone
+  whose duration splits into tied values goes beside its lead's pieces. Grace and cue notes are skipped; unknown elements
   are ignored. A staff number outside 1-16, a non-positive divisions, an
   unsupported meter or a negative duration is refused with
   `std::runtime_error`, never a crash or a runaway allocation.
@@ -123,8 +127,7 @@ octave; a tied end never prints one.
   part), and the save/undo of the settings.
 - Still open (follow-ups, not regressions): no note entry on the staff (lyrics
   are typed in the LYRICS field); one part at a time (no full score); no beams (flags only); tuplets show their number but no
-  bracket; spacing is proportional but not Gould's; mid-piece changes of
-  transposition are not modelled; the bridge never fills lyrics from a
+  bracket; spacing is proportional but not Gould's; the bridge never fills lyrics from a
   pattern - lyrics now live on the pattern's notes themselves.
 
 ## Lyrics

@@ -14,6 +14,14 @@
 
 namespace blokkily::notation {
 
+// How written pitch sounds: shifted by `semitones` and then by `octaves`.
+struct Transposition {
+    int semitones = 0;
+    int octaves = 0;
+    [[nodiscard]] int total() const noexcept { return semitones + 12 * octaves; }
+    bool operator==(const Transposition&) const = default;
+};
+
 // A measure's objects, voice by voice. Inside one voice the objects follow
 // each other in time; a note with `chord` set starts with the note before
 // it. Voices are independent timelines from the measure's start, as
@@ -25,6 +33,9 @@ struct Measure {
     std::optional<Clef> clef{};
     std::optional<KeySignature> key{};
     std::optional<TimeSignature> time{};
+    // How the written pitch sounds from here on, as the staff's own
+    // transposition says it for the measures before the first change.
+    std::optional<Transposition> transpose{};
     // A pickup (anacrusis): the measure lasts as long as its notes, not a
     // whole bar of its meter.
     bool pickup = false;

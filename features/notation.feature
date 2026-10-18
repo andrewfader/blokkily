@@ -69,6 +69,11 @@ Feature: True staff notation as a fourth projection of the pattern
     Then a quarter ends bar one tied into a quarter that starts bar two
     And a triad tied into bar two is followed by the next note at its own time
 
+  Scenario: A note off the notation grid across the barline comes back as one note
+    Given a note five ticks before a barline at 480 per beat, 100 ticks long
+    When the pattern renders and is played back
+    Then one note comes back, starting and ending where it did
+
   Scenario: A note held under moving ones gets its own voice
     Given a whole-note C3 under four quarter notes
     When the pattern renders
@@ -93,6 +98,14 @@ Feature: True staff notation as a fourth projection of the pattern
     Given a chant line with a rest in it
     When it renders without a meter
     Then it is a single measure and plays back note for note
+
+  Scenario: Every object of a staff is placed where it sounds
+    Given a one-beat pickup, a bar of a quarter, a chord and a half over a
+      held whole note, a 3/4 bar under a percussion clef, and a bar back in treble
+    When the staff is placed
+    Then each object starts where its voice has got to, counting the pickup as one beat
+    And the chord tone starts with its chord, and the 3/4 bars last three beats
+    And no accidental prints under the percussion clef, and they print again in treble
 
   Scenario: An accidental holds to the end of its bar
     Given F#4, F4, F4, then F#4 tied over the barline and F4 in bar two, in C major

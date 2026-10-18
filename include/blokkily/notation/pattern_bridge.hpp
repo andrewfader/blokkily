@@ -42,7 +42,8 @@ struct MeterChange {
 // The staff played back into a pattern at `ticks_per_beat`: each voice of
 // each measure in time, chords together, ties joined into one note. A
 // metered measure lasts its meter's bar unless it is a pickup; an unmetered
-// one lasts as long as its longest voice. Notes whose sounding pitch falls
+// one lasts as long as its longest voice. Each note sounds under the
+// transposition in force in its measure. Notes whose sounding pitch falls
 // outside MIDI 0-127 are left out and counted in `dropped`.
 [[nodiscard]] Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped = nullptr);
 
@@ -58,7 +59,8 @@ struct Placed {
     int voice = 1;
     // An accidental holds to the end of its bar: a note prints one when its
     // own differs from what its bar, or else the key, last said for its line
-    // and octave. The tied end of a note never prints one.
+    // and octave. The tied end of a note never prints one, nor does a note
+    // in a bar under a clef that is not pitched.
     bool accidental_shown = false;
 };
 [[nodiscard]] std::vector<Placed> place(const Staff& staff, Tick ticks_per_beat);

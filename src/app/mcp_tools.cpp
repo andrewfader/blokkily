@@ -145,14 +145,31 @@ QJsonObject McpTools::call(const QString& name, const QJsonObject& arguments) {
     // stamped as the assistant's.
     // Both models are stamped: tools reach the pattern model as well as the
     // controller (e.g. through the generic call/invoke tool).
-    const auto controller_source = controller_.eventSource();
-    const auto pattern_source = pattern_.eventSource();
-    controller_.setEventSource(blokkily::guide::EventSource::mcp);
-    pattern_.setEventSource(blokkily::guide::EventSource::mcp);
-    QJsonObject result = dispatch(name, arguments);
-    controller_.setEventSource(controller_source);
-    pattern_.setEventSource(pattern_source);
-    return result;
+    // The stamp is put back on the way out however the call ends, a throw
+    // included, as the guide's own Acting does.
+    class Stamped {
+    public:
+        Stamped(AppController& controller, PatternModel& pattern)
+            : controller_(controller), pattern_(pattern), controller_source_(controller.eventSource()),
+              pattern_source_(pattern.eventSource()) {
+            controller_.setEventSource(blokkily::guide::EventSource::mcp);
+            pattern_.setEventSource(blokkily::guide::EventSource::mcp);
+        }
+        ~Stamped() {
+            controller_.setEventSource(controller_source_);
+            pattern_.setEventSource(pattern_source_);
+        }
+        Stamped(const Stamped&) = delete;
+        Stamped& operator=(const Stamped&) = delete;
+
+    private:
+        AppController& controller_;
+        PatternModel& pattern_;
+        blokkily::guide::EventSource controller_source_;
+        blokkily::guide::EventSource pattern_source_;
+    };
+    const Stamped stamped(controller_, pattern_);
+    return dispatch(name, arguments);
 }
 
 QJsonObject McpTools::dispatch(const QString& name, const QJsonObject& arguments) {
@@ -1280,6 +1297,11 @@ QJsonObject McpTools::guideLesson(const QJsonObject& arguments) {
         if (id.isEmpty()) return failure(QStringLiteral("start needs an id; list shows them."));
         if (!guide_->lessonIds().contains(id))
             return failure(QStringLiteral("There is no lesson \"%1\"; list shows them.").arg(id));
+        // Starting a lesson shows the guide, and the guide stays off until
+        // the producer turns it on: an agent may not turn it on for them.
+        if (!guide_->guideEnabled())
+            return failure(QStringLiteral("The guide is off, so no lesson was started. The producer "
+                                          "turns it on with GUIDE."));
         guide_->startLesson(id);
     } else if (action == "next") {
         guide_->lessonNext();

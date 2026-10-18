@@ -23,6 +23,8 @@
 #include <QLocalSocket>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -1135,6 +1137,14 @@ void run_mcp(VerifyContext& ctx) {
     for (const auto& lesson : lessons.value("lessons").toArray())
         lesson_ids << lesson.toObject().value("id").toString();
     check(lesson_ids.contains("first-beat"));
+    // The guide is off until the producer turns it on: the agent cannot
+    // start a lesson, which would turn it on for them.
+    auto* const guide = qmlEngine(ctx.window)->rootContext()->contextProperty("guideController").value<QObject*>();
+    check(guide != nullptr && !guide->property("guideEnabled").toBool());
+    const auto refused_lesson = agent.tool("guide_lesson", {{"action", "start"}, {"id", "first-beat"}});
+    check(isError(refused_lesson) && textOf(refused_lesson).contains("GUIDE"));
+    check(guide == nullptr || !guide->property("guideEnabled").toBool());
+    if (guide != nullptr) guide->setProperty("guideEnabled", true); // the producer clicks GUIDE
     const auto started = agent.tool("guide_lesson", {{"action", "start"}, {"id", "first-beat"}})
                              .value("structuredContent")
                              .toObject();
@@ -1161,6 +1171,7 @@ void run_mcp(VerifyContext& ctx) {
     check(triad.value("answer").toString().contains("third", Qt::CaseInsensitive));
     check(isError(agent.tool("guide_ask", {{"question", "   "}})));
     check(isError(agent.tool("guide_ask", {})));
+    if (guide != nullptr) guide->setProperty("guideEnabled", false);
 
     // ---------------------------------------------------------------------
     ctx.reached("mcp: without a window the bridge still answers, and says why calls fail");

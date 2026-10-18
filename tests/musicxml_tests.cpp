@@ -274,6 +274,46 @@ int main() {
         check(clarinet_sound.size() == 1 && std::get<1>(clarinet_sound[0]) == 72, "parts: written D5 sounds C5");
     }
 
+    // Scenario: A change of transposition partway through is kept
+    {
+        // A B-flat clarinet that changes to A in bar two and to concert
+        // pitch in bar three.
+        Staff written;
+        written.transpose_semitones = -2;
+        Measure line;
+        line.objects = {pitched(Step::D, 0, 5, NoteValue::Whole)};
+        Measure in_a = line;
+        in_a.transpose = Transposition{-3, 0};
+        Measure concert = line;
+        concert.transpose = Transposition{0, 0};
+        written.measures = {line, in_a, concert};
+        const Score back = through_file(score_of(written), "retransposed");
+        const auto& measures = back.parts[0].staves[0].measures;
+        check(measures.size() == 3 && measures[1].transpose == Transposition{-3, 0} &&
+                  measures[2].transpose == Transposition{0, 0},
+              "transposed: each change is read back in the bar it was written");
+        std::vector<int> keys;
+        for (const auto& note : rendered_notes(to_pattern(back.parts[0].staves[0], 480))) keys.push_back(std::get<1>(note));
+        check((keys == std::vector<int>{72, 71, 74}), "transposed: written D5 sounds C5, then B4, then D5");
+
+        // A foreign file's treble clef that drops an octave in bar two and
+        // comes back in bar three.
+        const std::string c4 = "<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration>"
+                               "<voice>1</voice><type>whole</type></note>";
+        const std::string xml = R"(<?xml version="1.0"?><score-partwise version="4.0"><part-list>
+<score-part id="P1"><part-name>T</part-name></score-part></part-list><part id="P1">
+<measure number="1"><attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes>)" + c4 +
+                                R"(</measure>
+<measure number="2"><attributes><clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef></attributes>)" +
+                                c4 + R"(</measure>
+<measure number="3"><attributes><clef><sign>G</sign><line>2</line></clef></attributes>)" + c4 +
+                                "</measure></part></score-partwise>";
+        keys.clear();
+        for (const auto& note : rendered_notes(to_pattern(parse(xml).parts[0].staves[0], 480)))
+            keys.push_back(std::get<1>(note));
+        check((keys == std::vector<int>{60, 48, 60}), "transposed: a treble-8vb clef partway through sounds an octave down");
+    }
+
     // Scenario: Unmetered chant has no time signature and no bars
     {
         Staff chant;
@@ -362,6 +402,32 @@ int main() {
               "foreign: the second staff's voice starts at the bar after <backup>");
     }
 
+    // Scenario: A chord tone with no written value keeps to its chord
+    {
+        // Regression: a chord tone split into tied values lost its chord flag
+        // after the first piece, so its tail was read as the voice's next
+        // note and every note after it moved later.
+        const std::string untyped = R"(<note><pitch><step>C</step><octave>4</octave></pitch><duration>5</duration><voice>1</voice></note>
+<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>5</duration><voice>1</voice></note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><dot/></note>)";
+        const auto heard = rendered_notes(to_pattern(parse(document("<divisions>2</divisions>", untyped)).parts[0].staves[0], 480));
+        std::vector<std::tuple<Tick, int, Tick>> notes;
+        for (const auto& note : heard) notes.emplace_back(std::get<0>(note), std::get<1>(note), std::get<2>(note));
+        check((notes == std::vector<std::tuple<Tick, int, Tick>>{{0, 60, 1200}, {0, 64, 1200}, {1200, 67, 720}}),
+              "untyped chord: both tones sound together for five eighths, and G follows them");
+
+        // The lead is split (its <type> disagrees with its duration) while the
+        // chord tone's own half note is kept: the tone still starts with the lead.
+        const std::string typed = R"(<note><pitch><step>C</step><octave>4</octave></pitch><duration>5</duration><voice>1</voice><type>half</type></note>
+<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>half</type></note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><dot/></note>)";
+        const auto typed_heard = rendered_notes(to_pattern(parse(document("<divisions>2</divisions>", typed)).parts[0].staves[0], 480));
+        notes.clear();
+        for (const auto& note : typed_heard) notes.emplace_back(std::get<0>(note), std::get<1>(note), std::get<2>(note));
+        check((notes == std::vector<std::tuple<Tick, int, Tick>>{{0, 60, 1200}, {0, 64, 960}, {1200, 67, 720}}),
+              "typed chord tone under a split lead starts with the lead");
+    }
+
     // Scenario: A broken or hostile file is refused, never crashing or exhausting memory
     {
         const std::string quarter = "<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration>"
@@ -391,6 +457,21 @@ int main() {
         check(throws<std::runtime_error>(document("<divisions>1</divisions>",
                                                   "<forward><duration>1000000000000</duration></forward>" + quarter + "</note>")),
               "refused: a forward a trillion quarters long");
+        {
+            // Elements nested a million deep, inside a note and around the
+            // score: read without overflowing the stack, as pugixml parses
+            // without recursion and the reader only walks the levels it knows.
+            const std::size_t depth = 1'000'000;
+            std::string nested;
+            nested.reserve(depth * 8);
+            for (std::size_t i = 0; i < depth; ++i) nested += "<a>";
+            for (std::size_t i = 0; i < depth; ++i) nested += "</a>";
+            const Score deep = parse(document("<divisions>1</divisions>", quarter + nested + "</note>"));
+            check(deep.parts.size() == 1 && deep.parts[0].staves[0].measures.size() == 1 &&
+                      deep.parts[0].staves[0].measures[0].objects.size() == 1,
+                  "accepted: a note holding elements a million deep reads as the note");
+            check(throws<std::runtime_error>(nested), "refused: a document of nothing but nested elements");
+        }
         const Score additive = parse(document("<divisions>1</divisions><time><beats>3+2</beats><beat-type>8</beat-type></time>", ""));
         check(additive.parts[0].staves[0].time == TimeSignature(5, 8), "accepted: 3+2/8 is five eighths");
         // Regression: 40+40 parsed as 80 beats, which a song cannot save.

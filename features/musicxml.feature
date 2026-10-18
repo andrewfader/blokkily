@@ -39,6 +39,12 @@ Feature: MusicXML import and export
       written, and the clarinet's transposition are kept
     And the bar after the pickup starts one beat in, and written D5 sounds C5
 
+  Scenario: A change of transposition partway through is kept
+    Given a B-flat clarinet that changes to A in bar two and to concert pitch in bar three
+    When the score is exported and read back
+    Then each change is in the bar where it was written, and written D5 sounds C5, B4, then D5
+    And a foreign file's treble clef that drops an octave in bar two sounds that bar an octave down
+
   Scenario: Unmetered chant has no time signature and no bars
     Given a stemless chant line with no meter
     When it is exported
@@ -58,6 +64,13 @@ Feature: MusicXML import and export
     When it is read
     Then the key holds on both staves and every note lands where it was written
 
+  Scenario: A chord tone with no written value keeps to its chord
+    Given a chord whose notes give a five-eighth <duration> and no <type>, and
+      a chord whose second note is a typed half under a five-eighth lead
+    When it is read
+    Then each chord tone sounds from the chord's start for its own length
+    And the note after each chord starts where the chord ends
+
   Scenario: A broken or hostile file is refused, never crashing or exhausting memory
     Given malformed XML, a timewise score, a hundred million staves, staff
       numbers of 0, -1 and 99999, zero divisions, a beat type of three, a
@@ -68,3 +81,4 @@ Feature: MusicXML import and export
     But an additive meter adding up to more than 64 beats is refused
     And note dynamics that are not a number play at the default velocity
     And a note above MIDI 127 reads, and is left out when played
+    And a note holding elements nested a million deep reads without overflowing the stack

@@ -4,6 +4,7 @@
 #include "blokkily/notation/spelling.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <variant>
@@ -101,16 +102,19 @@ std::vector<Placed> place(const Staff& staff, Tick ticks_per_beat) {
         return a.measure != b.measure ? a.measure < b.measure : a.onset < b.onset;
     });
 
-    // The key in force in each bar.
+    // The key and clef in force in each bar.
     std::vector<KeySignature> keys;
-    for (const Measure& measure : staff.measures)
+    std::vector<Clef> clefs;
+    for (const Measure& measure : staff.measures) {
         keys.push_back(measure.key ? *measure.key : keys.empty() ? staff.key : keys.back());
+        clefs.push_back(measure.clef ? *measure.clef : clefs.empty() ? staff.clef : clefs.back());
+    }
     std::map<std::pair<int, int>, Accidental> said;
     for (std::size_t i = 0; i < placed.size(); ++i) {
         Placed& entry = placed[i];
         if (i > 0 && placed[i - 1].measure != entry.measure) said.clear();
         const auto* note = std::get_if<NotationNote>(&staff.measures[entry.measure].objects[entry.index]);
-        if (note == nullptr || !staff.clef.pitched()) continue;
+        if (note == nullptr || !clefs[entry.measure].pitched()) continue;
         const auto where = std::make_pair(static_cast<int>(note->spelled.step), note->spelled.octave);
         const auto found = said.find(where);
         const Accidental expected =
@@ -261,20 +265,23 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped) {
         float velocity;
         std::string lyric;
     };
-    // A tie that has started and not yet stopped: the note it extends, and
-    // where the tied note must begin to continue it.
+    // A tie that has started and not yet stopped: the note it extends, the
+    // voice it is in, and where the tied note should begin to continue it.
     struct OpenTie {
         std::size_t placed;
+        int voice;
         Tick next;
     };
     std::vector<Placed> placed;
     std::vector<OpenTie> open;
     int left_out = 0;
     TimeSignature time = staff.time;
+    int transposition = staff.transposition();
     Tick measure_start = 0;
     Tick last_end = 0;
     for (const Measure& measure : staff.measures) {
         if (measure.time) time = *measure.time;
+        if (measure.transpose) transposition = measure.transpose->total();
         std::map<int, Tick> cursor;
         std::map<int, Tick> onset;
         for (const StaffObject& object : measure.objects) {
@@ -290,15 +297,27 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped) {
                 at += length;
             }
             const Tick start = measure_start + onset[note.voice];
-            const int midi = to_midi(note.spelled) + staff.transposition();
+            const int midi = to_midi(note.spelled) + transposition;
             if (note.tie_end) {
-                const auto continued = std::find_if(open.begin(), open.end(), [&](const OpenTie& tie) {
+                // The tie in this voice on this pitch continues, even where it
+                // stops up to a 32nd away from the note: values written on
+                // the 128th grid beside exact triplets need not add up to the
+                // barline. A tie from another voice must meet the note exactly.
+                const auto same = [&](const OpenTie& tie) {
                     const Placed& from = placed[tie.placed];
-                    return tie.next == start && from.midi == midi && from.cents == note.cents;
+                    return from.midi == midi && from.cents == note.cents;
+                };
+                const Tick slack = std::max<Tick>(1, ticks_per_beat / 8);
+                auto continued = std::find_if(open.begin(), open.end(), [&](const OpenTie& tie) {
+                    return tie.voice == note.voice && same(tie) && std::abs(tie.next - start) <= slack;
                 });
+                if (continued == open.end())
+                    continued = std::find_if(open.begin(), open.end(),
+                                             [&](const OpenTie& tie) { return tie.next == start && same(tie); });
                 if (continued != open.end()) {
-                    placed[continued->placed].duration += length;
-                    continued->next += length;
+                    Placed& from = placed[continued->placed];
+                    from.duration = std::max(from.duration, start + length - from.start);
+                    continued->next = from.start + from.duration;
                     last_end = std::max(last_end, continued->next);
                     if (!note.tie_start) open.erase(continued);
                     continue;
@@ -310,7 +329,7 @@ Pattern to_pattern(const Staff& staff, Tick ticks_per_beat, int* dropped) {
             }
             placed.push_back({start, length, midi, note.cents, note.velocity, note.lyric});
             last_end = std::max(last_end, start + length);
-            if (note.tie_start) open.push_back({placed.size() - 1, start + length});
+            if (note.tie_start) open.push_back({placed.size() - 1, note.voice, start + length});
         }
         measure_start += measure_ticks(measure, time, ticks_per_beat);
     }

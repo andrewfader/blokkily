@@ -18,7 +18,10 @@ add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
-pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
+# The audio output is written for RtAudio 6 (errors returned, not thrown;
+# devices by id). Older ones - Ubuntu 24.04 packages 5.2 - are refused here
+# rather than failing to compile playback.cpp.
+pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio>=6)
 pkg_check_modules(RTMIDI REQUIRED IMPORTED_TARGET rtmidi)
 # RtMidi's Windows backend is WinMM, which its .pc file leaves to the
 # static-only Libs.private.

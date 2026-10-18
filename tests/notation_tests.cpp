@@ -18,6 +18,7 @@
 #include "blokkily/notation/staff.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -349,6 +350,46 @@ void test_pattern_bridge() {
         round_trips(pattern, staff, "melody, chord and rest");
     }
     {
+        // Scenario: A note off the notation grid across the barline comes back as one note
+        // Regression: the rest before a note at 1760 is written 5 ticks
+        // short (on the 128th grid) while the note's last 160 ticks of the
+        // bar are an exact triplet eighth, so the tie stopped 5 ticks short of
+        // the barline, missed the tied note there, and the note came back as
+        // two, the second one starting at the barline.
+        for (const Sounding& note : {Sounding{1760, 67, 320}, Sounding{1895, 67, 100}}) {
+            const auto pattern = pattern_of(3840, {note});
+            const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(4, 4));
+            const auto back = soundings_of(to_pattern(staff, 480));
+            const std::string at = std::to_string(note.start);
+            require(back.size() == 1, "the note at " + at + " tied over the barline is one note again, not " +
+                                          std::to_string(back.size()));
+            // Its start moves at most to the nearest 128th (15 ticks); its end stays.
+            require(!back.empty() && std::abs(back[0].start - note.start) < 15 &&
+                        back[0].start + back[0].duration == note.start + note.duration,
+                    "the note at " + at + " starts on the nearest 128th and ends where it ended");
+        }
+    }
+    {
+        // A tie that never stops does not swallow a tied note bars later.
+        NotationNote dangling;
+        dangling.spelled = SpelledPitch{Step::C, Accidental::Natural, 4};
+        dangling.duration = NoteDuration{NoteValue::Whole};
+        dangling.tie_start = true;
+        NotationNote late = dangling;
+        late.tie_start = false;
+        late.tie_end = true;
+        Staff staff;
+        Measure first;
+        first.objects = {dangling};
+        Measure empty;
+        empty.objects = {Rest{NoteDuration{NoteValue::Whole}}};
+        Measure third;
+        third.objects = {late};
+        staff.measures = {first, empty, third};
+        require((soundings_of(to_pattern(staff, 480)) == std::vector<Sounding>{{0, 60, 1920}, {3840, 60, 1920}}),
+                "a dangling tie leaves the C4 two bars later its own note");
+    }
+    {
         // Scenario: Silence between notes is written as rests
         const auto pattern = pattern_of(1920, {{0, 62, 480}, {960, 64, 480}});
         const Staff staff = to_staff(pattern, KeySignature(0), treble, TimeSignature(4, 4));
@@ -502,6 +543,62 @@ void test_accidentals_in_the_bar() {
         if (std::holds_alternative<NotationNote>(changed.measures[placed.measure].objects[placed.index]))
             shown.push_back(placed.accidental_shown);
     require(shown.size() == 6 && shown[5], "under G major in bar two, F natural prints its natural");
+}
+
+void test_placement() {
+    // Scenario: Every object of a staff is placed where it sounds
+    NotationNote quarter;
+    quarter.spelled = SpelledPitch{Step::F, Accidental::Sharp, 4};
+    quarter.duration = NoteDuration{NoteValue::Quarter};
+    NotationNote held = quarter;
+    held.spelled = SpelledPitch{Step::C, Accidental::Natural, 3};
+    held.duration = NoteDuration{NoteValue::Whole};
+    held.voice = 2;
+    NotationNote third = quarter;
+    third.spelled = SpelledPitch{Step::A, Accidental::Sharp, 4};
+    third.chord = true;
+    Staff staff;
+    Measure pickup; // one beat
+    pickup.pickup = true;
+    pickup.objects = {quarter};
+    Measure two_voices; // a quarter, a chord and a half over a held whole
+    two_voices.objects = {quarter, quarter, third, Rest{NoteDuration{NoteValue::Half}}, held};
+    Measure waltz; // 3/4, under a percussion clef
+    waltz.time = TimeSignature(3, 4);
+    waltz.clef = Clef(ClefKind::Percussion);
+    waltz.objects = {quarter, Rest{NoteDuration{NoteValue::Half}}};
+    Measure back_to_treble; // the 3/4 holds; the clef changes back
+    back_to_treble.clef = Clef(ClefKind::Treble);
+    back_to_treble.objects = {quarter, Rest{NoteDuration{NoteValue::Half}}};
+    staff.measures = {pickup, two_voices, waltz, back_to_treble};
+
+    struct Where {
+        std::size_t measure, index;
+        Tick onset, length;
+        int voice;
+        bool accidental;
+        bool operator==(const Where&) const = default;
+    };
+    std::vector<Where> got;
+    for (const Placed& p : place(staff, 480))
+        got.push_back({p.measure, p.index, p.onset, p.length, p.voice, p.accidental_shown});
+    // By measure, then onset, objects that start together in written order.
+    // The pickup lasts a beat, so bar two starts at 480; the held C3 starts
+    // there too, in its own voice; the chord's A#4 starts with its F#4. The
+    // 3/4 bar starts a whole note later and lasts three beats. Under the
+    // percussion clef nothing prints an accidental; back in treble it does.
+    const std::vector<Where> expected = {
+        {0, 0, 0, 480, 1, true},
+        {1, 0, 480, 480, 1, true},   {1, 4, 480, 1920, 2, false}, {1, 1, 960, 480, 1, false},
+        {1, 2, 960, 480, 1, true},   {1, 3, 1440, 960, 1, false},
+        {2, 0, 2400, 480, 1, false}, {2, 1, 2880, 960, 1, false},
+        {3, 0, 3840, 480, 1, true},  {3, 1, 4320, 960, 1, false},
+    };
+    require(got == expected, "objects are placed by voice, pickup, meter and clef");
+    if (got != expected)
+        for (const Where& w : got)
+            std::cerr << "  m" << w.measure << " #" << w.index << " at " << w.onset << " for " << w.length << " v"
+                      << w.voice << (w.accidental ? " !" : "") << "\n";
 }
 
 void test_lyrics() {
@@ -710,6 +807,7 @@ int main() {
     test_layout();
     test_pattern_bridge();
     test_accidentals_in_the_bar();
+    test_placement();
     test_lyrics();
     test_song_score();
     test_add_score();
