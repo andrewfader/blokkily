@@ -166,6 +166,17 @@ const DawProjectFile read_back(const std::filesystem::path& path) {
     return *file;
 }
 
+// Runs a command line of quoted paths through the shell. cmd.exe, which
+// std::system uses on Windows, strips the first and last quote of a line
+// that starts with one, so there the whole line is quoted once more.
+bool run(const std::string& command) {
+#ifdef _WIN32
+    return std::system(("\"" + command + "\"").c_str()) == 0;
+#else
+    return std::system(command.c_str()) == 0;
+#endif
+}
+
 // Runs xmllint against the official DAWproject schema (vendored from
 // github.com/bitwig/dawproject, MIT).
 void require_valid(const std::string& xml, const std::string& schema, const std::string& name) {
@@ -173,7 +184,7 @@ void require_valid(const std::string& xml, const std::string& schema, const std:
     std::ofstream(file, std::ios::binary) << xml;
     const auto command = std::string("\"") + BLOKKILY_XMLLINT + "\" --noout --schema \"" +
                          BLOKKILY_DAWPROJECT_SCHEMA_DIR + "/" + schema + "\" \"" + file.string() + "\"";
-    require(std::system(command.c_str()) == 0, name + " does not validate against " + schema);
+    require(run(command), name + " does not validate against " + schema);
 }
 
 std::string entry_text(const std::filesystem::path& archive, const std::string& entry) {
@@ -184,7 +195,7 @@ std::string entry_text(const std::filesystem::path& archive, const std::string& 
     std::filesystem::create_directories(folder);
     const auto command = std::string("\"") + BLOKKILY_CMAKE_COMMAND + "\" -E chdir \"" + folder.string() + "\" \"" +
                          BLOKKILY_CMAKE_COMMAND + "\" -E tar xf \"" + archive.string() + "\"";
-    require(std::system(command.c_str()) == 0, "unpack " + archive.string());
+    require(run(command), "unpack " + archive.string());
     std::ifstream in(folder / entry, std::ios::binary);
     require(in.good(), entry + " is in the archive");
     return std::string(std::istreambuf_iterator<char>(in), {});
