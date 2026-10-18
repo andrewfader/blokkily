@@ -8,7 +8,8 @@ Feature: The window's bars auto-hide, and its panels move and size
   for both bars beside the editors docks them anyway. The editors' panels move
   by the grip in the margin to their left, the keyboard is sized by the gap
   under it, and a bar is widened by its inner edge. All of it is remembered,
-  and RESET in SETTINGS puts it back.
+  and RESET in SETTINGS puts it back. The window is dark as it ships, light
+  when THEME says so, or as the desktop is.
 
   # bdd_window_layout
   Scenario: The bars are tucked away at first
@@ -48,3 +49,10 @@ Feature: The window's bars auto-hide, and its panels move and size
     Then the mixer is wider by as much and the width is remembered
     When RESET is pressed in SETTINGS
     Then the panels are in their shipped order and the bars auto-hide again
+
+  # bdd_theme
+  Scenario: The window can be light
+    Given the window as it ships, dark
+    When LIGHT is chosen under THEME in SETTINGS
+    Then the window, the bars and the editors are light, and their text and accents keep a readable contrast
+    And the choice is remembered, RESET under LAYOUT leaves it, and DARK puts the dark window back

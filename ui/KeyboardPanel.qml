@@ -254,11 +254,11 @@ Rectangle {
                     // and whether it is the root of that scale.
                     readonly property color fill: keyInput.pressed ? Theme.amber
                            : modelData.root ? Theme.acid
-                           : (modelData.accidental ? "#101218"
-                              : (modelData.inScale ? "#2d323d" : Theme.raised))
+                           : (modelData.accidental ? Theme.blackKey
+                              : (modelData.inScale ? Theme.scaleKey : Theme.raised))
                     readonly property color edge:
                         modelData.root ? Theme.acid
-                        : (modelData.inScale ? "#3a4150" : "#333947")
+                        : (modelData.inScale ? Theme.scaleBorder : Theme.keyBorder)
                     opacity: modelData.inScale || modelData.accidental
                              ? 1.0 : (keyboardSurface.hex ? 0.8 : 0.55)
 
@@ -310,7 +310,7 @@ Rectangle {
                                      && implicitHeight
                                         <= cellItem.height * 0.55
                             text: modelData.label
-                            color: modelData.root ? "#0e0f12"
+                            color: modelData.root ? Theme.onAccent
                                    : (modelData.accidental ? Theme.muted : Theme.ink)
                             font.pixelSize: 9; font.family: Theme.mono
                             font.bold: modelData.root
@@ -325,7 +325,7 @@ Rectangle {
                                      && implicitWidth
                                         <= cellItem.width * 0.9
                             text: modelData.retune
-                            color: modelData.root ? "#0e0f12" : Theme.blue
+                            color: modelData.root ? Theme.onAccent : Theme.blue
                             font.pixelSize: 8; font.family: Theme.mono
                         }
                     }

@@ -59,7 +59,7 @@ Rectangle {
                     text: (modelData.frozen ? "FROZEN · " : "") + modelData.instrument
                           + (modelData.inserts > 0 ? " · " + modelData.inserts + " FX" : "")
                     color: modelData.fed ? Theme.blue
-                         : modelData.hasInstrument ? Theme.muted : "#5c626e"
+                         : modelData.hasInstrument ? Theme.muted : Theme.faint
                     font.pixelSize: 9; elide: Text.ElideRight
                 }
             }
@@ -151,7 +151,7 @@ Rectangle {
             objectName: "meter" + modelData.index
             Layout.fillWidth: true
             implicitHeight: 5; radius: 2
-            color: "#0d0e11"
+            color: Theme.well
             // Read from the meters alone: they move
             // thirty times a second, and the rest of
             // the strip has no reason to redraw.

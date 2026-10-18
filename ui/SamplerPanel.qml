@@ -265,7 +265,7 @@ Rectangle {
                         width: Math.max(2, (modelData.highKey - modelData.lowKey + 1) / 128 * (parent.width - 2))
                         y: 1 + (127 - modelData.highVelocity) / 127 * (parent.height - 2)
                         height: Math.max(2, (modelData.highVelocity - modelData.lowVelocity + 1) / 127 * (parent.height - 2))
-                        color: chosen ? Theme.amber : "#4d3a16"
+                        color: chosen ? Theme.amber : Theme.unchosen
                         border.color: Theme.bg; border.width: 1
                         MouseArea {
                             anchors.fill: parent
@@ -345,9 +345,9 @@ Rectangle {
                 }
                 // What does not play is shaded.
                 Rectangle { x: 1; width: Math.max(0, Math.min(wave.width - 2, wave.xOf(wave.startFrame) - 1)); height: parent.height
-                    color: "#b00e0f12" }
+                    color: Theme.scrim }
                 Rectangle { x: Math.max(1, wave.xOf(wave.endFrame)); width: Math.max(0, wave.width - 1 - x); height: parent.height
-                    color: "#b00e0f12" }
+                    color: Theme.scrim }
                 Rectangle {
                     visible: wave.looped
                     x: wave.xOf(panel.sampler.loopStart || 0)

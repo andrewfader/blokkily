@@ -30,7 +30,7 @@ Rectangle {
     }
     readonly property real pad: 7
 
-    color: "#15171c"; radius: 3; border.color: "#212530"
+    color: Theme.stripe; radius: 3; border.color: Theme.gridline
     clip: true
 
     // Where tick `tick` is drawn, in the bar cell it falls in.
@@ -101,7 +101,7 @@ Rectangle {
             required property int index
             x: modelData.x0 * lane.barRoom + index * lane.spacing
             y: 0; width: 1; height: lane.height
-            color: "#212530"
+            color: Theme.gridline
         }
     }
 
@@ -168,7 +168,7 @@ Rectangle {
                 y: lane.yAt(point.modelData.bpm) - height / 2
                 width: 12; height: 12; radius: 2
                 color: handleMouse.pressed ? Theme.acid : Theme.amber
-                border.color: "#0e0f12"
+                border.color: Theme.onAccent
                 MouseArea {
                     id: handleMouse
                     anchors.fill: parent
@@ -222,7 +222,7 @@ Rectangle {
                 Label {
                     anchors.centerIn: parent
                     text: point.ramp ? "/" : "┐"
-                    color: point.ramp ? "#0e0f12" : Theme.muted
+                    color: point.ramp ? Theme.onAccent : Theme.muted
                     font.pixelSize: 9; font.bold: true; font.family: Theme.mono
                 }
                 MouseArea {

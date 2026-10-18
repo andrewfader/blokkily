@@ -43,7 +43,7 @@ Rectangle {
     readonly property real barRoom: Math.max(1, width - Math.max(0, barCount - 1) * spacing)
     readonly property real pad: 6
 
-    color: "#15171c"; radius: 3; border.color: "#212530"
+    color: Theme.stripe; radius: 3; border.color: Theme.gridline
     clip: true
 
     // Where tick `tick` is drawn, in the bar cell it falls in.
@@ -93,7 +93,7 @@ Rectangle {
             required property int index
             x: modelData.x0 * lane.barRoom + index * lane.spacing
             y: 0; width: 1; height: lane.height
-            color: "#212530"
+            color: Theme.gridline
         }
     }
 
@@ -152,7 +152,7 @@ Rectangle {
             x: lane.xAt(point.at) - width / 2
             y: lane.yAt(point.value) - height / 2
             color: handleMouse.pressed ? Theme.acid : Theme.record
-            border.color: "#0e0f12"
+            border.color: Theme.onAccent
             MouseArea {
                 id: handleMouse
                 anchors.fill: parent

@@ -118,7 +118,7 @@ Item {
             // A take kept but not played lies under the one that plays, faint.
             z: modelData.compedOut ? 0 : 1
             opacity: modelData.compedOut ? 0.35 : 1
-            color: modelData.missing ? "#3a1b21" : Theme.amber
+            color: modelData.missing ? Theme.missing : Theme.amber
             border.color: modelData.missing ? Theme.record : "#ffd98a"
             border.width: modelData.missing ? 2 : 1
 
@@ -136,7 +136,7 @@ Item {
                 anchors.fill: parent
                 ShapePath {
                     strokeWidth: 0; strokeColor: "transparent"
-                    fillColor: "#660e0f12"
+                    fillColor: Qt.rgba(0, 0, 0, 0.4)
                     startX: 0; startY: 0
                     PathLine { x: Math.max(0, clipBox.fadeInX - clipBox.startDx); y: 0 }
                     PathLine { x: 0; y: clipBox.height }
@@ -144,7 +144,7 @@ Item {
                 }
                 ShapePath {
                     strokeWidth: 0; strokeColor: "transparent"
-                    fillColor: "#660e0f12"
+                    fillColor: Qt.rgba(0, 0, 0, 0.4)
                     startX: clipBox.width; startY: 0
                     PathLine { x: Math.min(clipBox.width, clipBox.fadeOutX - clipBox.startDx); y: 0 }
                     PathLine { x: clipBox.width; y: clipBox.height }
@@ -162,7 +162,7 @@ Item {
                       + (Math.abs(clipBox.modelData.gainDb) > 0.05
                          ? "  " + (clipBox.modelData.gainDb > 0 ? "+" : "")
                            + clipBox.modelData.gainDb.toFixed(1) + " dB" : "")
-                color: clipBox.modelData.missing ? Theme.record : "#0e0f12"
+                color: clipBox.modelData.missing ? Theme.record : Theme.onAccent
                 font.pixelSize: 8; font.bold: true
             }
 
@@ -271,7 +271,7 @@ Item {
                 x: Math.max(6, Math.min(clipBox.width - 14, clipBox.fadeInX - clipBox.startDx)) - 4
                 y: 0; width: 8; height: 8
                 visible: !clipBox.modelData.missing
-                color: "#0e0f12"; border.color: "#ffd98a"
+                color: Theme.onAccent; border.color: "#ffd98a"
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.SizeHorCursor
@@ -293,7 +293,7 @@ Item {
                 x: Math.min(clipBox.width - 6, Math.max(14, clipBox.fadeOutX - clipBox.startDx)) - 4
                 y: 0; width: 8; height: 8
                 visible: !clipBox.modelData.missing
-                color: "#0e0f12"; border.color: "#ffd98a"
+                color: Theme.onAccent; border.color: "#ffd98a"
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.SizeHorCursor
@@ -319,7 +319,7 @@ Item {
                 objectName: "renderingVeil" + clipBox.modelData.id
                 anchors.fill: parent
                 visible: clipBox.modelData.rendering === true
-                color: "#b30e0f12"
+                color: Theme.scrim
                 Label {
                     anchors.centerIn: parent
                     text: "RENDERING…"
@@ -335,7 +335,7 @@ Item {
                 anchors.right: parent.right; anchors.rightMargin: 4
                 anchors.top: parent.top; anchors.topMargin: 2
                 width: takeLabel.implicitWidth + 8; height: 12; radius: 2
-                color: "#0e0f12"
+                color: Theme.onAccent
                 Label {
                     id: takeLabel
                     anchors.centerIn: parent
@@ -365,7 +365,7 @@ Item {
                                    + (Math.abs(d.cents) > 1e-9 ? " " + Number(d.cents).toFixed(0) + "ct" : ""))
                     return parts.join(" ")
                 }
-                color: clipBox.modelData.rendering ? Theme.amber : "#0e0f12"
+                color: clipBox.modelData.rendering ? Theme.amber : Theme.onAccent
                 font.pixelSize: 8; font.bold: true
             }
             Rectangle {
@@ -373,12 +373,12 @@ Item {
                 visible: !clipBox.modelData.missing
                 x: 8; anchors.bottom: parent.bottom; anchors.bottomMargin: 2
                 width: 16; height: 11; radius: 2
-                color: clipBox.modelData.warped ? "#0e0f12" : "transparent"
-                border.color: "#0e0f12"
+                color: clipBox.modelData.warped ? Theme.onAccent : "transparent"
+                border.color: Theme.onAccent
                 Label {
                     anchors.centerIn: parent
                     text: "W"
-                    color: clipBox.modelData.warped ? Theme.amber : "#0e0f12"
+                    color: clipBox.modelData.warped ? Theme.amber : Theme.onAccent
                     font.pixelSize: 8; font.bold: true
                 }
                 MouseArea {

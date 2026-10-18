@@ -61,7 +61,7 @@ ColumnLayout {
             y: parent.topPadding + parent.availableHeight / 2 - height / 2
             width: 12; height: 12; radius: 6
             color: parent.enabled ? accent : Theme.muted
-            border.color: "#0e0f12"; border.width: 2
+            border.color: Theme.onAccent; border.width: 2
         }
     }
 }

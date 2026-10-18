@@ -14,7 +14,7 @@ Rectangle {
     readonly property bool counted: progress.fraction >= 0
     anchors.fill: parent
     visible: progress.active
-    color: "#b30e0f12"
+    color: Theme.scrim
     z: 1000
 
     MouseArea {

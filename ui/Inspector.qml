@@ -30,7 +30,7 @@ Rectangle {
         }
         Label {
             text: "Click the step to place a note, then shape it here"
-            color: "#5c626e"; font.pixelSize: 11
+            color: Theme.faint; font.pixelSize: 11
             Layout.alignment: Qt.AlignHCenter
         }
     }

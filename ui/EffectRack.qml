@@ -65,7 +65,7 @@ Rectangle {
                 objectName: "insertRow" + index
                 Layout.fillWidth: true
                 implicitHeight: modelData.keyable ? 70 : 46; radius: 4
-                color: modelData.bypass ? "#15161a" : Theme.raised
+                color: modelData.bypass ? Theme.bypassed : Theme.raised
                 border.color: Theme.line
                 ColumnLayout {
                     anchors.fill: parent; anchors.leftMargin: 6; anchors.rightMargin: 4
@@ -82,7 +82,7 @@ Rectangle {
                                  : modelData.format === "VST3" ? Theme.blue
                                  : modelData.format === "LV2" ? Theme.violet : Theme.line
                             Label { anchors.centerIn: parent; text: modelData.format
-                                color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
+                                color: modelData.format === "CLAP" ? Theme.onAccent : Theme.ink
                                 font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.8 }
                         }
                         Label {

@@ -304,12 +304,12 @@ Item {
         y: Math.max(4, tour.ring.y - height / 2)
         width: keycapText.implicitWidth + 14; height: 20; radius: 4
         color: Theme.amber
-        border.color: "#0e0f12"
+        border.color: Theme.onAccent
         Label {
             id: keycapText
             anchors.centerIn: parent
             text: keycap.keys
-            color: "#0e0f12"; font.family: Theme.mono; font.pixelSize: 10; font.bold: true
+            color: Theme.onAccent; font.family: Theme.mono; font.pixelSize: 10; font.bold: true
         }
         Behavior on x { enabled: tour.animate; NumberAnimation { duration: 700; easing.type: Easing.OutBack } }
         Behavior on y { enabled: tour.animate; NumberAnimation { duration: 700; easing.type: Easing.OutBack } }

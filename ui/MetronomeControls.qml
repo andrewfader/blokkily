@@ -60,7 +60,7 @@ ColumnLayout {
                 y: parent.topPadding + parent.availableHeight / 2 - height / 2
                 width: 10; height: 10; radius: 5
                 color: songModel.metronomeOn ? Theme.acid : Theme.muted
-                border.color: "#0e0f12"; border.width: 2
+                border.color: Theme.onAccent; border.width: 2
             }
         }
         Label {

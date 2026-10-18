@@ -38,7 +38,7 @@ Item {
     ]
     readonly property var colours: ({
         "K": "#101a08", "L": "#c8ff3d", "G": "#6cc22a", "D": "#3a7a16",
-        "W": "#ffffff", "P": "#0e0f12", "R": "#ff7a96", "S": "#b0de6e", "s": "#7eaa46"
+        "W": "#ffffff", "P": Theme.onAccent, "R": "#ff7a96", "S": "#b0de6e", "s": "#7eaa46"
     })
 
     implicitWidth: 20 * pixel

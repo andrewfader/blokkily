@@ -33,7 +33,7 @@ ColumnLayout {
                 Label { anchors.centerIn: parent
                     text: appController.activeInstrument === "Choose an instrument" ? "—"
                           : appController.activeInstrument.split(" ")[0]
-                    color: "#0e0f12"
+                    color: Theme.onAccent
                     font.pixelSize: 11; font.bold: true }
             }
             ColumnLayout {
@@ -101,7 +101,7 @@ ColumnLayout {
                 objectName: "midiLight"
                 implicitWidth: 8; implicitHeight: 8; radius: 4
                 color: midiFlash.running ? Theme.acid
-                     : appController.midiPort !== "" ? "#4a5a22" : Theme.line
+                     : appController.midiPort !== "" ? Theme.idleLight : Theme.line
             }
             Label {
                 objectName: "midiPortName"
@@ -465,7 +465,7 @@ ColumnLayout {
                     Label { anchors.centerIn: parent
                         text: modelData.format === "Built-in" ? "INT"
                             : modelData.format === "Sampler" ? "SMP" : modelData.format
-                        color: modelData.format === "CLAP" ? "#0e0f12" : Theme.ink
+                        color: modelData.format === "CLAP" ? Theme.onAccent : Theme.ink
                         font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
                 }
                 ColumnLayout {

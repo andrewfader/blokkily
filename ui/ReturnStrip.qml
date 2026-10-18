@@ -63,7 +63,7 @@ Rectangle {
             objectName: "returnMeter" + root.busIndex
             Layout.fillWidth: true
             implicitHeight: 5; radius: 2
-            color: "#0d0e11"
+            color: Theme.well
             Rectangle {
                 readonly property real level:
                     songModel.returnMeters[root.busIndex] !== undefined

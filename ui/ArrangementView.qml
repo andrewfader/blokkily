@@ -240,12 +240,12 @@ ColumnLayout {
                         Layout.preferredHeight: 14
                         radius: 2
                         color: transport.bar === index ? Theme.acid
-                               : (inLoop ? "#2a3a14" : "transparent")
+                               : (inLoop ? Theme.loopRegion : "transparent")
                         Label {
                             anchors.left: parent.left; anchors.leftMargin: 3
                             anchors.verticalCenter: parent.verticalCenter
                             text: (rulerCell.index + 1).toString()
-                            color: transport.bar === rulerCell.index ? "#0e0f12" : Theme.muted
+                            color: transport.bar === rulerCell.index ? Theme.onAccent : Theme.muted
                             font.pixelSize: 9; font.bold: true
                             font.family: Theme.mono
                         }
@@ -256,7 +256,7 @@ ColumnLayout {
                             anchors.verticalCenter: parent.verticalCenter
                             text: rulerCell.entry !== undefined
                                   ? rulerCell.entry.numerator + "/" + rulerCell.entry.denominator : ""
-                            color: transport.bar === rulerCell.index ? "#0e0f12" : Theme.amber
+                            color: transport.bar === rulerCell.index ? Theme.onAccent : Theme.amber
                             font.pixelSize: 9; font.bold: true
                             font.family: Theme.mono
                         }
@@ -394,11 +394,11 @@ ColumnLayout {
                             Layout.preferredHeight: 22
                             radius: 3
                             readonly property bool atPlayhead: transport.bar === index
-                            color: hollow ? "#1a2233"
+                            color: hollow ? Theme.hollow
                                  : filled ? (track.audible ? Theme.blue : Theme.line)
-                                          : (index % 4 === 0 ? "#191c22" : "#15171c")
+                                          : (index % 4 === 0 ? Theme.cell : Theme.stripe)
                             border.color: atPlayhead ? Theme.acid
-                                        : filled ? Theme.blue : "#212530"
+                                        : filled ? Theme.blue : Theme.gridline
                             border.width: atPlayhead ? 2 : 1
                             Label {
                                 anchors.centerIn: parent
@@ -410,7 +410,7 @@ ColumnLayout {
                                 text: !parent.cell.start ? "·"
                                       : parent.cell.take === true && takeBadge.visible ? "TAKE"
                                       : parent.cell.name
-                                color: parent.hollow ? Theme.muted : "#0e0f12"
+                                color: parent.hollow ? Theme.muted : Theme.onAccent
                                 font.pixelSize: 9; font.bold: true
                                 elide: Text.ElideRight
                                 width: parent.width - 6 - (takeBadge.visible ? takeBadge.width + 2 : 0)
@@ -432,7 +432,7 @@ ColumnLayout {
                                     id: takeText
                                     anchors.centerIn: parent
                                     text: parent.visible ? parent.parent.cell.takeIndex + "/" + parent.parent.cell.takeCount : ""
-                                    color: "#0e0f12"; font.pixelSize: 8; font.bold: true
+                                    color: Theme.onAccent; font.pixelSize: 8; font.bold: true
                                 }
                                 MouseArea {
                                     anchors.fill: parent

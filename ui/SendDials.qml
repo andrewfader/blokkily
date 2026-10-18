@@ -69,7 +69,7 @@ ColumnLayout {
                     y: level.topPadding + level.availableHeight / 2 - height / 2
                     width: 12; height: 12; radius: 6
                     color: send.modelData.active ? Theme.amber : Theme.muted
-                    border.color: "#0e0f12"; border.width: 2
+                    border.color: Theme.onAccent; border.width: 2
                 }
             }
         }

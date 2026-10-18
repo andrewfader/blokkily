@@ -21,7 +21,7 @@ ToolBar {
     readonly property bool narrow: width < 1280
     height: 52
     background: Rectangle {
-        color: "#141519"
+        color: Theme.transport
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
         // Work going on behind the window (features/loading_progress.feature):
         // the plugin scan, filled as far as it has got, or audio being decoded
@@ -81,7 +81,7 @@ ToolBar {
                 color: transport.playing ? Theme.acid : Theme.raised
                 border.color: transport.playing ? Theme.acid : Theme.line
                 Label { anchors.centerIn: parent; text: transport.playing ? "||" : ">"
-                    color: transport.playing ? "#0e0f12" : Theme.ink
+                    color: transport.playing ? Theme.onAccent : Theme.ink
                     font.family: Theme.mono; font.pixelSize: 14; font.bold: true }
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                     onClicked: appController.togglePlayback() }
@@ -95,7 +95,7 @@ ToolBar {
                 color: armed ? Theme.record : Theme.raised
                 border.color: armed ? Theme.record : Theme.line
                 Rectangle { anchors.centerIn: parent; width: 10; height: 10; radius: 5
-                    color: parent.armed ? "#0e0f12" : Theme.record }
+                    color: parent.armed ? Theme.onAccent : Theme.record }
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                     onClicked: appController.toggleRecord() }
             }

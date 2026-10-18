@@ -10,7 +10,7 @@ Rectangle {
     signal trackRenameRequested(int index, string name)
     signal trackMenuRequested(int index, string name)
     objectName: "mixerPanel"
-    color: "#121317"
+    color: Theme.rail
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 12; spacing: 8
@@ -102,7 +102,7 @@ Rectangle {
                 }
                 Rectangle {
                     Layout.fillWidth: true; implicitHeight: 5; radius: 2
-                    color: "#0d0e11"
+                    color: Theme.well
                     Rectangle {
                         width: parent.width * Math.min(1, songModel.masterPeak)
                         height: parent.height; radius: 2

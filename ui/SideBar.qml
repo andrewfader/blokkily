@@ -112,7 +112,7 @@ Item {
         objectName: bar.objectName + "Strip"
         visible: !bar.docked
         width: bar.stripWidth; height: bar.height
-        color: stripHover.hovered || bar.revealed ? Theme.raised : "#121317"
+        color: stripHover.hovered || bar.revealed ? Theme.raised : Theme.rail
         Rectangle {
             width: 1; height: parent.height
             x: bar.leftEdge ? parent.width - 1 : 0

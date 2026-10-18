@@ -31,4 +31,11 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     set_tests_properties(bdd_window_layout PROPERTIES
         LABELS "bdd;e2e;integration;screenshot;clap"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 90)
+    # THEME · LIGHT in the rendered window: light, its text reading, and back.
+    add_test(NAME bdd_theme COMMAND blokkily --verify --scenario theme
+        --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+        --screenshot ${CMAKE_BINARY_DIR}/artifacts/theme.png)
+    set_tests_properties(bdd_theme PROPERTIES
+        LABELS "bdd;e2e;integration;screenshot;clap"
+        ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 90)
 endif()

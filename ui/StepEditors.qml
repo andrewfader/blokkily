@@ -145,7 +145,7 @@ ColumnLayout {
                                 height: rackSteps.height
                                 radius: 2
                                 color: on ? (rackRow.modelData.selected ? Theme.acid : Theme.blue)
-                                          : (step % 4 === 0 ? "#262a33" : Theme.panel)
+                                          : (step % 4 === 0 ? Theme.raised : Theme.panel)
                                 border.color: root.playRow === step ? Theme.ink : Theme.line
                                 MouseArea {
                                     anchors.fill: parent
@@ -229,10 +229,10 @@ ColumnLayout {
                     x: step * stepGrid.stride - stepGrid.scrollX
                     width: stepGrid.stride - stepGrid.gap; height: stepGrid.height
                     radius: 5
-                    color: active ? Theme.acid : (onBeat ? "#262a33" : Theme.panel)
+                    color: active ? Theme.acid : (onBeat ? Theme.raised : Theme.panel)
                     border.width: selected ? 2 : 1
                     border.color: selected ? Theme.amber
-                                  : (playhead ? Theme.ink : (onBeat ? "#4d5462" : Theme.line))
+                                  : (playhead ? Theme.ink : (onBeat ? Theme.gridStrong : Theme.line))
 
                     // Velocity meter. A fuller cell always means a louder
                     // step: tall cells dim the headroom above the level,
@@ -246,7 +246,7 @@ ColumnLayout {
                         anchors.margins: 2
                         height: Math.max(0, (parent.height - 4) * (1 - cell.velocity))
                         radius: 4
-                        color: "#0e0f12"; opacity: 0.55
+                        color: Theme.onAccent; opacity: 0.55
                     }
                     Rectangle {
                         visible: cell.active && !cell.tall
@@ -254,7 +254,7 @@ ColumnLayout {
                         anchors.left: parent.left; anchors.leftMargin: 5
                         width: (parent.width - 10) * cell.velocity
                         height: 3; radius: 2
-                        color: "#0e0f12"; opacity: 0.55
+                        color: Theme.onAccent; opacity: 0.55
                     }
 
                     Label {
@@ -262,7 +262,7 @@ ColumnLayout {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: Format.fmt2(cell.step + 1)
                         color: cell.active ? (cell.tall && cell.velocity < 0.92
-                                              ? Theme.ink : "#0e0f12")
+                                              ? Theme.ink : Theme.onAccent)
                                            : (cell.onBeat ? Theme.ink : Theme.muted)
                         font.family: Theme.mono; font.pixelSize: 11
                         font.bold: cell.onBeat
@@ -272,7 +272,7 @@ ColumnLayout {
                         anchors.bottom: parent.bottom; anchors.bottomMargin: 11
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: cell.row ? cell.row.noteName : ""
-                        color: "#0e0f12"; font.family: Theme.mono
+                        color: Theme.onAccent; font.family: Theme.mono
                         font.pixelSize: 10; font.bold: true
                     }
                     // Lock and ratchet badges: the two things a step can
@@ -281,14 +281,14 @@ ColumnLayout {
                         visible: cell.row !== undefined && cell.row.hasLock === true
                         anchors.top: parent.top; anchors.right: parent.right
                         anchors.margins: 4
-                        width: 6; height: 6; radius: 3; color: "#0e0f12"
+                        width: 6; height: 6; radius: 3; color: Theme.onAccent
                     }
                     Label {
                         visible: cell.row !== undefined && cell.row.ratchets > 1
                         anchors.top: parent.top; anchors.left: parent.left
                         anchors.margins: 4
                         text: "×" + (cell.row ? cell.row.ratchets : "")
-                        color: "#0e0f12"; font.pixelSize: 9; font.bold: true
+                        color: Theme.onAccent; font.pixelSize: 9; font.bold: true
                     }
                     // Playhead marker across the top edge.
                     Rectangle {
@@ -488,9 +488,9 @@ ColumnLayout {
                                 y: step * trackerPanel.rowHeight
                                 width: trackerRows.width
                                 height: trackerPanel.rowHeight
-                                color: playhead ? "#3c4930"
-                                       : (selected ? "#2b2f38"
-                                          : (step % 4 === 0 ? "#1e2128" : "transparent"))
+                                color: playhead ? Theme.playRow
+                                       : (selected ? Theme.selectedRow
+                                          : (step % 4 === 0 ? Theme.beatRow : "transparent"))
                                 // A press anywhere on the row that no
                                 // column takes moves the cursor there.
                                 MouseArea {
@@ -563,7 +563,7 @@ ColumnLayout {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: channelCell.cell ? channelCell.cell.noteName
                                                                        : "---"
-                                                color: channelCell.active ? Theme.acid : "#3d434e"
+                                                color: channelCell.active ? Theme.acid : Theme.gridStrong
                                                 font.family: Theme.mono
                                                 font.pixelSize: trackRow.rowFont
                                                 font.bold: channelCell.active
@@ -623,7 +623,7 @@ ColumnLayout {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: channelCell.cell
                                                       ? channelCell.cell.velocityHex : "--"
-                                                color: channelCell.active ? Theme.ink : "#3d434e"
+                                                color: channelCell.active ? Theme.ink : Theme.gridStrong
                                                 font.family: Theme.mono
                                                 font.pixelSize: trackRow.rowFont
                                             }
@@ -664,7 +664,7 @@ ColumnLayout {
                                                 text: channelCell.cell
                                                       ? channelCell.cell.lockText : "---"
                                                 color: channelCell.cell && channelCell.cell.hasLock
-                                                       ? Theme.amber : "#3d434e"
+                                                       ? Theme.amber : Theme.gridStrong
                                                 font.family: Theme.mono
                                                 font.pixelSize: trackRow.rowFont
                                                 font.bold: channelCell.cell
@@ -739,7 +739,7 @@ ColumnLayout {
                         y: trackerScroll.contentY; z: 2
                         width: trackerScroll.contentWidth
                         height: trackerPanel.headerHeight
-                        color: "#22262e"
+                        color: Theme.gridline
                         Repeater {
                             model: trackerPanel.channelCount
                             Rectangle {
@@ -751,7 +751,7 @@ ColumnLayout {
                                 x: trackerPanel.rowNumberWidth + index * trackerPanel.channelWidth
                                 width: trackerPanel.channelWidth; height: parent.height
                                 color: channel !== undefined && channel.selected
-                                       ? "#3a3f2a" : "transparent"
+                                       ? Theme.lockRow : "transparent"
                                 border.color: Theme.line
                                 Label {
                                     anchors.verticalCenter: parent.verticalCenter
@@ -779,7 +779,7 @@ ColumnLayout {
                         Rectangle {
                             x: trackerScroll.contentX
                             width: trackerPanel.rowNumberWidth; height: parent.height
-                            color: "#22262e"
+                            color: Theme.gridline
                             Label { anchors.centerIn: parent; text: "ROW"; color: Theme.muted
                                 font.family: Theme.mono; font.pixelSize: 9 }
                         }
@@ -966,9 +966,9 @@ ColumnLayout {
                             z: 2
                             x: 0; y: index * rollArea.laneHeight
                             width: rollArea.gutter; height: rollArea.laneHeight
-                            color: rollArea.isBlack(key) ? "#111318" : "#39404b"
+                            color: rollArea.isBlack(key) ? Theme.blackKey : Theme.whiteKey
                             Rectangle { anchors.bottom: parent.bottom
-                                width: parent.width; height: 1; color: "#0c0e11" }
+                                width: parent.width; height: 1; color: Theme.well }
                             Label {
                                 visible: key % 12 === 0 && rollArea.laneHeight > 8
                                 anchors.right: parent.right; anchors.rightMargin: 5
@@ -998,17 +998,17 @@ ColumnLayout {
                             x: rollArea.gutter; y: index * rollArea.laneHeight
                             width: rollArea.width - rollArea.gutter
                             height: rollArea.laneHeight
-                            color: rollArea.isBlack(key) ? "#15171c" : "transparent"
+                            color: rollArea.isBlack(key) ? Theme.stripe : "transparent"
                             Rectangle {
                                 visible: key % 12 === 0
                                 anchors.bottom: parent.bottom
-                                width: parent.width; height: 1; color: "#31363f"
+                                width: parent.width; height: 1; color: Theme.gridStrong
                             }
                         }
                     }
                     Rectangle {
                         x: rollArea.gutter - 1; y: 0; z: 2
-                        width: 1; height: rollArea.height; color: "#0c0e11"
+                        width: 1; height: rollArea.height; color: Theme.well
                     }
                     // Bar lines every four steps.
                     Repeater {
@@ -1018,7 +1018,7 @@ ColumnLayout {
                             readonly property int column: rollArea.first + index
                             x: rollArea.stepX(column)
                             y: 0; width: 1; height: rollArea.height
-                            color: column % 4 === 0 ? "#3b414c" : "#252932"
+                            color: column % 4 === 0 ? Theme.gridStrong : Theme.gridline
                         }
                     }
                     // Notes, drawn on the lane the gutter labels.
@@ -1364,7 +1364,7 @@ ColumnLayout {
                         objectName: "controllerLane"
                         Layout.fillWidth: true
                         Layout.preferredHeight: 56; Layout.minimumHeight: 40
-                        color: "#0c0e11"; radius: 3
+                        color: Theme.well; radius: 3
                         border.color: Theme.line
                         readonly property real plotX: rollArea.gutter
                         readonly property real plotWidth: width - rollArea.gutter

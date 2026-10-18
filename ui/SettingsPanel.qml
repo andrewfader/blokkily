@@ -255,6 +255,23 @@ Rectangle {
                 }
             }
             SettingRow {
+                label: "THEME"
+                Repeater {
+                    model: [{ name: "DARK", value: "dark" }, { name: "LIGHT", value: "light" },
+                            { name: "SYSTEM", value: "system" }]
+                    Chip {
+                        required property var modelData
+                        objectName: "theme" + modelData.name
+                        text: modelData.name; implicitHeight: 24
+                        accessibleLabel: modelData.name.toLowerCase() + " theme"
+                        on: (root.ui["ui/theme"] !== undefined ? String(root.ui["ui/theme"]) : "dark")
+                            === modelData.value
+                        onClicked: appController.setUiSetting("ui/theme", modelData.value)
+                    }
+                }
+                Hint { text: "SYSTEM follows the desktop's light or dark setting" }
+            }
+            SettingRow {
                 label: "LAYOUT"
                 Chip {
                     objectName: "resetLayout"

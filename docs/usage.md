@@ -399,6 +399,10 @@ the left bar out with its search. A window wide enough for both bars beside
 the editors docks them whether or not they auto-hide; turned off, a bar is
 always docked.
 
+WINDOW · THEME is DARK (as Blokkily ships), LIGHT - a white window whose
+accents are deepened so text in them still reads - or SYSTEM, which follows
+the desktop's light or dark preference as it changes.
+
 The window's panels can be rearranged and sized. Each editor panel (the
 arrangement, the editors, the keyboard, the inspector and the modulators) has
 a grip of six dots in the margin to its left: drag it up or down to move the

@@ -24,7 +24,7 @@ Rectangle {
         // The chip sets its own size; the label has the same bounds so an
         // overflowing name (a producer has not renamed) trims to "WRPED...".
         width: parent.width - labelPadding
-        color: parent.on ? "#0e0f12" : Theme.ink
+        color: parent.on ? Theme.onAccent : Theme.ink
         font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
         elide: Text.ElideRight
         Accessible.name: parent.accessibleLabel !== "" ? parent.accessibleLabel : text

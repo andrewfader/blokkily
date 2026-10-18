@@ -9,8 +9,10 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QSettings>
+#include <QImage>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <source_location>
 
@@ -164,7 +166,87 @@ void run_settings(VerifyContext& ctx) {
     ctx.finish("the SETTINGS view's audio device, rate and block");
 }
 
+// features/window_layout.feature, run by bdd_theme: THEME · LIGHT redraws
+// the window light, every panel's text still reading against what it sits on,
+// and DARK puts it back; the choice is the window's to remember.
+void run_theme(VerifyContext& ctx) {
+    auto& c = ctx.controller;
+    const auto check = [&](bool ok, std::source_location loc = std::source_location::current()) {
+        if (!ok) std::cerr << "theme failed at " << loc.line() << '\n';
+        ctx.check(ok);
+    };
+    const auto layout = [&] { QCoreApplication::processEvents(); (void)ctx.window->grabWindow(); };
+    const auto click = [&](const char* name) {
+        auto* item = ctx.named(QString::fromLatin1(name));
+        if (item == nullptr || !item->isVisible()) return false;
+        ctx.click_at(item, {item->width() / 2, item->height() / 2}, Qt::LeftButton);
+        layout();
+        return true;
+    };
+    // WCAG's relative luminance and contrast ratio.
+    const auto luminance = [](const QColor& colour) {
+        const auto channel = [](double v) { return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * channel(colour.redF()) + 0.7152 * channel(colour.greenF()) + 0.0722 * channel(colour.blueF());
+    };
+    const auto contrast = [&](const QColor& a, const QColor& b) {
+        const double x = luminance(a), y = luminance(b);
+        return (std::max(x, y) + 0.05) / (std::min(x, y) + 0.05);
+    };
+    const auto brightness = [&] {
+        const QImage image = ctx.window->grabWindow();
+        double sum = 0.0;
+        int count = 0;
+        for (int y = 0; y < image.height(); y += 8)
+            for (int x = 0; x < image.width(); x += 8, ++count) sum += luminance(image.pixelColor(x, y));
+        return sum / std::max(1, count);
+    };
+    check(c.verifyClap(ctx.parser.value("clap-fixture")));
+    layout();
+    const double dark = brightness();
+    check(click("viewSETTINGS"));
+    for (const char* name : {"themeDARK", "themeLIGHT", "themeSYSTEM"})
+        check(VerifyContext::usable(ctx.named(QString::fromLatin1(name)), 40, 18));
+    check(ctx.named("themeDARK")->property("on").toBool());
+    check(click("themeLIGHT"));
+    check(c.uiSettings().value("ui/theme").toString() == "light");
+    check(click("viewSETTINGS"));
+    const QColor background = ctx.window->property("color").value<QColor>();
+    const double light = brightness();
+    std::cerr << "theme: window " << background.name().toStdString() << ", brightness dark " << dark
+              << " light " << light << '\n';
+    check(luminance(background) > 0.8 && light > 0.6 && dark < 0.15);
+    // Text reads against what it sits on: the pattern's name and stem on
+    // the window, a rail label on the rail, a lit chip's label on its accent.
+    const auto colour = [&](const char* name, const char* property) {
+        auto* item = ctx.named(QString::fromLatin1(name));
+        return item ? item->property(property).value<QColor>() : QColor();
+    };
+    auto* rail = ctx.named("railDrawer");
+    const QColor rail_bg = rail && !rail->childItems().isEmpty()
+                               ? rail->childItems().front()->property("color").value<QColor>() : QColor();
+    const double title = contrast(colour("patternTitle", "color"), background);
+    const double stem = contrast(colour("patternStem", "color"), background);
+    const double rail_text = contrast(colour("selectedTrackName", "color"), rail_bg);
+    std::cerr << "theme: contrast title " << title << ", stem " << stem << ", rail " << rail_text << '\n';
+    check(title >= 7.0 && stem >= 3.0 && rail_text >= 4.5);
+    if (ctx.parser.isSet("screenshot")) {
+        QString path = ctx.parser.value("screenshot");
+        check(ctx.save_screenshot_to(path.left(path.size() - 4) + QStringLiteral("-light.png")));
+    }
+    ctx.reached("theme: LIGHT redraws the window light, its text reading");
+    // LAYOUT · RESET puts the panels back, not the theme.
+    check(click("viewSETTINGS") && click("resetLayout") && click("viewSETTINGS"));
+    check(c.uiSettings().value("ui/theme").toString() == "light" && brightness() > 0.6);
+    ctx.reached("theme: RESET keeps the theme");
+    check(click("viewSETTINGS") && click("themeDARK") && click("viewSETTINGS"));
+    check(c.uiSettings().value("ui/theme").toString() == "dark" && std::abs(brightness() - dark) < 0.02);
+    ctx.reached("theme: DARK puts it back");
+    check(ctx.save_screenshot());
+    ctx.finish("the light theme");
+}
+
 [[maybe_unused]] const bool registered = register_scenario("settings", run_settings);
+[[maybe_unused]] const bool registered_theme = register_scenario("theme", run_theme);
 
 } // namespace
 } // namespace blokkily::verify

@@ -21,6 +21,32 @@ ApplicationWindow {
     title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + " \u2014 Blokkily"
     color: Theme.bg
     font.family: Theme.sans
+    // SETTINGS · WINDOW · THEME: dark (as shipped), light, or the desktop's.
+    readonly property string themeChoice: appController.uiSettings["ui/theme"] !== undefined
+                                          ? String(appController.uiSettings["ui/theme"]) : "dark"
+    Binding {
+        target: Theme; property: "light"
+        value: root.themeChoice === "light"
+               || (root.themeChoice === "system" && Qt.styleHints.colorScheme === Qt.ColorScheme.Light)
+    }
+    // The controls' own palette (menus, fields, scroll bars) follows it.
+    palette.window: Theme.panel
+    palette.windowText: Theme.ink
+    palette.base: Theme.raised
+    palette.alternateBase: Theme.stripe
+    palette.text: Theme.ink
+    palette.button: Theme.raised
+    palette.buttonText: Theme.ink
+    palette.brightText: Theme.ink
+    palette.highlight: Theme.acid
+    palette.highlightedText: Theme.onAccent
+    palette.placeholderText: Theme.muted
+    palette.mid: Theme.line
+    palette.dark: Theme.well
+    palette.light: Theme.raised
+    palette.shadow: Theme.well
+    palette.toolTipBase: Theme.panel
+    palette.toolTipText: Theme.ink
     font.pixelSize: 12
 
     // STEP / TRACKER / PIANO / SCORE focus one editor; ALL keeps the step
@@ -637,7 +663,7 @@ ApplicationWindow {
 
         Rectangle {
             anchors.fill: parent
-            color: "#121317"
+            color: Theme.rail
             // The rail scrolls when what it holds is taller than the window
             // (a sampler's editing tools open, a small screen), so nothing
             // at its foot is pushed out of reach.
@@ -815,7 +841,7 @@ ApplicationWindow {
                                Item {
                                    anchors.centerIn: parent
                                    width: 13; height: 13
-                                   readonly property color ink: settingsChip.on ? "#0e0f12" : Theme.ink
+                                   readonly property color ink: settingsChip.on ? Theme.onAccent : Theme.ink
                                    Repeater {
                                        model: 4
                                        Rectangle {
