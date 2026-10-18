@@ -22,20 +22,20 @@ ColumnLayout {
                 const rows = songModel.sendLevels[root.trackIndex]
                 return rows !== undefined && rows[index] !== undefined
                        ? rows[index]
-                       : ({bus: index, letter: "", levelDb: -60, levelText: "off",
+                       : ({bus: index, letter: "", levelDb: -60, levelText: qsTr("off"),
                            pre: false, active: false})
             }
             Layout.fillWidth: true; spacing: 1
             RowLayout {
                 Layout.fillWidth: true; spacing: 6
-                Label { text: "SEND " + send.modelData.letter; color: Theme.muted
+                Label { text: qsTr("SEND ") + send.modelData.letter; color: Theme.muted
                     font.pixelSize: 10; font.letterSpacing: 1 }
                 Item { Layout.fillWidth: true }
                 Label { text: send.modelData.levelText; color: Theme.ink
                     font.pixelSize: 11; font.family: Theme.mono; font.bold: true }
                 Chip {
                     objectName: "sendPre" + root.trackIndex + "_" + send.modelData.bus
-                    text: "PRE"; implicitHeight: 18; accent: Theme.amber
+                    text: qsTr("PRE"); implicitHeight: 18; accent: Theme.amber
                     on: send.modelData.pre
                     onClicked: songModel.setSendPreFader(root.trackIndex, send.modelData.bus,
                                                          !send.modelData.pre)

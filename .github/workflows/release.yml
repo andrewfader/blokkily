@@ -54,7 +54,7 @@ jobs:
           retry pacman -Syu --noconfirm
           retry pacman -S --noconfirm --needed \
             git cmake ninja ccache pkgconf \
-            qt6-base qt6-declarative qt6-shadertools qt6-svg \
+            qt6-base qt6-declarative qt6-shadertools qt6-svg qt6-tools \
             fluidsynth rtaudio rtmidi libsndfile libsamplerate rubberband \
             alsa-lib freetype2 libx11 libxext libxi libxrandr libxinerama \
             libxcursor libxrender libxcomposite \

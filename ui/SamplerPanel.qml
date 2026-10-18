@@ -62,14 +62,14 @@ Rectangle {
 
     FileDialog {
         id: sampleDialog
-        title: "Load a sample"
+        title: qsTr("Load a sample")
         nameFilters: ["Audio (*.wav *.flac *.aif *.aiff *.ogg *.mp3)", "All files (*)"]
         fileMode: FileDialog.OpenFile
         onAccepted: appController.loadSamplerSample(selectedFile.toString())
     }
     FileDialog {
         id: multiDialog
-        title: "Import a multi-sampled instrument (key and layer from each file's name)"
+        title: qsTr("Import a multi-sampled instrument (key and layer from each file's name)")
         nameFilters: ["Audio (*.wav *.flac *.aif *.aiff *.ogg *.mp3)", "All files (*)"]
         fileMode: FileDialog.OpenFiles
         onAccepted: {
@@ -89,7 +89,7 @@ Rectangle {
             Layout.fillWidth: true; spacing: 4
             Rectangle {
                 implicitWidth: 30; implicitHeight: 20; radius: 3; color: Theme.amber
-                Label { anchors.centerIn: parent; text: "SMP"; color: Theme.bg
+                Label { anchors.centerIn: parent; text: qsTr("SMP"); color: Theme.bg
                     font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
             }
             Label {
@@ -102,13 +102,13 @@ Rectangle {
             }
             Chip {
                 objectName: "samplerModeKeyed"
-                text: "KEYS"; implicitHeight: 20; accent: Theme.amber
+                text: qsTr("KEYS"); implicitHeight: 20; accent: Theme.amber
                 on: !panel.kit
                 onClicked: appController.setSamplerMode("keyed")
             }
             Chip {
                 objectName: "samplerModeKit"
-                text: "KIT"; implicitHeight: 20; accent: Theme.amber
+                text: qsTr("KIT"); implicitHeight: 20; accent: Theme.amber
                 on: panel.kit
                 onClicked: appController.setSamplerMode("kit")
             }
@@ -137,7 +137,7 @@ Rectangle {
             Label {
                 objectName: "samplerSample"
                 Layout.fillWidth: true
-                text: panel.hasZone ? panel.sampler.sample : "no sample"
+                text: panel.hasZone ? panel.sampler.sample : qsTr("no sample")
                 color: panel.sampler.missing ? Theme.record
                      : panel.hasZone ? Theme.ink : Theme.muted
                 font.pixelSize: 10; font.bold: true; elide: Text.ElideMiddle
@@ -148,13 +148,13 @@ Rectangle {
             Layout.fillWidth: true; spacing: 4
             Chip {
                 objectName: "samplerLoad"
-                text: "LOAD"; implicitHeight: 20
+                text: qsTr("LOAD"); implicitHeight: 20
                 Layout.fillWidth: true
                 onClicked: sampleDialog.open()
             }
             Chip {
                 objectName: "samplerImportMulti"
-                text: "MULTI"; implicitHeight: 20; accent: Theme.amber
+                text: qsTr("MULTI"); implicitHeight: 20; accent: Theme.amber
                 Layout.fillWidth: true
                 accessibleLabel: "Import a multi-sampled instrument"
                 onClicked: multiDialog.open()
@@ -163,7 +163,7 @@ Rectangle {
             // opened when wanted so the browser below keeps its room.
             Chip {
                 objectName: "samplerEditToggle"
-                text: "EDIT"; implicitHeight: 20
+                text: qsTr("EDIT"); implicitHeight: 20
                 Layout.fillWidth: true
                 accessibleLabel: "Show the zone map, velocities and waveform"
                 on: panel.editing
@@ -174,7 +174,7 @@ Rectangle {
             objectName: "samplerMissing"
             Layout.fillWidth: true
             visible: panel.sampler.missing === true
-            text: "File missing — load it again"
+            text: qsTr("File missing — load it again")
             color: Theme.record; font.pixelSize: 9
         }
 
@@ -183,7 +183,7 @@ Rectangle {
             Layout.fillWidth: true; spacing: 4
             ColumnLayout {
                 spacing: 1; Layout.fillWidth: true
-                Caption { text: "ROOT" }
+                Caption { text: qsTr("ROOT") }
                 Stepper {
                     objectName: "samplerRootKey"
                     Layout.fillWidth: true
@@ -194,7 +194,7 @@ Rectangle {
             }
             ColumnLayout {
                 spacing: 1; Layout.fillWidth: true
-                Caption { text: "LOW" }
+                Caption { text: qsTr("LOW") }
                 Stepper {
                     objectName: "samplerLowKey"
                     Layout.fillWidth: true
@@ -206,7 +206,7 @@ Rectangle {
             }
             ColumnLayout {
                 spacing: 1; Layout.fillWidth: true
-                Caption { text: "HIGH" }
+                Caption { text: qsTr("HIGH") }
                 Stepper {
                     objectName: "samplerHighKey"
                     Layout.fillWidth: true
@@ -226,7 +226,7 @@ Rectangle {
             // The velocities the zone answers.
             RowLayout {
                 Layout.fillWidth: true; spacing: 4
-                Caption { text: "VEL"; Layout.preferredWidth: 30 }
+                Caption { text: qsTr("VEL"); Layout.preferredWidth: 30 }
                 Stepper {
                     objectName: "samplerLowVelocity"
                     Layout.fillWidth: true
@@ -390,14 +390,14 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 4
-            Caption { text: "LOOP"; Layout.preferredWidth: 30 }
+            Caption { text: qsTr("LOOP"); Layout.preferredWidth: 30 }
             Repeater {
-                model: [["OFF", "off"], ["FWD", "forward"], ["P-P", "ping_pong"]]
+                model: [[QT_TR_NOOP("OFF"), "off"], [QT_TR_NOOP("FWD"), "forward"], [QT_TR_NOOP("P-P"), "ping_pong"]]
                 delegate: Chip {
                     required property var modelData
                     objectName: "samplerLoop_" + modelData[1]
                     Layout.fillWidth: true
-                    text: modelData[0]; implicitHeight: 20; accent: Theme.amber
+                    text: qsTr(modelData[0]); implicitHeight: 20; accent: Theme.amber
                     enabled: panel.hasZone
                     on: panel.sampler.loop === modelData[1]
                     onClicked: appController.setSamplerLoop(modelData[1])
@@ -450,7 +450,7 @@ Rectangle {
         // Chops the zone's whole file into equal pads on keys from C2.
         RowLayout {
             Layout.fillWidth: true; spacing: 4
-            Caption { text: "SLICES"; Layout.preferredWidth: 38 }
+            Caption { text: qsTr("SLICES"); Layout.preferredWidth: 38 }
             Stepper {
                 id: sliceCount
                 objectName: "samplerSliceCount"
@@ -461,7 +461,7 @@ Rectangle {
             }
             Chip {
                 objectName: "samplerChop"
-                text: "CHOP"; implicitHeight: 22; accent: Theme.amber
+                text: qsTr("CHOP"); implicitHeight: 22; accent: Theme.amber
                 enabled: panel.hasZone
                 onClicked: appController.sliceSampler(sliceCount.value)
             }

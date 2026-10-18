@@ -36,14 +36,14 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true; spacing: 4
-        SectionLabel { text: "PROJECT" }
+        SectionLabel { text: qsTr("PROJECT") }
         Item { Layout.fillWidth: true }
         Chip {
             objectName: "collectAudioButton"
             // Bumped from 64 because "COLLECT" was reading as "COLLE...".
             // 72 fits "COLLECT" on one line at the standard UI font.
             implicitWidth: 72; implicitHeight: 18
-            text: "COLLECT"
+            text: qsTr("COLLECT")
             onClicked: appController.collectAudio()
         }
     }
@@ -54,26 +54,26 @@ ColumnLayout {
         objectName: "projectActions"
         Layout.fillWidth: true; Layout.minimumWidth: 0
         columns: 2; columnSpacing: 4; rowSpacing: 4
-        Chip { objectName: "newProjectButton"; text: "NEW"
+        Chip { objectName: "newProjectButton"; text: qsTr("NEW")
             Layout.fillWidth: true
             onClicked: root.newRequested() }
-        Chip { objectName: "openProjectButton"; text: "OPEN"
+        Chip { objectName: "openProjectButton"; text: qsTr("OPEN")
             Layout.fillWidth: true
             onClicked: root.openRequested() }
-        Chip { objectName: "saveProjectButton"; text: "SAVE"
+        Chip { objectName: "saveProjectButton"; text: qsTr("SAVE")
             Layout.fillWidth: true
             // Lit while there is something on screen that is not
             // on disk.
             on: songModel.dirty
             onClicked: root.saveRequested() }
-        Chip { objectName: "saveAsProjectButton"; text: "SAVE AS"
+        Chip { objectName: "saveAsProjectButton"; text: qsTr("SAVE AS")
             Layout.fillWidth: true
             onClicked: root.saveAsRequested() }
         // Another song alongside this one, in a window of its own.
-        Chip { objectName: "newWindowButton"; text: "+ WINDOW"
+        Chip { objectName: "newWindowButton"; text: qsTr("+ WINDOW")
             Layout.fillWidth: true
             onClicked: root.newWindowRequested() }
-        Chip { objectName: "openWindowButton"; text: "OPEN NEW"
+        Chip { objectName: "openWindowButton"; text: qsTr("OPEN NEW")
             Layout.fillWidth: true
             onClicked: root.openWindowRequested() }
     }
@@ -93,14 +93,14 @@ ColumnLayout {
     // no height to it: the click is left out of a bounce unless it is lit.
     RowLayout {
         Layout.fillWidth: true; spacing: 4
-        SectionLabel { text: "EXPORT" }
+        SectionLabel { text: qsTr("EXPORT") }
         Item { Layout.fillWidth: true }
         // Dither applies to a 16- or 24-bit WAV; a float or lossy file has
         // nothing to round.
         Chip {
             objectName: "exportDitherButton"
             implicitWidth: 64; implicitHeight: 14
-            text: "DITHER"
+            text: qsTr("DITHER")
             accent: Theme.amber
             on: root.exportDither
             enabled: root.exportFormat === "WAV" && root.exportDepth !== "FLOAT32"
@@ -109,7 +109,7 @@ ColumnLayout {
         Chip {
             objectName: "exportClickButton"
             implicitWidth: 64; implicitHeight: 14
-            text: "+ CLICK"
+            text: qsTr("+ CLICK")
             accent: Theme.amber
             on: root.exportClick
             onClicked: root.exportClickToggled()
@@ -122,7 +122,7 @@ ColumnLayout {
         // of it with them.
         Chip {
             objectName: "exportButton"
-            text: "BOUNCE"; accent: Theme.amber
+            text: qsTr("BOUNCE"); accent: Theme.amber
             Layout.fillWidth: true; Layout.preferredWidth: implicitWidth; Layout.minimumWidth: 40
             onClicked: root.exportRequested()
         }
@@ -159,19 +159,19 @@ ColumnLayout {
     // Every track as a file of its own, and the scope video of them all.
     RowLayout {
         Layout.fillWidth: true; spacing: 4
-        Chip { objectName: "exportStemsButton"; text: "STEMS"
+        Chip { objectName: "exportStemsButton"; text: qsTr("STEMS")
             Layout.fillWidth: true; accent: Theme.amber
             onClicked: root.exportStemsRequested() }
-        Chip { objectName: "exportScopeButton"; text: "SCOPE VIDEO"
+        Chip { objectName: "exportScopeButton"; text: qsTr("SCOPE VIDEO")
             Layout.fillWidth: true; accent: Theme.amber
             onClicked: root.exportScopeRequested() }
     }
     RowLayout {
         Layout.fillWidth: true; spacing: 4
-        Chip { objectName: "importMidiButton"; text: "MIDI IN"
+        Chip { objectName: "importMidiButton"; text: qsTr("MIDI IN")
             Layout.fillWidth: true
             onClicked: root.importMidiRequested() }
-        Chip { objectName: "exportMidiButton"; text: "MIDI OUT"
+        Chip { objectName: "exportMidiButton"; text: qsTr("MIDI OUT")
             Layout.fillWidth: true
             onClicked: root.exportMidiRequested() }
     }
@@ -179,11 +179,11 @@ ColumnLayout {
     // song from one.
     RowLayout {
         Layout.fillWidth: true; spacing: 6
-        Chip { objectName: "importDawProjectButton"; text: "DAWPROJ IN"
+        Chip { objectName: "importDawProjectButton"; text: qsTr("DAWPROJ IN")
             Layout.fillWidth: true
             accessibleLabel: "Open a DAWproject from another DAW"
             onClicked: root.importDawProjectRequested() }
-        Chip { objectName: "exportDawProjectButton"; text: "DAWPROJ OUT"
+        Chip { objectName: "exportDawProjectButton"; text: qsTr("DAWPROJ OUT")
             Layout.fillWidth: true
             accessibleLabel: "Export the song as a DAWproject"
             onClicked: root.exportDawProjectRequested() }

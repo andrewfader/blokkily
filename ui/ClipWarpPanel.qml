@@ -56,7 +56,7 @@ Popup {
         spacing: 8
         RowLayout {
             spacing: 8
-            SectionLabel { text: "WARP" }
+            SectionLabel { text: qsTr("WARP") }
             Label {
                 Layout.preferredWidth: 150
                 text: panel.known ? panel.row.name : ""
@@ -68,7 +68,7 @@ Popup {
             spacing: 8
             Chip {
                 objectName: "warpFollow"
-                text: "FOLLOW TEMPO"
+                text: qsTr("FOLLOW TEMPO")
                 accent: Theme.amber
                 on: panel.known && panel.row.follow
                 onClicked: appController.setClipFollowTempo(panel.clipId, !on)
@@ -77,15 +77,15 @@ Popup {
                 objectName: "warpState"
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignRight
-                text: !panel.known ? "" : panel.row.rendering ? "RENDERING…"
-                    : panel.row.warped ? "READY" : "OFF"
+                text: !panel.known ? "" : panel.row.rendering ? qsTr("RENDERING…")
+                    : panel.row.warped ? qsTr("READY") : qsTr("OFF")
                 color: panel.row.rendering ? Theme.amber : panel.row.warped ? Theme.acid : Theme.muted
                 font.pixelSize: 10; font.bold: true; font.letterSpacing: 1
             }
         }
         RowLayout {
             spacing: 6
-            Caption { text: "SOURCE BPM" }
+            Caption { text: qsTr("SOURCE BPM") }
             FieldBox {
                 id: bpmField
                 objectName: "warpSourceBpm"
@@ -96,7 +96,7 @@ Popup {
             }
             Chip {
                 objectName: "warpDetect"
-                text: "DETECT"
+                text: qsTr("DETECT")
                 implicitHeight: 24
                 onClicked: {
                     var bpm = appController.detectClipTempo(panel.clipId)
@@ -108,7 +108,7 @@ Popup {
         }
         RowLayout {
             spacing: 6
-            Caption { text: "STRETCH ×" }
+            Caption { text: qsTr("STRETCH ×") }
             FieldBox {
                 id: ratioField
                 objectName: "warpRatio"
@@ -121,7 +121,7 @@ Popup {
         }
         RowLayout {
             spacing: 6
-            Caption { text: "PITCH" }
+            Caption { text: qsTr("PITCH") }
             FieldBox {
                 id: semitoneField
                 objectName: "warpSemitones"
@@ -132,7 +132,7 @@ Popup {
                                          Math.round(panel.typed(semitoneField, 0)),
                                          panel.row.cents)
             }
-            Label { text: "ST"; color: Theme.muted; font.pixelSize: 9 }
+            Label { text: qsTr("ST"); color: Theme.muted; font.pixelSize: 9 }
             FieldBox {
                 id: centField
                 objectName: "warpCents"
@@ -142,13 +142,13 @@ Popup {
                 onAccepted: panel.commit(panel.row.follow, panel.row.sourceBpm, panel.row.ratio,
                                          panel.row.semitones, panel.typed(centField, 0))
             }
-            Label { text: "CT"; color: Theme.muted; font.pixelSize: 9 }
+            Label { text: qsTr("CT"); color: Theme.muted; font.pixelSize: 9 }
         }
         RowLayout {
             spacing: 8
             Chip {
                 objectName: "warpReset"
-                text: "RESET"
+                text: qsTr("RESET")
                 onClicked: panel.commit(false, 0, 1, 0, 0)
             }
             Label {

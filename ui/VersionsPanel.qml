@@ -49,7 +49,7 @@ Rectangle {
             parts.push(plural(row.patterns, "pattern") + ", now " + now.patterns)
         if (row.notes !== now.notes) parts.push(plural(row.notes, "note") + ", now " + now.notes)
         return parts.length === 0 ? "same tempo, tracks, patterns and note count as now"
-                                  : "differs: " + parts.join(" · ")
+                                  : qsTr("differs: ") + parts.join(" · ")
     }
 
     ColumnLayout {
@@ -59,10 +59,10 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 8
-            SectionLabel { text: "VERSIONS" }
+            SectionLabel { text: qsTr("VERSIONS") }
             Label {
-                text: songModel.versions.length === 0 ? "none saved yet"
-                      : songModel.versions.length + " saved with this project"
+                text: songModel.versions.length === 0 ? qsTr("none saved yet")
+                      : songModel.versions.length + qsTr(" saved with this project")
                 color: Theme.muted; font.pixelSize: 10
             }
             Item { Layout.fillWidth: true }
@@ -74,7 +74,7 @@ Rectangle {
                 id: versionName
                 objectName: "versionName"
                 Layout.fillWidth: true
-                placeholderText: "Name this version — “before the new chorus”, “mix 2”…"
+                placeholderText: qsTr("Name this version — “before the new chorus”, “mix 2”…")
                 color: Theme.ink; font.pixelSize: 12
                 selectByMouse: true
                 Accessible.name: "Version name"
@@ -88,7 +88,7 @@ Rectangle {
             Chip {
                 id: saveButton
                 objectName: "saveVersion"
-                text: "SAVE VERSION"
+                text: qsTr("SAVE VERSION")
                 accessibleLabel: "Save this version of the song"
                 function save() {
                     if (appController.saveVersion(versionName.text)) versionName.text = ""
@@ -101,7 +101,7 @@ Rectangle {
         Label {
             visible: songModel.versions.length === 0
             Layout.fillWidth: true
-            text: "Save a version before a big change. Restoring one later is a single step UNDO can take back, and the song it replaces is kept as a version too."
+            text: qsTr("Save a version before a big change. Restoring one later is a single step UNDO can take back, and the song it replaces is kept as a version too.")
             color: Theme.muted; font.pixelSize: 11; wrapMode: Text.WordWrap
         }
 
@@ -145,7 +145,7 @@ Rectangle {
                             elide: Text.ElideRight
                             ToolTip.visible: titleHover.hovered
                             ToolTip.delay: 600
-                            ToolTip.text: "Double-click to rename"
+                            ToolTip.text: qsTr("Double-click to rename")
                             HoverHandler { id: titleHover }
                             MouseArea {
                                 anchors.fill: parent
@@ -195,13 +195,13 @@ Rectangle {
                     }
                     Chip {
                         objectName: "versionRename" + row.index
-                        text: "RENAME"; implicitHeight: 22
+                        text: qsTr("RENAME"); implicitHeight: 22
                         accessibleLabel: "Rename " + row.modelData.name
                         onClicked: row.startRenaming()
                     }
                     Chip {
                         objectName: "restoreVersion" + row.index
-                        text: "RESTORE"; accent: Theme.blue; implicitHeight: 22
+                        text: qsTr("RESTORE"); accent: Theme.blue; implicitHeight: 22
                         accessibleLabel: "Restore " + row.modelData.name
                         onClicked: {
                             const index = row.modelData.index
@@ -212,7 +212,7 @@ Rectangle {
                     }
                     Chip {
                         objectName: "deleteVersion" + row.index
-                        text: root.confirming === row.modelData.index ? "SURE?" : "DELETE"
+                        text: root.confirming === row.modelData.index ? qsTr("SURE?") : qsTr("DELETE")
                         accent: Theme.record; implicitHeight: 22
                         on: root.confirming === row.modelData.index
                         accessibleLabel: "Delete " + row.modelData.name

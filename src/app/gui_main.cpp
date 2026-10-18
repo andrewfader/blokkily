@@ -8,6 +8,7 @@
 #include "mcp_server.hpp"
 #include "mcp_tools.hpp"
 #include "open_channel.hpp"
+#include "language.hpp"
 #include "verify/harness.hpp"
 #include "blokkily/plugins/sandbox.hpp"
 
@@ -222,6 +223,10 @@ int main(int argc, char* argv[]) {
         controller.setUiSetting(QStringLiteral("ui/autoHideRail"), false);
         controller.setUiSetting(QStringLiteral("ui/autoHideMixer"), false);
     }
+    // A gate reads the window in English whatever the machine's language,
+    // unless it is the gate that switches it (features/language.feature).
+    if (parser.isSet("verify")) controller.setUiSetting(QStringLiteral("ui/language"), QStringLiteral("en"));
+    blokkily::Language language(controller, engine);
     engine.loadFromModule("Blokkily", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
 

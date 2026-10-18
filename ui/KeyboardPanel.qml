@@ -50,7 +50,7 @@ Rectangle {
             Layout.fillWidth: true; Layout.minimumWidth: 0
             clip: true
             spacing: 6
-            SectionLabel { text: "TUNING" }
+            SectionLabel { text: qsTr("TUNING") }
             Picker {
                 objectName: "tuningPicker"
                 choices: songModel.tuningNames
@@ -58,16 +58,16 @@ Rectangle {
                 onPicked: name => songModel.setTuning(name)
             }
             Label { objectName: "divisionReadout"
-                text: songModel.divisions + " STEPS"; color: Theme.muted
+                text: songModel.divisions + qsTr(" STEPS"); color: Theme.muted
                 font.pixelSize: 10; font.family: Theme.mono }
-            SectionLabel { text: "SCALE" }
+            SectionLabel { text: qsTr("SCALE") }
             Picker {
                 objectName: "scalePicker"
                 choices: songModel.scaleNames
                 value: songModel.scaleName
                 onPicked: name => songModel.setScale(name)
             }
-            SectionLabel { text: "ROOT" }
+            SectionLabel { text: qsTr("ROOT") }
             Chip {
                 objectName: "rootDown"; text: "<"
                 onClicked: songModel.setRootDegree(songModel.rootDegree - 1)
@@ -80,13 +80,13 @@ Rectangle {
                 onClicked: songModel.setRootDegree(songModel.rootDegree + 1)
             }
             Chip {
-                objectName: "autoScaleChip"; text: "AUTO-SCALE"; accent: Theme.blue
+                objectName: "autoScaleChip"; text: qsTr("AUTO-SCALE"); accent: Theme.blue
                 on: songModel.autoScale
                 onClicked: songModel.toggleAutoScale()
             }
             Item { Layout.fillWidth: true }
             Label { objectName: "lastPlayed"
-                text: "PLAYED " + keyboardModel.lastPlayed
+                text: qsTr("PLAYED ") + keyboardModel.lastPlayed
                 color: Theme.ink; font.pixelSize: 11; font.family: Theme.mono }
         }
 
@@ -100,7 +100,7 @@ Rectangle {
             Layout.fillWidth: true; Layout.minimumWidth: 0
             clip: true
             spacing: 6
-            SectionLabel { text: "SURFACE" }
+            SectionLabel { text: qsTr("SURFACE") }
             Repeater {
                 model: keyboardModel.surfaces
                 Chip {
@@ -139,7 +139,7 @@ Rectangle {
             // past the panel that is meant to hold it.
             Chip {
                 objectName: "orientToggle"
-                text: "RUNS " + keyboardModel.orientation
+                text: qsTr("RUNS ") + keyboardModel.orientation
                 accent: Theme.blue
                 on: keyboardModel.orientation === "DOWN"
                 onClicked: keyboardModel.toggleOrientation()
@@ -147,7 +147,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
             Chip {
                 objectName: "keyboardRecord"
-                text: keyboardModel.recording ? "WRITING STEP " +
+                text: keyboardModel.recording ? qsTr("WRITING STEP ") +
                           Format.fmt2(patternModel.selectedStep + 1) : "AUDITION ONLY"
                 accent: Theme.amber
                 on: keyboardModel.recording

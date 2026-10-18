@@ -239,7 +239,7 @@ Rectangle {
         anchors.left: parent.left; anchors.leftMargin: 4
         anchors.top: parent.top; anchors.topMargin: 1
         visible: lane.points.length === 1
-        text: "double-click adds a tempo point"
+        text: qsTr("double-click adds a tempo point")
         color: Theme.muted; font.pixelSize: 8
     }
 }

@@ -15,7 +15,7 @@ ColumnLayout {
         spacing: 4
         Chip {
             objectName: "clickButton"
-            text: "CLICK"
+            text: qsTr("CLICK")
             // Wide enough to render "CLICK" / "NO CI" without eliding at
             // the standard UI font size; the surrounding transport row
             // lives with this width in pixels.
@@ -27,7 +27,7 @@ ColumnLayout {
         // wraps round from 4 bars to none.
         Chip {
             objectName: "countInButton"
-            text: songModel.countInBars === 0 ? "NO CI" : "CI " + songModel.countInBars
+            text: songModel.countInBars === 0 ? qsTr("NO CI") : qsTr("CI ") + songModel.countInBars
             implicitWidth: 56; implicitHeight: 22
             accent: Theme.record
             on: appController.countingIn

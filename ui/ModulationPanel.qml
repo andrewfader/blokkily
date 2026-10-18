@@ -28,13 +28,13 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "MODULATION" }
+            SectionLabel { text: qsTr("MODULATION") }
             Item { Layout.fillWidth: true }
-            Chip { objectName: "addLfo"; text: "+ LFO"; implicitHeight: 20
+            Chip { objectName: "addLfo"; text: qsTr("+ LFO"); implicitHeight: 20
                 onClicked: songModel.addModulator("lfo") }
-            Chip { objectName: "addMacro"; text: "+ MACRO"; implicitHeight: 20; accent: Theme.amber
+            Chip { objectName: "addMacro"; text: qsTr("+ MACRO"); implicitHeight: 20; accent: Theme.amber
                 onClicked: songModel.addModulator("macro") }
-            Chip { objectName: "addFollower"; text: "+ FOLLOW"; implicitHeight: 20; accent: Theme.blue
+            Chip { objectName: "addFollower"; text: qsTr("+ FOLLOW"); implicitHeight: 20; accent: Theme.blue
                 onClicked: songModel.addModulator("follower") }
         }
 
@@ -42,7 +42,7 @@ Rectangle {
             objectName: "modulationEmpty"
             visible: songModel.modulatorCount === 0
             Layout.fillWidth: true
-            text: "No modulators. Add an LFO, a macro or a follower, then aim it at a parameter."
+            text: qsTr("No modulators. Add an LFO, a macro or a follower, then aim it at a parameter.")
             color: Theme.muted; font.pixelSize: 10; elide: Text.ElideRight
         }
 
@@ -113,7 +113,7 @@ Rectangle {
                             visible: card.row.kind === "macro"
                             readonly property string bound:
                                 (appController.midiLearnStatus, appController.midiBindingFor("macro", card.index))
-                            text: bound !== "" ? bound : "LEARN"
+                            text: bound !== "" ? bound : qsTr("LEARN")
                             implicitHeight: 20; accent: Theme.amber
                             on: appController.midiLearning
                             onClicked: appController.learnMidi("macro", card.index)
@@ -121,7 +121,7 @@ Rectangle {
                         }
                         Chip {
                             objectName: "addTarget" + card.index
-                            text: "+ TARGET"; implicitHeight: 20; accent: card.accent
+                            text: qsTr("+ TARGET"); implicitHeight: 20; accent: card.accent
                             enabled: card.targetCount < 8
                             onClicked: {
                                 card.choices = appController.modulationTargets()
@@ -163,7 +163,7 @@ Rectangle {
                         Chip {
                             objectName: "modulatorSync" + card.index
                             Layout.alignment: Qt.AlignBottom
-                            text: "SYNC"; implicitHeight: 22
+                            text: qsTr("SYNC"); implicitHeight: 22
                             accent: card.accent
                             accessibleLabel: "Tempo sync"
                             on: card.row.synced === true
@@ -182,7 +182,7 @@ Rectangle {
                             visible: card.row.synced === true
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignBottom
-                            text: "PER CYCLE · FOLLOWS THE TEMPO"
+                            text: qsTr("PER CYCLE · FOLLOWS THE TEMPO")
                             color: Theme.muted; font.pixelSize: 9; font.bold: true
                             font.letterSpacing: 0.8; elide: Text.ElideRight
                         }
@@ -190,7 +190,7 @@ Rectangle {
                             objectName: "modulatorRate" + card.index
                             visible: card.row.synced !== true
                             Layout.fillWidth: true
-                            label: "RATE"; from: 0.05; to: 20; grip: 18
+                            label: qsTr("RATE"); from: 0.05; to: 20; grip: 18
                             accent: card.accent
                             value: card.row.rateHz !== undefined ? card.row.rateHz : 1
                             readout: card.row.rateText !== undefined ? card.row.rateText : ""
@@ -201,7 +201,7 @@ Rectangle {
                         objectName: "macroValue" + card.index
                         visible: card.row.kind === "macro"
                         Layout.fillWidth: true
-                        label: "VALUE"; from: 0; to: 1; grip: 18
+                        label: qsTr("VALUE"); from: 0; to: 1; grip: 18
                         accent: card.accent
                         value: card.row.value !== undefined ? card.row.value : 0
                         readout: card.row.valueText !== undefined ? card.row.valueText : ""
@@ -211,7 +211,7 @@ Rectangle {
                     Label {
                         visible: card.targetCount === 0
                         Layout.fillWidth: true
-                        text: "Not aimed yet: + TARGET picks a parameter of this track."
+                        text: qsTr("Not aimed yet: + TARGET picks a parameter of this track.")
                         color: Theme.muted; font.pixelSize: 10; elide: Text.ElideRight
                     }
 

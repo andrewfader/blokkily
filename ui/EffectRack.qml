@@ -26,7 +26,7 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "INSERTS" }
+            SectionLabel { text: qsTr("INSERTS") }
             Label {
                 objectName: "effectRackTitle"
                 Layout.fillWidth: true
@@ -37,7 +37,7 @@ Rectangle {
             // Turns the browser to its effects, where a click inserts here.
             Chip {
                 objectName: "addEffectButton"
-                text: "+ FX"; implicitHeight: 20
+                text: qsTr("+ FX"); implicitHeight: 20
                 on: appController.browserKind === "effect"
                 onClicked: appController.setBrowserKind("effect")
             }
@@ -45,14 +45,14 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 4
-            Chip { objectName: "recordRackOutput"; text: "RESAMPLE"; implicitHeight: 20
+            Chip { objectName: "recordRackOutput"; text: qsTr("RESAMPLE"); implicitHeight: 20
                 on: appController.outputRecordingArmed
                 onClicked: appController.toggleRackOutputRecording() }
-            Chip { objectName: "bounceRackOutput"; text: "STEM"; implicitHeight: 20
+            Chip { objectName: "bounceRackOutput"; text: qsTr("STEM"); implicitHeight: 20
                 onClicked: stemMenu.open()
                 Menu { id: stemMenu
-                    MenuItem { text: "Bounce to new track"; onTriggered: appController.bounceRackInPlace(false) }
-                    MenuItem { text: "Bounce and mute source"; onTriggered: appController.bounceRackInPlace(true) }
+                    MenuItem { text: qsTr("Bounce to new track"); onTriggered: appController.bounceRackInPlace(false) }
+                    MenuItem { text: qsTr("Bounce and mute source"); onTriggered: appController.bounceRackInPlace(true) }
                 }
             }
         }
@@ -126,7 +126,7 @@ Rectangle {
                         Item { Layout.fillWidth: true }
                         Chip {
                             objectName: "bypass" + index
-                            text: "BYP"; implicitHeight: 20; implicitWidth: 40; accent: Theme.amber
+                            text: qsTr("BYP"); implicitHeight: 20; implicitWidth: 40; accent: Theme.amber
                             on: modelData.bypass
                             onClicked: songModel.setInsertBypass(root.rack.kind, root.rack.bus,
                                                                  index, !modelData.bypass)
@@ -145,7 +145,7 @@ Rectangle {
                         visible: modelData.keyable === true
                         spacing: 5
                         Label {
-                            text: "SIDECHAIN"; color: Theme.muted
+                            text: qsTr("SIDECHAIN"); color: Theme.muted
                             font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
                         }
                         // The sidechain key (wave 5.2): which track the compressor
@@ -154,7 +154,7 @@ Rectangle {
                         Chip {
                             objectName: "insertSidechain" + index
                             Layout.fillWidth: true
-                            text: modelData.sidechain >= 0 ? modelData.sidechainName : "NONE"
+                            text: modelData.sidechain >= 0 ? modelData.sidechainName : qsTr("NONE")
                             implicitHeight: 20
                             accent: Theme.blue
                             accessibleLabel: "Sidechain key"
@@ -165,7 +165,7 @@ Rectangle {
                                 objectName: "sidechainMenu" + insertRow.index
                                 MenuItem {
                                     objectName: "sidechainNone" + insertRow.index
-                                    text: "No key"
+                                    text: qsTr("No key")
                                     onTriggered: songModel.setInsertSidechain(root.rack.kind, root.rack.bus,
                                                                               insertRow.index, -1)
                                 }
@@ -175,7 +175,7 @@ Rectangle {
                                         required property string modelData
                                         required property int index
                                         objectName: "sidechainKey" + insertRow.index + "_" + index
-                                        text: "Key from " + modelData
+                                        text: qsTr("Key from ") + modelData
                                         // A track's insert cannot key from its own track.
                                         enabled: !(root.rack.kind === "track" && index === root.rack.bus)
                                         onTriggered: songModel.setInsertSidechain(root.rack.kind, root.rack.bus,
@@ -195,7 +195,7 @@ Rectangle {
             objectName: "effectRackEmpty"
             visible: root.rows === 0
             Layout.fillWidth: true
-            text: "No inserts. Choose + FX, then an effect."
+            text: qsTr("No inserts. Choose + FX, then an effect.")
             color: Theme.muted; font.pixelSize: 10; elide: Text.ElideRight
         }
         Item { Layout.fillHeight: true }

@@ -29,7 +29,7 @@ Rectangle {
     FileDialog {
         id: importScoreDialog
         objectName: "importScoreDialog"
-        title: "Import a MusicXML score as a new section"
+        title: qsTr("Import a MusicXML score as a new section")
         nameFilters: ["MusicXML scores (*.musicxml *.xml)"]
         fileMode: FileDialog.OpenFile
         onAccepted: appController.importMusicXmlFile(selectedFile.toString())
@@ -37,7 +37,7 @@ Rectangle {
     FileDialog {
         id: exportScoreDialog
         objectName: "exportScoreDialog"
-        title: "Export the song as a MusicXML score"
+        title: qsTr("Export the song as a MusicXML score")
         nameFilters: ["MusicXML scores (*.musicxml)"]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "musicxml"
@@ -49,7 +49,7 @@ Rectangle {
         anchors.fill: parent; anchors.margins: 10; spacing: 6
         RowLayout {
             Layout.fillWidth: true
-            Label { text: "SCORE"; color: Theme.ink; font.bold: true
+            Label { text: qsTr("SCORE"); color: Theme.ink; font.bold: true
                 font.pixelSize: 12; font.letterSpacing: 1 }
             Label { text: scoreModel.keyLabel; color: Theme.muted; font.pixelSize: 9
                 font.family: Theme.mono }
@@ -58,24 +58,24 @@ Rectangle {
             // concerto from notation software becomes a section with a
             // track per staff; the whole song goes out as a score.
             Chip {
-                objectName: "importScoreButton"; text: "SCORE IN"
+                objectName: "importScoreButton"; text: qsTr("SCORE IN")
                 implicitHeight: 20; accessibleLabel: "Import a MusicXML score"
                 onClicked: importScoreDialog.open()
             }
             Chip {
-                objectName: "exportScoreButton"; text: "SCORE OUT"
+                objectName: "exportScoreButton"; text: qsTr("SCORE OUT")
                 implicitHeight: 20; accessibleLabel: "Export the song as a MusicXML score"
                 onClicked: exportScoreDialog.open()
             }
             // Every track's part of the section, a staff each, lined up.
             Chip {
-                objectName: "fullScoreChip"; text: "FULL"
+                objectName: "fullScoreChip"; text: qsTr("FULL")
                 implicitHeight: 20; accessibleLabel: "Full score: every part of the section"
                 on: scoreModel.fullScore
                 onClicked: scoreModel.fullScore = !scoreModel.fullScore
             }
             Chip {
-                objectName: "chantChip"; text: "CHANT"
+                objectName: "chantChip"; text: qsTr("CHANT")
                 implicitHeight: 20; accessibleLabel: "Unmetered chant staff"
                 on: scoreModel.unmetered
                 onClicked: scoreModel.unmetered = !scoreModel.unmetered
@@ -98,13 +98,13 @@ Rectangle {
         // hold a syllable over another note. Any script, Hebrew included.
         RowLayout {
             Layout.fillWidth: true; spacing: 6
-            Label { text: "LYRICS"; color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1 }
+            Label { text: qsTr("LYRICS"); color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1 }
             TextField {
                 id: lyricsField
                 objectName: "lyricsField"
                 Layout.fillWidth: true
                 font.pixelSize: 12
-                placeholderText: "A-ma-zing grace how sweet the sound"
+                placeholderText: qsTr("A-ma-zing grace how sweet the sound")
                 // The part being typed for: the one open when typing began,
                 // even if playback or an agent opens another meanwhile.
                 property int part: -1
@@ -126,7 +126,7 @@ Rectangle {
         // What a click on the staff writes, and edits of the selected note.
         RowLayout {
             Layout.fillWidth: true; spacing: 4
-            Label { text: "NOTE"; color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1 }
+            Label { text: qsTr("NOTE"); color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1 }
             Repeater {
                 model: [{ value: 1, label: "1" }, { value: 2, label: "1/2" }, { value: 4, label: "1/4" },
                         { value: 8, label: "1/8" }, { value: 16, label: "1/16" }]
@@ -140,7 +140,7 @@ Rectangle {
                 }
             }
             Chip {
-                objectName: "noteDotted"; text: "DOT"; implicitHeight: 20
+                objectName: "noteDotted"; text: qsTr("DOT"); implicitHeight: 20
                 accessibleLabel: "Dotted notes"
                 on: scoreModel.dotted
                 onClicked: scoreModel.dotted = !scoreModel.dotted
@@ -159,14 +159,14 @@ Rectangle {
                 onClicked: { scoreModel.alterSelected(-1); staffInput.forceActiveFocus(); }
             }
             Chip {
-                objectName: "noteDelete"; text: "DEL"; implicitHeight: 20
+                objectName: "noteDelete"; text: qsTr("DEL"); implicitHeight: 20
                 accessibleLabel: "Delete the selected note"
                 enabled: scoreModel.selectedStep >= 0
                 onClicked: { scoreModel.deleteSelected(); staffInput.forceActiveFocus(); }
             }
             Item { Layout.fillWidth: true }
             Label {
-                text: "click the staff to write \u00B7 \u2191\u2193 move \u00B7 shift octave \u00B7 del"
+                text: qsTr("click the staff to write \u00B7 \u2191\u2193 move \u00B7 shift octave \u00B7 del")
                 color: Theme.muted; font.pixelSize: 9; elide: Text.ElideRight
                 Layout.fillWidth: true; horizontalAlignment: Text.AlignRight
             }

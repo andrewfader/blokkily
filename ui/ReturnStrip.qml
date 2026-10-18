@@ -41,13 +41,13 @@ Rectangle {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: modelData.inserts + (modelData.inserts === 1 ? " insert" : " inserts")
+                    text: modelData.inserts + (modelData.inserts === 1 ? qsTr(" insert") : qsTr(" inserts"))
                     color: Theme.muted; font.pixelSize: 9; elide: Text.ElideRight
                 }
             }
             Chip {
                 objectName: "returnRack" + root.busIndex
-                text: "FX"; accent: Theme.amber
+                text: qsTr("FX"); accent: Theme.amber
                 on: modelData.racked
                 onClicked: songModel.selectRack("return", root.busIndex)
             }
@@ -77,7 +77,7 @@ Rectangle {
         ValueDial {
             objectName: "returnGain" + root.busIndex
             Layout.fillWidth: true
-            label: "RETURN"; from: -60; to: 6; grip: 18
+            label: qsTr("RETURN"); from: -60; to: 6; grip: 18
             value: root.mix.gainDb
             readout: root.mix.gainText + " dB"
             accent: Theme.amber

@@ -9,24 +9,24 @@ RowLayout {
     spacing: 4
     Chip {
         objectName: "loopButton"
-        text: "LOOP"
-        implicitWidth: 52; implicitHeight: 22
+        text: qsTr("LOOP")
+        implicitWidth: Math.max(52, labelWidth + labelPadding + 2); implicitHeight: 22
         accessibleLabel: "Loop the arrangement"
         on: songModel.loopEnabled
         onClicked: songModel.toggleLoop()
     }
     Chip {
         objectName: "loopInButton"
-        text: "IN"
-        implicitWidth: 36; implicitHeight: 22
+        text: qsTr("IN")
+        implicitWidth: Math.max(36, labelWidth + labelPadding + 2); implicitHeight: 22
         accessibleLabel: "Set loop start to this bar"
         on: songModel.loopEnabled
         onClicked: songModel.setLoopStartBar(transport.bar)
     }
     Chip {
         objectName: "loopOutButton"
-        text: "OUT"
-        implicitWidth: 40; implicitHeight: 22
+        text: qsTr("OUT")
+        implicitWidth: Math.max(40, labelWidth + labelPadding + 2); implicitHeight: 22
         accessibleLabel: "Set loop end to this bar"
         on: songModel.loopEnabled
         onClicked: songModel.setLoopEndBar(transport.bar)
@@ -34,8 +34,8 @@ RowLayout {
     // PUNCH records only between IN and OUT; looped, each pass is a take.
     Chip {
         objectName: "punchButton"
-        text: "PUNCH"
-        implicitWidth: 56; implicitHeight: 22
+        text: qsTr("PUNCH")
+        implicitWidth: Math.max(56, labelWidth + labelPadding + 2); implicitHeight: 22
         accent: Theme.record
         accessibleLabel: "Record only between IN and OUT"
         on: songModel.punch
@@ -45,8 +45,8 @@ RowLayout {
     // loop's bars (lit), or merged into the pattern there as an overdub.
     Chip {
         objectName: "midiTakesButton"
-        text: "TAKES"
-        implicitWidth: 62; implicitHeight: 22
+        text: qsTr("TAKES")
+        implicitWidth: Math.max(62, labelWidth + labelPadding + 2); implicitHeight: 22
         accent: Theme.record
         accessibleLabel: "Looped MIDI passes become takes"
         on: songModel.midiTakes
@@ -56,8 +56,8 @@ RowLayout {
     // play a different take.
     Chip {
         objectName: "splitTakesButton"
-        text: "SPLIT"
-        implicitWidth: 48; implicitHeight: 22
+        text: qsTr("SPLIT")
+        implicitWidth: Math.max(48, labelWidth + labelPadding + 2); implicitHeight: 22
         accent: Theme.amber
         accessibleLabel: "Split the selected track's takes at the playhead"
         onClicked: songModel.splitTakes(songModel.selectedTrack, transport.tick)

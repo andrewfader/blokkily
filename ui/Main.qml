@@ -18,7 +18,7 @@ ApplicationWindow {
     minimumHeight: Math.min(600, Screen.desktopAvailableHeight)
     visible: true
     // The session's name, and a dot while it holds changes that are not on disk.
-    title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + " \u2014 Blokkily"
+    title: (songModel.dirty ? "\u2022 " : "") + appController.projectName + qsTr(" \u2014 Blokkily")
     color: Theme.bg
     font.family: Theme.sans
     // SETTINGS · WINDOW · THEME: dark (as shipped), light, or the desktop's.
@@ -143,10 +143,10 @@ ApplicationWindow {
         objectName: "discardDialog"
         anchors.centerIn: parent
         modal: true
-        title: "Discard unsaved changes?"
+        title: qsTr("Discard unsaved changes?")
         standardButtons: Dialog.Discard | Dialog.Cancel
         Label {
-            text: "“" + appController.projectName + "” has changes that are not saved."
+            text: qsTr("“%1” has changes that are not saved.").arg(appController.projectName)
             color: Theme.ink
         }
         onDiscarded: {
@@ -183,15 +183,15 @@ ApplicationWindow {
         onClosed: noteEntry.forceActiveFocus()
         ColumnLayout {
             spacing: 10
-            SectionLabel { text: "RECOVER UNSAVED WORK" }
+            SectionLabel { text: qsTr("RECOVER UNSAVED WORK") }
             Label {
                 objectName: "recoveryMessage"
                 Layout.preferredWidth: 320
                 wrapMode: Text.Wrap
                 color: Theme.ink; font.pixelSize: 13
                 text: root.recovery === null ? "" :
-                      "“" + (root.recovery.title || "Untitled") + "” was not saved when "
-                      + "Blokkily last closed. It was autosaved " + root.recovery.saved + "."
+                      qsTr("“%1” was not saved when Blokkily last closed. It was autosaved %2.")
+                          .arg(root.recovery.title || qsTr("Untitled")).arg(root.recovery.saved)
             }
             Label {
                 Layout.preferredWidth: 320
@@ -204,12 +204,12 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
                 Chip {
                     objectName: "discardRecoveryButton"
-                    text: "DISCARD"
+                    text: qsTr("DISCARD")
                     onClicked: appController.discardRecovery(root.recovery.id)
                 }
                 Chip {
                     objectName: "recoverButton"
-                    text: "RECOVER"; accent: Theme.amber; on: true
+                    text: qsTr("RECOVER"); accent: Theme.amber; on: true
                     onClicked: {
                         var id = root.recovery.id
                         root.whenDiscarded(function() { appController.recoverSession(id) })
@@ -241,7 +241,7 @@ ApplicationWindow {
         onClosed: noteEntry.forceActiveFocus()
         ColumnLayout {
             spacing: 8
-            SectionLabel { text: "RENAME " + renamePopup.kind }
+            SectionLabel { text: qsTr("RENAME ") + renamePopup.kind }
             TextField {
                 id: renameField
                 objectName: "renameField"
@@ -266,13 +266,13 @@ ApplicationWindow {
         objectName: "patternMenu"
         property int target: -1
         property string name: ""
-        MenuItem { text: "Rename…"
+        MenuItem { text: qsTr("Rename…")
             onTriggered: renamePopup.ask("PATTERN", patternMenu.target, patternMenu.name) }
-        MenuItem { text: "Duplicate"
+        MenuItem { text: qsTr("Duplicate")
             onTriggered: { songModel.selectSection(patternMenu.target); songModel.duplicatePattern() } }
-        MenuItem { text: "Clear steps"
+        MenuItem { text: qsTr("Clear steps")
             onTriggered: { songModel.selectSection(patternMenu.target); songModel.clearPattern() } }
-        MenuItem { text: "Delete"; enabled: songModel.sections.length > 1
+        MenuItem { text: qsTr("Delete"); enabled: songModel.sections.length > 1
             onTriggered: songModel.deletePattern(patternMenu.target) }
     }
 
@@ -287,23 +287,23 @@ ApplicationWindow {
         objectName: "trackMenu"
         property int target: -1
         property string name: ""
-        MenuItem { text: "Rename…"
+        MenuItem { text: qsTr("Rename…")
             onTriggered: renamePopup.ask("TRACK", trackMenu.target, trackMenu.name) }
-        MenuItem { text: "Mute"; onTriggered: songModel.toggleMute(trackMenu.target) }
-        MenuItem { text: "Solo"; onTriggered: songModel.toggleSolo(trackMenu.target) }
-        MenuItem { text: "Delete"; enabled: songModel.trackCount > 1
+        MenuItem { text: qsTr("Mute"); onTriggered: songModel.toggleMute(trackMenu.target) }
+        MenuItem { text: qsTr("Solo"); onTriggered: songModel.toggleSolo(trackMenu.target) }
+        MenuItem { text: qsTr("Delete"); enabled: songModel.trackCount > 1
             onTriggered: songModel.deleteTrack(trackMenu.target) }
         MenuSeparator {}
         // The next hardware controller moved is bound to the control.
-        MenuItem { objectName: "learnGain"; text: "MIDI learn gain"
+        MenuItem { objectName: "learnGain"; text: qsTr("MIDI learn gain")
             onTriggered: appController.learnMidi("gain", trackMenu.target) }
-        MenuItem { objectName: "learnPan"; text: "MIDI learn pan"
+        MenuItem { objectName: "learnPan"; text: qsTr("MIDI learn pan")
             onTriggered: appController.learnMidi("pan", trackMenu.target) }
-        MenuItem { objectName: "learnMute"; text: "MIDI learn mute"
+        MenuItem { objectName: "learnMute"; text: qsTr("MIDI learn mute")
             onTriggered: appController.learnMidi("mute", trackMenu.target) }
-        MenuItem { objectName: "learnSolo"; text: "MIDI learn solo"
+        MenuItem { objectName: "learnSolo"; text: qsTr("MIDI learn solo")
             onTriggered: appController.learnMidi("solo", trackMenu.target) }
-        MenuItem { objectName: "forgetMidi"; text: "Forget MIDI controls"
+        MenuItem { objectName: "forgetMidi"; text: qsTr("Forget MIDI controls")
             onTriggered: {
                 for (const target of ["gain", "pan", "mute", "solo"])
                     appController.forgetMidiBindings(target, trackMenu.target)
@@ -315,7 +315,7 @@ ApplicationWindow {
         objectName: "openProjectDialog"
         // Whether the chosen song opens beside this one rather than in its place.
         property bool newWindow: false
-        title: newWindow ? "Open Blokkily project in a new window" : "Open Blokkily project"
+        title: newWindow ? qsTr("Open Blokkily project in a new window") : qsTr("Open Blokkily project")
         nameFilters: ["Blokkily projects (*.blok)", "All files (*)"]
         fileMode: FileDialog.OpenFile
         onAccepted: newWindow ? appController.openWindow(selectedFile.toString())
@@ -324,7 +324,7 @@ ApplicationWindow {
     }
     FileDialog {
         id: saveProjectDialog
-        title: "Save Blokkily project"
+        title: qsTr("Save Blokkily project")
         nameFilters: ["Blokkily projects (*.blok)"]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "blok"
@@ -333,12 +333,12 @@ ApplicationWindow {
 
     FileDialog {
         id: exportDialog
-        title: "Bounce the arrangement"
+        title: qsTr("Bounce the arrangement")
         // The extension chooses the container, so the dialog offers the
         // chosen format's.
         nameFilters: root.exportFormat === "MP3" ? ["MP3 audio (*.mp3)"]
                    : root.exportFormat === "OGG" ? ["Ogg Vorbis audio (*.ogg)"]
-                   : ["Wave audio (*.wav)"]
+                   : [qsTr("Wave audio (*.wav)")]
         fileMode: FileDialog.SaveFile
         defaultSuffix: root.exportFormat.toLowerCase()
         onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth,
@@ -346,13 +346,13 @@ ApplicationWindow {
     }
     FolderDialog {
         id: exportStemsDialog
-        title: "Export every track as a file of its own"
+        title: qsTr("Export every track as a file of its own")
         onAccepted: appController.exportTrackFiles(selectedFolder.toString(), root.exportFormat,
                                                    root.exportDepth, root.exportDither)
     }
     FileDialog {
         id: exportScopeDialog
-        title: "Render an oscilloscope video of the tracks and the master"
+        title: qsTr("Render an oscilloscope video of the tracks and the master")
         nameFilters: ["MPEG-4 video (*.mp4)"]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "mp4"
@@ -361,14 +361,14 @@ ApplicationWindow {
 
     FileDialog {
         id: importMidiDialog
-        title: "Import MIDI after the arrangement (keep song tempo)"
+        title: qsTr("Import MIDI after the arrangement (keep song tempo)")
         nameFilters: ["MIDI files (*.mid *.midi)"]
         fileMode: FileDialog.OpenFile
         onAccepted: appController.importMidiFile(selectedFile.toString())
     }
     FileDialog {
         id: exportMidiDialog
-        title: "Export arrangement notes and controllers"
+        title: qsTr("Export arrangement notes and controllers")
         nameFilters: ["MIDI files (*.mid)"]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "mid"
@@ -377,14 +377,14 @@ ApplicationWindow {
     FileDialog {
         id: importDawProjectDialog
         objectName: "importDawProjectDialog"
-        title: "Open a song from another DAW"
+        title: qsTr("Open a song from another DAW")
         nameFilters: ["DAWproject files (*.dawproject)"]
         fileMode: FileDialog.OpenFile
         onAccepted: appController.importDawProjectFile(selectedFile.toString())
     }
     FileDialog {
         id: exportDawProjectDialog
-        title: "Export the song for another DAW"
+        title: qsTr("Export the song for another DAW")
         nameFilters: ["DAWproject files (*.dawproject)"]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "dawproject"
@@ -652,7 +652,7 @@ ApplicationWindow {
             z: 2
             anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
             edge: "left"
-            title: "DEVICES"
+            title: qsTr("DEVICES")
             autoHide: root.uiFlag("ui/autoHideRail", true)
             roomy: workspace.roomy
             // The tour points at the bars, so they are out while it runs.
@@ -820,7 +820,7 @@ ApplicationWindow {
                         }
                         // The hint gives way first: it elides before the
                         // title, the stem or the length is pushed off.
-                        Label { text: "SPACE play  |  HOME rewind  |  ARROWS move  |  SHIFT+UP/DOWN transpose  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo"
+                        Label { text: qsTr("SPACE play  |  HOME rewind  |  ARROWS move  |  SHIFT+UP/DOWN transpose  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo")
                             color: Theme.muted; font.pixelSize: 10
                             // It takes only the room left over, so the names
                             // never elide while it still shows a word.
@@ -866,7 +866,7 @@ ApplicationWindow {
                         // The guided tour, at the end of the keys it explains.
                         // Lit while the tour runs; a press starts it or sends
                         // it away. The hints beside it elide to make room.
-                        Chip { id: helpChip; objectName: "helpButton"; text: "HELP"
+                        Chip { id: helpChip; objectName: "helpButton"; text: qsTr("HELP")
                                implicitHeight: 20
                                accessibleLabel: "Help: a guided tour"
                                on: tutorial.running
@@ -876,7 +876,7 @@ ApplicationWindow {
                         // teaches. Lit while it is on; a press opens its
                         // bubble (turning it on first), or closes it. It is
                         // turned off from the bubble.
-                        Chip { id: guideChip; objectName: "guideButton"; text: "GUIDE"
+                        Chip { id: guideChip; objectName: "guideButton"; text: qsTr("GUIDE")
                                implicitHeight: 20
                                accessibleLabel: "Guide: the floating assistant"
                                on: guideController.guideEnabled
@@ -919,15 +919,16 @@ ApplicationWindow {
                             Label {
                                 objectName: "pluginFailureText"
                                 Layout.fillWidth: true; Layout.minimumWidth: 0
-                                text: appController.failedPlugins.join(", ")
-                                      + (appController.failedPlugins.length === 1 ? " has" : " have")
-                                      + " stopped and is silenced. The song and everything else play on."
+                                text: (appController.failedPlugins.length === 1
+                                       ? qsTr("%1 has stopped and is silenced. The song and everything else play on.")
+                                       : qsTr("%1 have stopped and is silenced. The song and everything else play on."))
+                                      .arg(appController.failedPlugins.join(", "))
                                 color: Theme.ink; font.pixelSize: 11
                                 elide: Text.ElideRight
                             }
                             Chip {
                                 objectName: "reloadPlugins"
-                                text: "RELOAD"; implicitHeight: 22
+                                text: qsTr("RELOAD"); implicitHeight: 22
                                 accent: Theme.record; on: true
                                 accessibleLabel: "Load the stopped plugins again"
                                 onClicked: appController.reloadPlugins()
@@ -1044,7 +1045,7 @@ ApplicationWindow {
             z: 2
             anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
             edge: "right"
-            title: "MIXER"
+            title: qsTr("MIXER")
             autoHide: root.uiFlag("ui/autoHideMixer", true)
             roomy: workspace.roomy
             held: tutorial.running

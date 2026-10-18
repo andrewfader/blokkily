@@ -23,13 +23,13 @@ Rectangle {
         visible: !inspector.selection.exists
         spacing: 4
         Label {
-            text: "STEP " + Format.fmt2(patternModel.selectedStep + 1) + " IS EMPTY"
+            text: qsTr("STEP ") + Format.fmt2(patternModel.selectedStep + 1) + qsTr(" IS EMPTY")
             color: Theme.muted; font.pixelSize: 12; font.bold: true
             font.letterSpacing: 1
             Layout.alignment: Qt.AlignHCenter
         }
         Label {
-            text: "Click the step to place a note, then shape it here"
+            text: qsTr("Click the step to place a note, then shape it here")
             color: Theme.faint; font.pixelSize: 11
             Layout.alignment: Qt.AlignHCenter
         }
@@ -45,7 +45,7 @@ Rectangle {
             Layout.fillWidth: true; spacing: 14
         ColumnLayout {
             Layout.preferredWidth: 116; spacing: 4
-            SectionLabel { text: "STEP " + Format.fmt2(patternModel.selectedStep + 1) }
+            SectionLabel { text: qsTr("STEP ") + Format.fmt2(patternModel.selectedStep + 1) }
             Label {
                 objectName: "inspectorNote"
                 text: inspector.selection.noteName !== undefined
@@ -66,13 +66,13 @@ Rectangle {
             }
             RowLayout {
                 spacing: 3
-                SectionLabel { text: "LEN" }
+                SectionLabel { text: qsTr("LEN") }
                 Repeater {
                     model: [1, 2, 4, 8]
                     Chip {
                         required property var modelData
                         objectName: "duration" + modelData
-                        text: modelData + "ST"
+                        text: modelData + qsTr("ST")
                         on: Math.round(inspector.selection.duration / 120)
                             === modelData
                         onClicked: patternModel.setSelectedDuration(modelData * 120)
@@ -88,7 +88,7 @@ Rectangle {
             Layout.fillWidth: true; spacing: 10
             ValueDial {
                 Layout.fillWidth: true
-                label: "VELOCITY"; from: 0; to: 1
+                label: qsTr("VELOCITY"); from: 0; to: 1
                 value: inspector.selection.velocity !== undefined
                        ? inspector.selection.velocity : 0
                 readout: inspector.selection.velocityUnits !== undefined
@@ -97,7 +97,7 @@ Rectangle {
             }
             ValueDial {
                 Layout.fillWidth: true
-                label: "MICRO"; from: -59; to: 59
+                label: qsTr("MICRO"); from: -59; to: 59
                 accent: Theme.blue
                 value: inspector.selection.micro !== undefined
                        ? inspector.selection.micro : 0
@@ -110,13 +110,13 @@ Rectangle {
             ValueDial {
                 objectName: "strumDial"
                 Layout.fillWidth: true
-                label: "STRUM"; from: 0; to: 60; grip: 16
+                label: qsTr("STRUM"); from: 0; to: 60; grip: 16
                 accent: Theme.blue
                 enabled: inspector.selection.voices > 1
                 value: inspector.selection.strum !== undefined
                        ? inspector.selection.strum : 0
                 readout: inspector.selection.voices > 1
-                         ? inspector.selection.strum + " TK" : "chords"
+                         ? inspector.selection.strum + qsTr(" TK") : qsTr("chords")
                 onMoved: function(v) { patternModel.setSelectedStrum(Math.round(v)) }
             }
         }
@@ -127,7 +127,7 @@ Rectangle {
             Layout.fillWidth: true; spacing: 10
             ValueDial {
                 Layout.fillWidth: true
-                label: "PROBABILITY"; from: 0; to: 1
+                label: qsTr("PROBABILITY"); from: 0; to: 1
                 accent: Theme.amber
                 value: inspector.selection.probability !== undefined
                        ? inspector.selection.probability : 1
@@ -139,7 +139,7 @@ Rectangle {
                 Layout.fillWidth: true; spacing: 3
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: "RATCHET"; color: Theme.muted; font.pixelSize: 10
+                    Label { text: qsTr("RATCHET"); color: Theme.muted; font.pixelSize: 10
                         font.letterSpacing: 1 }
                     Item { Layout.fillWidth: true }
                 }
@@ -161,18 +161,18 @@ Rectangle {
             // into.
             RowLayout {
                 Layout.fillWidth: true; spacing: 3
-                Label { text: "INVERSION"; color: Theme.muted; font.pixelSize: 10
+                Label { text: qsTr("INVERSION"); color: Theme.muted; font.pixelSize: 10
                     font.letterSpacing: 1 }
                 Item { Layout.fillWidth: true }
                 Chip {
                     objectName: "invertDown"
-                    text: "▼ INV"; accent: Theme.blue
+                    text: qsTr("▼ INV"); accent: Theme.blue
                     enabled: inspector.selection.voices > 1
                     onClicked: patternModel.invertSelected(-1)
                 }
                 Chip {
                     objectName: "invertUp"
-                    text: "INV ▲"; accent: Theme.blue
+                    text: qsTr("INV ▲"); accent: Theme.blue
                     enabled: inspector.selection.voices > 1
                     onClicked: patternModel.invertSelected(1)
                 }
@@ -184,11 +184,11 @@ Rectangle {
             Layout.fillWidth: true; spacing: 8
             RowLayout {
                 Layout.fillWidth: true; spacing: 6
-                SectionLabel { text: "PARAMETER LOCK" }
+                SectionLabel { text: qsTr("PARAMETER LOCK") }
                 Item { Layout.fillWidth: true }
                 Chip {
                     objectName: "lockAutomation"
-                    text: "AUTO"
+                    text: qsTr("AUTO")
                     on: inspector.selection.hasLock === true &&
                         inspector.selection.lockModulation === false
                     onClicked: patternModel.setSelectedLock(
@@ -197,14 +197,14 @@ Rectangle {
                 }
                 Chip {
                     objectName: "lockModulation"
-                    text: "MOD"; accent: Theme.blue
+                    text: qsTr("MOD"); accent: Theme.blue
                     on: inspector.selection.lockModulation === true
                     onClicked: patternModel.setSelectedLock(
                         inspector.selection.lockIndex,
                         inspector.selection.lockValue, true)
                 }
                 Chip {
-                    text: "CLEAR"
+                    text: qsTr("CLEAR")
                     enabled: inspector.selection.hasLock === true
                     onClicked: patternModel.clearSelectedLock()
                 }
@@ -218,7 +218,7 @@ Rectangle {
                 readonly property int slot: inspector.selection.lockSlot !== undefined
                                             ? inspector.selection.lockSlot : -1
                 readonly property string kind: inspector.selection.lockKind !== undefined
-                                               ? inspector.selection.lockKind : "track"
+                                               ? inspector.selection.lockKind : qsTr("track")
                 readonly property int bus: kind === "track" ? songModel.selectedTrack
                                            : (inspector.selection.lockBus !== undefined
                                               ? inspector.selection.lockBus : 0)
@@ -237,7 +237,7 @@ Rectangle {
                     for (var i = 0; i < parameters.length; ++i) names.push(parameters[i].name)
                     return names
                 }
-                Label { text: "ON"; color: Theme.muted; font.pixelSize: 10
+                Label { text: qsTr("ON"); color: Theme.muted; font.pixelSize: 10
                     font.letterSpacing: 1 }
                 Picker {
                     objectName: "lockTarget"
@@ -273,13 +273,13 @@ Rectangle {
             }
             ValueDial {
                 Layout.fillWidth: true
-                label: "VALUE"; from: 0; to: 1
+                label: qsTr("VALUE"); from: 0; to: 1
                 enabled: inspector.selection.hasLock === true
                 accent: inspector.selection.lockModulation ? Theme.blue : Theme.acid
                 value: inspector.selection.lockValue !== undefined
                        ? inspector.selection.lockValue : 0
                 readout: inspector.selection.hasLock
-                         ? inspector.selection.lockText : "none"
+                         ? inspector.selection.lockText : qsTr("none")
                 onMoved: function(v) {
                     patternModel.setSelectedLock(inspector.selection.lockIndex, v,
                                                  inspector.selection.lockModulation)
@@ -287,13 +287,13 @@ Rectangle {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: 6
-                Label { text: "EVERY"; color: Theme.muted; font.pixelSize: 10
+                Label { text: qsTr("EVERY"); color: Theme.muted; font.pixelSize: 10
                     font.letterSpacing: 1 }
                 Repeater {
                     model: [0, 2, 3, 4]
                     Chip {
                         required property var modelData
-                        text: modelData === 0 ? "LOOP" : modelData + "×"
+                        text: modelData === 0 ? qsTr("LOOP") : modelData + "×"
                         accent: Theme.amber
                         on: inspector.selection.loop === modelData
                         onClicked: patternModel.setSelectedPlayOnLoop(modelData)
@@ -315,10 +315,10 @@ Rectangle {
                      && inspector.selection.voices > 1
             RowLayout {
                 Layout.fillWidth: true; spacing: 6
-                SectionLabel { text: "VOICE VELOCITY" }
+                SectionLabel { text: qsTr("VOICE VELOCITY") }
                 Item { Layout.fillWidth: true }
                 Label {
-                    text: "DRAG ↕"
+                    text: qsTr("DRAG ↕")
                     color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 1
                 }
             }

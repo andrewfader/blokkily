@@ -122,7 +122,7 @@ ToolBar {
                     color: transport.playing ? Theme.acid : Theme.ink
                     font.family: Theme.mono; font.pixelSize: 13; font.bold: true }
                 Item { Layout.fillWidth: true }
-                Label { text: "BAR"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1
+                Label { text: qsTr("BAR"); color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1
                     visible: !root.narrow }
             }
         }
@@ -158,7 +158,7 @@ ToolBar {
                     Keys.onEscapePressed: finish()
                 }
                 Item { Layout.fillWidth: true; visible: !tempoField.visible }
-                Label { text: "BPM"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1
+                Label { text: qsTr("BPM"); color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 1
                     visible: !root.narrow }
             }
             MouseArea {
@@ -217,18 +217,21 @@ ToolBar {
         RowLayout {
             objectName: "historyChips"
             spacing: 2
-            TextMetrics { id: historyName; text: "CLEAR"
+            TextMetrics { id: historyName; text: qsTr("CLEAR", "empty the whole song")
                 font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
-            Chip { objectName: "undoButton"; text: "UNDO"; enabled: songModel.canUndo
-                   labelPadding: 10; implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+            // As wide as the widest of the three labels, whatever the language.
+            readonly property real chipWidth: Math.ceil(Math.max(historyName.advanceWidth, undoChip.labelWidth,
+                                                                 redoChip.labelWidth)) + 12
+            Chip { id: undoChip; objectName: "undoButton"; text: qsTr("UNDO"); enabled: songModel.canUndo
+                   labelPadding: 10; implicitWidth: parent.chipWidth
                    onClicked: songModel.undo() }
-            Chip { objectName: "redoButton"; text: "REDO"; enabled: songModel.canRedo
-                   labelPadding: 10; implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+            Chip { id: redoChip; objectName: "redoButton"; text: qsTr("REDO"); enabled: songModel.canRedo
+                   labelPadding: 10; implicitWidth: parent.chipWidth
                    onClicked: songModel.redo() }
             // Empties the song so the producer can start from nothing; it is one
             // step of history, so the UNDO beside it brings everything back.
-            Chip { objectName: "clearButton"; text: "CLEAR"; accent: Theme.record
-                   labelPadding: 10; implicitWidth: Math.ceil(historyName.advanceWidth) + 12
+            Chip { objectName: "clearButton"; text: qsTr("CLEAR", "empty the whole song"); accent: Theme.record
+                   labelPadding: 10; implicitWidth: parent.chipWidth
                    accessibleLabel: "Clear everything"
                    onClicked: appController.clearEverything() }
         }
@@ -246,18 +249,23 @@ ToolBar {
                 Chip {
                     required property var modelData
                     objectName: "view" + modelData
+                    readonly property var names: ({
+                        "ALL": qsTr("ALL"), "STEP": qsTr("STEP"), "TRACKER": qsTr("TRACKER"),
+                        "PIANO": qsTr("PIANO"), "SCORE": qsTr("SCORE"), "KEYS": qsTr("KEYS"),
+                        "LAUNCH": qsTr("LAUNCH"), "VERSIONS": qsTr("VERSIONS"), "NOTES": qsTr("NOTES")
+                    })
                     readonly property var shortNames: ({
-                        "ALL": "ALL", "STEP": "STEP", "TRACKER": "TRK", "PIANO": "ROLL",
-                        "SCORE": "SCORE", "KEYS": "KEYS", "LAUNCH": "LNCH",
-                        "VERSIONS": "VERS", "NOTES": "NOTE"
+                        "ALL": qsTr("ALL", "short view tab"), "STEP": qsTr("STEP", "short view tab"), "TRACKER": qsTr("TRK", "short view tab"), "PIANO": qsTr("ROLL", "short view tab"),
+                        "SCORE": qsTr("SCORE", "short view tab"), "KEYS": qsTr("KEYS", "short view tab"), "LAUNCH": qsTr("LNCH", "short view tab"),
+                        "VERSIONS": qsTr("VERS", "short view tab"), "NOTES": qsTr("NOTE", "short view tab")
                     })
                     readonly property var shortestNames: ({
-                        "ALL": "ALL", "STEP": "STP", "TRACKER": "TRK", "PIANO": "ROL",
-                        "SCORE": "SCR", "KEYS": "KEY", "LAUNCH": "LNC",
-                        "VERSIONS": "VER", "NOTES": "NTS"
+                        "ALL": qsTr("ALL", "short view tab"), "STEP": qsTr("STP", "short view tab"), "TRACKER": qsTr("TRK", "short view tab"), "PIANO": qsTr("ROL", "short view tab"),
+                        "SCORE": qsTr("SCR", "short view tab"), "KEYS": qsTr("KEY", "short view tab"), "LAUNCH": qsTr("LNC", "short view tab"),
+                        "VERSIONS": qsTr("VER", "short view tab"), "NOTES": qsTr("NTS", "short view tab")
                     })
                     readonly property string shown: root.narrow ? shortestNames[modelData]
-                                                  : root.cramped ? shortNames[modelData] : modelData
+                                                  : root.cramped ? shortNames[modelData] : names[modelData]
                     text: shown
                     accessibleLabel: modelData
                     labelPadding: root.narrow ? 3 : root.tight ? 8 : 12
@@ -292,8 +300,8 @@ ToolBar {
             visible: !root.tight
         }
         Chip { objectName: "rescanButton"
-               text: appController.scanning ? (root.narrow ? "…" : "SCANNING…")
-                     : root.narrow ? "SCAN" : root.tight ? "RESCAN" : "RESCAN PLUGINS"
+               text: appController.scanning ? (root.narrow ? "…" : qsTr("SCANNING…"))
+                     : root.narrow ? qsTr("SCAN") : root.tight ? qsTr("RESCAN") : qsTr("RESCAN PLUGINS")
                accessibleLabel: "Rescan plugins"
                onClicked: appController.rescanPlugins() }
     }

@@ -47,7 +47,7 @@ Rectangle {
             // The section label sits to the left so the row reads the way
             // every other toolbar in the app reads — name, then controls.
             Label {
-                text: "ASSISTANT"
+                text: qsTr("ASSISTANT")
                 color: llmModel.hasProposal ? Theme.acid : Theme.muted
                 font.pixelSize: 10
                 font.letterSpacing: 1.2
@@ -63,7 +63,7 @@ Rectangle {
                 onPicked: name => llmModel.setBackend(name)
                 Accessible.name: "Assistant backend"
                 ToolTip.visible: pickerHover.hovered
-                ToolTip.text: "Where the prompt is answered: Ollama on this machine, or a cloud model you have keyed"
+                ToolTip.text: qsTr("Where the prompt is answered: Ollama on this machine, or a cloud model you have keyed")
                 HoverHandler { id: pickerHover }
             }
 
@@ -73,8 +73,8 @@ Rectangle {
                 Layout.fillWidth: true
                 enabled: !llmModel.busy && !llmModel.hasProposal
                 placeholderText: llmModel.hasProposal
-                    ? "Apply or discard the proposal below."
-                    : "Ask for a pattern — “a minor pentatonic ascending”, “offbeat hats”, “make this jazzier”…"
+                    ? qsTr("Apply or discard the proposal below.")
+                    : qsTr("Ask for a pattern — “a minor pentatonic ascending”, “offbeat hats”, “make this jazzier”…")
                 color: Theme.ink
                 font.pixelSize: 13
                 selectByMouse: true
@@ -109,7 +109,7 @@ Rectangle {
             Chip {
                 id: askButton
                 objectName: "askButton"
-                text: llmModel.busy ? "\u2026" : "ASK"
+                text: llmModel.busy ? "\u2026" : qsTr("ASK")
                 implicitWidth: 56
                 enabled: !llmModel.busy && !llmModel.hasProposal
                           && promptField.text.trim() !== ""
@@ -160,7 +160,7 @@ Rectangle {
                 id: applyButton
                 objectName: "promptApply"
                 visible: llmModel.hasProposal
-                text: "APPLY"
+                text: qsTr("APPLY")
                 implicitWidth: 72
                 on: true
                 onClicked: llmModel.applyProposal()
@@ -171,7 +171,7 @@ Rectangle {
                 id: discardButton
                 objectName: "promptDiscard"
                 visible: llmModel.hasProposal
-                text: "DISCARD"
+                text: qsTr("DISCARD")
                 implicitWidth: 72
                 onClicked: llmModel.discardProposal()
                 accessibleLabel: "Discard the proposal without touching the pattern"
@@ -185,7 +185,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: !llmModel.busy && !llmModel.hasProposal
                       && llmModel.statusText === ""
-            text: "Ctrl+K to focus · Return to send · Escape to leave"
+            text: qsTr("Ctrl+K to focus · Return to send · Escape to leave")
             color: Theme.muted
             font.pixelSize: 10
             font.letterSpacing: 0.5

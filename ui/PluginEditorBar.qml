@@ -21,7 +21,7 @@ Rectangle {
         spacing: 8
         Chip {
             objectName: "editorButton"
-            text: "EDITOR"
+            text: qsTr("EDITOR")
             accent: Theme.acid
             enabled: songModel.tracks[root.track] !== undefined
                      && songModel.tracks[root.track].hasInstrument

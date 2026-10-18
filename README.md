@@ -49,7 +49,7 @@ have not been checked there yet.
 
 ## Build and run
 
-You need CMake 3.25+, Qt 6.5+, plus FluidSynth, RtAudio, RtMidi, libsndfile,
+You need CMake 3.25+, Qt 6.5+ with its Linguist tools (`qt6-tools`), plus FluidSynth, RtAudio, RtMidi, libsndfile,
 libsamplerate and Rubber Band 4 (found through pkg-config), and on Linux
 libjack (JACK or PipeWire's JACK). JUCE and the CLAP
 headers are vendored under `third_party/`, so clone with `--recursive`.

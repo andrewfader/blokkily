@@ -16,7 +16,7 @@ ColumnLayout {
         pluginFilter.selectAll()
     }
 
-    SectionLabel { text: "DEVICES" }
+    SectionLabel { text: qsTr("DEVICES") }
     // A sampler's panel names its track itself, so it takes this box's place
     // and the browser below keeps room to be used.
     Rectangle {
@@ -44,7 +44,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: songModel.trackNames[songModel.selectedTrack] !== undefined
                           ? songModel.trackNames[songModel.selectedTrack]
-                          : "NO TRACK"
+                          : qsTr("NO TRACK")
                     color: Theme.ink; font.bold: true; font.pixelSize: 10
                     font.letterSpacing: 0.8; elide: Text.ElideRight
                 }
@@ -65,7 +65,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true; spacing: 6
-        SectionLabel { text: "MIDI IN" }
+        SectionLabel { text: qsTr("MIDI IN") }
         Item { Layout.fillWidth: true }
         // MPE: each key's own bend, CC 74 and pressure move that note alone,
         // and are recorded with it. UPPER reads the upper zone (master 16,
@@ -73,14 +73,14 @@ ColumnLayout {
         Chip {
             objectName: "mpeZoneChip"
             visible: appController.mpe
-            text: "UPPER"; implicitHeight: 20
+            text: qsTr("UPPER"); implicitHeight: 20
             accessibleLabel: "MPE upper zone"
             on: appController.mpeUpper
             onClicked: appController.setMpeUpper(!appController.mpeUpper)
         }
         Chip {
             objectName: "mpeChip"
-            text: "MPE"; implicitHeight: 20
+            text: qsTr("MPE"); implicitHeight: 20
             accessibleLabel: "MPE keyboard"
             on: appController.mpe
             onClicked: appController.setMpe(!appController.mpe)
@@ -107,7 +107,7 @@ ColumnLayout {
                 objectName: "midiPortName"
                 Layout.fillWidth: true
                 text: appController.midiPort !== "" ? appController.midiPort
-                                                    : "No MIDI input"
+                                                    : qsTr("No MIDI input")
                 color: appController.midiPort !== "" ? Theme.ink : Theme.muted
                 font.pixelSize: 10; font.bold: true; elide: Text.ElideRight
             }
@@ -134,7 +134,7 @@ ColumnLayout {
         Menu {
             id: midiMenu
             objectName: "midiMenu"
-            MenuItem { text: "None"; onTriggered: appController.selectMidiPort(-1) }
+            MenuItem { text: qsTr("None"); onTriggered: appController.selectMidiPort(-1) }
             Instantiator {
                 model: appController.midiPorts
                 delegate: MenuItem {
@@ -174,7 +174,7 @@ ColumnLayout {
         Component.onCompleted: appController.refreshMidiPorts()
         RowLayout {
             Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "MIDI OUT"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            SectionLabel { text: qsTr("MIDI OUT"); Layout.preferredWidth: midiOutPanel.labelWidth }
             Picker {
                 objectName: "midiOutPort"
                 Layout.fillWidth: true; Layout.minimumWidth: 60
@@ -207,7 +207,7 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true; spacing: 6
             visible: songModel.tracks.some(function(track) { return track.takesAudio === true })
-            SectionLabel { text: "OFFSET"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            SectionLabel { text: qsTr("OFFSET"); Layout.preferredWidth: midiOutPanel.labelWidth }
             TextField {
                 id: recordOffsetField
                 objectName: "recordOffset"
@@ -236,7 +236,7 @@ ColumnLayout {
                 onAccepted: focus = false
             }
             Label {
-                text: "SMP"; color: Theme.muted
+                text: qsTr("SMP"); color: Theme.muted
                 font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
             }
         }
@@ -247,17 +247,17 @@ ColumnLayout {
         // row has left, so no name is cut short.
         RowLayout {
             Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "ARP"; Layout.preferredWidth: midiOutPanel.labelWidth }
+            SectionLabel { text: qsTr("ARP"); Layout.preferredWidth: midiOutPanel.labelWidth }
             Chip {
                 objectName: "arpEnabled"
-                text: midiOutPanel.arp.enabled ? "ON" : "OFF"
+                text: midiOutPanel.arp.enabled ? qsTr("ON") : qsTr("OFF")
                 implicitHeight: 22; implicitWidth: 44
                 on: midiOutPanel.arp.enabled === true
                 onClicked: songModel.setArpEnabled(songModel.selectedTrack, !midiOutPanel.arp.enabled)
             }
             Chip {
                 objectName: "arpLatch"
-                text: "LATCH"; implicitHeight: 22
+                text: qsTr("LATCH"); implicitHeight: 22
                 on: midiOutPanel.arp.latch === true
                 onClicked: songModel.setArpLatch(songModel.selectedTrack, !midiOutPanel.arp.latch)
             }
@@ -305,18 +305,18 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true; spacing: 6
-        SectionLabel { text: "PLUGINS" }
+        SectionLabel { text: qsTr("PLUGINS") }
         Item { Layout.fillWidth: true }
         // Instruments play a track's notes; effects go into the rack.
         Chip {
             objectName: "browserKindInstrument"
-            text: "INSTR"; implicitHeight: 20
+            text: qsTr("INSTR"); implicitHeight: 20
             on: appController.browserKind === "instrument"
             onClicked: appController.setBrowserKind("instrument")
         }
         Chip {
             objectName: "browserKindEffect"
-            text: "FX"; implicitHeight: 20; accent: Theme.amber
+            text: qsTr("FX"); implicitHeight: 20; accent: Theme.amber
             on: appController.browserKind === "effect"
             onClicked: appController.setBrowserKind("effect")
         }
@@ -344,7 +344,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 padding: 0
                 placeholderText: appController.browserKind === "effect"
-                                 ? "Find effect" : "Find instrument"
+                                 ? qsTr("Find effect") : qsTr("Find instrument")
                 placeholderTextColor: Theme.muted
                 color: Theme.ink; font.pixelSize: 11
                 selectByMouse: true
@@ -431,8 +431,8 @@ ColumnLayout {
             anchors.centerIn: parent
             width: parent.width - 16
             visible: pluginBrowser.count === 0 && appController.browserTotal > 0
-            text: "No " + (appController.browserKind === "effect" ? "effect" : "instrument")
-                  + " matches “" + pluginFilter.text + "”"
+            text: (appController.browserKind === "effect" ? qsTr("No effect matches “%1”")
+                                                           : qsTr("No instrument matches “%1”")).arg(pluginFilter.text)
             color: Theme.muted; font.pixelSize: 11
             horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
         }
@@ -463,7 +463,7 @@ ColumnLayout {
                          : modelData.format === "LV2" ? Theme.violet
                          : modelData.format === "Built-in" ? Theme.line : Theme.amber
                     Label { anchors.centerIn: parent
-                        text: modelData.format === "Built-in" ? "INT"
+                        text: modelData.format === "Built-in" ? qsTr("INT")
                             : modelData.format === "Sampler" ? "SMP" : modelData.format
                         color: modelData.format === "CLAP" ? Theme.onAccent : Theme.ink
                         font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }

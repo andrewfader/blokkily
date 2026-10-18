@@ -16,7 +16,7 @@ Rectangle {
         id: row
         anchors.centerIn: parent
         spacing: 2
-        Label { text: "LEN"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 0.6
+        Label { text: qsTr("LEN"); color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 0.6
             Layout.rightMargin: 2 }
         Rectangle {
             objectName: "patternLengthDown"
@@ -36,7 +36,7 @@ Rectangle {
             objectName: "patternLengthReadout"
             Layout.preferredWidth: Math.max(38, implicitWidth)
             horizontalAlignment: Text.AlignHCenter
-            text: patternModel.stepCount + " ST"
+            text: patternModel.stepCount + qsTr(" ST")
             color: patternModel.stepCount === 16 ? Theme.muted : Theme.amber
             font.pixelSize: 9; font.bold: true; font.family: Theme.mono
         }

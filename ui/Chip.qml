@@ -10,6 +10,9 @@ Rectangle {
     // The room left either side of the label. A chip sized to its text with
     // less padding than the usual says so, or its label is elided.
     property real labelPadding: 12
+    // The width the label wants, for a chip that sets its own width but
+    // must still fit a longer label (a translation).
+    readonly property real labelWidth: chipText.implicitWidth
     signal clicked()
     signal rightClicked()
     signal doubleClicked()

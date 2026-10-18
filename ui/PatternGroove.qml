@@ -26,13 +26,13 @@ Rectangle {
             implicitWidth: quantLabel.implicitWidth + 12; implicitHeight: 18; radius: 2
             color: quantMouse.containsMouse ? Theme.raised : "transparent"
             Label { id: quantLabel; anchors.centerIn: parent
-                text: "QUANT " + root.grids[root.grid].name
+                text: qsTr("QUANT ") + root.grids[root.grid].name
                 color: Theme.ink; font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.6 }
             MouseArea { id: quantMouse; anchors.fill: parent; hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 ToolTip.visible: containsMouse; ToolTip.delay: 600
-                ToolTip.text: "Move every step onto the grid. Right-click: grid. Shift: halfway."
+                ToolTip.text: qsTr("Move every step onto the grid. Right-click: grid. Shift: halfway.")
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton) {
                         root.grid = (root.grid + 1) % root.grids.length
@@ -47,12 +47,12 @@ Rectangle {
             objectName: "humanizeButton"
             implicitWidth: humanLabel.implicitWidth + 12; implicitHeight: 18; radius: 2
             color: humanMouse.containsMouse ? Theme.raised : "transparent"
-            Label { id: humanLabel; anchors.centerIn: parent; text: "HUMAN"
+            Label { id: humanLabel; anchors.centerIn: parent; text: qsTr("HUMAN")
                 color: Theme.ink; font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.6 }
             MouseArea { id: humanMouse; anchors.fill: parent; hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 ToolTip.visible: containsMouse; ToolTip.delay: 600
-                ToolTip.text: "Loosen every step's timing (±8 ticks) and velocity (±0.08)."
+                ToolTip.text: qsTr("Loosen every step's timing (±8 ticks) and velocity (±0.08).")
                 onClicked: patternModel.humanizePattern(8, 0.08,
                                                         Math.floor(Math.random() * 2147483647)) }
         }

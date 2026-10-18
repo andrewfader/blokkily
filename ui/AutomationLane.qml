@@ -183,7 +183,7 @@ Rectangle {
         anchors.left: parent.left; anchors.leftMargin: 4
         anchors.top: parent.top; anchors.topMargin: 1
         visible: lane.points.length === 0
-        text: "no lane: move a control in TOUCH, LATCH or WRITE while playing, or double-click"
+        text: qsTr("no lane: move a control in TOUCH, LATCH or WRITE while playing, or double-click")
         color: Theme.muted; font.pixelSize: 8
     }
 }

@@ -17,11 +17,11 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            SectionLabel { text: "MIXER" }
+            SectionLabel { text: qsTr("MIXER") }
             Item { Layout.fillWidth: true }
             Label {
                 objectName: "mixerTrackCount"
-                text: songModel.trackCount + (songModel.trackCount === 1 ? " TRACK" : " TRACKS")
+                text: songModel.trackCount + (songModel.trackCount === 1 ? qsTr(" TRACK") : qsTr(" TRACKS"))
                 color: Theme.muted; font.pixelSize: 9; font.letterSpacing: 0.8
             }
         }
@@ -61,7 +61,7 @@ Rectangle {
             Chip {
                 objectName: "addReturnButton"
                 Layout.fillWidth: true
-                text: "+ RETURN"; accent: Theme.amber
+                text: qsTr("+ RETURN"); accent: Theme.amber
                 onClicked: songModel.addReturn()
             }
         }
@@ -85,17 +85,17 @@ Rectangle {
                 anchors.fill: parent; anchors.margins: 9; spacing: 5
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: "MASTER"; color: Theme.acid; font.pixelSize: 11
+                    Label { text: qsTr("MASTER"); color: Theme.acid; font.pixelSize: 11
                         font.bold: true; font.letterSpacing: 1 }
                     Item { Layout.fillWidth: true }
                     Chip {
                         objectName: "masterRack"
-                        text: "FX"; implicitHeight: 18
+                        text: qsTr("FX"); implicitHeight: 18
                         on: songModel.masterRacked
                         onClicked: songModel.selectRack("master", 0)
                     }
                     Label {
-                        text: songModel.masterPeak > 0.99 ? "CLIP" : "OK"
+                        text: songModel.masterPeak > 0.99 ? qsTr("CLIP") : qsTr("OK")
                         color: songModel.masterPeak > 0.99 ? "#ff4d4d" : Theme.muted
                         font.pixelSize: 9; font.bold: true
                     }
@@ -112,7 +112,7 @@ Rectangle {
                 }
                 ValueDial {
                     Layout.fillWidth: true
-                    label: "LEVEL"; from: -60; to: 6
+                    label: qsTr("LEVEL"); from: -60; to: 6
                     value: songModel.masterGainDb
                     readout: (songModel.masterGainDb <= -95.95 ? "-inf"
                               : (songModel.masterGainDb > 0 ? "+" : "")

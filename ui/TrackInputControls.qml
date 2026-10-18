@@ -45,7 +45,7 @@ ColumnLayout {
             horizontalAlignment: Text.AlignRight
             // Says where played notes go, so an unarmed track that is still
             // taking them (the selected one, with nothing armed) is not a surprise.
-            text: root.track.armed ? "ARMED"
+            text: root.track.armed ? qsTr("ARMED")
                   : (songModel.armedCount === 0 && root.track.selected ? "PLAYS INPUT" : "")
             color: root.track.armed ? Theme.record : Theme.muted
             font.pixelSize: 9; font.bold: true; font.letterSpacing: 0.8

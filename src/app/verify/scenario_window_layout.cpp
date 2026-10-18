@@ -224,7 +224,9 @@ void run_window_layout(VerifyContext& ctx) {
     check(click("resetLayout"));
     check(click("viewALL"));
     settle(50);
-    check(c.uiSettings().isEmpty());
+    // Only the language the gate reads the window in is left: RESET is the
+    // layout's, not the language's.
+    check(c.uiSettings().keys() == QStringList{QStringLiteral("ui/language")});
     check(!flag(rail, "docked") && !flag(mixer, "docked"));
     check(mixer->property("storedWidth").toDouble() == 250);
     check(arrangement && keyboard && keyboard->y() > arrangement->y());

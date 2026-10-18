@@ -30,37 +30,37 @@ Item {
     // not on screen (a view that hides it, a feature not built) is passed by.
     readonly property var steps: [
         { target: "", title: "HI, I'M BLOKKILY",
-          text: "Half T-block, half broccoli, all groove. Let me show you around. Press Esc or X any time to send me away.",
+          text: qsTr("Half T-block, half broccoli, all groove. Let me show you around. Press Esc or X any time to send me away."),
           keys: "" },
         { target: "playButton", title: "TRANSPORT",
-          text: "Play, record and rewind the song from here.",
+          text: qsTr("Play, record and rewind the song from here."),
           keys: "SPACE / HOME" },
         { target: "tempoBox", title: "TEMPO",
-          text: "Drag it up or down, scroll it, or double-click to type a tempo.",
+          text: qsTr("Drag it up or down, scroll it, or double-click to type a tempo."),
           keys: "SHIFT = FINE" },
         { target: "viewSwitcher", title: "VIEWS",
-          text: "Step grid, tracker and piano roll are one pattern seen three ways. ALL shows them side by side.",
+          text: qsTr("Step grid, tracker and piano roll are one pattern seen three ways. ALL shows them side by side."),
           keys: "" },
         { target: "arrangementView", title: "THE SONG",
-          text: "Patterns placed on bars make the song. Right-click a pattern or a track for its menu.",
+          text: qsTr("Patterns placed on bars make the song. Right-click a pattern or a track for its menu."),
           keys: "RIGHT-CLICK" },
         { target: "loopButton", title: "LOOP",
-          text: "LOOP wraps playback between IN and OUT. Shift-click a bar number for IN, Ctrl-click for OUT. Export still writes the whole song.",
+          text: qsTr("LOOP wraps playback between IN and OUT. Shift-click a bar number for IN, Ctrl-click for OUT. Export still writes the whole song."),
           keys: "LOOP / IN / OUT" },
         { target: "stepGrid", title: "STEPS",
-          text: "Click a step to light it. Type notes like a tracker: Z to M is one octave, Q to I the next.",
+          text: qsTr("Click a step to light it. Type notes like a tracker: Z to M is one octave, Q to I the next."),
           keys: "CTRL+1..0" },
         { target: "instrumentPanel", title: "INSTRUMENT",
-          text: "What the selected track plays. Search the browser for a CLAP, VST3 or SoundFont.",
+          text: qsTr("What the selected track plays. Search the browser for a CLAP, VST3 or SoundFont."),
           keys: "CTRL+F" },
         { target: "mixerPanel", title: "MIXER",
-          text: "Every track has a fader, pan, mute and solo. You hear moves straight away.",
+          text: qsTr("Every track has a fader, pan, mute and solo. You hear moves straight away."),
           keys: "CTRL+M / CTRL+L" },
         { target: "promptBar", title: "ASSISTANT",
-          text: "Ask for a beat or a bassline in plain words and approve what comes back.",
+          text: qsTr("Ask for a beat or a bassline in plain words and approve what comes back."),
           keys: "CTRL+K" },
         { target: "helpButton", title: "THAT'S THE TOUR",
-          text: "Press HELP whenever you want me back. Now go make something!",
+          text: qsTr("Press HELP whenever you want me back. Now go make something!"),
           keys: "F1" }
     ]
     readonly property var current: steps[step]
@@ -391,7 +391,7 @@ Item {
                 width: parent.width; height: 26
                 Chip {
                     objectName: "tutorialCancel"
-                    text: "CANCEL"
+                    text: qsTr("CANCEL")
                     onClicked: tour.finish()
                 }
                 Row {
@@ -399,13 +399,13 @@ Item {
                     spacing: 6
                     Chip {
                         objectName: "tutorialBack"
-                        text: "BACK"
+                        text: qsTr("BACK")
                         enabled: tour.step > 0
                         onClicked: tour.back()
                     }
                     Chip {
                         objectName: "tutorialNext"
-                        text: tour.lastStep ? "DONE" : "NEXT"
+                        text: tour.lastStep ? qsTr("DONE") : qsTr("NEXT")
                         on: true
                         onClicked: tour.next()
                     }

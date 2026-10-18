@@ -77,7 +77,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true; spacing: 6
-        SectionLabel { text: "ARRANGEMENT" }
+        SectionLabel { text: qsTr("ARRANGEMENT") }
         Chip { objectName: "arrangeZoomOut"; text: "-"; implicitWidth: 24; implicitHeight: 22
             accessibleLabel: "Zoom the arrangement out"
             enabled: root.zoom > 1
@@ -88,7 +88,7 @@ ColumnLayout {
             onClicked: root.setZoom(root.zoom * 1.5) }
         // The hint gives way first: it elides before anything is pushed off.
         Label {
-            text: "click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes"
+            text: qsTr("click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes")
             color: Theme.muted; font.pixelSize: 9
             Layout.fillWidth: true; Layout.minimumWidth: 0
             horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft
@@ -137,14 +137,14 @@ ColumnLayout {
             }
         }
         // A new pattern is as long as the bar the playhead is in.
-        Chip { objectName: "addPatternButton"; text: "+PAT"; accent: Theme.blue
+        Chip { objectName: "addPatternButton"; text: qsTr("+PAT"); accent: Theme.blue
             onClicked: songModel.addPattern(transport.bar) }
         // A variation starts as a copy of what is open.
-        Chip { objectName: "duplicatePatternButton"; text: "DUP"; accent: Theme.blue
+        Chip { objectName: "duplicatePatternButton"; text: qsTr("DUP"); accent: Theme.blue
             onClicked: songModel.duplicatePattern() }
-        Chip { objectName: "addTrackButton"; text: "+TRK"; accent: Theme.blue
+        Chip { objectName: "addTrackButton"; text: qsTr("+TRK"); accent: Theme.blue
             onClicked: appController.addTrack() }
-        Chip { objectName: "addAudioButton"; text: "+AUD"; accent: Theme.amber
+        Chip { objectName: "addAudioButton"; text: qsTr("+AUD"); accent: Theme.amber
             onClicked: audioClipLane.importToNewTrack() }
     }
 
@@ -301,7 +301,7 @@ ColumnLayout {
                     Column {
                         anchors.centerIn: parent
                         Label { anchors.horizontalCenter: parent.horizontalCenter
-                            text: "TEMPO"; color: Theme.muted
+                            text: qsTr("TEMPO"); color: Theme.muted
                             font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.6 }
                         Label { anchors.horizontalCenter: parent.horizontalCenter
                             objectName: "laneTempoReadout"
@@ -539,7 +539,7 @@ ColumnLayout {
                         width: parent.width - 6
                         spacing: 1
                         Label { width: parent.width; horizontalAlignment: Text.AlignHCenter
-                            text: "AUTO"; color: Theme.muted
+                            text: qsTr("AUTO"); color: Theme.muted
                             font.pixelSize: 8; font.bold: true; font.letterSpacing: 0.6 }
                         Label { width: parent.width; horizontalAlignment: Text.AlignHCenter
                             objectName: "automationLaneName"

@@ -56,7 +56,7 @@ Rectangle {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: (modelData.frozen ? "FROZEN · " : "") + modelData.instrument
+                    text: (modelData.frozen ? qsTr("FROZEN · ") : "") + modelData.instrument
                           + (modelData.inserts > 0 ? " · " + modelData.inserts + " FX" : "")
                     color: modelData.fed ? Theme.blue
                          : modelData.hasInstrument ? Theme.muted : Theme.faint
@@ -91,7 +91,7 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true; spacing: 4
             Label {
-                text: "AUTO"; color: Theme.muted
+                text: qsTr("AUTO"); color: Theme.muted
                 font.pixelSize: 9; font.bold: true; font.letterSpacing: 0.8
             }
             Chip {
@@ -109,7 +109,7 @@ Rectangle {
             Chip {
                 objectName: "freeze" + root.trackIndex
                 implicitWidth: 40; implicitHeight: 24
-                text: "FRZ"; accent: Theme.blue
+                text: qsTr("FRZ"); accent: Theme.blue
                 accessibleLabel: root.modelData.frozen ? "Unfreeze the track" : "Freeze the track"
                 on: root.modelData.frozen === true
                 enabled: root.modelData.frozen === true || root.modelData.hasInstrument === true
@@ -121,7 +121,7 @@ Rectangle {
             Chip {
                 objectName: "addOutput" + root.trackIndex
                 visible: root.modelData.outputs !== undefined && root.modelData.outputs.length > 0
-                text: "+ OUT"; implicitHeight: 24
+                text: qsTr("+ OUT"); implicitHeight: 24
                 accent: Theme.blue
                 accessibleLabel: "Break out an instrument output"
                 onClicked: outputMenu.open()
@@ -133,7 +133,7 @@ Rectangle {
                         delegate: MenuItem {
                             required property var modelData
                             objectName: "addOutput" + root.trackIndex + "_" + modelData.output
-                            text: "AUX " + modelData.output
+                            text: qsTr("AUX ") + modelData.output
                                   + (modelData.routed ? " · on its channel" : " → new channel")
                             onTriggered: songModel.addInstrumentOutput(root.trackIndex,
                                                                        modelData.output)
@@ -172,7 +172,7 @@ Rectangle {
         ValueDial {
             objectName: "gainDial" + root.trackIndex
             Layout.fillWidth: true
-            label: "GAIN"; from: -60; to: 6; grip: 18
+            label: qsTr("GAIN"); from: -60; to: 6; grip: 18
             value: modelData.gainDb
             readout: modelData.gainText + " dB"
             accent: modelData.audible ? Theme.acid : Theme.muted
@@ -183,7 +183,7 @@ Rectangle {
         ValueDial {
             objectName: "panDial" + root.trackIndex
             Layout.fillWidth: true
-            label: "PAN"; from: -1; to: 1; grip: 18
+            label: qsTr("PAN"); from: -1; to: 1; grip: 18
             accent: Theme.blue
             value: modelData.pan
             readout: modelData.panText

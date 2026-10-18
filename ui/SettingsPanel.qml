@@ -53,9 +53,9 @@ Rectangle {
 
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
-                SectionLabel { text: "SETTINGS" }
+                SectionLabel { text: qsTr("SETTINGS") }
                 Label {
-                    text: "this machine's · remembered between launches, not saved with the song"
+                    text: qsTr("this machine's · remembered between launches, not saved with the song")
                     color: Theme.muted; font.pixelSize: 10
                     Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight
                 }
@@ -63,9 +63,9 @@ Rectangle {
 
             // ------------------------------------------------------- audio
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
-            SectionLabel { text: "AUDIO"; color: Theme.acid }
+            SectionLabel { text: qsTr("AUDIO"); color: Theme.acid }
             SettingRow {
-                label: "SYSTEM"
+                label: qsTr("SYSTEM")
                 // The audio system the device is opened on: JACK is also how
                 // PipeWire's JACK interface is reached.
                 Picker {
@@ -85,12 +85,11 @@ Rectangle {
                     }
                 }
                 Hint {
-                    text: "PipeWire: JACK (through pipewire-jack) or PULSE. Windows: WASAPI, DirectSound "
-                          + "or ASIO. Mac: Core Audio. Only what this build can open is listed."
+                    text: qsTr("PipeWire: JACK (through pipewire-jack) or PULSE. Windows: WASAPI, DirectSound or ASIO. Mac: Core Audio. Only what this build can open is listed.")
                 }
             }
             SettingRow {
-                label: "OUTPUT"
+                label: qsTr("OUTPUT")
                 visible: !appController.serverClocked
                 Picker {
                     objectName: "audioOutputDevice"
@@ -102,14 +101,14 @@ Rectangle {
                 }
                 Chip {
                     objectName: "refreshAudioDevices"
-                    text: "REFRESH"; implicitHeight: 24
+                    text: qsTr("REFRESH"); implicitHeight: 24
                     accessibleLabel: "List the audio devices again"
                     onClicked: appController.refreshAudioDevices()
                 }
                 Item { Layout.fillWidth: true }
             }
             SettingRow {
-                label: "INPUT"
+                label: qsTr("INPUT")
                 visible: !appController.serverClocked
                 Picker {
                     objectName: "audioInputDevice"
@@ -119,10 +118,10 @@ Rectangle {
                     value: appController.audioInputDevice !== "" ? appController.audioInputDevice : "DEFAULT"
                     onPicked: name => appController.setAudioInputDevice(name === "DEFAULT" ? "" : name)
                 }
-                Hint { text: "opened only while a track records audio input" }
+                Hint { text: qsTr("opened only while a track records audio input") }
             }
             SettingRow {
-                label: "SAMPLE RATE"
+                label: qsTr("SAMPLE RATE")
                 Picker {
                     objectName: "audioSampleRate"
                     Layout.preferredWidth: 140
@@ -134,11 +133,11 @@ Rectangle {
                     onPicked: name => appController.setAudioSampleRate(parseInt(name))
                 }
                 Hint {
-                    text: appController.serverClocked ? "set by the JACK server" : "asked for; the device may run at another"
+                    text: appController.serverClocked ? qsTr("set by the JACK server") : qsTr("asked for; the device may run at another")
                 }
             }
             SettingRow {
-                label: "BUFFER"
+                label: qsTr("BUFFER")
                 Picker {
                     objectName: "audioBufferFrames"
                     Layout.preferredWidth: 140
@@ -150,14 +149,14 @@ Rectangle {
                     onPicked: name => appController.setAudioBufferFrames(parseInt(name))
                 }
                 Hint {
-                    text: appController.serverClocked ? "set by the JACK server"
-                          : "smaller answers sooner, larger is safer against dropouts ("
+                    text: appController.serverClocked ? qsTr("set by the JACK server")
+                          : qsTr("smaller answers sooner, larger is safer against dropouts (")
                             + (1000 * appController.audioBufferFrames / appController.audioSampleRate).toFixed(1)
                             + " ms)"
                 }
             }
             SettingRow {
-                label: "RUNNING"
+                label: qsTr("RUNNING")
                 Label {
                     objectName: "audioDeviceStatus"
                     Layout.fillWidth: true; Layout.minimumWidth: 0
@@ -169,9 +168,9 @@ Rectangle {
 
             // -------------------------------------------------------- midi
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
-            SectionLabel { text: "MIDI"; color: Theme.acid }
+            SectionLabel { text: qsTr("MIDI"); color: Theme.acid }
             SettingRow {
-                label: "CLOCK OUT"
+                label: qsTr("CLOCK OUT")
                 Picker {
                     objectName: "midiClockPort"
                     Layout.preferredWidth: 320; Layout.minimumWidth: 60
@@ -180,16 +179,16 @@ Rectangle {
                     value: appController.midiClockPort !== "" ? appController.midiClockPort : "OFF"
                     onPicked: name => appController.setMidiClockPort(name === "OFF" ? "" : name)
                 }
-                Hint { text: "drum machines and sequencers on this port follow the song" }
+                Hint { text: qsTr("drum machines and sequencers on this port follow the song") }
             }
             // Following another machine's clock, from the MIDI input: its
             // Start, Stop and position move the transport, and its tempo is
             // played.
             SettingRow {
-                label: "SYNC"
+                label: qsTr("SYNC")
                 Chip {
                     objectName: "followClock"
-                    text: "EXT"; implicitHeight: 24
+                    text: qsTr("EXT"); implicitHeight: 24
                     accessibleLabel: "Follow an external MIDI clock"
                     accent: Theme.blue
                     on: appController.followClock
@@ -207,12 +206,12 @@ Rectangle {
 
             // ----------------------------------------------------- plugins
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
-            SectionLabel { text: "PLUGINS"; color: Theme.acid }
+            SectionLabel { text: qsTr("PLUGINS"); color: Theme.acid }
             SettingRow {
-                label: "ISOLATE"
+                label: qsTr("ISOLATE")
                 Chip {
                     objectName: "pluginIsolation"
-                    text: appController.pluginIsolation ? "ON" : "OFF"; implicitHeight: 24
+                    text: appController.pluginIsolation ? qsTr("ON") : qsTr("OFF"); implicitHeight: 24
                     implicitWidth: 52
                     enabled: appController.pluginIsolationAvailable
                     accessibleLabel: "Run each plugin in a process of its own"
@@ -221,67 +220,83 @@ Rectangle {
                 }
                 Hint {
                     text: appController.pluginIsolationAvailable
-                          ? "each plugin runs in a process of its own: one that crashes or hangs goes "
-                            + "silent and can be reloaded, and Blokkily keeps running. Costs one "
-                            + "block of latency, which is compensated"
-                          : "not available in this build: plugins run inside Blokkily"
+                          ? qsTr("each plugin runs in a process of its own: one that crashes or hangs goes silent and can be reloaded, and Blokkily keeps running. Costs one block of latency, which is compensated")
+                          : qsTr("not available in this build: plugins run inside Blokkily")
                 }
             }
 
             // --------------------------------------------------- interface
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
-            SectionLabel { text: "WINDOW"; color: Theme.acid }
+            SectionLabel { text: qsTr("WINDOW"); color: Theme.acid }
             SettingRow {
-                label: "AUTO-HIDE"
+                label: qsTr("AUTO-HIDE")
                 // Off, a bar stays docked; on, it tucks into the window's edge
                 // while the editors are worked and comes back when wanted.
                 Chip {
                     objectName: "autoHideRail"
-                    text: "LEFT BAR"; implicitHeight: 24
+                    text: qsTr("LEFT BAR"); implicitHeight: 24
                     accessibleLabel: "Auto-hide the left bar"
                     on: root.uiFlag("ui/autoHideRail", true)
                     onClicked: appController.setUiSetting("ui/autoHideRail", !on)
                 }
                 Chip {
                     objectName: "autoHideMixer"
-                    text: "RIGHT BAR"; implicitHeight: 24
+                    text: qsTr("RIGHT BAR"); implicitHeight: 24
                     accessibleLabel: "Auto-hide the right bar"
                     on: root.uiFlag("ui/autoHideMixer", true)
                     onClicked: appController.setUiSetting("ui/autoHideMixer", !on)
                 }
                 Hint {
-                    text: "a hidden bar comes back when the pointer rests on its edge, and stays while "
-                          + "it is used; both stay docked when the window has room for them"
+                    text: qsTr("a hidden bar comes back when the pointer rests on its edge, and stays while it is used; both stay docked when the window has room for them")
                 }
             }
             SettingRow {
-                label: "THEME"
+                label: qsTr("THEME")
                 Repeater {
-                    model: [{ name: "DARK", value: "dark" }, { name: "LIGHT", value: "light" },
-                            { name: "SYSTEM", value: "system" }]
+                    model: [{ name: "DARK", label: QT_TR_NOOP("DARK"), value: "dark" },
+                            { name: "LIGHT", label: QT_TR_NOOP("LIGHT"), value: "light" },
+                            { name: "SYSTEM", label: QT_TR_NOOP("SYSTEM"), value: "system" }]
                     Chip {
                         required property var modelData
                         objectName: "theme" + modelData.name
-                        text: modelData.name; implicitHeight: 24
+                        text: qsTr(modelData.label); implicitHeight: 24
                         accessibleLabel: modelData.name.toLowerCase() + " theme"
                         on: (root.ui["ui/theme"] !== undefined ? String(root.ui["ui/theme"]) : "dark")
                             === modelData.value
                         onClicked: appController.setUiSetting("ui/theme", modelData.value)
                     }
                 }
-                Hint { text: "SYSTEM follows the desktop's light or dark setting" }
+                Hint { text: qsTr("SYSTEM follows the desktop's light or dark setting") }
             }
             SettingRow {
-                label: "LAYOUT"
+                label: qsTr("LANGUAGE")
+                // Each language by its own name; SYSTEM is the desktop's.
+                Repeater {
+                    model: [{ name: "EN", label: "ENGLISH", value: "en" },
+                            { name: "DE", label: "DEUTSCH", value: "de" },
+                            { name: "SYSTEM", label: qsTr("SYSTEM"), value: "system" }]
+                    Chip {
+                        required property var modelData
+                        objectName: "language" + modelData.name
+                        text: modelData.label; implicitHeight: 24
+                        accessibleLabel: modelData.label.toLowerCase() + " language"
+                        on: (root.ui["ui/language"] !== undefined ? String(root.ui["ui/language"]) : "system")
+                            === modelData.value
+                        onClicked: appController.setUiSetting("ui/language", modelData.value)
+                    }
+                }
+                Hint { text: qsTr("SYSTEM follows the desktop's language, in English where there is no translation") }
+            }
+            SettingRow {
+                label: qsTr("LAYOUT")
                 Chip {
                     objectName: "resetLayout"
-                    text: "RESET"; implicitHeight: 24
+                    text: qsTr("RESET"); implicitHeight: 24
                     accessibleLabel: "Lay the window out as shipped"
                     onClicked: appController.resetUiSettings()
                 }
                 Hint {
-                    text: "drag a panel's grip in the left margin to move it, the gap under it to size it, "
-                          + "and a bar's inner edge to widen it"
+                    text: qsTr("drag a panel's grip in the left margin to move it, the gap under it to size it, and a bar's inner edge to widen it")
                 }
             }
             Item { Layout.fillHeight: true }

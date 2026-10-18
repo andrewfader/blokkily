@@ -399,6 +399,15 @@ the left bar out with its search. A window wide enough for both bars beside
 the editors docks them whether or not they auto-hide; turned off, a bar is
 always docked.
 
+WINDOW · LANGUAGE is ENGLISH, DEUTSCH, or SYSTEM, the desktop's own
+language as it ships, in English where Blokkily has no translation. The
+window's labels, menus, hints and the tour change at once; names a song gives
+its patterns and tracks, plugin names, and messages that come from the engine
+(the status lines, the audio device's name) stay as they are. Translations
+live in `i18n/`: `cmake --build build --target update_translations` gathers
+new strings into each `.ts` file, which Qt Linguist edits. See
+[the scenarios](../features/language.feature).
+
 WINDOW · THEME is DARK (as Blokkily ships), LIGHT - a white window whose
 accents are deepened so text in them still reads - or SYSTEM, which follows
 the desktop's light or dark preference as it changes.

@@ -15,7 +15,7 @@ Rectangle {
         id: row
         anchors.centerIn: parent
         spacing: 2
-        Label { text: "SWING"; color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 0.6
+        Label { text: qsTr("SWING"); color: Theme.muted; font.pixelSize: 8; font.letterSpacing: 0.6
             Layout.rightMargin: 2 }
         Rectangle {
             objectName: "patternSwingDown"

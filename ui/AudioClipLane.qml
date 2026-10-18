@@ -77,7 +77,7 @@ Item {
     FileDialog {
         id: importDialog
         objectName: "audioImportDialog"
-        title: "Import audio"
+        title: qsTr("Import audio")
         nameFilters: ["Audio files (*.wav *.flac *.aiff *.aif *.ogg *.mp3)", "All files (*)"]
         fileMode: FileDialog.OpenFile
         onAccepted: {
@@ -158,7 +158,7 @@ Item {
                 anchors.top: parent.top; anchors.topMargin: 1
                 width: parent.width - anchors.leftMargin - 4
                 elide: Text.ElideRight
-                text: (clipBox.modelData.missing ? "MISSING " : "") + clipBox.modelData.name
+                text: (clipBox.modelData.missing ? qsTr("MISSING ") : "") + clipBox.modelData.name
                       + (Math.abs(clipBox.modelData.gainDb) > 0.05
                          ? "  " + (clipBox.modelData.gainDb > 0 ? "+" : "")
                            + clipBox.modelData.gainDb.toFixed(1) + " dB" : "")
@@ -322,7 +322,7 @@ Item {
                 color: Theme.scrim
                 Label {
                     anchors.centerIn: parent
-                    text: "RENDERING…"
+                    text: qsTr("RENDERING…")
                     color: Theme.amber
                     font.pixelSize: 9; font.bold: true; font.letterSpacing: 1
                 }
@@ -340,7 +340,7 @@ Item {
                     id: takeLabel
                     anchors.centerIn: parent
                     // Short on a narrow clip, so the badge never hides it.
-                    text: (clipBox.width > 80 ? "TAKE " : "") + clipBox.modelData.takeIndex + "/"
+                    text: (clipBox.width > 80 ? qsTr("TAKE ") : "") + clipBox.modelData.takeIndex + "/"
                           + clipBox.modelData.takeCount
                     color: Theme.amber; font.pixelSize: 8; font.bold: true
                 }

@@ -49,9 +49,9 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 6
-            SectionLabel { text: "SCENE LAUNCHER" }
+            SectionLabel { text: qsTr("SCENE LAUNCHER") }
             Item { Layout.fillWidth: true }
-            SectionLabel { text: "SCENE QUANT" }
+            SectionLabel { text: qsTr("SCENE QUANT") }
             Picker {
                 objectName: "launcherQuantization"
                 implicitHeight: 22
@@ -61,13 +61,13 @@ Rectangle {
             }
             Chip {
                 objectName: "launcherRecord"
-                text: "REC ARRANGEMENT"; implicitHeight: 22; accent: Theme.record
+                text: qsTr("REC ARRANGEMENT"); implicitHeight: 22; accent: Theme.record
                 on: appController.launcherRecording
                 onClicked: appController.toggleLauncherRecording()
             }
             Chip {
                 objectName: "addScene"
-                text: "+ SCENE"; implicitHeight: 22
+                text: qsTr("+ SCENE"); implicitHeight: 22
                 onClicked: {
                     root.selectedScene = songModel.addScene()
                     root.selectedTrack = -1
@@ -75,7 +75,7 @@ Rectangle {
             }
             Chip {
                 objectName: "stopAllLaunched"
-                text: "STOP ALL"; implicitHeight: 22; accent: Theme.amber
+                text: qsTr("STOP ALL"); implicitHeight: 22; accent: Theme.amber
                 onClicked: appController.stopLauncher()
             }
         }
@@ -84,7 +84,7 @@ Rectangle {
             objectName: "launcherEmpty"
             visible: root.scenes.length === 0
             Layout.fillWidth: true
-            text: "No scenes. Add one, then click a cell to put the open pattern in it."
+            text: qsTr("No scenes. Add one, then click a cell to put the open pattern in it.")
             color: Theme.muted; font.pixelSize: 10; elide: Text.ElideRight
         }
 
@@ -216,7 +216,7 @@ Rectangle {
                             required property int index
                             objectName: "stopTrack" + index
                             width: root.columnWidth; implicitHeight: 24
-                            text: "■ STOP"
+                            text: qsTr("■ STOP")
                             on: root.stateOf(index).stopping
                             accent: Theme.amber
                             onClicked: appController.stopLauncherTrack(index)
@@ -252,7 +252,7 @@ Rectangle {
                                                   songModel.partOf(index, root.selectedTrack))
                 }
             }
-            SectionLabel { text: "LOOPS" }
+            SectionLabel { text: qsTr("LOOPS") }
             Chip {
                 objectName: "cellRepeatsDown"; text: "−"; implicitHeight: 22
                 onClicked: songModel.setCellRepeats(root.selectedScene, root.selectedTrack,
@@ -271,7 +271,7 @@ Rectangle {
                 onClicked: songModel.setCellRepeats(root.selectedScene, root.selectedTrack,
                                                     root.selectedCell.repeats + 1)
             }
-            SectionLabel { text: "THEN" }
+            SectionLabel { text: qsTr("THEN") }
             Picker {
                 objectName: "cellFollow"
                 implicitHeight: 22
@@ -279,7 +279,7 @@ Rectangle {
                 value: root.selectedCell !== null ? root.selectedCell.follow : ""
                 onPicked: name => songModel.setCellFollow(root.selectedScene, root.selectedTrack, name)
             }
-            SectionLabel { text: "QUANT" }
+            SectionLabel { text: qsTr("QUANT") }
             Picker {
                 objectName: "cellQuantization"
                 implicitHeight: 22
@@ -290,7 +290,7 @@ Rectangle {
             }
             Item { Layout.fillWidth: true }
             Chip {
-                objectName: "clearCell"; text: "CLEAR"; implicitHeight: 22; accent: Theme.amber
+                objectName: "clearCell"; text: qsTr("CLEAR"); implicitHeight: 22; accent: Theme.amber
                 onClicked: songModel.clearLauncherCell(root.selectedScene, root.selectedTrack)
             }
         }
@@ -311,7 +311,7 @@ Rectangle {
                                                           : Math.round(transport.bpm)) + by
             }
             SectionLabel { text: sceneInspector.scene !== null ? sceneInspector.scene.name : "" }
-            SectionLabel { text: "TEMPO" }
+            SectionLabel { text: qsTr("TEMPO") }
             Chip {
                 objectName: "sceneTempoDown"; text: "−"; implicitHeight: 22
                 onClicked: songModel.setSceneTempo(root.selectedScene, sceneInspector.nudged(-1))
@@ -328,7 +328,7 @@ Rectangle {
                 onClicked: songModel.setSceneTempo(root.selectedScene, sceneInspector.nudged(1))
             }
             Chip {
-                objectName: "sceneTempoSong"; text: "SONG"; implicitHeight: 22
+                objectName: "sceneTempoSong"; text: qsTr("SONG"); implicitHeight: 22
                 on: sceneInspector.scene !== null && sceneInspector.scene.tempo <= 0
                 onClicked: songModel.setSceneTempo(root.selectedScene, 0)
             }

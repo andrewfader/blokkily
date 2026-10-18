@@ -24,9 +24,9 @@ Rectangle {
         spacing: 8
         RowLayout {
             Layout.fillWidth: true; spacing: 8
-            SectionLabel { text: "NOTES" }
+            SectionLabel { text: qsTr("NOTES") }
             Label {
-                text: "saved with the song · Escape returns to the editors"
+                text: qsTr("saved with the song · Escape returns to the editors")
                 color: Theme.muted; font.pixelSize: 10
             }
             Item { Layout.fillWidth: true }
@@ -37,7 +37,7 @@ Rectangle {
             TextArea {
                 id: notes
                 objectName: "notesText"
-                placeholderText: "Lyrics, ideas, what to try next…"
+                placeholderText: qsTr("Lyrics, ideas, what to try next…")
                 wrapMode: TextEdit.Wrap
                 color: Theme.ink; font.pixelSize: 13
                 selectByMouse: true

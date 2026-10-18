@@ -52,18 +52,18 @@ ColumnLayout {
         visible: root.view === "ALL" || root.view === "STEP"
         RowLayout {
             Layout.fillWidth: true
-            SectionLabel { text: "STEP GRID" }
+            SectionLabel { text: qsTr("STEP GRID") }
             // On, the editors open whatever the selected track is playing,
             // so all three move with the song; off, they stay put.
             Chip {
                 objectName: "followButton"
-                text: "FOLLOW"; implicitHeight: 18
+                text: qsTr("FOLLOW"); implicitHeight: 18
                 on: appController.followPlayback
                 accessibleLabel: "Follow the song while it plays"
                 onClicked: appController.setFollowPlayback(!appController.followPlayback)
             }
             Item { Layout.fillWidth: true }
-            Label { text: "click toggles  |  shift-click selects  |  CTRL-click seeks  |  CTRL+1..0 toggles"; color: Theme.muted
+            Label { text: qsTr("click toggles  |  shift-click selects  |  CTRL-click seeks  |  CTRL+1..0 toggles"); color: Theme.muted
                 font.pixelSize: 9 }
         }
         // The stem rack: every stem's part of the open pattern, one row each,
@@ -419,13 +419,13 @@ ColumnLayout {
                 anchors.fill: parent; anchors.margins: 10; spacing: 6
                 RowLayout {
                     Layout.fillWidth: true; spacing: 6
-                    Label { text: "TRACKER"; color: Theme.ink; font.bold: true
+                    Label { text: qsTr("TRACKER"); color: Theme.ink; font.bold: true
                         font.pixelSize: 12; font.letterSpacing: 1 }
                     Item { Layout.fillWidth: true }
                     // The letter keys write in this octave. Without
                     // it a typed note is a guess about where it lands.
                     Chip {
-                        objectName: "octaveDown"; text: "OCT-"
+                        objectName: "octaveDown"; text: qsTr("OCT-")
                         onClicked: root.octavePicked(Math.max(0, root.entryOctave - 1))
                     }
                     Label {
@@ -434,10 +434,10 @@ ColumnLayout {
                         font.family: Theme.mono; font.pixelSize: 11; font.bold: true
                     }
                     Chip {
-                        objectName: "octaveUp"; text: "OCT+"
+                        objectName: "octaveUp"; text: qsTr("OCT+")
                         onClicked: root.octavePicked(Math.min(8, root.entryOctave + 1))
                     }
-                    Label { text: "TYPE ZSXDCVGBHNJM  ·  TAB CHANNEL  ·  DRAG VEL/FX"
+                    Label { text: qsTr("TYPE ZSXDCVGBHNJM  ·  TAB CHANNEL  ·  DRAG VEL/FX")
                         color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                         Layout.minimumWidth: 0; Layout.fillWidth: true; elide: Text.ElideRight }
                 }
@@ -780,7 +780,7 @@ ColumnLayout {
                             x: trackerScroll.contentX
                             width: trackerPanel.rowNumberWidth; height: parent.height
                             color: Theme.gridline
-                            Label { anchors.centerIn: parent; text: "ROW"; color: Theme.muted
+                            Label { anchors.centerIn: parent; text: qsTr("ROW"); color: Theme.muted
                                 font.family: Theme.mono; font.pixelSize: 9 }
                         }
                     }
@@ -797,18 +797,18 @@ ColumnLayout {
                 anchors.fill: parent; anchors.margins: 10; spacing: 6
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: "PIANO ROLL"; color: Theme.ink; font.bold: true
+                    Label { text: qsTr("PIANO ROLL"); color: Theme.ink; font.bold: true
                         font.pixelSize: 12; font.letterSpacing: 1 }
                     // The hint gives way to the roll: at its full length it
                     // made the header wider than the panel, which pushed the
                     // last columns of the roll out of sight and out of reach.
-                    Label { text: "drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases"; color: Theme.muted
+                    Label { text: qsTr("drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases"); color: Theme.muted
                         font.pixelSize: 9
                         Layout.fillWidth: true; Layout.minimumWidth: 0
                         horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                     Label {
                         objectName: "rollRange"
-                        text: patternModel.lowKey + "-" + patternModel.highKey + " KEYS"
+                        text: patternModel.lowKey + "-" + patternModel.highKey + qsTr(" KEYS")
                         color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                     }
                     // The roll's pitch window moves an octave a press (or a
@@ -1310,7 +1310,7 @@ ColumnLayout {
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 5
-                        Label { text: "CTRL"; color: Theme.muted; font.pixelSize: 9
+                        Label { text: qsTr("CTRL"); color: Theme.muted; font.pixelSize: 9
                             font.bold: true; font.letterSpacing: 1 }
                         Picker {
                             objectName: "controllerLanePicker"
@@ -1333,7 +1333,7 @@ ColumnLayout {
                             text: rollControls.laneKind === "poly"
                                 ? rollControls.noteNames[rollControls.laneController % 12]
                                   + (Math.floor(rollControls.laneController / 12) - 1)
-                                : "CC " + rollControls.laneController
+                                : qsTr("CC ") + rollControls.laneController
                             color: Theme.ink; font.pixelSize: 10; font.family: Theme.mono
                         }
                         Chip {
@@ -1348,14 +1348,14 @@ ColumnLayout {
                             horizontalAlignment: Text.AlignRight; elide: Text.ElideRight
                             text: rollControls.noteLane && !(rollControls.selectedNote
                                                                  && rollControls.selectedNote.exists)
-                                  ? "select a note to draw its own expression"
-                                  : rollControls.velocityLane ? "drag sets each note's velocity"
-                                  : "drag draws  |  drag a point to move  |  right-click erases"
+                                  ? qsTr("select a note to draw its own expression")
+                                  : rollControls.velocityLane ? qsTr("drag sets each note's velocity")
+                                  : qsTr("drag draws  |  drag a point to move  |  right-click erases")
                             color: Theme.muted; font.pixelSize: 9
                         }
                         Label {
                             objectName: "controllerPointCount"
-                            text: rollControls.lanePoints.length + " PTS"
+                            text: rollControls.lanePoints.length + qsTr(" PTS")
                             color: Theme.muted; font.pixelSize: 9; font.family: Theme.mono
                         }
                     }
