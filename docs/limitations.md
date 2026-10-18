@@ -35,9 +35,7 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 - A launched scene cell plays its instrument's locks only; locks on insert
   effects, the track's, a return's or the master's, are heard from the
   arrangement.
-- A step lock sets its parameter from that step on. Removing the last lock
-  on a parameter puts back the value it had when it was first locked; a
-  value the producer set while it was locked is not kept.
+- A step lock sets its parameter from that step on.
 - Only the first auxiliary input of a CLAP or VST3 effect receives a sidechain
   key, as a stereo or mono signal. Other sidechain inputs receive silence.
 - VST3 extra buses are used only with a stereo main bus.

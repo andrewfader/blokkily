@@ -225,6 +225,11 @@ public:
     // The next parameter edit a processor reported, oldest first. Control
     // thread. A full ring drops edits rather than holding up the callback.
     bool take_plugin_edit(PluginEditEvent& edit) noexcept { return edits_.pop(edit); }
+    // The producer set `parameter` of the processor at `where` to `value`
+    // (a knob turned in its window) while a step lock moves it: when the last
+    // lock on it goes, it is put back here rather than where it was before it
+    // was first locked. Control thread; nothing when no lock moves it.
+    void rebase_lock(ProcessorAddress where, std::int32_t parameter, double value);
 
     // A track's instrument; the same as set_processor(track_instrument(track)).
     void set_instrument(std::size_t track, std::unique_ptr<PluginInstance> instrument);

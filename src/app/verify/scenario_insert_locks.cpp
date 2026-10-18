@@ -10,6 +10,8 @@
 
 #include "verify/harness.hpp"
 
+#include "blokkily/plugins/dynamic_library.hpp"
+
 #include <QCoreApplication>
 #include <QMetaObject>
 
@@ -172,6 +174,36 @@ void run_insert_locks(VerifyContext& ctx) {
     check(std::abs(redone / unlocked - 2.0F) < 0.02F);
     details << " | redone " << redone;
     reached("insert locks: undo and redo");
+
+    // While the lock holds the Gain, the producer turns it to 0.75 in the
+    // effect's own window. The step still plays its lock; when the lock goes,
+    // the Gain is where the producer left it, not where it was before.
+    {
+        void* library = blokkily::dynamic_library::open_loaded(
+            parser.value("clap-effect-fixture").toStdString());
+        auto turn = library != nullptr ? reinterpret_cast<void (*)(double)>(
+                                             blokkily::dynamic_library::symbol(library, "blokkily_test_effect_turn"))
+                                       : nullptr;
+        check(turn != nullptr);
+        check(controller.toggleInsertEditor("track", 0, 0) && controller.insertEditorOpen("track", 0, 0));
+        if (turn != nullptr) turn(0.75);
+        (void)ctx.pump();
+        controller.serviceEditors();
+        const float turned_locked = step_level();
+        check(std::abs(turned_locked / unlocked - 2.0F) < 0.02F);
+        pattern.clearSelectedLock();
+        controller.flushRecompile();
+        const float kept = step_level();
+        details << " | turned " << kept;
+        check(std::abs(kept / unlocked - 3.0F) < 0.03F);
+        if (!(std::abs(kept / unlocked - 3.0F) < 0.03F))
+            std::cerr << "insert locks: after the lock went the step is heard at "
+                      << (unlocked > 0.0F ? kept / unlocked : 0.0F)
+                      << " times the unlocked level, not the 3 the turned Gain of 0.75 gives\n";
+        controller.pluginWindows().closeAll();
+        if (library != nullptr) blokkily::dynamic_library::close(library);
+    }
+    reached("insert locks: a Gain turned by hand while locked is kept when the lock goes");
 
     // The master's CLAP effect, offered to every track's steps. The step's
     // lock is cleared, then pointed at the master's Gain from ON.

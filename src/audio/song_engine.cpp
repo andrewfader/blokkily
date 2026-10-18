@@ -487,6 +487,11 @@ void SongEngine::settle_locks(engine::Arrangement& target,
     lock_bases_ = std::move(kept);
 }
 
+void SongEngine::rebase_lock(ProcessorAddress where, std::int32_t parameter, double value) {
+    for (auto& base : lock_bases_)
+        if (base.where == where && base.parameter == parameter && !base.modulation) base.value = value;
+}
+
 bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* error,
                            const AudioAssets& assets, const ClipRenditions& renditions) {
     const auto fail = [error](const char* message) {

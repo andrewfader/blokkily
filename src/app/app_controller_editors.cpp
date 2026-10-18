@@ -126,6 +126,12 @@ void AppController::drainPluginEdits() {
         // mode records (item 3.1).
         captureParameterEdit(event);
         const auto done = gestures_.feed(event);
+        // A value the producer set by hand, inside a gesture, is where a
+        // locked parameter goes back to when its last lock goes. Values a
+        // plugin reports outside a gesture (catching up with a lock, a meter)
+        // are not the producer's.
+        if (event.edit.kind == blokkily::ParameterEdit::Kind::value && gestures_.open(event.where))
+            engine_->rebase_lock(event.where, event.edit.parameter, event.edit.value);
         if (!done)
             continue;
         auto* instance = engine_->processor(done->where);

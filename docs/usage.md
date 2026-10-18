@@ -477,7 +477,8 @@ inserts.
 Automation has OFF / READ / TOUCH / LATCH / WRITE modes. A step lock targets
 the track's instrument, one of its insert effects, or an insert of a return or
 the master (ON in the step inspector). Removing a parameter's last lock puts
-it back where it was before it was locked. See
+it back where it was before it was locked, or where you last turned it in the
+plugin's own window while it was locked. See
 [the scenarios](../features/insert_locks.feature).
 
 The MODULATION panel under the inspector adds:

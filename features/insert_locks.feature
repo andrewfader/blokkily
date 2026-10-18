@@ -22,7 +22,9 @@ Feature: A step lock can move an insert effect: the track's, a return's or the m
 
   When the last lock on a parameter goes, the parameter is put back where it
   was before it was first locked: a value lock's parameter to the value the
-  plugin held then, a modulation lock's offset to nothing. This holds for
+  plugin held then, or the value the producer last turned it to in the
+  plugin's own window while it was locked; a modulation lock's offset to
+  nothing. This holds for
   instruments and inserts alike, for plugins that report their parameter
   values (CLAP, VST3, LV2, the sampler and the built-in effects).
 
@@ -94,3 +96,11 @@ Feature: A step lock can move an insert effect: the track's, a return's or the m
     And undoing both picks leaves the step with no lock, heard at its unlocked level again, and redoing them is heard at the locked level again
     When the lock is cleared and ON is set to the master's CLAP effect and PARAM to its Gain
     Then the step's lock reads MF1A... and the master is heard at twice its unlocked level
+
+  # bdd_insert_locks
+  Scenario: A value turned by hand while a parameter is locked is kept
+    Given the step's lock holds the effect's Gain at 0.5
+    When the producer turns the Gain to 0.75 in the effect's own window
+    Then played from the step the lock still holds it, at twice the unlocked level
+    When the lock is cleared
+    Then the step is heard at three times its unlocked level, the Gain the producer left
