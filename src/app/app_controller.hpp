@@ -222,8 +222,17 @@ public:
     Q_INVOKABLE int trackMidiOutChannel(int track) const;
     // Moves a MIDI Out track to `channel`, live; one step of history.
     Q_INVOKABLE bool setTrackMidiOutChannel(int track, int channel);
-    // Sends MIDI clock to `port` from now on; "" stops sending it.
+    // Sends MIDI clock to `port` from now on; "" stops sending it. The clock
+    // is the studio's, not the song's: a window that remembers it keeps the
+    // choice in the user's settings.
     Q_INVOKABLE bool setMidiClockPort(const QString& port);
+    // Makes this window remember the clock port between launches, in the
+    // user's settings or, for a test, in the INI file `settings_file`. Only
+    // the first window remembers it, so two never clock the same gear.
+    void rememberMidiClock(const QString& settings_file = {});
+    // Sends the clock to the remembered port when it is listed and the clock
+    // is off; a port that is not plugged in stays remembered for later.
+    void restoreMidiClock();
     // The output `port` names, opened when first asked for; nullptr when it
     // cannot be opened. Shared with every MIDI Out instrument playing it.
     std::shared_ptr<blokkily::MidiOutput> midiOutput(const std::string& port);
@@ -985,6 +994,8 @@ private:
     QStringList midi_out_ports_;
     QString midi_clock_port_;
     std::shared_ptr<blokkily::MidiOutput> clock_output_;
+    bool remember_clock_ = false;
+    QString clock_settings_file_;
     // Makes the factory create MIDI Out instruments from this controller's
     // outputs (blokkily::midi_out_format).
     void registerMidiOut();

@@ -5,11 +5,17 @@
 // production render callback, the output receives the pattern's notes on
 // channel 10, spaced as the steps are, and the clock: Start, a pulse every
 // 24th of a beat, Stop. The strip names the port; undo gives the synth back.
+// The window remembers the clock port in a settings file of the gate's own,
+// never the user's, and sends the clock there again when the port is listed.
 
 #include "verify/harness.hpp"
 
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QFileInfo>
 #include <QMetaObject>
+#include <QSettings>
+#include <QTemporaryDir>
 
 #include <algorithm>
 #include <iostream>
@@ -140,6 +146,47 @@ void run_midi_output(VerifyContext& ctx) {
     check(controller.trackMidiOut(0) == "Deterministic output" &&
           controller.trackMidiOutChannel(0) == 9);
     reached("midi output: undo and redo");
+
+    // The clock is the studio's: the window remembers where it goes between
+    // launches, here in a settings file of the gate's own.
+    {
+        const QString user_settings = QSettings().fileName();
+        const QFileInfo before(user_settings);
+        const bool existed = before.exists();
+        const auto stamp = existed ? before.lastModified() : QDateTime{};
+        QTemporaryDir studio;
+        check(studio.isValid());
+        const QString file = studio.filePath("studio.ini");
+        const auto remembered = [&file] {
+            return QSettings(file, QSettings::IniFormat).value("midi/clockPort").toString();
+        };
+        const auto remember = [&file](const QString& port) {
+            QSettings settings(file, QSettings::IniFormat);
+            settings.setValue("midi/clockPort", port);
+            settings.sync();
+        };
+        controller.rememberMidiClock(file);
+        pick("midiClockPort", 0); // OFF
+        check(controller.midiClockPort().isEmpty() && remembered().isEmpty());
+        pick("midiClockPort", 1);
+        check(controller.midiClockPort() == "Deterministic output" && remembered() == "Deterministic output");
+        // A later launch: the clock is off until the remembered port is listed.
+        check(controller.setMidiClockPort(""));
+        remember("Deterministic output");
+        controller.restoreMidiClock();
+        check(controller.midiClockPort() == "Deterministic output");
+        // Gear that is not plugged in stays remembered, and the clock stays off.
+        check(controller.setMidiClockPort(""));
+        remember("Unplugged synth");
+        controller.restoreMidiClock();
+        controller.refreshMidiPorts();
+        check(controller.midiClockPort().isEmpty() && remembered() == "Unplugged synth");
+        // The user's own settings were never written.
+        const QFileInfo after(user_settings);
+        check(after.exists() == existed && (!existed || after.lastModified() == stamp));
+        check(controller.setMidiClockPort("Deterministic output"));
+    }
+    reached("midi output: the clock port is remembered between launches");
 
     lay_out();
     check(ctx.save_screenshot());

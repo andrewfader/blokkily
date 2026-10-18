@@ -12,8 +12,7 @@ in the [usage guide](usage.md).
   Continue and position; it does not phase-lock to every tick, so over a long
   take the two can drift by a few milliseconds. A tempo change is followed a
   beat of ticks after it is played. A track played through a MIDI output
-  sends no microtonal retuning, and the clock port is not saved with the
-  song.
+  sends no microtonal retuning.
 - The built-in sampler ignores poly pressure.
 
 MIDI file exchange also omits plugin state, parameter automation, per-note

@@ -20,8 +20,8 @@ Feature: The song plays outboard gear and sends it MIDI clock
   build/artifacts/midi-output.png.
 
   Not done: microtonal retuning is not sent; parameter locks and automation
-  have nothing to move on outboard gear; the MIDI clock setting belongs to the
-  studio, not the song, and is not saved.
+  have nothing to move on outboard gear. The MIDI clock setting belongs to the
+  studio, not the song: the first window remembers it in the user's settings.
 
   # midi_output_notes
   Scenario: A track's notes are sent to outboard gear on its channel, to the sample
@@ -71,3 +71,14 @@ Feature: The song plays outboard gear and sends it MIDI clock
     Then the strip reads "MIDI · Deterministic output · CH 10"
     And played for a beat, the output receives the pattern's notes on channel 10 a beat apart, Start, a pulse every 1000 samples from the first note, and Stop
     And undo gives the track its synth back
+
+  # bdd_midi_output
+  Scenario: The first window remembers where the clock goes
+    Given a window that remembers the clock port in its settings
+    When the producer picks OFF for CLOCK, and then the deterministic output
+    Then the settings say no port, and then that port
+    When a later launch finds the remembered port listed
+    Then the clock goes to it again without being picked
+    When the remembered port is not plugged in
+    Then the clock stays off and the port stays remembered for when it is
+    And the user's own settings file is never written by the gate

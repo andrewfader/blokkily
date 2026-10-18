@@ -9,7 +9,13 @@
 
 #include "blokkily/midi/midi_out_instrument.hpp"
 
+#include <QSettings>
+
+#include <memory>
+
 namespace {
+constexpr auto clock_setting = "midi/clockPort";
+
 const blokkily::InstrumentSlot* midi_out_slot(const SongModel* song, int track) {
     if (song == nullptr || track < 0 ||
         static_cast<std::size_t>(track) >= song->song().tracks.size())
@@ -102,7 +108,27 @@ bool AppController::setMidiClockPort(const QString& port) {
     midi_clock_port_ = clock_output_ ? port : QString();
     status_ = midi_clock_port_.isEmpty() ? QStringLiteral("MIDI clock · off")
                                          : QString("MIDI clock · %1").arg(midi_clock_port_);
+    if (remember_clock_) {
+        const auto settings = clock_settings_file_.isEmpty()
+                                  ? std::make_unique<QSettings>()
+                                  : std::make_unique<QSettings>(clock_settings_file_, QSettings::IniFormat);
+        settings->setValue(clock_setting, midi_clock_port_);
+    }
     emit statusChanged();
     emit midiChanged();
     return true;
+}
+
+void AppController::rememberMidiClock(const QString& settings_file) {
+    remember_clock_ = true;
+    clock_settings_file_ = settings_file;
+}
+
+void AppController::restoreMidiClock() {
+    if (!remember_clock_ || !midi_clock_port_.isEmpty()) return;
+    const QString port = (clock_settings_file_.isEmpty()
+                              ? QSettings().value(clock_setting)
+                              : QSettings(clock_settings_file_, QSettings::IniFormat).value(clock_setting))
+                             .toString();
+    if (!port.isEmpty() && midi_out_ports_.contains(port)) (void)setMidiClockPort(port);
 }

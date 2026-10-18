@@ -215,6 +215,13 @@ int main(int argc, char* argv[]) {
     if (use_open_channel) {
         QString why;
         if (open_server.listen(open_socket, &why)) {
+            // The first window is the studio's: it remembers where the MIDI
+            // clock goes. Other windows leave the clock off, so outboard
+            // gear never hears two.
+            if (!verifying) {
+                controller.rememberMidiClock();
+                controller.restoreMidiClock();
+            }
             QObject::connect(&open_server, &open_channel::Server::fileRequested, &controller,
                              [&controller](const QString& path) {
                                  // A song already open here stays; the file

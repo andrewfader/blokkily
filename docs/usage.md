@@ -384,7 +384,9 @@ CLOCK sends MIDI clock to a port so a drum machine or sequencer follows the
 song: Start when the song plays from its beginning, Song Position and Continue
 when it plays from anywhere else or jumps, 24 pulses a beat on the song's tempo
 map, and Stop when it stops. An export sends neither notes nor clock. The CLOCK
-setting is the studio's and is not saved with the song.
+setting is the studio's, not the song's: the first Blokkily window remembers
+it between launches and sends the clock there again once the port is listed.
+Other windows open with the clock off, so the gear never follows two songs.
 
 These are not the project panel's MIDI IN and MIDI OUT buttons, which import
 and export Standard MIDI Files.

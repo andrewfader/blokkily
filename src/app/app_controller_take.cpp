@@ -87,6 +87,8 @@ void AppController::refreshMidiPorts() {
     midi_ports_ = ports;
     midi_out_ports_ = outputs;
     emit midiChanged();
+    // Gear plugged in after launch gets the clock it had last time.
+    restoreMidiClock();
 }
 
 bool AppController::selectMidiPort(int index) {
