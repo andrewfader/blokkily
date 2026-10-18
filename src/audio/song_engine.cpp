@@ -382,8 +382,7 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
     // Automation: strip envelopes and parameter lanes, placed by the same
     // clock (item 3.1).
     engine::compile_automation(target.automation, song, clock, samples, arranged);
-    // What the step locks move: the arrangement's, and a launched cell's on
-    // its track's instrument.
+    // What the step locks move: the arrangement's, and a launched cell's.
     target.locked.clear();
     const auto lock = [&target](ProcessorAddress where, std::int32_t parameter, bool modulation) {
         const Arrangement::Locked entry{where, parameter, modulation};
@@ -403,9 +402,8 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
             if (!slot || slot->pattern >= song.patterns.size()) continue;
             for (const auto& trigger : song.patterns[slot->pattern].pattern.events())
                 for (const auto& held : trigger.locks)
-                    if (held.slot < 0 && held.bus_kind == BusKind::track)
-                        lock(track_instrument(static_cast<std::uint32_t>(track)),
-                             held.parameter_index, held.kind == ParameterLock::Kind::modulation);
+                    lock(held.processor(static_cast<std::uint32_t>(track)), held.parameter_index,
+                         held.kind == ParameterLock::Kind::modulation);
         }
     // The click's beats, placed by the same clock (item 3.7).
     engine::compile_clicks(target.clicks, song.meter, clock, song.length(), samples);
@@ -1028,6 +1026,22 @@ std::span<const PluginEvent> SongEngine::insert_events(void* context,
             count += engine::automation_events(*lanes, chunk.song_position, chunk.end,
                                                chunk.scratch.subspan(count));
     }
+    // A launched cell's locks on this processor, merged in time order.
+    const auto launched = engine::launcher_insert_events(*chunk.engine->launcher_, where,
+                                                         chunk.scratch.subspan(count));
+    if (launched > 0) {
+        count += launched;
+        auto events = chunk.scratch.first(count);
+        for (std::size_t i = 1; i < events.size(); ++i) {
+            const auto moving = events[i];
+            std::size_t j = i;
+            while (j > 0 && events[j - 1].sample_offset > moving.sample_offset) {
+                events[j] = events[j - 1];
+                --j;
+            }
+            events[j] = moving;
+        }
+    }
     return chunk.scratch.first(count);
 }
 
@@ -1203,6 +1217,8 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
     const engine::EditDrain drain{&SongEngine::drain_insert_edits, &drain_context,
                                   &SongEngine::insert_events, &SongEngine::sidechain_input};
     engine::begin_buses(*buses_, frames);
+    // The launched cells' insert locks are this chunk's alone.
+    engine::begin_launcher_inserts(*launcher_);
 
     // Every LFO and macro once, at the chunk's first sample (wave 5.1). While
     // the song plays the LFOs read their phase from where it is, so a bounce

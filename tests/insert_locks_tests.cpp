@@ -14,6 +14,7 @@
 #include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/audio/wave_file.hpp"
+#include "blokkily/model/scene_launcher.hpp"
 #include "blokkily/project/project.hpp"
 
 #include <algorithm>
@@ -332,6 +333,45 @@ void bus_locks_case() {
             "and the master's from 0.25 to 0.75 triples it again");
 }
 
+// Scenario: A launched cell plays its insert locks
+// Track 0 carries the CLAP effect, and so does the master; the arrangement
+// plays nothing. A cell launched on track 0 locks the track's Gain to 0.5 at
+// 4000 and the master's to 0.75 at 8000: each is heard from its step on, as
+// the arrangement plays them.
+void launched_case() {
+    Song song;
+    song.patterns = {{"Empty", Pattern(16384, ticks_per_beat)}, {"Locks", Pattern(16384, ticks_per_beat)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    song.tracks[0].inserts = {insert(clap_effect())};
+    song.master_inserts = {insert(clap_effect())};
+    (void)song.patterns[1].pattern.add(locked_step(4000, 0.5));
+    auto on_master = locked_step(8000, 0.75);
+    on_master.locks[0].bus_kind = BusKind::master;
+    (void)song.patterns[1].pattern.add(on_master);
+    song.launcher.quantization = LaunchQuantization::none;
+    song.launcher.add_scene("A");
+    song.launcher.set_slot(0, 0, {.pattern = 1, .quantization = LaunchQuantization::none});
+    std::string why;
+    require(song.consistent(&why), "the song is valid: " + why);
+    SongEngine engine;
+    build(engine, song);
+    float level = 1.0F;
+    engine::TestAccess::set_test_source(engine, 0, dc_source, &level);
+    engine.set_playing(true);
+    require(engine.launch_scene(0), "the scene launch is queued");
+    const auto left = render(engine, 16384);
+    const double own = mean(left, 1000, 3500);
+    const double track_locked = mean(left, 5000, 7500);
+    const double master_locked = mean(left, 10000, 16000);
+    std::cerr << "launched locks: " << own << ", " << track_locked << ", " << master_locked << '\n';
+    require(own > 1e-3, "the track is heard through both effects");
+    require(std::abs(track_locked / own - 2.0) < 1e-3,
+            "the launched cell's lock of the track's Gain to 0.5 doubles the level");
+    require(std::abs(master_locked / own - 6.0) < 1e-3,
+            "and its lock of the master's Gain to 0.75 triples it again");
+}
+
 // Scenario: Locks on a return or the master are saved, and go with what they lock
 void bus_locks_model_case() {
     Project project;
@@ -413,6 +453,7 @@ int main(int argc, char** argv) {
         {"removed_restores", removed_restores_case},
         {"bus_locks", bus_locks_case},
         {"bus_locks_model", bus_locks_model_case},
+        {"launched", launched_case},
     };
     if (argc != 2 || !cases.contains(argv[1])) {
         std::cerr << "usage: blokkily_insert_locks_tests <case>\n";

@@ -60,6 +60,14 @@ struct LauncherEvent {
     Tick tick = 0;
     Tick duration = 0;
     PluginEvent event{};
+    // Where a step lock's event goes: the track's instrument (slot -1 on
+    // the track), one of its inserts, or a return's or the master's insert.
+    std::int32_t slot = -1;
+    BusKind bus_kind = BusKind::track;
+    std::uint32_t bus = 0;
+    [[nodiscard]] bool to_instrument() const noexcept {
+        return slot < 0 && bus_kind == BusKind::track;
+    }
 };
 
 // A pattern as the launcher plays it: `loops` loops, one after another in
@@ -170,6 +178,15 @@ struct LauncherPlayback {
     const ArrangementLauncher* arranged = nullptr;
     std::uint64_t random = 0x9E3779B97F4A7C15ULL;
     std::array<LauncherOut, 512> scratch{};
+    // The locks this chunk's launched cells send to inserts (a track's own,
+    // a return's or the master's), each for its processor to take in time
+    // order. Emptied at the start of every chunk.
+    struct InsertLock {
+        ProcessorAddress where;
+        PluginEvent event;
+    };
+    std::array<InsertLock, 256> insert_locks{};
+    std::size_t insert_lock_count = 0;
 };
 
 inline constexpr std::uint64_t no_launcher_boundary = std::numeric_limits<std::uint64_t>::max();
@@ -247,6 +264,13 @@ void stop_launcher(LauncherPlayback& playback) noexcept;
 std::size_t launcher_events(LauncherPlayback& playback, const ArrangementLauncher& arranged,
                             const TickClock& clock, std::size_t track, std::uint64_t position,
                             std::uint64_t end, bool rolling, std::span<PluginEvent> out) noexcept;
+
+// Callback: forgets the insert locks of the chunk before.
+void begin_launcher_inserts(LauncherPlayback& playback) noexcept;
+// Callback: the locks the launched cells sent this chunk to the insert at
+// `where`, in the order they were played, into `out`; how many.
+std::size_t launcher_insert_events(const LauncherPlayback& playback, ProcessorAddress where,
+                                   std::span<PluginEvent> out) noexcept;
 
 // Any thread: a track's status word, unpacked.
 [[nodiscard]] LauncherTrackStatus launcher_status(const LauncherPlayback& playback,

@@ -28,8 +28,9 @@ Feature: A step lock can move an insert effect: the track's, a return's or the m
   instruments and inserts alike, for plugins that report their parameter
   values (CLAP, VST3, LV2, the sampler and the built-in effects).
 
-  Not done: a launched scene cell plays its instrument's locks only. A lock
-  sets its value from its step on.
+  A launched scene cell plays all of its locks, its instrument's and its
+  inserts', a return's and the master's, as the arrangement does. Not done: a
+  lock sets its value from its step on.
 
   # insert_locks_heard
   Scenario: A step lock on an insert effect is heard from its step on
@@ -72,6 +73,13 @@ Feature: A step lock can move an insert effect: the track's, a return's or the m
     And the track's steps lock return A's Gain to 0.5 at sample 4000 and the master's to 0.75 at 8000
     When the song plays
     Then the master hears twice the level from the first lock and six times it from the second
+
+  # insert_locks_launched
+  Scenario: A launched cell plays its insert locks
+    Given the CLAP effect on track 0 and on the master, and an arrangement that plays nothing
+    And a cell on track 0 that locks the track's Gain to 0.5 at 4000 and the master's to 0.75 at 8000
+    When the cell is launched and the song plays
+    Then the level doubles from 4000 and is six times its own from 8000
 
   # insert_locks_bus_locks_model
   Scenario: Locks on a return or the master are saved, and go with what they lock

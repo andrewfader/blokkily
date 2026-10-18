@@ -341,15 +341,15 @@ void compile_launcher(ArrangementLauncher& target, const Song& song, std::uint64
             // plays what it played here.
             const auto rendered = scheduler.render(pattern, loop, seed);
             // Parameters before notes on a tick, as the timeline orders them.
+            // Its instrument's locks and its inserts', a return's and the
+            // master's alike, each addressed to what it moves.
             for (const auto& parameter : rendered.parameters) {
-                // A launched cell plays its instrument's locks only; an
-                // insert's locks are heard from the arrangement.
-                if (parameter.slot >= 0 || parameter.bus_kind != BusKind::track) continue;
                 const auto type = parameter.kind == ParameterLock::Kind::modulation
                                       ? PluginEvent::Type::parameter_modulation
                                       : PluginEvent::Type::parameter_value;
-                compiled.events.push_back(
-                    {inside(parameter.start), 0, {type, 0, parameter.index, parameter.value}});
+                compiled.events.push_back({inside(parameter.start), 0,
+                                           {type, 0, parameter.index, parameter.value},
+                                           parameter.slot, parameter.bus_kind, parameter.bus});
             }
             // Controller movements (wave 4.1) play in a launched loop too.
             for (const auto& control : rendered.continuous)
@@ -658,6 +658,18 @@ std::size_t launcher_events(LauncherPlayback& playback, const ArrangementLaunche
                 track.held[track.held_count++] = {event.event.key_or_parameter, event.event.cents,
                                                   at, at + event.duration};
                 emit(sample, 2, event.event);
+            } else if (!event.to_instrument()) {
+                // A lock on an insert waits for its processor to take it.
+                if (playback.insert_lock_count < playback.insert_locks.size()) {
+                    auto locked = event.event;
+                    locked.sample_offset =
+                        static_cast<std::uint32_t>(sample > position ? sample - position : 0);
+                    playback.insert_locks[playback.insert_lock_count++] = {
+                        {event.bus_kind,
+                         event.bus_kind == BusKind::track ? static_cast<std::uint32_t>(index) : event.bus,
+                         event.slot},
+                        locked};
+                }
             } else {
                 // Per-note expression sorts with the note-ons, after them.
                 emit(sample,
@@ -692,6 +704,16 @@ std::size_t launcher_events(LauncherPlayback& playback, const ArrangementLaunche
     const auto written = std::min(count, out.size());
     for (std::size_t i = 0; i < written; ++i) out[i] = scratch[i].event;
     return written;
+}
+
+void begin_launcher_inserts(LauncherPlayback& playback) noexcept { playback.insert_lock_count = 0; }
+
+std::size_t launcher_insert_events(const LauncherPlayback& playback, ProcessorAddress where,
+                                   std::span<PluginEvent> out) noexcept {
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < playback.insert_lock_count && count < out.size(); ++i)
+        if (playback.insert_locks[i].where == where) out[count++] = playback.insert_locks[i].event;
+    return count;
 }
 
 LauncherTrackStatus launcher_status(const LauncherPlayback& playback, std::size_t track) noexcept {
