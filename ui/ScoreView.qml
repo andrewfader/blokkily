@@ -347,7 +347,7 @@ Rectangle {
                             var stemX = o.stemUp ? x + nhw - 0.14 * sp : x + 0.02 * sp;
                             var yFrom = yPos(o.stemFrom), yTo = yPos(o.stemTo);
                             ctx.fillRect(stemX, Math.min(yFrom, yTo), stemW, Math.abs(yTo - yFrom));
-                            if (ready && o.value >= 3) {
+                            if (ready && o.value >= 3 && !o.beamed) {
                                 var fl = Smufl.flag(o.value, o.stemUp);
                                 if (fl) ctx.fillText(code(fl), stemX, yTo);
                             }
@@ -392,6 +392,25 @@ Rectangle {
                             ctx.fillRect((x + xAt(o.hyphenToX)) / 2 + nhw / 2 - 0.35 * sp, yPos(-6) - 0.32 * sp, 0.7 * sp, lineW);
                         else if (o.extend)
                             ctx.fillRect(x - 0.4 * sp, yPos(-6.4), nhw + 0.8 * sp, lineW);
+                    }
+
+                    // ---- beams, from stem to stem; a hook is a short beam from one
+                    var beams = scoreModel.beams;
+                    var beamH = 0.5 * sp, beamGap = 0.75 * sp, stemW = 0.13 * sp;
+                    for (var bi = 0; bi < beams.length; bi++) {
+                        var bm = beams[bi];
+                        var stemOf = function(units) {
+                            return bm.up ? xAt(units) + nhw - 0.14 * sp : xAt(units) + 0.02 * sp;
+                        };
+                        var bx0 = stemOf(bm.fromX), bx1 = stemOf(bm.toX) + stemW;
+                        if (bm.hook !== 0) {
+                            if (bm.hook > 0) bx1 = bx0 + 1.1 * sp;
+                            else { bx1 = bx0 + stemW; bx0 = bx1 - 1.1 * sp; }
+                        }
+                        if (bx1 < left - sp || bx0 > right + sp) continue;
+                        var by = bm.up ? yPos(bm.pos) + bm.level * beamGap
+                                       : yPos(bm.pos) - beamH - bm.level * beamGap;
+                        ctx.fillRect(bx0, by, bx1 - bx0, beamH);
                     }
                 }
 

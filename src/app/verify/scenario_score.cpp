@@ -308,6 +308,54 @@ void run_score(VerifyContext& ctx) {
     shot("triplets");
 
     // ---------------------------------------------------------------------
+    ctx.reached("score: eighths and shorter are beamed by the beat");
+    clear();
+    {
+        // Beat 1: two eighths. Beat 2: four sixteenths. Beat 3: an eighth
+        // and two sixteenths. Beat 4: a quarter.
+        const int steps[] = {0, 2, 4, 5, 6, 7, 8, 10, 11, 12};
+        const int lengths[] = {240, 240, 120, 120, 120, 120, 240, 120, 120, 480};
+        const int keys[] = {72, 74, 72, 74, 76, 77, 79, 77, 76, 74};
+        for (int index = 0; index < 10; ++index) {
+            pattern.addRollNote(steps[index], keys[index]);
+            pattern.resizeRollNote(steps[index], keys[index], lengths[index]);
+        }
+    }
+    settle();
+    {
+        const auto beams = prop("beams").toList();
+        int main_beams = 0, second_beams = 0, hooks = 0;
+        for (const auto& item : beams) {
+            const auto beam = item.toMap();
+            if (beam.value("level").toInt() == 0) ++main_beams;
+            if (beam.value("level").toInt() == 1 && beam.value("hook").toInt() == 0) ++second_beams;
+            if (beam.value("hook").toInt() != 0) ++hooks;
+        }
+        check(main_beams == 3 && second_beams == 2 && hooks == 0);
+        const auto drawn = notes();
+        check(drawn.size() == 10);
+        bool flags_right = drawn.size() == 10;
+        for (int index = 0; index < drawn.size(); ++index)
+            flags_right = flags_right && drawn[index].toMap().value("beamed").toBool() == (index < 9);
+        check(flags_right);
+        // A group's stems point one way and end on its beam.
+        bool stems_meet = true;
+        for (const auto& item : beams) {
+            const auto beam = item.toMap();
+            if (beam.value("level").toInt() != 0) continue;
+            for (const auto& note_item : drawn) {
+                const auto note = note_item.toMap();
+                const double x = note.value("x").toDouble();
+                if (x < beam.value("fromX").toDouble() - 1e-9 || x > beam.value("toX").toDouble() + 1e-9) continue;
+                stems_meet = stems_meet && note.value("stemUp").toBool() == beam.value("up").toBool() &&
+                             note.value("stemTo").toInt() == beam.value("pos").toInt();
+            }
+        }
+        check(stems_meet);
+    }
+    shot("beams");
+
+    // ---------------------------------------------------------------------
     ctx.reached("score: notes are written and edited on the staff");
     if (scroller != nullptr) scroller->setProperty("contentX", 0.0);
     clear();

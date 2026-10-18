@@ -60,6 +60,14 @@ Feature: The pattern is also shown as true staff notation
     Then each group's first note carries a 3 and a bracket over its three notes
     And each bracket clears every head and stem under it, above the staff
 
+  # bdd_score "score: eighths and shorter are beamed by the beat"
+  Scenario: Eighths and shorter are beamed by the beat
+    Given two eighths, four sixteenths, an eighth and two sixteenths, and a quarter, a beat each
+    When the part is drawn
+    Then each of the first three beats is one beam, the sixteenths joined by a second beam
+    And every beamed note draws no flag, its stem pointing the group's way and ending on its beam
+    And the quarter keeps its own stem
+
   # bdd_score "score: notes are written and edited on the staff"
   Scenario: Notes are written and edited on the staff
     Given the SCORE view shows an empty bar and the quarter note is chosen

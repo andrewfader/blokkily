@@ -54,6 +54,12 @@ class ScoreModel final : public QObject {
     Q_PROPERTY(QVariantList objects READ objects NOTIFY scoreChanged)
     // Each barline's x in staff spaces, and whether it is the final one.
     Q_PROPERTY(QVariantList barlines READ barlines NOTIFY scoreChanged)
+    // Each beam, {fromX, toX (the notes' x at either end), pos (the staff
+    // position the stems reach), up, level (0 the main beam, 1 the 16ths'
+    // ...), hook (0 a beam between notes; -1 or 1 a short one from a single
+    // note, to its left or right)}. A beamed note has beamed set and draws
+    // no flag.
+    Q_PROPERTY(QVariantList beams READ beams NOTIFY scoreChanged)
     // The key signature's accidentals in display order, each {pos, acc}.
     Q_PROPERTY(QVariantList keySignature READ keySignature NOTIFY scoreChanged)
     Q_PROPERTY(QString clefName READ clefName NOTIFY scoreChanged)
@@ -94,6 +100,7 @@ public:
 
     QVariantList objects() const { return objects_; }
     QVariantList barlines() const { return barlines_; }
+    QVariantList beams() const { return beams_; }
     QVariantList keySignature() const { return key_sig_; }
     QString clefName() const;
     QString keyLabel() const;
@@ -163,6 +170,7 @@ private:
     bool unmetered_ = false;
     QVariantList objects_;
     QVariantList barlines_;
+    QVariantList beams_;
     QVariantList key_sig_;
     int measure_count_ = 0;
     double content_width_ = 0.0;

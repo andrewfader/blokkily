@@ -335,6 +335,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
     const Tick tpb = std::as_const(*pattern_).pattern().ticks_per_beat();
     objects_.clear();
     barlines_.clear();
+    beams_.clear();
     time_map_.clear();
     transposition_ = staff.transposition();
     measure_count_ = static_cast<int>(staff.measures.size());
@@ -417,6 +418,93 @@ void ScoreModel::layout(const notation::Staff& staff) {
             if (!fresh) it->second = {std::min(it->second.first, pos), std::max(it->second.second, pos)};
         }
 
+    // Beams: eighths and shorter that follow each other in one voice, inside
+    // one beat (a quarter; a dotted quarter in 6/8, 9/8, 12/8), with no rest
+    // between, share a flat beam and one stem direction. Chant has no stems
+    // and so no beams.
+    using ChordKey = std::tuple<std::size_t, Tick, int>;
+    struct BeamGroup {
+        std::vector<ChordKey> chords;
+        std::vector<int> values;
+        bool up = true;
+        int pos = 0;
+    };
+    std::vector<BeamGroup> beam_groups;
+    std::map<ChordKey, std::size_t> beamed;
+    {
+        std::vector<Tick> beat(staff.measures.size(), tpb);
+        notation::TimeSignature meter = staff.time;
+        for (std::size_t m = 0; m < staff.measures.size(); ++m) {
+            if (staff.measures[m].time) meter = *staff.measures[m].time;
+            const bool compound = meter.metered() && meter.beat_unit() == 8 && meter.beats() % 3 == 0 &&
+                                  meter.beats() > 3;
+            beat[m] = compound ? tpb * 3 / 2 : tpb;
+        }
+        struct Open {
+            BeamGroup group;
+            std::size_t measure = 0;
+            Tick beat_index = 0;
+            Tick next = 0;   // where the next chord must start to join
+        };
+        std::map<int, Open> open;
+        const auto close = [&](int voice) {
+            const auto found = open.find(voice);
+            if (found == open.end()) return;
+            if (found->second.group.chords.size() >= 2) beam_groups.push_back(std::move(found->second.group));
+            open.erase(found);
+        };
+        std::map<int, ChordKey> last_chord;
+        for (const auto& entry : entries) {
+            const auto* note = std::get_if<notation::NotationNote>(entry.object);
+            if (note == nullptr) {
+                close(entry.voice);
+                continue;
+            }
+            const ChordKey key{entry.measure, entry.onset, entry.voice};
+            if (const auto seen = last_chord.find(entry.voice); seen != last_chord.end() && seen->second == key)
+                continue;   // another note of the same chord
+            last_chord[entry.voice] = key;
+            const int value = static_cast<int>(note->duration.value);
+            if (value < 3 || note->duration.stemless) {
+                close(entry.voice);
+                continue;
+            }
+            const Tick start = entry.measure == 0 ? 0 : measure_end[entry.measure - 1];
+            const Tick beat_index = (entry.onset - start) / std::max<Tick>(1, beat[entry.measure]);
+            auto current = open.find(entry.voice);
+            if (current != open.end() &&
+                (current->second.measure != entry.measure || current->second.beat_index != beat_index ||
+                 current->second.next != entry.onset)) {
+                close(entry.voice);
+                current = open.end();
+            }
+            if (current == open.end())
+                current = open.emplace(entry.voice, Open{{}, entry.measure, beat_index, entry.onset}).first;
+            current->second.group.chords.push_back(key);
+            current->second.group.values.push_back(value);
+            current->second.next = entry.onset + entry.length;
+        }
+        while (!open.empty()) close(open.begin()->first);
+        for (std::size_t g = 0; g < beam_groups.size(); ++g) {
+            auto& group = beam_groups[g];
+            const auto measure = std::get<0>(group.chords.front());
+            const int voice = std::get<2>(group.chords.front());
+            double middle = 0.0;
+            int lowest = 1000, highest = -1000;
+            for (const auto& key : group.chords) {
+                const auto [low, high] = chord_span[key];
+                middle += (low + high) / 2.0;
+                lowest = std::min(lowest, low);
+                highest = std::max(highest, high);
+                beamed[key] = g;
+            }
+            const bool shared = voice_height[measure].size() > 1;
+            group.up = shared ? voice == top_voice[measure]
+                              : middle / static_cast<double>(group.chords.size()) < 4.0;
+            group.pos = group.up ? std::max(highest + 7, 4) : std::min(lowest - 7, 4);
+        }
+    }
+
     highest_pos_ = 8;
     lowest_pos_ = 0;
     bool lyrics = false;
@@ -451,13 +539,16 @@ void ScoreModel::layout(const notation::Staff& staff) {
         const Tick step_ticks = PatternModel::ticks_per_step;
         const int source_step = source % step_ticks == 0 ? static_cast<int>(source / step_ticks) : -1;
         const auto [low, high] = chord_span[chord];
-        const bool up = shared ? entry.voice == top_voice[entry.measure] : (low + high) / 2.0 < 4.0;
+        const auto in_beam = beamed.find(chord);
+        const BeamGroup* beam = in_beam != beamed.end() ? &beam_groups[in_beam->second] : nullptr;
+        const bool up = beam != nullptr ? beam->up
+                        : shared ? entry.voice == top_voice[entry.measure] : (low + high) / 2.0 < 4.0;
         const int value = static_cast<int>(note.duration.value);
         const bool stemmed = value >= 1 && !note.duration.stemless;
         const bool draws_stem = stemmed && !stem_drawn[chord];
         stem_drawn[chord] = stem_drawn[chord] || stemmed;
         const int stem_from = up ? low : high;
-        const int stem_to = up ? std::max(high + 7, 4) : std::min(low - 7, 4);
+        const int stem_to = beam != nullptr ? beam->pos : up ? std::max(high + 7, 4) : std::min(low - 7, 4);
         highest_pos_ = std::max(highest_pos_, draws_stem && up ? stem_to : pos + 1);
         lowest_pos_ = std::min(lowest_pos_, draws_stem && !up ? stem_to : pos - 1);
 
@@ -554,7 +645,39 @@ void ScoreModel::layout(const notation::Staff& staff) {
             {"tuplet", tuplet},
             {"tupletEndX", tuplet_end},
             {"tupletPos", tuplet_pos},
+            {"beamed", beam != nullptr},
         });
     }
     if (lyrics) lowest_pos_ = std::min(lowest_pos_, -6);
+
+    // The beams themselves: the main one across the group, and for each
+    // shorter value a beam across every run of notes that short, or a hook
+    // from a note that stands alone at it (toward the note before, or after
+    // when it opens the group).
+    for (const auto& group : beam_groups) {
+        const auto x_of = [&](std::size_t index) {
+            return column_x[{std::get<0>(group.chords[index]), std::get<1>(group.chords[index])}];
+        };
+        const auto beam = [&](double from, double to, int level, int hook) {
+            beams_.push_back(QVariantMap{{"fromX", from}, {"toX", to}, {"pos", group.pos}, {"up", group.up},
+                                         {"level", level}, {"hook", hook}});
+        };
+        beam(x_of(0), x_of(group.chords.size() - 1), 0, 0);
+        for (int level = 1; level <= 3; ++level) {
+            const int shortest = 3 + level;
+            for (std::size_t i = 0; i < group.chords.size();) {
+                if (group.values[i] < shortest) {
+                    ++i;
+                    continue;
+                }
+                std::size_t j = i;
+                while (j + 1 < group.chords.size() && group.values[j + 1] >= shortest) ++j;
+                if (j > i) beam(x_of(i), x_of(j), level, 0);
+                else beam(x_of(i), x_of(i), level, i == 0 ? 1 : -1);
+                i = j + 1;
+            }
+        }
+        if (group.up) highest_pos_ = std::max(highest_pos_, group.pos + 1);
+        else lowest_pos_ = std::min(lowest_pos_, group.pos - 1);
+    }
 }
