@@ -288,6 +288,16 @@ public:
     [[nodiscard]] Tick heard_tick() const noexcept {
         return heard_tick_.load(std::memory_order_acquire);
     }
+    // Where the playing song is heard, and when (features/midi_clock_input.feature):
+    // the tick the last block ended on and the monotonic_ns() (or input
+    // clock) time the listener hears it, as a pair from the same block. What
+    // a clock is phase-locked against. Nothing while the song is stopped or
+    // renders offline. Any thread.
+    struct HeardReference {
+        double tick = 0.0;
+        std::uint64_t ns = 0;
+    };
+    [[nodiscard]] std::optional<HeardReference> heard_reference() const noexcept;
 
     // A note played from the interface rather than from the arrangement. Safe
     // to call while audio runs: the control thread only ever writes, the audio
@@ -628,6 +638,11 @@ private:
     void* handoff_probe_context_ = nullptr;
     // Published by the callback after each block (heard_tick()).
     std::atomic<Tick> heard_tick_{0};
+    // heard_reference(), behind a sequence count (odd while being written),
+    // so a reader never pairs a tick with another block's time.
+    std::atomic<std::uint32_t> reference_sequence_{0};
+    std::atomic<double> reference_tick_{0.0};
+    std::atomic<std::uint64_t> reference_ns_{0};
     std::atomic<std::uint64_t> published_song_samples_{0};
     // The clock of the last arrangement handed to the callback. Control thread.
     TickClock published_clock_;

@@ -62,4 +62,62 @@ void ClockFollower::reset() noexcept {
     position_ = 0;
 }
 
+void ClockLock::reset(double beat) noexcept {
+    beat_ = beat;
+    resume();
+}
+
+void ClockLock::resume() noexcept {
+    error_ = 0.0;
+    measured_ = 0;
+    count_ = 0;
+    next_ = 0;
+}
+
+void ClockLock::aligned() noexcept {
+    error_ = 0.0;
+    measured_ = 0;
+}
+
+void ClockLock::tick(std::uint64_t time_ns, std::optional<double> song_beat) noexcept {
+    times_[next_] = time_ns;
+    beats_[next_] = beat_;
+    next_ = (next_ + 1) % history;
+    count_ = std::min(count_ + 1, history);
+    if (song_beat) {
+        const double raw = beat_ - *song_beat;
+        // The first measured ticks set the average outright; then each moves
+        // it a twelfth of the way, half a beat's worth of smoothing.
+        ++measured_;
+        error_ = measured_ == 1 ? raw : error_ + (raw - error_) / static_cast<double>(settle_ticks);
+    }
+    beat_ += 1.0 / 24.0;
+}
+
+std::optional<double> ClockLock::bpm() const noexcept {
+    if (count_ < 4 * 24) return std::nullopt;
+    // Least squares of beat against time, in seconds from the oldest tick.
+    const auto oldest = times_[(next_ + history - count_) % history];
+    double mean_t = 0.0, mean_b = 0.0;
+    for (std::size_t index = 0; index < count_; ++index) {
+        mean_t += static_cast<double>(times_[index] - oldest) * 1e-9;
+        mean_b += beats_[index];
+    }
+    mean_t /= static_cast<double>(count_);
+    mean_b /= static_cast<double>(count_);
+    double spread = 0.0, together = 0.0;
+    for (std::size_t index = 0; index < count_; ++index) {
+        const double t = static_cast<double>(times_[index] - oldest) * 1e-9 - mean_t;
+        spread += t * t;
+        together += t * (beats_[index] - mean_b);
+    }
+    if (!(spread > 0.0)) return std::nullopt;
+    return together / spread * 60.0;
+}
+
+double ClockLock::tempo(double fallback) const noexcept {
+    const double trim = std::clamp(error_ / horizon_beats, -largest_trim, largest_trim);
+    return bpm().value_or(fallback) * (1.0 + trim);
+}
+
 } // namespace blokkily

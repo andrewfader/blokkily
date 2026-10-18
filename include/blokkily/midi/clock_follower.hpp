@@ -50,4 +50,54 @@ private:
     std::uint16_t position_ = 0;
 };
 
+// Keeps the song on the clock's beat, not only at its tempo
+// (features/midi_clock_input.feature). Every tick says where the clock's song
+// is - the beat it started or was pointed at, plus a 24th of a beat a tick -
+// at the time it arrived. From the last eight beats of them it measures the
+// clock's tempo by least squares, far steadier than a beat of intervals, and,
+// told where the song was heard at each tick, it averages the difference
+// over half a beat of ticks so jitter is not chased, then trims the tempo to
+// close it over the next two beats, never by more than 2%. A song a little
+// off the clock is then brought back, not left to drift for as long as it
+// plays. Pure: the caller says where the song is.
+class ClockLock {
+public:
+    // The beat the next tick marks (0 after Start, a pointer's position
+    // after a seek), forgetting everything measured.
+    void reset(double beat) noexcept;
+    // The clock carries on after a pause: what was measured before the gap
+    // is forgotten, the beat count is kept.
+    void resume() noexcept;
+    // A tick arrived at `time_ns`, when the song was heard at `song_beat`
+    // (nothing when the song is not playing yet: the tick still counts).
+    void tick(std::uint64_t time_ns, std::optional<double> song_beat) noexcept;
+    // The song was moved by error() beats to meet the clock: the error starts
+    // again from nothing.
+    void aligned() noexcept;
+    // The beat the next tick marks.
+    [[nodiscard]] double next_beat() const noexcept { return beat_; }
+    // The clock's tempo, once four beats of ticks say it.
+    [[nodiscard]] std::optional<double> bpm() const noexcept;
+    // How far the clock is ahead of the song, in beats, averaged.
+    [[nodiscard]] double error() const noexcept { return error_; }
+    [[nodiscard]] bool locked() const noexcept { return measured_ >= settle_ticks; }
+    // The tempo the song should play at: the clock's (or `fallback` until it
+    // is measured), trimmed to close the error.
+    [[nodiscard]] double tempo(double fallback) const noexcept;
+
+    static constexpr double horizon_beats = 2.0;
+    static constexpr double largest_trim = 0.02;
+    static constexpr std::size_t settle_ticks = 12;
+    static constexpr std::size_t history = 8 * 24;
+
+private:
+    double beat_ = 0.0;
+    double error_ = 0.0;
+    std::size_t measured_ = 0;
+    std::array<std::uint64_t, history> times_{};
+    std::array<double, history> beats_{};
+    std::size_t count_ = 0;
+    std::size_t next_ = 0;
+};
+
 } // namespace blokkily

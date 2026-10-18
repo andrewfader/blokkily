@@ -1633,6 +1633,32 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
     if (live_ != nullptr)
         heard_tick_.store(tick_at_sample(live_->clock, heard_position(sample_position_)),
                           std::memory_order_release);
+    // The tick this block ended on and when it is heard: the reference an
+    // external clock is locked against.
+    const auto heard_at = heard_ns_at(block_frames_);
+    const bool referenced = live_ != nullptr && is_playing() && heard_at != 0 && song_samples_ > 0;
+    const auto sequence = reference_sequence_.load(std::memory_order_relaxed);
+    reference_sequence_.store(sequence + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    reference_tick_.store(
+        referenced ? live_->clock.tick_at(static_cast<double>(sample_position_ % song_samples_)) : 0.0,
+        std::memory_order_relaxed);
+    reference_ns_.store(referenced ? heard_at : 0, std::memory_order_relaxed);
+    reference_sequence_.store(sequence + 2, std::memory_order_release);
+}
+
+std::optional<SongEngine::HeardReference> SongEngine::heard_reference() const noexcept {
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        const auto before = reference_sequence_.load(std::memory_order_acquire);
+        if ((before & 1U) != 0U) continue;
+        HeardReference reference{reference_tick_.load(std::memory_order_relaxed),
+                                 reference_ns_.load(std::memory_order_relaxed)};
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (reference_sequence_.load(std::memory_order_relaxed) != before) continue;
+        if (reference.ns == 0) return std::nullopt;
+        return reference;
+    }
+    return std::nullopt;
 }
 
 bool SongEngine::send_launcher_command(std::uint8_t type, std::uint32_t track,

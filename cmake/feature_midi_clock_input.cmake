@@ -16,7 +16,7 @@ if(BLOKKILY_BUILD_TESTS)
     target_compile_definitions(blokkily_midi_clock_tests PRIVATE
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>")
     add_dependencies(blokkily_midi_clock_tests blokkily_test_clap)
-    foreach(case follower_tempo follower_transport input_feed engine_override)
+    foreach(case follower_tempo follower_transport input_feed engine_override clock_lock)
         add_test(NAME midi_clock_${case} COMMAND blokkily_midi_clock_tests ${case})
         set_tests_properties(midi_clock_${case} PROPERTIES
             LABELS "unit;bdd;midi;sync" ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 60)
@@ -31,4 +31,11 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     set_tests_properties(bdd_midi_clock PROPERTIES
         LABELS "bdd;e2e;integration;screenshot;midi;sync;clap"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 120)
+    # Two minutes of song after a slightly-off clock, every note found in
+    # the rendered output within a millisecond of the clock's beat.
+    add_test(NAME bdd_midi_clock_lock COMMAND blokkily --verify --scenario midi_clock_lock
+        --clap-fixture $<TARGET_FILE:blokkily_test_clap>)
+    set_tests_properties(bdd_midi_clock_lock PROPERTIES
+        LABELS "bdd;e2e;integration;midi;sync;clap"
+        ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 180)
 endif()

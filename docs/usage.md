@@ -413,7 +413,11 @@ a different latency. See
 EXT in the SYNC row of SETTINGS follows the MIDI clock arriving at the MIDI input:
 Start plays from the top, Continue plays on, Stop stops, a song position
 pointer moves the playhead, and the clock's tempo is the one the song plays
-at (shown beside the chip). The song's own tempo is kept and comes back when
+at (shown beside the chip). The song is kept on the clock's beat, not only at
+its tempo: each tick is compared with where the song is heard, and the tempo
+is trimmed by up to 2% to close the gap, so a long take never drifts away
+from the drum machine; a song that starts out of step is moved onto the beat
+once. The song's own tempo is kept and comes back when
 EXT is turned off, and an export renders the song at it. See
 [the scenarios](../features/midi_clock_input.feature).
 

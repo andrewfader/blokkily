@@ -1033,16 +1033,25 @@ private:
     void reopenAudio(const QString& what);
     bool follow_clock_ = false;
     blokkily::ClockFollower clock_follower_;
+    // The clock's tempo as its ticks say it (what SYNC shows), and the tempo
+    // the song plays at: that, trimmed by the phase lock so the song stays
+    // on the clock's beat.
     std::optional<double> followed_bpm_;
+    std::optional<double> locked_bpm_;
+    blokkily::ClockLock clock_lock_;
+    std::size_t ticks_since_trim_ = 0;
+    QString shown_clock_status_;
     // The tempo of the scene launched last, while the launcher plays it
     // (features/scene_tempo.feature). A followed clock's tempo wins over it.
     std::optional<double> scene_bpm_;
     [[nodiscard]] std::optional<double> tempoOverride() const {
+        if (locked_bpm_) return locked_bpm_;
         return followed_bpm_ ? followed_bpm_ : scene_bpm_;
     }
     // The engine plays at tempoOverride() from its next arrangement on, and
     // the transport counts at it.
     void applyTempoOverride();
+    void lockTick(std::uint64_t time_ns);
     QString learn_target_;
     int learn_index_ = 0;
     QString midi_learn_status_;

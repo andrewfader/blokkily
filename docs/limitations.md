@@ -9,11 +9,10 @@ in the [usage guide](usage.md).
   bend. SoundFonts have no CC 74 timbre response unless the SF2 maps it. The
   sampler has no timbre: per-note pitch and pressure reach it, and pressure
   (per-note or poly) swells the note by up to double.
-- Following an external clock follows its tempo and its Start, Stop,
-  Continue and position; it does not phase-lock to every tick, so over a long
-  take the two can drift by a few milliseconds. A tempo change is followed a
-  beat of ticks after it is played. A track played through a MIDI output
-  sends no microtonal retuning.
+- Following an external clock holds the song on the clock's beat by trimming
+  its tempo (at most 2%), so a sudden tempo change is caught up over a beat or
+  two rather than at once. A track played through a MIDI output sends no
+  microtonal retuning.
 
 MIDI file exchange also omits plugin state, parameter automation, per-note
 expression, audio clips and microtonal retuning. Tempo ramps export as

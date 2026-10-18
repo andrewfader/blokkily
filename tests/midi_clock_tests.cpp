@@ -39,6 +39,55 @@ std::uint64_t feed_ticks(ClockFollower& follower, double bpm, int count, std::ui
     return at;
 }
 
+// Scenario: The lock measures the clock and holds the song on its beat. A
+// simulated song follows a clock at 120.037 BPM jittered by 0.4 ms: the lock
+// reads the tempo within a hundredth of a BPM from eight beats of ticks, and
+// a song that starts 20 ms late and plays at the tempo the lock asks for is
+// on the clock's beat within a fifth of a millisecond for the rest of ten
+// minutes, where at 120.0 it would have drifted 185 ms.
+void clock_lock() {
+    constexpr double clock_bpm = 120.037;
+    const double interval = 60.0e9 / (clock_bpm * 24.0);
+    ClockLock lock;
+    lock.reset(0.0);
+    std::uint32_t seed = 99;
+    // The song, heard: where it is and the tempo it plays at.
+    double song_beat = -20e-3 * clock_bpm / 60.0;
+    double playing = 120.0;
+    double previous_ns = 0.0;
+    double worst_ms = 0.0;
+    const int ticks = 10 * 60 * 2 * 24 + 1000;
+    for (int k = 0; k < ticks; ++k) {
+        seed = seed * 1664525U + 1013904223U;
+        const double unit = static_cast<double>(seed >> 8) / 16777216.0 * 2.0 - 1.0;
+        const double at = 1e9 + k * interval + unit * 0.4e6;
+        // The song moves on at the tempo it was told, between ticks.
+        if (k > 0) song_beat += (at - previous_ns) * 1e-9 * playing / 60.0;
+        previous_ns = at;
+        const bool was = lock.locked();
+        lock.tick(static_cast<std::uint64_t>(at), song_beat);
+        if (!was && lock.locked() && std::abs(lock.error()) > 0.05) {
+            song_beat += lock.error();
+            lock.aligned();
+        }
+        if (lock.locked() && k % 12 == 0) playing = lock.tempo(120.0);
+        // Measured where a song has had a minute to settle.
+        if (k > 60 * 2 * 24) {
+            const double clock_beat = (at - 1e9) / (interval * 24.0);
+            worst_ms = std::max(worst_ms, std::abs(clock_beat - song_beat) * 60000.0 / clock_bpm);
+        }
+    }
+    const auto measured = lock.bpm();
+    std::cout << "clock lock: measured " << (measured ? *measured : 0.0) << " BPM, worst "
+              << worst_ms << " ms off over ten minutes\n";
+    require(measured && std::abs(*measured - clock_bpm) < 0.01, "the tempo, from eight beats of ticks");
+    require(worst_ms < 0.6, "the song stays on the clock's beat");
+    ClockLock fresh;
+    fresh.reset(0.0);
+    require(!fresh.bpm() && !fresh.locked() && fresh.tempo(97.0) == 97.0,
+            "before it has heard enough it says nothing and trims nothing");
+}
+
 void follower_tempo() {
     ClockFollower follower;
     require(!follower.bpm(0), "no tempo before a beat of ticks");
@@ -143,6 +192,7 @@ int main(int argc, char** argv) {
         else if (which == "follower_transport") follower_transport();
         else if (which == "input_feed") input_feed();
         else if (which == "engine_override") engine_override();
+        else if (which == "clock_lock") clock_lock();
         else throw std::runtime_error("unknown case");
         std::cout << "PASS " << which << '\n';
     } catch (const std::exception& e) {
