@@ -94,7 +94,10 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## DAWproject
 
-- Export only: a `.dawproject` from another host cannot be opened yet.
+- Opening one brings in what plays, not how it was built: probability,
+  conditions and ratchets arrive as the notes they played, step locks as
+  automation, and a warped audio clip plays at its own speed. A VST3 is found
+  by its name, not its class id.
 - Left out of an export, and named in its status: the scene launcher, the
   arpeggiator (notes go as written), modulation step locks, LFOs, macros and
   followers, clip gain, an audio clip's pitch shift, sidechain keys and

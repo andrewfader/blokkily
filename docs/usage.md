@@ -467,9 +467,9 @@ timing, and durations are capped at the section length.
 MIDI exchange omits plugin state, parameter automation, per-note expression,
 audio clips and microtonal retuning. Use project files to back up a session.
 
-## DAWproject export
+## DAWproject exchange
 
-DAWPROJECT, beside MIDI OUT, writes the song as a `.dawproject` that Bitwig
+DAWPROJ OUT, beside MIDI OUT, writes the song as a `.dawproject` that Bitwig
 Studio, Studio One, Cubase and other hosts open. It carries what MIDI cannot:
 
 - Each track's notes, controller movements, per-note expression and value
@@ -486,8 +486,20 @@ The export's status lists what the format cannot carry: the scene launcher,
 the arpeggiator (its notes are written as played into it), modulation step
 locks, LFOs, macros and followers, clip gain and pitch shift, sidechain keys,
 instrument outputs routed to other tracks, and SoundFont, sampler, LV2 and
-built-in processors, which go as placeholder devices. Blokkily does not
-import `.dawproject` files.
+built-in processors, which go as placeholder devices (Blokkily itself loads
+them again from a file it wrote).
+
+DAWPROJ IN opens a `.dawproject` from another host, or one Blokkily wrote, as a
+new, unsaved session (unsaved work is asked about first). Each clip becomes a
+section placed on its track; clips that share a name and a length share a
+section, one part per track. Notes keep their timing, length, velocity,
+retune and expression, and controller lanes come in with them. Instruments
+and effects are found among the installed plugins (a CLAP plugin by its id, a
+VST3 by its name) and get their saved states; Blokkily's own built-in effects
+and placeholder devices come back as they were. The mixer, returns, sends and
+the strip and parameter automation follow; audio files are unpacked beside the
+session. The status lists anything left behind, such as a plugin that is not
+installed here.
 
 ## Freezing a track
 

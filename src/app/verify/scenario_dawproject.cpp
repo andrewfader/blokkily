@@ -1,9 +1,12 @@
 // features/dawproject.feature, run by the bdd_dawproject gate: the rail's
-// DAWPROJECT chip, and a .dawproject written by the real window from the
-// song it plays, read back and compared with what the engine plays.
+// DAWPROJ IN and OUT chips, a .dawproject written by the real window from the
+// song it plays, read back and compared with what the engine plays, and then
+// opened again as a song that bounces sample for sample as the original did.
 #include "verify/harness.hpp"
 #include "song_model.hpp"
 #include "blokkily/project/dawproject.hpp"
+#include "blokkily/audio/wave_file.hpp"
+#include "blokkily/audio/bounce.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -66,24 +69,26 @@ void run_dawproject(VerifyContext& ctx) {
     check(c.saveProject(ctx.parser.value("project")));
     layout();
 
-    // The rail: the chip sits under MIDI IN and MIDI OUT, wide enough for its
-    // whole label, and leaves them theirs.
+    // The rail: the chips sit under MIDI IN and MIDI OUT, each wide enough
+    // for its whole label, and leave them theirs.
     for (const char* name : {"importMidiButton", "exportMidiButton"})
         check(VerifyContext::usable(ctx.named(name), 60, 16));
-    auto* chip = ctx.named("exportDawProjectButton");
-    check(VerifyContext::usable(chip, 120, 18));
-    check(chip && chip->property("text").toString() == "DAWPROJECT");
-    if (chip) {
+    for (const auto& [name, text] : {std::pair{"importDawProjectButton", "DAWPROJ IN"},
+                                     std::pair{"exportDawProjectButton", "DAWPROJ OUT"}}) {
+        auto* chip = ctx.named(QString::fromLatin1(name));
+        check(VerifyContext::usable(chip, 60, 18));
+        check(chip && chip->property("text").toString() == text);
+        if (!chip) continue;
         // The label is drawn whole, not elided.
         int labels = 0;
         for (auto* child : chip->findChildren<QQuickItem*>())
-            if (child->property("text").toString() == "DAWPROJECT" && child->property("truncated").isValid()) {
+            if (child->property("text").toString() == text && child->property("truncated").isValid()) {
                 ++labels;
                 check(!child->property("truncated").toBool());
             }
         check(labels == 1);
     }
-    ctx.reached("dawproject: the DAWPROJECT chip on the rail");
+    ctx.reached("dawproject: the DAWPROJ IN and OUT chips on the rail");
 
     // The window writes the file from the song it plays.
     const QString file = ctx.parser.value("export");
@@ -129,6 +134,56 @@ void run_dawproject(VerifyContext& ctx) {
               read->tracks[0].channel.sends[0].destination == read->tracks[2].channel.id);
     }
     ctx.reached("dawproject: the window's export reads back as the engine plays");
+
+    // Opened again: the same song, heard the same.
+    const auto bounce = [&](const QString& path) {
+        std::vector<float> left;
+        std::string why;
+        if (!c.engine()) return left;
+        const auto report = blokkily::bounce_song(*c.engine(), path.toStdString(),
+                                                  blokkily::WaveFormat::float32, 0, &why);
+        const auto wave = report ? blokkily::read_wave(path.toStdString(), &why) : std::nullopt;
+        if (!wave) {
+            std::cerr << "bounce failed: " << why << '\n';
+            return left;
+        }
+        for (std::size_t frame = 0; frame < wave->frames; ++frame)
+            left.push_back(wave->interleaved[frame * wave->channels]);
+        return left;
+    };
+    const auto original = s.song();
+    const auto before = bounce(QFileInfo(file).path() + "/original.wav");
+    // The installed plugins, scanned as the window scans them at launch: a
+    // device is found among them by its id.
+    c.scanPluginPaths({ctx.parser.value("clap-fixture").toStdString()}, {}, {});
+    check(c.importDawProjectFile(file));
+    c.flushRecompile();
+    layout();
+    std::cerr << c.projectStatus().toStdString() << " · " << c.projectDetail().toStdString() << '\n';
+    check(c.dawProjectOmissions().isEmpty());
+    const auto& opened = s.song();
+    check(opened.tracks.size() == original.tracks.size() && opened.returns.size() == 1);
+    for (std::size_t t = 0; t < std::min(opened.tracks.size(), original.tracks.size()); ++t) {
+        const auto& a = original.tracks[t];
+        const auto& b = opened.tracks[t];
+        check(a.name == b.name && b.instrument.format == "CLAP" &&
+              b.instrument.identifier == a.instrument.identifier &&
+              b.instrument.state.bytes() == a.instrument.state.bytes());
+        check(std::abs(a.mix.pan - b.mix.pan) < 1e-9 && std::abs(a.mix.gain_db - b.mix.gain_db) < 1e-9);
+        check(a.sends == b.sends);
+        std::vector<std::tuple<long long, long long, int>> was, now;
+        for (const auto& note : original.arrange(t, 0).notes) was.emplace_back(note.start, note.duration, note.key);
+        for (const auto& note : opened.arrange(t, 0).notes) now.emplace_back(note.start, note.duration, note.key);
+        check(!was.empty() && was == now);
+    }
+    check(opened.sections_whole() && opened.sections.size() == 1 && opened.sections[0].name == "VERSE");
+    const auto after = bounce(QFileInfo(file).path() + "/opened.wav");
+    float worst = 0.0F;
+    for (std::size_t i = 0; i < std::min(before.size(), after.size()); ++i)
+        worst = std::max(worst, std::abs(before[i] - after[i]));
+    std::cerr << "opened: " << after.size() << " frames against " << before.size() << ", worst " << worst << '\n';
+    check(!before.empty() && before.size() == after.size() && worst < 1e-6F);
+    ctx.reached("dawproject: the export opened again bounces sample for sample as the song did");
 
     layout();
     check(VerifyContext::usable(ctx.named("exportStatus"), 100, 10));

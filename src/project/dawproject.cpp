@@ -223,6 +223,39 @@ void Writer::write_parameters(pugi::xml_node device, ProcessorAddress where,
     }
 }
 
+} // namespace
+
+std::vector<std::byte> dawproject_slot_bytes(const PluginSlot& slot) {
+    const std::string head = "BLOKKILY-SLOT 1\n" + slot.format + "\n" + slot.path + "\n" +
+                             slot.identifier + "\n";
+    std::vector<std::byte> bytes(head.size());
+    std::memcpy(bytes.data(), head.data(), head.size());
+    const auto state = slot.state.bytes();
+    bytes.insert(bytes.end(), state.begin(), state.end());
+    return bytes;
+}
+
+std::optional<PluginSlot> dawproject_slot(std::span<const std::byte> bytes) {
+    std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    std::array<std::string, 4> lines;
+    std::size_t at = 0;
+    for (auto& line : lines) {
+        const auto end = text.find('\n', at);
+        if (end == std::string_view::npos) return std::nullopt;
+        line = std::string(text.substr(at, end - at));
+        at = end + 1;
+    }
+    if (lines[0] != "BLOKKILY-SLOT 1") return std::nullopt;
+    PluginSlot slot;
+    slot.format = lines[1];
+    slot.path = lines[2];
+    slot.identifier = lines[3];
+    slot.state = std::vector<std::byte>(bytes.begin() + static_cast<std::ptrdiff_t>(at), bytes.end());
+    return slot;
+}
+
+namespace {
+
 void Writer::write_device(pugi::xml_node devices, ProcessorAddress where, const PluginSlot& slot,
                           bool bypass, const std::vector<EffectParameter>* settings) {
     const auto* state = portable(where);
@@ -263,6 +296,11 @@ void Writer::write_device(pugi::xml_node devices, ProcessorAddress where, const 
         omit(where_text + ": a built-in effect, written as a generic device other hosts do not load");
     } else {
         omit(where_text + ": " + slot.format + " has no DAWproject device; written as a placeholder");
+        // What the placeholder stands for, so Blokkily opening the file loads
+        // it again (dawproject_slot_bytes); other hosts ignore it.
+        const auto file = "plugins/" + std::to_string(blobs_.size() + 1) + ".blokkily-slot";
+        blobs_.emplace_back(file, dawproject_slot_bytes(slot));
+        device.append_child("State").append_attribute("path") = file.c_str();
     }
 }
 

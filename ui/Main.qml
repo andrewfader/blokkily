@@ -349,6 +349,14 @@ ApplicationWindow {
         onAccepted: appController.exportMidiFile(selectedFile.toString())
     }
     FileDialog {
+        id: importDawProjectDialog
+        objectName: "importDawProjectDialog"
+        title: "Open a song from another DAW"
+        nameFilters: ["DAWproject files (*.dawproject)"]
+        fileMode: FileDialog.OpenFile
+        onAccepted: appController.importDawProjectFile(selectedFile.toString())
+    }
+    FileDialog {
         id: exportDawProjectDialog
         title: "Export the song for another DAW"
         nameFilters: ["DAWproject files (*.dawproject)"]
@@ -676,6 +684,7 @@ ApplicationWindow {
                     onImportMidiRequested: importMidiDialog.open()
                     onExportMidiRequested: exportMidiDialog.open()
                     onExportDawProjectRequested: exportDawProjectDialog.open()
+                    onImportDawProjectRequested: root.whenDiscarded(function() { importDawProjectDialog.open() })
                 }
             }
             }

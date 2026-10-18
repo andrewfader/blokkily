@@ -25,6 +25,7 @@ ColumnLayout {
     signal importMidiRequested()
     signal exportMidiRequested()
     signal exportDawProjectRequested()
+    signal importDawProjectRequested()
     signal exportRequested()
     signal exportDepthPicked(string depth)
     signal exportFormatPicked(string format)
@@ -174,10 +175,19 @@ ColumnLayout {
             Layout.fillWidth: true
             onClicked: root.exportMidiRequested() }
     }
-    // The song for another DAW: Bitwig Studio, Studio One, Cubase.
-    Chip { objectName: "exportDawProjectButton"; text: "DAWPROJECT"
-        Layout.fillWidth: true
-        onClicked: root.exportDawProjectRequested() }
+    // The song for another DAW (Bitwig Studio, Studio One, Cubase), and a
+    // song from one.
+    RowLayout {
+        Layout.fillWidth: true; spacing: 6
+        Chip { objectName: "importDawProjectButton"; text: "DAWPROJ IN"
+            Layout.fillWidth: true
+            accessibleLabel: "Open a DAWproject from another DAW"
+            onClicked: root.importDawProjectRequested() }
+        Chip { objectName: "exportDawProjectButton"; text: "DAWPROJ OUT"
+            Layout.fillWidth: true
+            accessibleLabel: "Export the song as a DAWproject"
+            onClicked: root.exportDawProjectRequested() }
+    }
     Label {
         objectName: "exportStatus"
         Layout.fillWidth: true; text: appController.exportStatus

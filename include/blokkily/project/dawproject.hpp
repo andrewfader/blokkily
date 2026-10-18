@@ -18,7 +18,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -169,4 +171,50 @@ struct DawProjectFile {
 [[nodiscard]] std::optional<DawProjectFile> read_dawproject(const std::filesystem::path& path,
                                                             std::string* error = nullptr);
 
+// --- Opening a .dawproject as a song (features/dawproject.feature) ---------
+// What another host wrote, as Blokkily plays it: the tempo and meter maps,
+// each track's clips as sections and placements, notes with their velocity,
+// retune and per-note expression, controller movements, the instruments and
+// effects the device lists name (found among the installed plugins), the
+// mixer, returns and sends, audio clips with their files, and the strip and
+// parameter automation. Clips of the same name and length become one
+// section, a part per track; a placement whose notes differ becomes a section
+// of its own. What the song has no place for is named in the report.
+
+// A placeholder device's own description (format, path, identifier, state),
+// written beside it so a Blokkily file opened again loads it.
+[[nodiscard]] std::vector<std::byte> dawproject_slot_bytes(const PluginSlot& slot);
+[[nodiscard]] std::optional<PluginSlot> dawproject_slot(std::span<const std::byte> bytes);
+
+// The installed plugin a ClapPlugin or Vst3Plugin device names (its deviceID:
+// a CLAP id, a VST3 class id), as the slot that loads it, or nothing.
+using DawProjectLocator = std::function<std::optional<PluginSlot>(const DawProjectDevice&)>;
+
+struct DawProjectImport {
+    Song song;
+    // One line for each thing of the file the song does not carry.
+    std::vector<std::string> omitted;
+    // VST3 states arrive as .vstpreset files: the caller loads each into its
+    // plugin and keeps the state the plugin then reports (the slot at
+    // `where` has none until then).
+    struct Preset {
+        ProcessorAddress where;
+        std::vector<std::byte> preset;
+    };
+    std::vector<Preset> presets;
+    std::size_t tracks = 0;
+    std::size_t clips = 0;
+    std::size_t notes = 0;
+    std::size_t devices = 0;
+    std::size_t audio_clips = 0;
+    std::size_t automation_points = 0;
+};
+
+// Reads `path` into a song. Audio files the archive holds are written into
+// `audio_dir`, which the song's audio clips then name.
+[[nodiscard]] std::optional<DawProjectImport> import_dawproject(
+    const std::filesystem::path& path, const std::filesystem::path& audio_dir,
+    const DawProjectLocator& locate, std::string* error = nullptr);
+
 } // namespace blokkily
+

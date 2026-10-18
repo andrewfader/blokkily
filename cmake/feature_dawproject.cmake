@@ -4,7 +4,7 @@
 # map, the automation and the plugins' states. Each scenario maps to a case
 # below; every case reads the archive back.
 
-target_sources(blokkily_core PRIVATE src/project/dawproject.cpp)
+target_sources(blokkily_core PRIVATE src/project/dawproject.cpp src/project/dawproject_import.cpp)
 
 if(BLOKKILY_BUILD_GUI)
     target_sources(blokkily PRIVATE src/app/app_controller_dawproject.cpp)
@@ -36,7 +36,8 @@ if(BLOKKILY_BUILD_TESTS)
         BLOKKILY_XMLLINT="${BLOKKILY_XMLLINT}"
         BLOKKILY_CMAKE_COMMAND="${CMAKE_COMMAND}")
     add_dependencies(blokkily_dawproject_tests blokkily_test_clap blokkily_test_vst3_VST3)
-    set(blokkily_dawproject_cases notes render clap_state vst3_state audio_clip omissions)
+    set(blokkily_dawproject_cases notes render clap_state vst3_state audio_clip omissions
+        import_round_trip import_placeholders import_foreign)
     if(BLOKKILY_XMLLINT)
         list(APPEND blokkily_dawproject_cases schema)
     endif()

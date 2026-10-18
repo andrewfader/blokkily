@@ -400,6 +400,12 @@ public:
     // what the engine plays, the mixer, tempo, automation and each running
     // plugin's state. The status names what the file could not carry.
     Q_INVOKABLE bool exportDawProjectFile(const QString& path);
+    // Opens a .dawproject another host (or Blokkily) wrote as a new, unsaved
+    // session (features/dawproject.feature): its devices found among the
+    // installed plugins, its audio unpacked beside the session. What could
+    // not come in is listed in dawProjectOmissions(). False, leaving the
+    // song as it was, for a file that cannot be read.
+    Q_INVOKABLE bool importDawProjectFile(const QString& path);
     // What the last DAWproject export left out, one line each.
     Q_INVOKABLE QStringList dawProjectOmissions() const { return dawproject_omitted_; }
     // A MusicXML score into the song as a section of its own: a track per

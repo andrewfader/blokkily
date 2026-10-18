@@ -694,12 +694,234 @@ void schema() {
             "the meter change at its bar");
 }
 
+// --- Opening a .dawproject ------------------------------------------------
+
+// What the importer is told is installed: the CLAP fixture.
+const DawProjectLocator fixture_locator = [](const DawProjectDevice& device) -> std::optional<PluginSlot> {
+    if (device.element == "ClapPlugin" && device.device_id == "dev.blokkily.test")
+        return PluginSlot{"CLAP", BLOKKILY_TEST_CLAP_PATH, "dev.blokkily.test", {}};
+    return std::nullopt;
+};
+
+using Heard = std::vector<std::tuple<Tick, Tick, int, float, double>>;
+Heard heard_notes(const Song& song, std::size_t track) {
+    Heard notes;
+    for (const auto& note : song.arrange(track, 0).notes)
+        notes.emplace_back(note.start, note.duration, note.key, note.velocity, note.cents);
+    std::sort(notes.begin(), notes.end());
+    return notes;
+}
+
+// Scenario: A song exported and opened again is the same song
+void import_round_trip() {
+    auto song = make_song();
+    // Beyond make_song: a meter change, a built-in effect with its settings
+    // on the bass, one on the return, and the lead's strip automated.
+    song.meter.set({1, 3, 4});
+    song.tracks[1].inserts.push_back({{"Built-in", "", "filter", {}}, false, {{0, 0.3}, {1, 0.4}}, {}});
+    song.returns[0].inserts.push_back({{"Built-in", "", "delay", {}}, false, {{0, 0.25}}, {}});
+    AutomationLane gain{{AutomationTarget::Kind::gain, 0, "", {BusKind::track, 0, -1}}, {{0, -3.0}, {1920, -9.0}}};
+    AutomationLane pan{{AutomationTarget::Kind::pan, 0, "", {BusKind::track, 0, -1}}, {{480, -0.5}, {2400, 0.5}}};
+    song.tracks[0].automation = {gain, pan};
+    require(song.consistent(), "the song is valid");
+    auto original = prepare(song);
+    const auto path = fresh("round-trip.dawproject");
+    std::string error;
+    require(write_dawproject(path, song, options_from(original->engine), &error).has_value(), error);
+    const auto opened = import_dawproject(path, work / "round-trip-audio", fixture_locator, &error);
+    require(opened.has_value(), error);
+    for (const auto& line : opened->omitted) std::cout << "left out: " << line << '\n';
+    const auto& back = opened->song;
+    require(back.tempo == song.tempo, "the tempo map, its ramp included");
+    require(back.meter == song.meter, "the meter map");
+    require(back.tracks.size() == 2 && back.returns.size() == 1, "the tracks and the return");
+    for (std::size_t track = 0; track < 2; ++track) {
+        const auto& a = song.tracks[track];
+        const auto& b = back.tracks[track];
+        require(a.name == b.name && near(a.mix.gain_db, b.mix.gain_db, 1e-9) && near(a.mix.pan, b.mix.pan, 1e-9) &&
+                    a.sends == b.sends,
+                "track " + a.name + ": its strip and sends");
+        require(b.instrument.format == "CLAP" && b.instrument.state.bytes() == a.instrument.state.bytes(),
+                "track " + a.name + ": its instrument, with its state");
+        require(heard_notes(back, track) == heard_notes(song, track),
+                "track " + a.name + ": every note where, as long and as loud as it played");
+        const auto continuous = [](const Song& s, std::size_t t) {
+            std::vector<std::tuple<Tick, int, int, int>> moves;
+            for (const auto& move : s.arrange(t, 0).continuous)
+                moves.emplace_back(move.start, static_cast<int>(move.event.kind), move.event.controller, move.event.value);
+            std::sort(moves.begin(), moves.end());
+            return moves;
+        };
+        require(continuous(back, track) == continuous(song, track), "track " + a.name + ": its controllers");
+    }
+    require(back.tracks[1].inserts == song.tracks[1].inserts && back.returns[0].inserts == song.returns[0].inserts,
+            "the built-in effects, with their settings");
+    require(back.returns[0].name == "Room" && near(back.returns[0].mix.gain_db, -2.0, 1e-9) &&
+                near(back.master_gain_db, -1.0, 1e-9),
+            "the return and the master");
+    for (const auto& lane : song.tracks[0].automation) {
+        const auto found = std::find_if(back.tracks[0].automation.begin(), back.tracks[0].automation.end(),
+                                        [&](const AutomationLane& other) { return other.target == lane.target; });
+        require(found != back.tracks[0].automation.end(), "the strip's automation lanes");
+        for (Tick at = 0; at <= 2400; at += 120)
+            require(near(*found->value_at(at), *lane.value_at(at), 1e-6), "each lane's value along the song");
+    }
+    // Heard the same: a song made from the file alone bounces as the original.
+    auto reopened = prepare(back);
+    const auto a = bounce(original->engine, "round-trip-a.wav");
+    const auto b = bounce(reopened->engine, "round-trip-b.wav");
+    float worst = 0.0F;
+    for (std::size_t i = 0; i < std::min(a.size(), b.size()); ++i) worst = std::max(worst, std::abs(a[i] - b[i]));
+    std::cout << "round trip: " << a.size() << " and " << b.size() << " frames, worst " << worst << '\n';
+    require(a.size() == b.size() && worst < 1e-5F, "and it sounds the same, sample for sample");
+}
+
+// Scenario: Blokkily's own instruments come back from their placeholders
+void import_placeholders() {
+    Song song;
+    song.tracks[0].name = "Piano";
+    song.tracks[0].instrument = {"SoundFont", "/nowhere/piano.sf2", "", {std::byte{7}, std::byte{9}}};
+    Track second;
+    second.name = "Pad";
+    second.instrument = {"LV2", "/usr/lib/lv2/pad.lv2", "urn:pad", {}};
+    song.tracks.push_back(second);
+    song.add_track_parts(1);
+    const auto path = fresh("placeholders.dawproject");
+    std::string error;
+    require(write_dawproject(path, song, {}, &error).has_value(), error);
+    const auto opened = import_dawproject(path, work / "placeholders-audio", fixture_locator, &error);
+    require(opened.has_value(), error);
+    require(opened->song.tracks[0].instrument == song.tracks[0].instrument &&
+                opened->song.tracks[1].instrument == song.tracks[1].instrument,
+            "the SoundFont and the LV2 plugin, path, identifier and state");
+}
+
+// A ZIP of stored (uncompressed) entries, as any archiver writes one.
+void write_zip(const std::filesystem::path& path, const std::vector<std::pair<std::string, std::string>>& entries) {
+    const auto crc32 = [](const std::string& data) {
+        std::uint32_t crc = 0xFFFFFFFFU;
+        for (const unsigned char byte : data) {
+            crc ^= byte;
+            for (int bit = 0; bit < 8; ++bit) crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+        return ~crc;
+    };
+    std::string out, directory;
+    const auto u16 = [](std::string& to, std::uint16_t v) { to.push_back(char(v & 0xFF)); to.push_back(char(v >> 8)); };
+    const auto u32 = [&](std::string& to, std::uint32_t v) { u16(to, std::uint16_t(v & 0xFFFF)); u16(to, std::uint16_t(v >> 16)); };
+    for (const auto& [name, data] : entries) {
+        const auto offset = static_cast<std::uint32_t>(out.size());
+        const auto crc = crc32(data);
+        u32(out, 0x04034b50U); u16(out, 20); u16(out, 0); u16(out, 0); u16(out, 0); u16(out, 0);
+        u32(out, crc); u32(out, std::uint32_t(data.size())); u32(out, std::uint32_t(data.size()));
+        u16(out, std::uint16_t(name.size())); u16(out, 0);
+        out += name;
+        out += data;
+        u32(directory, 0x02014b50U); u16(directory, 20); u16(directory, 20); u16(directory, 0); u16(directory, 0);
+        u16(directory, 0); u16(directory, 0); u32(directory, crc); u32(directory, std::uint32_t(data.size()));
+        u32(directory, std::uint32_t(data.size())); u16(directory, std::uint16_t(name.size())); u16(directory, 0);
+        u16(directory, 0); u16(directory, 0); u16(directory, 0); u32(directory, 0); u32(directory, offset);
+        directory += name;
+    }
+    const auto at = static_cast<std::uint32_t>(out.size());
+    out += directory;
+    u32(out, 0x06054b50U); u16(out, 0); u16(out, 0); u16(out, std::uint16_t(entries.size()));
+    u16(out, std::uint16_t(entries.size())); u32(out, std::uint32_t(directory.size())); u32(out, at); u16(out, 0);
+    std::ofstream(path, std::ios::binary) << out;
+}
+
+// Scenario: A song another DAW wrote opens and plays
+void import_foreign() {
+    // As another host lays a project out: its own ids, the master first, a
+    // tempo of 128 in 3/4, an instrument by its CLAP id, a clip of notes
+    // inside Lanes with a controller lane beside them.
+    const std::string project = R"(<?xml version="1.0" encoding="UTF-8"?>
+<Project version="1.0">
+  <Application name="Another DAW" version="5.2"/>
+  <Transport>
+    <Tempo id="t0" unit="bpm" value="128"/>
+    <TimeSignature id="t1" numerator="3" denominator="4"/>
+  </Transport>
+  <Structure>
+    <Track id="master" name="Master" contentType="audio notes">
+      <Channel id="ch-master" role="master" audioChannels="2">
+        <Volume id="mv" unit="linear" value="0.5"/>
+      </Channel>
+    </Track>
+    <Track id="tr1" name="Arp" contentType="notes">
+      <Channel id="ch1" role="regular" audioChannels="2" destination="ch-master">
+        <Devices>
+          <ClapPlugin id="d1" deviceID="dev.blokkily.test" deviceName="Blokkily Test Synth" deviceRole="instrument" loaded="true">
+            <Parameters/>
+          </ClapPlugin>
+        </Devices>
+        <Mute id="m1" value="false"/>
+        <Pan id="p1" unit="normalized" value="0.25"/>
+        <Volume id="v1" unit="linear" value="1.0"/>
+      </Channel>
+    </Track>
+  </Structure>
+  <Arrangement id="arr">
+    <Lanes id="lanes" timeUnit="beats">
+      <Lanes id="l1" track="tr1">
+        <Clips id="c">
+          <Clip time="6" duration="3" playStart="0" name="Riff">
+            <Lanes id="cl">
+              <Notes id="n">
+                <Note time="0" duration="1" channel="0" key="69" vel="0.7"/>
+                <Note time="1.5" duration="0.5" channel="0" key="72" vel="0.5"/>
+              </Notes>
+              <Points id="cc" unit="normalized">
+                <Target expression="channelController" channel="0" controller="74"/>
+                <RealPoint time="0" value="0.5" interpolation="hold"/>
+              </Points>
+            </Lanes>
+          </Clip>
+        </Clips>
+      </Lanes>
+    </Lanes>
+  </Arrangement>
+</Project>)";
+    const auto path = fresh("foreign.dawproject");
+    write_zip(path, {{"project.xml", project}, {"metadata.xml", "<MetaData><Title>Arp</Title></MetaData>"}});
+    std::string error;
+    const auto opened = import_dawproject(path, work / "foreign-audio", fixture_locator, &error);
+    require(opened.has_value(), error);
+    const auto& song = opened->song;
+    require(song.tempo.points.size() == 1 && near(song.tempo.points[0].bpm, 128.0), "its tempo");
+    require(song.meter.changes.front().numerator == 3 && song.meter.changes.front().denominator == 4, "its meter");
+    require(song.tracks.size() == 1 && song.tracks[0].name == "Arp" && song.tracks[0].instrument.format == "CLAP" &&
+                near(song.tracks[0].mix.pan, -0.5) && near(song.master_gain_db, 20.0 * std::log10(0.5), 1e-9),
+            "its track, the instrument found among the installed plugins, its pan and the master");
+    require(song.clips.size() == 1 && song.clips[0].start == 6 * 480 && song.sections.size() == 1 &&
+                song.sections[0].name == "Riff",
+            "the clip as a section placed at beat 6");
+    const auto notes = heard_notes(song, 0);
+    require(notes.size() == 2 && std::get<0>(notes[0]) == 2880 && std::get<2>(notes[0]) == 69 &&
+                std::get<0>(notes[1]) == 2880 + 720 && std::get<1>(notes[1]) == 240 && std::get<2>(notes[1]) == 72,
+            "its notes where they play");
+    require(song.arrange(0, 0).continuous.size() == 1 && song.arrange(0, 0).continuous[0].event.controller == 74,
+            "and its controller");
+    // Played: the first note sounds at beat 6 of 128 BPM, 2.8125 s in.
+    auto engine = prepare(song);
+    const auto heard = bounce(engine->engine, "foreign.wav");
+    std::size_t first = heard.size();
+    for (std::size_t i = 0; i < heard.size(); ++i)
+        if (std::abs(heard[i]) > 1e-6F) { first = i; break; }
+    // bounce() hands back interleaved stereo: two samples a frame.
+    first /= 2;
+    std::cout << "foreign: first sound at frame " << first << '\n';
+    require(first == 135000, "the song plays its first note at beat 6");
+}
+
 } // namespace
 
 int main(int argc, char** argv) try {
     const std::map<std::string, std::function<void()>> cases{
         {"notes", notes},         {"render", render}, {"clap_state", clap_state}, {"vst3_state", vst3_state},
-        {"audio_clip", audio_clip}, {"omissions", omissions}, {"schema", schema}};
+        {"audio_clip", audio_clip}, {"omissions", omissions}, {"schema", schema},
+        {"import_round_trip", import_round_trip}, {"import_placeholders", import_placeholders},
+        {"import_foreign", import_foreign}};
     if (argc != 2 || cases.find(argv[1]) == cases.end()) {
         std::cerr << "usage: blokkily_dawproject_tests <case>\n";
         return 2;
