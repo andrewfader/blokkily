@@ -474,6 +474,22 @@ public:
     // Learns and follows the controllers the MIDI input delivered since the
     // last call. The meter poll calls it; a gate may call it to settle.
     Q_INVOKABLE void serveControlChanges();
+    // --- Plugin isolation (app_controller_isolation.cpp) ------------------
+    // Whether each plugin runs in a helper process of its own
+    // (features/plugin_isolation.feature), and whether this build can.
+    Q_PROPERTY(bool pluginIsolation READ pluginIsolation NOTIFY pluginIsolationChanged)
+    Q_PROPERTY(bool pluginIsolationAvailable READ pluginIsolationAvailable CONSTANT)
+    // "Blokkily Faulty Synth on LEAD" for each plugin that crashed, hung or
+    // threw and now plays silence, until RELOAD.
+    Q_PROPERTY(QStringList failedPlugins READ failedPlugins NOTIFY failedPluginsChanged)
+    bool pluginIsolation() const;
+    bool pluginIsolationAvailable() const;
+    QStringList failedPlugins() const { return failed_plugins_; }
+    // Remembers the choice and loads every plugin again under it, each from
+    // the state it has now.
+    Q_INVOKABLE void setPluginIsolation(bool on);
+    // Loads every failed plugin again, from the last state it reported.
+    Q_INVOKABLE void reloadPlugins();
     // --- The audio system (app_controller_audio_system.cpp) ----------------
     // [{name, display}]: AUTO first, then each system this build can open.
     Q_PROPERTY(QVariantList audioSystems READ audioSystems CONSTANT)
@@ -805,6 +821,8 @@ signals:
     void followPlaybackChanged();
     void statusChanged();
     void audioDevicesChanged();
+    void pluginIsolationChanged();
+    void failedPluginsChanged();
     void uiSettingsChanged();
     void pluginsChanged();
     void browserChanged();
@@ -980,6 +998,11 @@ private:
     // Plugins already reported as having broken (serviceEditors), so each is
     // reported once.
     std::unordered_set<const blokkily::PluginInstance*> failed_reported_;
+    QStringList failed_plugins_;
+    // The next rebuild loads these again rather than carrying them over.
+    bool reload_failed_ = false;
+    bool reload_all_ = false;
+    void applyPluginIsolation();
     QVariantList plugins_;
     QString browser_filter_;
     // What the browser lists, ranked, until the scan, the filter or the kind

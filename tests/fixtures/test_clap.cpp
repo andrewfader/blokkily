@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -39,9 +41,18 @@ std::atomic<long> instances_created{0};
 std::atomic<long> instances_destroyed{0};
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT,
                                     CLAP_PLUGIN_FEATURE_SYNTHESIZER, nullptr};
+#if defined(BLOKKILY_FAULTY_FIXTURE)
+// The same synth, built as a plugin that breaks on cue
+// (features/plugin_isolation.feature): key 127 crashes its process, key 126
+// never returns from process().
+constexpr clap_plugin_descriptor_t descriptor{
+    CLAP_VERSION, "dev.blokkily.faulty", "Blokkily Faulty Synth", "Blokkily",
+    "https://blokkily.invalid", "", "", "0.1.0", "Test fixture that crashes on cue", features};
+#else
 constexpr clap_plugin_descriptor_t descriptor{
     CLAP_VERSION, "dev.blokkily.test", "Blokkily Test Synth", "Blokkily",
     "https://blokkily.invalid", "", "", "0.1.0", "Test fixture", features};
+#endif
 
 // The parameters the fixture exposes through clap.params. VelocityMode is
 // declared here (plan C7); its sound (item 1.6) is described below.
@@ -401,6 +412,14 @@ clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_proce
         if (header->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
         if (header->type == CLAP_EVENT_NOTE_ON) {
             const auto* note = reinterpret_cast<const clap_event_note_t*>(header);
+#if defined(BLOKKILY_FAULTY_FIXTURE)
+            if (note->key == 127) {
+                volatile int* nowhere = nullptr;
+                *nowhere = 1;
+            }
+            if (note->key == 126)
+                while (true) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+#endif
             synth->sounding = true;
             synth->key = note->key;
             // Each note starts from a known tuning, so an untuned note after a

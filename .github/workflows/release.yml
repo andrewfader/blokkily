@@ -357,7 +357,7 @@ jobs:
           app="stage/$name/Blokkily.app"
           bin="$app/Contents/MacOS"
           mkdir -p "$bin" "$app/Contents/Resources" "$app/Contents/PlugIns/platforms"
-          cp build/blokkily build/blokkily_scan build/blokkily_cli "$bin/"
+          cp build/blokkily build/blokkily_scan build/blokkily_cli build/blokkily_plugin_host "$bin/"
           cat > "$app/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -379,6 +379,7 @@ jobs:
           cp "$plugins/platforms/libqoffscreen.dylib" "$app/Contents/PlugIns/platforms/"
           macdeployqt "$app" -qmldir=ui -always-overwrite \
             -executable="$bin/blokkily_scan" -executable="$bin/blokkily_cli" \
+            -executable="$bin/blokkily_plugin_host" \
             -executable="$app/Contents/PlugIns/platforms/libqoffscreen.dylib"
           # Nothing in the bundle may still load from Homebrew. A library's
           # own install name (otool -D) is not a dependency and is skipped.

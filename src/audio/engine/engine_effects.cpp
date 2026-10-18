@@ -114,6 +114,9 @@ bool prepare_effects(const Song& song, std::vector<InsertChain*> chains, BusPlay
         auto& chain = *chains[track];
         shape_chain(chain, track < song.tracks.size() ? song.tracks[track].inserts.size() : 0);
         if (!activate_chain(chain, sample_rate, maximum_block, buses.tail, error)) return false;
+        // An instrument that answers late (one in a process of its own) is
+        // compensated like an insert that does.
+        chain.latency += chain.source_latency;
         shape_sends(chain, song.returns.size());
         track_latency = std::max(track_latency, chain.latency);
     }

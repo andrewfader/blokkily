@@ -86,6 +86,11 @@ struct TrackPlayback {
     LiveEvents live;
 
     ClipPlayback clips;
+    // What the track adds after its instrument (its clips, its input),
+    // delayed by the instrument's latency so the two stay together.
+    StereoDelay others_delay;
+    std::vector<float> others_left;
+    std::vector<float> others_right;
     InsertChain chain;
     InputPlayback input;
     StripAutomation automation;

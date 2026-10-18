@@ -1,4 +1,6 @@
 #include "app_controller.hpp"
+
+#include "blokkily/plugins/sandbox.hpp"
 #include "processor_factory.hpp"
 
 #include "blokkily/midi/midi_out_instrument.hpp"
@@ -65,6 +67,7 @@ AppController::AppController(SongModel* song, PatternModel* pattern, Transport* 
           [this](std::function<void()> work) { QTimer::singleShot(0, this, std::move(work)); }),
       audio_output_(std::move(output)) {
     registerMidiOut();
+    applyPluginIsolation();
     // Audio clips larger than this (decoded) stream from disk (wave 4.2).
     // The environment can lower it, so a gate streams a short file.
     if (const char* threshold = std::getenv("BLOKKILY_STREAM_THRESHOLD_BYTES")) {
@@ -614,6 +617,17 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
         auto state = kept.instance->save_state();
         if (!state.empty()) slot->state = std::move(state);
     }
+    // RELOAD: a failed processor (or, when isolation changes, every plugin)
+    // is let go and made again from the state it last reported.
+    if (reload_failed_ || reload_all_) {
+        const bool all = reload_all_;
+        std::erase_if(adopted, [all](const blokkily::ReleasedProcessor& kept) {
+            return kept.instance->failed() ||
+                   (all && blokkily::is_plugin_format(kept.instance->format()));
+        });
+        reload_failed_ = reload_all_ = false;
+        failed_reported_.clear();
+    }
     forgetSoundingNotes();
     if (engine_) engine_->connect_input(nullptr);
     // Takes the old engine finished are printed before it goes, into the
@@ -695,7 +709,10 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
                             ? static_cast<double>(audio_output_->device_info().sample_rate)
                             : static_cast<double>(default_sample_rate);
     const auto assets = clipAssets(rate);
-    // Activating every plugin at the device's rate, and reading the clips.
+    // Activating every plugin at the device's rate, and reading the clips. A
+    // plugin in a process of its own is a device period behind, so it has a
+    // period to answer in (sandbox.hpp).
+    blokkily::set_sandbox_period(device_open ? audio_output_->device_info().buffer_frames : 0);
     progress_.report(0.92, QStringLiteral("PREPARING THE MIX"));
     if (!next->prepare(song, rate, 512, 0, &error, assets, clipRenditions(rate))) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));

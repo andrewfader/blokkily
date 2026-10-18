@@ -14,6 +14,7 @@
 #include "blokkily/audio/song_engine.hpp"
 #include "blokkily/model/song.hpp"
 #include "blokkily/plugins/clap_instance.hpp"
+#include "blokkily/plugins/sandbox.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -48,6 +49,14 @@ public:
                !peak_.compare_exchange_weak(seen, peak, std::memory_order_relaxed)) {
         }
         frames_.fetch_add(output.left.size(), std::memory_order_relaxed);
+        // The song holds a note from its first sample: once it has been
+        // heard, a silent callback is audio that did not arrive in time.
+        if (peak > 1e-4F) heard_.store(true, std::memory_order_relaxed);
+        else if (heard_.load(std::memory_order_relaxed))
+            dropouts_.fetch_add(1, std::memory_order_relaxed);
+    }
+    [[nodiscard]] std::uint64_t dropouts() const noexcept {
+        return dropouts_.load(std::memory_order_relaxed);
     }
 
     [[nodiscard]] float peak() const noexcept { return peak_.load(std::memory_order_relaxed); }
@@ -59,6 +68,8 @@ private:
     blokkily::AudioSource& inner_;
     std::atomic<float> peak_{0.0F};
     std::atomic<std::uint64_t> frames_{0};
+    std::atomic<bool> heard_{false};
+    std::atomic<std::uint64_t> dropouts_{0};
 };
 
 // A song that is unmistakably not silence: one sustained note on each of two
@@ -81,6 +92,7 @@ blokkily::Song two_track_song() {
 int main(int argc, char** argv) {
     std::string clap_path;
     std::string api;
+    std::string helper;
     double seconds = 1.5;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -88,6 +100,8 @@ int main(int argc, char** argv) {
         else if (argument == "--seconds" && index + 1 < argc) seconds = std::atof(argv[++index]);
         // One audio system rather than RtAudio's choice (features/audio_systems.feature).
         else if (argument == "--api" && index + 1 < argc) api = argv[++index];
+        // Each instrument in a helper process (features/plugin_isolation.feature).
+        else if (argument == "--isolate" && index + 1 < argc) helper = argv[++index];
     }
     if (clap_path.empty()) {
         std::fprintf(stderr, "audio-device-check: --clap-fixture is required\n");
@@ -100,8 +114,12 @@ int main(int argc, char** argv) {
     blokkily::SongEngine engine;
     for (std::size_t track = 0; track < 2; ++track) {
         std::string clap_error;
-        auto voice = blokkily::ClapPluginInstance::create(clap_path, "dev.blokkily.test",
-                                                          &clap_error);
+        std::unique_ptr<blokkily::PluginInstance> voice;
+        if (!helper.empty())
+            voice = blokkily::create_sandboxed({"CLAP", clap_path, "dev.blokkily.test", {}}, helper,
+                                               &clap_error);
+        else
+            voice = blokkily::ClapPluginInstance::create(clap_path, "dev.blokkily.test", &clap_error);
         if (voice == nullptr) {
             std::fprintf(stderr, "audio-device-check: CLAP fixture failed: %s\n",
                          clap_error.c_str());
@@ -109,13 +127,6 @@ int main(int argc, char** argv) {
         }
         engine.set_instrument(track, std::move(voice));
     }
-    std::string engine_error;
-    if (!engine.prepare(two_track_song(), sample_rate, maximum_block, 0, &engine_error)) {
-        std::fprintf(stderr, "audio-device-check: engine prepare failed: %s\n",
-                     engine_error.c_str());
-        return 2;
-    }
-
     TappedSource tapped(engine);
     blokkily::RtAudioOutput output(blokkily::RtAudioOutput::Mode::device, api);
     std::string device_error;
@@ -129,6 +140,15 @@ int main(int argc, char** argv) {
     }
 
     const auto info = output.device_info();
+    // Prepared once the device has said its period, as the application does:
+    // an isolated instrument is a period behind.
+    blokkily::set_sandbox_period(info.buffer_frames);
+    std::string engine_error;
+    if (!engine.prepare(two_track_song(), sample_rate, maximum_block, 0, &engine_error)) {
+        std::fprintf(stderr, "audio-device-check: engine prepare failed: %s\n",
+                     engine_error.c_str());
+        return 2;
+    }
     std::printf("api=%s device=\"%s\" rate=%u negotiated-block=%u prepared-max=%u\n",
                 info.api.c_str(), info.device.c_str(), info.sample_rate, info.buffer_frames,
                 maximum_block);
@@ -163,6 +183,8 @@ int main(int argc, char** argv) {
     const auto callbacks = output.callback_count();
     const auto frames = tapped.frames();
     const double delivered_seconds = static_cast<double>(frames) / sample_rate;
+    std::printf("dropouts=%llu isolated=%s\n", static_cast<unsigned long long>(tapped.dropouts()),
+                helper.empty() ? "no" : "yes");
     std::printf("callbacks=%llu frames=%llu delivered=%.3fs elapsed=%.3fs largest-block=%u "
                 "peak=%.4f\n",
                 static_cast<unsigned long long>(callbacks),
@@ -190,6 +212,10 @@ int main(int argc, char** argv) {
         std::printf("note: the server asked for %u frames against a prepared maximum of %u; "
                     "the engine split them\n", output.largest_block(), maximum_block);
 
+    // A held note must keep arriving: more than an occasional late callback
+    // is a player (or a helper) that cannot keep up.
+    if (callbacks > 0 && tapped.dropouts() * 20 > callbacks)
+        fail("more than one callback in twenty came back silent mid-note");
     if (failures != 0) return 1;
     std::printf("audio-device-check: PASS\n");
     return 0;

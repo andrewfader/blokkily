@@ -1,5 +1,7 @@
 #include "blokkily/audio/bounce.hpp"
 
+#include "blokkily/plugins/sandbox.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -31,6 +33,9 @@ bool render(SongEngine& engine, std::vector<Target>& targets, WaveFormat format,
         if (error != nullptr) *error = message;
         return false;
     };
+    // Faster than real time: a plugin in a process of its own is waited for,
+    // so the file is what a punctual one plays (sandbox.hpp).
+    const ScopedSandboxWait waits;
     if (engine.song_samples() == 0 || engine.maximum_block() == 0)
         return fail("prepare the song before bouncing it");
     if (engine.sample_rate() <= 0.0) return fail("song has no sample rate");

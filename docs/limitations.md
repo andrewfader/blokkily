@@ -122,3 +122,19 @@ an X server, under XWayland, and on macOS and Windows; they run with the
 suite's own test plugins, and on macOS and Windows also with Dexed, at
 standard pixel density only. See
 [verification](verification.md) for display-check requirements and skips.
+
+## Plugin isolation
+
+- Windows and macOS builds load plugins inside Blokkily: isolation runs on
+  Linux only. (On macOS a helper would also need Cocoa's event loop for
+  plugin editors.)
+- An isolated plugin is one audio period late (at least 512 samples); the
+  mixer compensates it, but a key played live through it is heard that much
+  later. An audio clip on a track fed by an isolated instrument's auxiliary
+  output is not delayed to match that output.
+- On Wayland an isolated plugin's editor opens in a window of its own rather
+  than inside Blokkily's: a window of another process can be embedded only
+  through X11 (XWayland).
+- A helper whose plugin hangs is stopped after three seconds without a block;
+  until then its track is silent.
+

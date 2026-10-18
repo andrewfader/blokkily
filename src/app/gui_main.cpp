@@ -9,6 +9,7 @@
 #include "mcp_tools.hpp"
 #include "open_channel.hpp"
 #include "verify/harness.hpp"
+#include "blokkily/plugins/sandbox.hpp"
 
 #include "../llm/scripted_backend.hpp"
 
@@ -110,6 +111,10 @@ int main(int argc, char* argv[]) {
     parser.addOption({"mcp", "Speak MCP on stdin and stdout for an agent, driving the running "
                               "Blokkily (starting it when none is running)."});
     parser.addOption({"mcp-socket", "During verification, serve MCP on this socket.", "path"});
+    parser.addOption({"isolate-plugins", "During verification, run each plugin in a helper "
+                                         "process, as they ship; otherwise a gate loads them in "
+                                         "the window."});
+    parser.addOption({"faulty-clap", "During verification, a CLAP that crashes on cue.", "path"});
     parser.addOption({"auto-hide", "During verification, let the side bars auto-hide as they "
                                    "ship; otherwise a gate docks them."});
     // What the desktop hands over when a .blok is opened from the file
@@ -206,6 +211,13 @@ int main(int argc, char* argv[]) {
     // A gate drives the rail and the mixer at the canonical 1280 px, where
     // they would auto-hide: it docks them unless it is the gate that proves
     // the auto-hiding (features/window_layout.feature).
+    // A gate pumps the engine by hand, so a plugin's helper is waited for;
+    // most gates load plugins in the window, where they read the fixture's
+    // own logs (features/plugin_isolation.feature).
+    if (parser.isSet("verify")) {
+        blokkily::set_sandbox_waits(true);
+        if (parser.isSet("isolate-plugins")) controller.setPluginIsolation(true);
+    }
     if (parser.isSet("verify") && !parser.isSet("auto-hide")) {
         controller.setUiSetting(QStringLiteral("ui/autoHideRail"), false);
         controller.setUiSetting(QStringLiteral("ui/autoHideMixer"), false);

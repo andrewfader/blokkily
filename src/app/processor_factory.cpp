@@ -4,13 +4,17 @@
 #include "blokkily/effects/builtin.hpp"
 #include "blokkily/instruments/soundfont_synth.hpp"
 #include "blokkily/plugins/plugin_scan.hpp"
-#include "blokkily/plugins/clap_instance.hpp"
-#include "blokkily/plugins/vst3_instance.hpp"
+#include "blokkily/plugins/sandbox.hpp"
 
 #include <utility>
 
 namespace blokkily {
 namespace {
+
+std::filesystem::path& isolation_host() {
+    static std::filesystem::path host;
+    return host;
+}
 
 struct Registration {
     std::string format;
@@ -77,6 +81,9 @@ void register_internal(const std::string& format, ProcessorFactory factory,
     registry().push_back({format, std::move(factory), std::move(entries)});
 }
 
+void set_plugin_isolation(const std::filesystem::path& host) { isolation_host() = host; }
+std::filesystem::path plugin_isolation() { return isolation_host(); }
+
 bool is_internal_format(const std::string& format) { return find(format) != nullptr; }
 
 std::uint64_t internal_catalog_revision() { return revision(); }
@@ -91,18 +98,13 @@ std::vector<CatalogEntry> internal_catalog() {
 std::unique_ptr<PluginInstance> create_processor(const InstrumentSlot& slot,
                                                  const ProcessorContext& context,
                                                  std::string* error) {
-    if (slot.format == "CLAP") return ClapPluginInstance::create(slot.path, slot.identifier, error);
-    if (slot.format == "VST3") {
-        std::size_t index = 0;
-        const auto found = Vst3PluginInstance::scan(slot.path);
-        for (std::size_t candidate = 0; candidate < found.size(); ++candidate)
-            if (found[candidate].identifier == slot.identifier) {
-                index = candidate;
-                break;
-            }
-        return Vst3PluginInstance::create(slot.path, index, error);
+    if (is_plugin_format(slot.format)) {
+        // A plugin runs in a helper process of its own when isolation is on
+        // (features/plugin_isolation.feature); a crash there costs only it.
+        if (const auto host = plugin_isolation(); !host.empty() && sandbox_supported())
+            return create_sandboxed(slot, host, error);
+        return create_format_processor(slot, error);
     }
-    if (slot.format == "LV2") return Vst3PluginInstance::create_lv2(slot.path, slot.identifier, error);
     if (const auto* registration = find(slot.format); registration && registration->factory)
         return registration->factory(slot, context, error);
     if (error != nullptr) *error = "unknown instrument format";

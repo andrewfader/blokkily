@@ -192,6 +192,7 @@ void SongEngine::reset_processing() {
     for (auto& track : tracks_) {
         if (track->instrument) track->instrument->reset();
         engine::reset_chain(track->chain);
+        track->others_delay.clear();
         // The instruments have let go of every voice, so nothing is owed a
         // release any more.
         track->sounding.fill(0);
@@ -311,6 +312,18 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
         track.applied_valid = false;
         if (track.instrument && !track.instrument->activate(sample_rate, 1, maximum_block_size))
             return fail("an instrument refused to activate");
+        track.chain.source_latency = track.instrument ? track.instrument->latency_samples() : 0;
+    }
+    // A track fed by another's instrument output is as late as that instrument.
+    for (const auto& feed : live_->routing.feeds)
+        if (feed.source < tracks_.size() && feed.destination < tracks_.size())
+            tracks_[feed.destination]->chain.source_latency =
+                std::max(tracks_[feed.destination]->chain.source_latency,
+                         tracks_[feed.source]->chain.source_latency);
+    for (auto& track : tracks_) {
+        track->others_delay.prepare(track->chain.source_latency);
+        track->others_left.assign(track->chain.source_latency > 0 ? maximum_block_size : 0, 0.0F);
+        track->others_right.assign(track->chain.source_latency > 0 ? maximum_block_size : 0, 0.0F);
     }
     // The insert chains, sends, returns and master inserts, shaped to the
     // song, activated, and compensated for their latency.
@@ -1291,14 +1304,31 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
             drain_edits(*track.instrument, track_instrument(static_cast<std::uint32_t>(index)),
                         song_position, from_timeline);
         }
+        // Behind a late instrument, what follows it is delayed to meet it.
+        const bool delayed = track.chain.source_latency > 0 && track.others_left.size() >= frames;
+        const StereoBlock others =
+            delayed ? StereoBlock{std::span<float>{track.others_left.data(), frames},
+                                  std::span<float>{track.others_right.data(), frames}}
+                    : buffer;
+        if (delayed) {
+            std::fill(others.left.begin(), others.left.end(), 0.0F);
+            std::fill(others.right.begin(), others.right.end(), 0.0F);
+        }
         // 5. Audio-clip regions, from the arrangement only.
-        engine::sum_clip_regions(track.clips, arranged.clips, index, buffer, song_position,
+        engine::sum_clip_regions(track.clips, arranged.clips, index, others, song_position,
                                  from_timeline, blocking_reads_.load(std::memory_order_relaxed),
                                  wrap_end_sample(), wrap_start_sample());
         // 6. Input monitoring; a capture taps the raw input here.
-        engine::add_input_monitoring(track.input, buffer, input, capture_ring,
+        engine::add_input_monitoring(track.input, others, input, capture_ring,
                                      static_cast<std::uint32_t>(index), song_position,
                                      capture_from_, capture_to_);
+        if (delayed) {
+            track.others_delay.process(others);
+            for (std::size_t frame = 0; frame < frames; ++frame) {
+                left[frame] += others.left[frame];
+                right[frame] += others.right[frame];
+            }
+        }
         // 7. The insert chain, in place. 8. Its compensation delay.
         engine::run_insert_chain(track.chain, buffer, BusKind::track,
                                  static_cast<std::uint32_t>(index), transport, drain);

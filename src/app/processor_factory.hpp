@@ -54,6 +54,12 @@ void register_internal(const std::string& format, ProcessorFactory factory,
 // tell that it is out of date.
 [[nodiscard]] std::uint64_t internal_catalog_revision();
 
+// Plugins (CLAP, VST3, LV2) are created in a helper process of their own,
+// started from `host` (blokkily_plugin_host), while it is set; empty loads
+// them in this process. Applies to processors created from now on.
+void set_plugin_isolation(const std::filesystem::path& host);
+[[nodiscard]] std::filesystem::path plugin_isolation();
+
 // The processor `slot` names, without its state loaded, or nullptr with the
 // reason in `error`.
 [[nodiscard]] std::unique_ptr<PluginInstance> create_processor(const InstrumentSlot& slot,

@@ -820,9 +820,49 @@ ApplicationWindow {
                                } }
                     }
 
+                    // A plugin that crashed, hung or threw is silenced; this
+                    // says which, and loads it again.
+                    Rectangle {
+                        objectName: "pluginFailureBanner"
+                        Layout.row: 1
+                        Layout.fillWidth: true
+                        visible: appController.failedPlugins.length > 0
+                        implicitHeight: failureRow.implicitHeight + 14
+                        radius: 6
+                        color: Qt.rgba(1, 0.3, 0.37, 0.12)
+                        border.color: Theme.record
+                        RowLayout {
+                            id: failureRow
+                            anchors.fill: parent; anchors.margins: 7; anchors.leftMargin: 12
+                            spacing: 10
+                            Rectangle {
+                                implicitWidth: 18; implicitHeight: 18; radius: 9
+                                color: Theme.record
+                                Label { anchors.centerIn: parent; text: "!"; color: Theme.bg
+                                        font.pixelSize: 12; font.bold: true }
+                            }
+                            Label {
+                                objectName: "pluginFailureText"
+                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                text: appController.failedPlugins.join(", ")
+                                      + (appController.failedPlugins.length === 1 ? " has" : " have")
+                                      + " stopped and is silenced. The song and everything else play on."
+                                color: Theme.ink; font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+                            Chip {
+                                objectName: "reloadPlugins"
+                                text: "RELOAD"; implicitHeight: 22
+                                accent: Theme.record; on: true
+                                accessibleLabel: "Load the stopped plugins again"
+                                onClicked: appController.reloadPlugins()
+                            }
+                        }
+                    }
+
                     PromptBar {
                         id: promptBar
-                        Layout.row: 1
+                        Layout.row: 2
                         Layout.fillWidth: true
                         focusHome: noteEntry
                     }
@@ -906,7 +946,7 @@ ApplicationWindow {
                     x: editorColumn.x; y: editorColumn.y
                     width: editorColumn.width; height: editorColumn.height
                     z: 5
-                    rowBase: 2
+                    rowBase: 3
                     spacing: editorColumn.rowSpacing
                     order: root.ui["ui/editorOrder"] !== undefined ? String(root.ui["ui/editorOrder"]).split(",") : []
                     heights: ({ "keyboard": root.uiNumber("ui/keyboardHeight", 0) })

@@ -68,8 +68,11 @@ struct SendPlayback {
 // compensation that aligns this bus with its neighbours, and a track's sends.
 struct InsertChain {
     std::vector<std::unique_ptr<EffectSlotPlayback>> slots;
-    // Sum of the slots' latencies, as of prepare().
+    // Sum of the slots' latencies, as of prepare(), and of what feeds the
+    // chain: a track's instrument (or the instrument whose output it is).
     std::uint32_t latency = 0;
+    // The latency of what feeds the chain, set before prepare_effects().
+    std::uint32_t source_latency = 0;
     StereoDelay compensation;
     // One per return bus, preallocated, so adding a send is a level change.
     std::vector<std::unique_ptr<SendPlayback>> sends;

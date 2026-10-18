@@ -5,6 +5,8 @@
 
 #include "app_controller.hpp"
 
+#include <QFileInfo>
+
 #include <QVariantMap>
 
 #include <cmath>
@@ -97,22 +99,30 @@ void AppController::serviceEditors() {
 
 void AppController::reportFailedPlugins() {
     if (!engine_ || song_ == nullptr) return;
+    QStringList failed;
     for (const auto& where : engine_->processor_addresses()) {
         const auto* instance = engine_->processor(where);
-        if (instance == nullptr || !instance->failed() || !failed_reported_.insert(instance).second)
-            continue;
+        if (instance == nullptr || !instance->failed()) continue;
         const auto& song = song_->song();
         QString owner = QStringLiteral("the master");
         if (where.kind == blokkily::BusKind::track && where.bus < song.tracks.size())
             owner = QString::fromStdString(song.tracks[where.bus].name);
         else if (where.kind == blokkily::BusKind::ret)
             owner = QStringLiteral("return %1").arg(QChar('A' + static_cast<int>(where.bus % 26)));
-        status_ = QStringLiteral("%1 on %2 stopped responding and was silenced; save, then "
-                                 "reopen the project to load it again")
-                      .arg(where.instrument() ? QStringLiteral("The instrument")
-                                              : QStringLiteral("An effect"),
-                           owner);
+        const auto* slot = blokkily::song_slot(song, where);
+        QString name = where.instrument() ? QStringLiteral("The instrument") : QStringLiteral("An effect");
+        if (slot != nullptr && !slot->path.empty())
+            name = QFileInfo(QString::fromStdString(slot->path)).completeBaseName();
+        failed.append(QStringLiteral("%1 on %2").arg(name, owner));
+        if (!failed_reported_.insert(instance).second) continue;
+        status_ = QStringLiteral("%1 on %2 stopped responding and was silenced; RELOAD loads it "
+                                 "again")
+                      .arg(name, owner);
         emit statusChanged();
+    }
+    if (failed != failed_plugins_) {
+        failed_plugins_ = failed;
+        emit failedPluginsChanged();
     }
 }
 

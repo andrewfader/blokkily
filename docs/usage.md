@@ -369,6 +369,17 @@ MIDI · CLOCK OUT and SYNC are the clock described under
 [outboard gear](#outboard-gear-and-midi-clock) and
 [following an external clock](#following-an-external-clock).
 
+PLUGINS · ISOLATE (on where the platform allows it: Linux) runs
+each CLAP, VST3 and LV2 plugin in a process of its own. A plugin that crashes
+or hangs then costs only that process: its track goes silent, a red banner
+above the editors names it, and RELOAD loads it again from the last state it
+reported, while the song and every other plugin keep playing. The price is one
+audio period of latency on each isolated plugin (512 samples at least), which
+the mixer compensates so every track stays in time; a key played live is heard
+that much later. An export waits for each plugin and is unchanged. Turn it off
+to load plugins inside Blokkily, as before; switching reloads every plugin from
+the state it has. See [the scenarios](../features/plugin_isolation.feature).
+
 WINDOW · AUTO-HIDE lets the left bar (devices, plugins, project) and the right
 bar (the mixer) tuck into a strip at the window's edge, which is how they
 ship. A tucked-away bar comes back over the editors when the pointer rests on

@@ -50,6 +50,7 @@ cd "$output_dir"
     --appdir "$appdir" \
     --executable "$appdir/usr/bin/blokkily" \
     --executable "$appdir/usr/bin/blokkily_scan" \
+    --executable "$appdir/usr/bin/blokkily_plugin_host" \
     --desktop-file "$appdir/usr/share/applications/blokkily.desktop" \
     --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/blokkily.svg" \
     --plugin qt \

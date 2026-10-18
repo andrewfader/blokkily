@@ -205,6 +205,29 @@ Rectangle {
                 }
             }
 
+            // ----------------------------------------------------- plugins
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
+            SectionLabel { text: "PLUGINS"; color: Theme.acid }
+            SettingRow {
+                label: "ISOLATE"
+                Chip {
+                    objectName: "pluginIsolation"
+                    text: appController.pluginIsolation ? "ON" : "OFF"; implicitHeight: 24
+                    implicitWidth: 52
+                    enabled: appController.pluginIsolationAvailable
+                    accessibleLabel: "Run each plugin in a process of its own"
+                    on: appController.pluginIsolation
+                    onClicked: appController.setPluginIsolation(!appController.pluginIsolation)
+                }
+                Hint {
+                    text: appController.pluginIsolationAvailable
+                          ? "each plugin runs in a process of its own: one that crashes or hangs goes "
+                            + "silent and can be reloaded, and Blokkily keeps running. Costs one "
+                            + "block of latency, which is compensated"
+                          : "not available in this build: plugins run inside Blokkily"
+                }
+            }
+
             // --------------------------------------------------- interface
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
             SectionLabel { text: "WINDOW"; color: Theme.acid }
