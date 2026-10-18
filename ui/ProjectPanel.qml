@@ -24,6 +24,7 @@ ColumnLayout {
     signal openWindowRequested()
     signal importMidiRequested()
     signal exportMidiRequested()
+    signal exportDawProjectRequested()
     signal exportRequested()
     signal exportDepthPicked(string depth)
     signal exportFormatPicked(string format)
@@ -173,6 +174,10 @@ ColumnLayout {
             Layout.fillWidth: true
             onClicked: root.exportMidiRequested() }
     }
+    // The song for another DAW: Bitwig Studio, Studio One, Cubase.
+    Chip { objectName: "exportDawProjectButton"; text: "DAWPROJECT"
+        Layout.fillWidth: true
+        onClicked: root.exportDawProjectRequested() }
     Label {
         objectName: "exportStatus"
         Layout.fillWidth: true; text: appController.exportStatus

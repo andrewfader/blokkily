@@ -68,6 +68,12 @@ public:
     bool latency_changed() noexcept override;
     std::vector<ParameterInfo> parameters() const override;
     std::optional<double> parameter_value(std::int32_t id) const override;
+    // A VST3's class id and its state as a .vstpreset (the SDK's preset
+    // file, component and controller state in one), with each listed
+    // parameter's ParamID. Nothing for an LV2 plugin.
+    std::optional<PortableState> portable_state() override;
+    // Loads a .vstpreset portable_state() wrote (or another host did).
+    bool load_preset(std::span<const std::byte> preset);
     // Edits the listeners queued from the plugin's own threads. Producers take
     // a mutex (only try_lock on the audio thread); this consumer never locks.
     std::size_t take_parameter_edits(std::span<ParameterEdit> out) noexcept override;

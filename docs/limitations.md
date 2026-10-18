@@ -92,6 +92,18 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   A MusicXML export reports when a part does not play back the same.
 - Grace and cue notes in a MusicXML file are skipped.
 
+## DAWproject
+
+- Export only: a `.dawproject` from another host cannot be opened yet.
+- Left out of an export, and named in its status: the scene launcher, the
+  arpeggiator (notes go as written), modulation step locks, LFOs, macros and
+  followers, clip gain, an audio clip's pitch shift, sidechain keys and
+  instrument outputs routed to other tracks. SoundFont, sampler, LV2 and
+  built-in processors go as placeholder devices other hosts cannot load.
+- Controllers are written normalized to 0..1 (the pitch wheel centred at
+  0.5). The format leaves the scale to the host, and this has not been
+  checked against Bitwig, Studio One or Cubase.
+
 ## LV2
 
 - LV2 plugins are hosted through JUCE. Their own windows open where JUCE can

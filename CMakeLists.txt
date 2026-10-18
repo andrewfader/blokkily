@@ -623,7 +623,8 @@ foreach(blokkily_feature
         lv2_hosting
         audio_systems
         packaging
-        scene_tempo)
+        scene_tempo
+        dawproject)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

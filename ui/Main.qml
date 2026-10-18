@@ -341,6 +341,14 @@ ApplicationWindow {
         defaultSuffix: "mid"
         onAccepted: appController.exportMidiFile(selectedFile.toString())
     }
+    FileDialog {
+        id: exportDawProjectDialog
+        title: "Export the song for another DAW"
+        nameFilters: ["DAWproject files (*.dawproject)"]
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "dawproject"
+        onAccepted: appController.exportDawProjectFile(selectedFile.toString())
+    }
 
     // Ctrl+K goes to the assistant's prompt bar, the way a command palette
     // answers Ctrl+K elsewhere; Escape there hands the keyboard back.
@@ -622,6 +630,7 @@ ApplicationWindow {
                     onExportRequested: exportDialog.open()
                     onImportMidiRequested: importMidiDialog.open()
                     onExportMidiRequested: exportMidiDialog.open()
+                    onExportDawProjectRequested: exportDawProjectDialog.open()
                 }
             }
             }

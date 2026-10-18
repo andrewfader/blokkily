@@ -395,6 +395,13 @@ public:
     // of the bar the playhead is in.
     Q_INVOKABLE bool importMidiFile(const QString& path);
     Q_INVOKABLE bool exportMidiFile(const QString& path);
+    // The song as a .dawproject for Bitwig Studio, Studio One, Cubase and
+    // the other hosts that read the format (app_controller_dawproject.cpp):
+    // what the engine plays, the mixer, tempo, automation and each running
+    // plugin's state. The status names what the file could not carry.
+    Q_INVOKABLE bool exportDawProjectFile(const QString& path);
+    // What the last DAWproject export left out, one line each.
+    Q_INVOKABLE QStringList dawProjectOmissions() const { return dawproject_omitted_; }
     // A MusicXML score into the song as a section of its own: a track per
     // staff with its notes, lyrics, clef, key and meter, placed after the
     // arrangement (a song with no notes takes the score's meter and tempo).
@@ -946,6 +953,7 @@ private:
     QString project_status_ = "Not saved";
     QString project_detail_ = "No project on disk";
     QString export_status_ = "Not exported";
+    QStringList dawproject_omitted_;
     QString describeControl(const QString& target, int index) const;
     // Chosen this session; null until then (the setting holds the last).
     QString audio_system_;

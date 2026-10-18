@@ -981,6 +981,54 @@ bool Vst3PluginInstance::load_state(std::span<const std::byte> state) {
     });
 }
 
+std::optional<PortableState> Vst3PluginInstance::portable_state() {
+    if (!impl_ || impl_->format_name != "VST3") return std::nullopt;
+    return impl_->guard(std::optional<PortableState>{}, [&]() -> std::optional<PortableState> {
+        if (!impl_ || !impl_->plugin) return std::nullopt;
+        auto* client = impl_->plugin->getVST3Client();
+        if (client == nullptr) return std::nullopt;
+        const auto block = client->getPreset();
+        // A .vstpreset opens with "VST3", a version, and the class id of the
+        // plugin's component as 32 ASCII hex digits.
+        constexpr std::size_t class_id_at = 8;
+        constexpr std::size_t class_id_size = 32;
+        if (block.getSize() < class_id_at + class_id_size ||
+            std::memcmp(block.getData(), "VST3", 4) != 0)
+            return std::nullopt;
+        PortableState portable;
+        portable.device_id.assign(static_cast<const char*>(block.getData()) + class_id_at,
+                                  class_id_size);
+        portable.device_name = impl_->plugin->getName().toStdString();
+        portable.device_vendor = impl_->plugin->getPluginDescription().manufacturerName.toStdString();
+        portable.preset_extension = "vstpreset";
+        portable.preset.resize(block.getSize());
+        std::memcpy(portable.preset.data(), block.getData(), block.getSize());
+        const auto& parameters = impl_->plugin->getParameters();
+        for (int index = 0; index < parameters.size(); ++index) {
+            const auto* parameter = parameters[index];
+            if (!parameter->isAutomatable()) continue;
+            const auto* hosted = dynamic_cast<const juce::HostedAudioProcessorParameter*>(parameter);
+            if (hosted == nullptr) continue;
+            portable.parameters.push_back({index, hosted->getParameterID().getLargeIntValue(),
+                                           parameter->getName(128).toStdString(), 0.0, 1.0,
+                                           static_cast<double>(parameter->getValue())});
+        }
+        return portable;
+    });
+}
+
+bool Vst3PluginInstance::load_preset(std::span<const std::byte> preset) {
+    if (!impl_ || impl_->format_name != "VST3") return false;
+    return impl_->guard(false, [&]() -> bool {
+        if (!impl_ || !impl_->plugin) return false;
+        auto* client = impl_->plugin->getVST3Client();
+        if (client == nullptr || !client->setPreset(juce::MemoryBlock(preset.data(), preset.size())))
+            return false;
+        impl_->seed_automation();
+        return true;
+    });
+}
+
 PluginPorts Vst3PluginInstance::ports() const {
     if (!impl_ || !impl_->plugin) return {};
     return {impl_->input_channels, impl_->plugin->acceptsMidi(), impl_->sidechain_channels,

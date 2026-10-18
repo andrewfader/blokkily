@@ -820,6 +820,21 @@ bool ClapPluginInstance::load_state(std::span<const std::byte> bytes) {
     return state->load(impl_->plugin, &input.stream);
 }
 
+std::optional<PortableState> ClapPluginInstance::portable_state() {
+    if (!impl_ || !impl_->plugin) return std::nullopt;
+    PortableState portable;
+    portable.device_id = impl_->plugin_id;
+    portable.device_name = impl_->plugin_name;
+    if (impl_->plugin->desc->vendor != nullptr) portable.device_vendor = impl_->plugin->desc->vendor;
+    portable.preset_extension = "clap-preset";
+    portable.preset = save_state();
+    for (const auto& parameter : parameters())
+        portable.parameters.push_back({parameter.id, static_cast<std::uint32_t>(parameter.id),
+                                       parameter.name, parameter.min, parameter.max,
+                                       parameter_value(parameter.id).value_or(parameter.default_value)});
+    return portable;
+}
+
 PluginPorts ClapPluginInstance::ports() const {
     if (!impl_) return {};
     return {impl_->input_channels, impl_->note_input, impl_->sidechain_channels,

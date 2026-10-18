@@ -116,7 +116,9 @@ keeps the layout consistent across desktops.
   as 16-bit, 24-bit or 32-bit float WAVE, MP3 or Ogg Vorbis through the same
   engine used for playback, every track as a file of its own (STEMS), or an
   oscilloscope video of every track over the master (SCOPE VIDEO, encoded by
-  `ffmpeg` on `PATH`). Import and export Standard MIDI Files for note exchange.
+  `ffmpeg` on `PATH`). Import and export Standard MIDI Files for note exchange, and
+  export the whole song (mixer, automation, plugin states, audio) as a
+  DAWproject for Bitwig Studio, Studio One or Cubase.
 - Save named versions of the song and restore any of them in one undo step,
   and keep notes with it, in the VERSIONS and NOTES tabs.
 - Read any part as staff notation in the SCORE view: all eleven clefs from

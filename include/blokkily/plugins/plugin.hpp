@@ -111,6 +111,29 @@ struct ParameterInfo {
     bool automatable;
 };
 
+// A processor as a project another host opens names it (the DAWproject
+// exchange format, dawproject.hpp): the identifier that format uses for the
+// plugin, its state written as the format's own preset file, and each
+// parameter's identifier there. Kept here so that the exporter needs no
+// format-specific knowledge.
+struct PortableState {
+    std::string device_id;        // CLAP plugin id; VST3 class id, 32 hex digits
+    std::string device_name;
+    std::string device_vendor;
+    std::string preset_extension; // "clap-preset", "vstpreset"
+    std::vector<std::byte> preset;
+    // Each listed parameter (ParameterInfo::id, in the plugin's own range)
+    // with the format's own id for it: a CLAP param id is the same number, a
+    // VST3 parameter's index becomes its ParamID.
+    struct Parameter {
+        std::int32_t id = 0;
+        std::int64_t portable_id = 0;
+        std::string name;
+        double min = 0.0, max = 1.0, value = 0.0;
+    };
+    std::vector<Parameter> parameters;
+};
+
 // A parameter moved by the plugin itself (its own window, a knob it turned),
 // reported back to the host: one gesture is begin, any number of values, end.
 // `sample_offset` places a value inside the block it came out of (always 0
@@ -184,6 +207,9 @@ public:
         (void)id;
         return std::nullopt;
     }
+    // The processor as another host would load it (PortableState), or
+    // nothing for one no exchange format has a device for (main thread).
+    virtual std::optional<PortableState> portable_state() { return std::nullopt; }
     // AUDIO thread, straight after process(): moves the plugin's own
     // parameter edits into `out`, oldest first, and returns how many. Edits
     // that do not fit stay queued for the next call.

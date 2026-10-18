@@ -411,6 +411,28 @@ timing, and durations are capped at the section length.
 MIDI exchange omits plugin state, parameter automation, per-note expression,
 audio clips and microtonal retuning. Use project files to back up a session.
 
+## DAWproject export
+
+DAWPROJECT, beside MIDI OUT, writes the song as a `.dawproject` that Bitwig
+Studio, Studio One, Cubase and other hosts open. It carries what MIDI cannot:
+
+- Each track's notes, controller movements, per-note expression and value
+  step locks as the engine plays them, one clip per placement, named after
+  its section. A retuned note carries its retune as a transpose expression.
+- The mixer: volume, pan, mute, solo, sends, the returns and the master.
+- The tempo map (ramps included), the meter changes and the automation lanes.
+- Audio clips, with their files copied into the archive and warp markers
+  that place the audio where it plays here.
+- Each running plugin's state as the other host loads it: a CLAP plugin's
+  state, a VST3's `.vstpreset`. Load the song's instruments before exporting.
+
+The export's status lists what the format cannot carry: the scene launcher,
+the arpeggiator (its notes are written as played into it), modulation step
+locks, LFOs, macros and followers, clip gain and pitch shift, sidechain keys,
+instrument outputs routed to other tracks, and SoundFont, sampler, LV2 and
+built-in processors, which go as placeholder devices. Blokkily does not
+import `.dawproject` files.
+
 ## Freezing a track
 
 FRZ on a mixer strip renders the track's instrument and inserts to audio
