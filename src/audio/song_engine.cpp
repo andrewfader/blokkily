@@ -1294,7 +1294,7 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
         // 5. Audio-clip regions, from the arrangement only.
         engine::sum_clip_regions(track.clips, arranged.clips, index, buffer, song_position,
                                  from_timeline, blocking_reads_.load(std::memory_order_relaxed),
-                                 song_samples_);
+                                 wrap_end_sample(), wrap_start_sample());
         // 6. Input monitoring; a capture taps the raw input here.
         engine::add_input_monitoring(track.input, buffer, input, capture_ring,
                                      static_cast<std::uint32_t>(index), song_position,

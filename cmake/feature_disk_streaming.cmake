@@ -22,6 +22,7 @@ if(BLOKKILY_BUILD_TESTS)
             seek
             underrun
             loop_cue
+            wrap_in_clip
             bounce)
         add_test(NAME disk_streaming_${stream_case}
             COMMAND blokkily_disk_streaming_tests ${stream_case})

@@ -151,6 +151,12 @@ public:
     // Asks for `frame` to be where the next read() starts, ahead of time: a
     // clip about to begin, or the playhead parked in one. Never waits.
     void cue(std::uint64_t frame) noexcept;
+    // Whether the stream is playing from `frame`: its ring's next frame is
+    // that one. Never waits.
+    [[nodiscard]] bool holds(std::uint64_t frame) noexcept;
+    // Whether a live read() from `frame` carries on from where the stream is,
+    // or was cued to, rather than relocating. Never waits.
+    [[nodiscard]] bool continues_at(std::uint64_t frame) noexcept;
     // Whether a live read() has had to play silence or fade for want of data
     // since the flag was last cleared. Any thread.
     [[nodiscard]] bool has_underrun() const noexcept {

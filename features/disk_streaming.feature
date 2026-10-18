@@ -16,9 +16,10 @@ Feature: Long audio clips stream from disk
 
   Warped clips play a rendition rendered from the file decoded into memory,
   because a stretch reads the whole clip; streaming does not apply to them.
-  The sampler never streams. One stream serves one clip, so a single clip
-  that plays across the song's wrap point relocates at the wrap like a locate
-  (a short fade out and in) rather than playing on seamlessly.
+  The sampler never streams. Each streamed clip has two streams: while one
+  plays up to the song's wrap, or its loop's, the other is cued to where the
+  clip resumes after it, so a clip that plays on across a wrap does so
+  seamlessly. A locate still relocates with a short fade out and in.
 
   Executable: tests/disk_streaming_tests.cpp (CTest disk_streaming_<case>),
   through the production render callback, the production bounce and real
@@ -60,6 +61,13 @@ Feature: Long audio clips stream from disk
     Given a streamed clip on the song's first beat
     When the song plays through twice
     Then the second pass equals the first, sample for sample
+
+  # disk_streaming_wrap_in_clip
+  Scenario: A clip that plays on across the wrap point plays on seamlessly
+    Given a streamed clip as long as the song
+    When the song plays through twice
+    Then it plays across the song's wrap as it does from memory, sample for sample
+    And with a loop set inside the clip, it plays across every wrap of the loop as it does from memory
 
   # disk_streaming_bounce
   Scenario: An export of streamed clips is the mix the engine plays

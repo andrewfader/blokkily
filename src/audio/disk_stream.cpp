@@ -464,6 +464,15 @@ void DiskStream::read(std::uint64_t frame, std::span<float> left, std::span<floa
               right.begin() + static_cast<std::ptrdiff_t>(count), 0.0F);
 }
 
+bool DiskStream::holds(std::uint64_t frame) noexcept {
+    poll();
+    return synced_ && read_frame_ == frame;
+}
+
+bool DiskStream::continues_at(std::uint64_t frame) noexcept {
+    return holds(frame) || frame == want_;
+}
+
 void DiskStream::cue(std::uint64_t frame) noexcept {
     poll();
     // A clip starts at full level on its first frame, as an in-memory clip

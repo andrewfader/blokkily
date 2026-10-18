@@ -65,10 +65,13 @@ public:
     // Background threads filling the rings; 0 leaves them to service().
     // Only while nothing plays.
     void set_workers(std::size_t workers);
+    // `lane` 0 is the clip's stream; 1 its spare, cued to where the clip
+    // resumes after the song or the loop wraps while the other still plays.
     [[nodiscard]] std::shared_ptr<DiskStream> acquire(std::uint64_t clip,
                                                       const StreamedFile& file,
                                                       std::uint32_t rate,
-                                                      std::uint64_t first_frame);
+                                                      std::uint64_t first_frame,
+                                                      std::uint8_t lane = 0);
     // Lets go of the streams no arrangement slot holds any more.
     void purge();
     // Fills every stream's ring on the calling thread; true if any took data.
@@ -76,7 +79,7 @@ public:
     [[nodiscard]] std::size_t size() const noexcept { return streams_.size(); }
 
 private:
-    using Key = std::tuple<std::uint64_t, std::filesystem::path, std::uint32_t>;
+    using Key = std::tuple<std::uint64_t, std::filesystem::path, std::uint32_t, std::uint8_t>;
     std::size_t workers_ = 1;
     std::unique_ptr<DiskStreamService> service_;
     std::map<Key, std::shared_ptr<DiskStream>> streams_;
@@ -92,6 +95,10 @@ struct ClipRegion {
     // A streamed clip (wave 4.2) reads its frames from here instead, frame
     // `first` of the stream being the region's first frame.
     DiskStream* stream = nullptr;
+    // A second stream of the same clip: while one plays up to a wrap, the
+    // other is cued to where the clip resumes after it, and plays on from
+    // there. Whichever is already at a frame reads it.
+    DiskStream* spare = nullptr;
     std::uint64_t first = 0;
     float gain = 1.0F;            // the clip's gain, linear
     std::uint64_t fade_in = 0;    // frames of linear fade from silence
@@ -135,10 +142,12 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
 // sum (decision 6). Sounds only while the transport plays from the
 // timeline; stopped, it only cues the streams of the clips around the
 // playhead, so pressing play finds their audio ready. `song_samples` is
-// where the song wraps, for cueing the clips at its start. `blocking` reads
-// streams blocking: an offline bounce only.
+// where the song (or its loop) wraps, and `wrap_start` where it wraps to,
+// for cueing the clips that play after the wrap. `blocking` reads streams
+// blocking: an offline bounce only.
 void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std::size_t track,
                       StereoBlock buffer, std::uint64_t song_position, bool from_timeline,
-                      bool blocking = false, std::uint64_t song_samples = 0) noexcept;
+                      bool blocking = false, std::uint64_t song_samples = 0,
+                      std::uint64_t wrap_start = 0) noexcept;
 
 } // namespace blokkily::engine

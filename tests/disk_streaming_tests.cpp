@@ -357,6 +357,42 @@ void loop_cue() {
 }
 
 // features/disk_streaming.feature:
+//   Scenario: A clip that plays on across the wrap point plays on seamlessly
+// One clip the whole song long: the song wraps from its end into the clip's
+// start, and then an arrangement loop inside the clip wraps from its OUT
+// back to its IN, again and again. Each pass is the clip from memory,
+// sample for sample: no fade at any wrap.
+void wrap_in_clip() {
+    const auto dir = work_dir("wrap_in_clip");
+    auto song = clip_song();
+    song.audio_files.push_back(write_tones(dir / "long.wav", 3 * 48000, 48000));
+    add_clip(song, 0, 0, 0, 96000);
+    Player memory(song, false);
+    Player streamed(song, true);
+    memory.engine.set_playing(true);
+    streamed.engine.set_playing(true);
+    const auto length = static_cast<std::size_t>(memory.engine.song_samples());
+    const auto expected = memory.pump(2 * length);
+    const auto heard = streamed.pump(2 * length);
+    require(probe::peak(expected.left) > 0.3F, "the clip plays");
+    require_equal(heard, expected, 0, 2 * length, 0.0F,
+                  "across the song's wrap the clip plays on as it does from memory");
+    // A loop from 24000 to 72000, inside the clip, set before the song
+    // plays, three times round.
+    Player loop_memory(song, false);
+    Player loop_streamed(song, true);
+    for (auto* player : {&loop_memory, &loop_streamed}) {
+        player->engine.set_loop(true, 24000, 72000);
+        player->engine.set_playing(true);
+    }
+    const auto looped = loop_memory.pump(72000 + 3 * 48000);
+    const auto heard_looped = loop_streamed.pump(72000 + 3 * 48000);
+    require(probe::peak(looped.left) > 0.3F, "the loop plays");
+    require_equal(heard_looped, looped, 0, looped.left.size(), 0.0F,
+                  "across every wrap of a loop inside the clip it plays on as it does from memory");
+}
+
+// features/disk_streaming.feature:
 //   Scenario: An export of a streamed clip is the mix the engine plays
 void bounce() {
     const auto dir = work_dir("bounce");
@@ -408,7 +444,8 @@ int main(int argc, char** argv) {
     }
     const std::map<std::string, std::function<void()>> cases{
         {"playback", playback}, {"resampled", resampled}, {"seek", seek},
-        {"underrun", underrun}, {"loop_cue", loop_cue},   {"bounce", bounce}};
+        {"underrun", underrun}, {"loop_cue", loop_cue},   {"bounce", bounce},
+        {"wrap_in_clip", wrap_in_clip}};
     const auto found = cases.find(argv[1]);
     if (found == cases.end()) {
         std::cerr << "Unknown case: " << argv[1] << "\n";

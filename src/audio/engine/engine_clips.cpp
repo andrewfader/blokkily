@@ -27,8 +27,9 @@ void StreamPool::set_workers(std::size_t workers) {
 }
 
 std::shared_ptr<DiskStream> StreamPool::acquire(std::uint64_t clip, const StreamedFile& file,
-                                                std::uint32_t rate, std::uint64_t first_frame) {
-    const Key key{clip, file.path, rate};
+                                                std::uint32_t rate, std::uint64_t first_frame,
+                                                std::uint8_t lane) {
+    const Key key{clip, file.path, rate, lane};
     if (auto found = streams_.find(key); found != streams_.end()) return found->second;
     auto stream = std::make_shared<DiskStream>(file.path, static_cast<double>(rate),
                                                first_frame);
@@ -131,6 +132,12 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
             region.stream = stream.get();
             region.first = offset;
             target.streams.push_back(std::move(stream));
+            // Without its spare the clip still plays; a wrap inside it
+            // relocates like a locate.
+            if (auto spare = pool->acquire(clip.id, *asset.streamed, engine_rate, offset, 1)) {
+                region.spare = spare.get();
+                target.streams.push_back(std::move(spare));
+            }
         } else {
             region.left = asset.left.data() + offset;
             region.right = asset.right.size() == asset.left.size() ? asset.right.data() + offset
@@ -150,23 +157,48 @@ void compile_clip_regions(ArrangementClips& target, const Song& song, const Tick
 
 namespace {
 // Points every streamed clip near the playhead at the frame it will play
-// first: a clip about to start (or, past the song's end, about to start
-// again) at its first frame, and, on a stopped song, the clip the playhead
-// rests in at the frame under it.
+// first: a clip about to start (or, past the wrap, about to start again) at
+// its first frame, and, on a stopped song, the clip the playhead rests in at
+// the frame under it. A clip playing when the song or its loop is about to
+// wrap back into it has its idle stream cued to where it resumes.
 void cue_streams(const std::vector<ClipRegion>& regions, std::uint64_t window,
                  std::uint64_t song_position, bool from_timeline,
-                 std::uint64_t song_samples) noexcept {
+                 std::uint64_t wrap_end, std::uint64_t wrap_start) noexcept {
+    const bool before_wrap = wrap_end > song_position;
     for (const ClipRegion& region : regions) {
         if (region.stream == nullptr) continue;
         const auto region_end = region.start + region.frames;
+        // The frame the clip plays first after the wrap, if it plays then.
+        std::uint64_t resume = 0;
+        bool resumes = false;
+        if (before_wrap && region.start <= wrap_start && wrap_start < region_end) {
+            resume = region.first + (wrap_start - region.start);
+            resumes = wrap_end - song_position <= window;
+        } else if (before_wrap && region.start >= wrap_start && region.start < wrap_end) {
+            resume = region.first;
+            resumes = wrap_end - song_position + (region.start - wrap_start) <= window;
+        }
         if (song_position >= region.start && song_position < region_end) {
-            if (!from_timeline)
+            if (!from_timeline) {
                 region.stream->cue(region.first + (song_position - region.start));
+                continue;
+            }
+            // Playing: the stream that is not carrying it now waits at the
+            // frame after the wrap. While neither holds the frame (a locate
+            // still on its way) nothing is cued.
+            if (!resumes || region.spare == nullptr) continue;
+            const auto now = region.first + (song_position - region.start);
+            DiskStream* idle = nullptr;
+            if (region.stream->holds(now)) idle = region.spare;
+            else if (region.spare->holds(now)) idle = region.stream;
+            else if (region.stream->continues_at(now)) idle = region.spare;
+            else if (region.spare->continues_at(now)) idle = region.stream;
+            if (idle != nullptr && !idle->continues_at(resume)) idle->cue(resume);
             continue;
         }
         std::uint64_t distance = 0;
         if (region.start > song_position) distance = region.start - song_position;
-        else if (song_samples > song_position) distance = song_samples - song_position + region.start;
+        else if (resumes) distance = 0;
         else continue;
         if (distance <= window) region.stream->cue(region.first);
     }
@@ -175,10 +207,10 @@ void cue_streams(const std::vector<ClipRegion>& regions, std::uint64_t window,
 
 void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std::size_t track,
                       StereoBlock buffer, std::uint64_t song_position, bool from_timeline,
-                      bool blocking, std::uint64_t song_samples) noexcept {
+                      bool blocking, std::uint64_t song_samples, std::uint64_t wrap_start) noexcept {
     if (track < clips.tracks.size() && !clips.streams.empty())
         cue_streams(clips.tracks[track], clips.cue_window, song_position, from_timeline,
-                    song_samples);
+                    song_samples, wrap_start);
     // Clips play from the arrangement, so a stopped song hears none of them.
     if (!from_timeline) return;
     if (playback.test_source != nullptr)
@@ -209,9 +241,17 @@ void sum_clip_regions(ClipPlayback& playback, const ArrangementClips& clips, std
             const auto count = static_cast<std::size_t>(to - from);
             if (count > playback.stream_left.size() || count > playback.stream_right.size())
                 continue;
-            region.stream->read(region.first + (from - region.start),
-                                {playback.stream_left.data(), count},
-                                {playback.stream_right.data(), count}, blocking);
+            // Whichever stream is already at the frame plays it: after a
+            // wrap into the clip, the one that was cued there. A stream that
+            // holds the frame wins over one only asked for it.
+            const auto frame = region.first + (from - region.start);
+            DiskStream* reading = region.stream;
+            if (region.spare != nullptr && !blocking && !region.stream->holds(frame) &&
+                (region.spare->holds(frame) ||
+                 (!region.stream->continues_at(frame) && region.spare->continues_at(frame))))
+                reading = region.spare;
+            reading->read(frame, {playback.stream_left.data(), count},
+                          {playback.stream_right.data(), count}, blocking);
             left = playback.stream_left.data();
             right = playback.stream_right.data();
             base = from - region.start;

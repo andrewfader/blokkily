@@ -25,8 +25,6 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
   merge into the pattern rather than stacking as takes.
 - Disk streaming handles unwarped audio clips only. Warped clips decode into
   memory before stretching, and the sampler always decodes its samples.
-- A streamed clip that crosses the song's wrap point dips briefly at the wrap
-  because there is one stream per clip.
 - The sampler's waveform shows the whole file; it has no zoom, and markers
   move by whole pixels of it.
 
