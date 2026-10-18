@@ -85,6 +85,13 @@ struct InstrumentFeed {
 // parameter steps along is then the same whatever block size the device
 // negotiated, and a bounce modulates exactly as playback did.
 inline constexpr std::uint64_t modulation_grid = 128;
+// Inside a chunk an LFO is evaluated again every this many samples, each
+// point sent at its own sample offset, so a sine or a triangle moves in steps
+// this short rather than a chunk long (every adapter honours an event's
+// offset: CLAP natively, VST3 by splitting its block, the built-ins by
+// rendering up to it).
+inline constexpr std::uint64_t modulation_step = 16;
+inline constexpr std::size_t modulation_points = modulation_grid / modulation_step;
 
 struct ArrangementRouting {
     std::vector<CompiledModulator> modulators;
@@ -114,6 +121,10 @@ struct ModulatorControls {
 struct ModulatorState {
     double free_phase = 0.0;
     float output = 0.0F;
+    // An LFO's value at each modulation_step of the chunk (points[0] is
+    // `output`); a macro or a follower holds one value for the chunk.
+    std::array<float, modulation_points> points{};
+    std::uint32_t point_count = 1;
     EnvelopeFollower follower;
 };
 
@@ -134,6 +145,21 @@ struct ModulationPlayback {
     std::array<ModulatorState, maximum_modulators> state{};
     std::array<ReleasedSink, 64> released{};
 };
+
+// Callback: puts `events` in sample-offset order, keeping the order of events
+// on the same sample (an insertion sort: they arrive nearly sorted, and
+// nothing is allocated).
+inline void sort_by_offset(std::span<PluginEvent> events) noexcept {
+    for (std::size_t i = 1; i < events.size(); ++i) {
+        const auto moving = events[i];
+        std::size_t j = i;
+        while (j > 0 && events[j - 1].sample_offset > moving.sample_offset) {
+            events[j] = events[j - 1];
+            --j;
+        }
+        events[j] = moving;
+    }
+}
 
 // Callback: queues `release` to go out with its processor's next events.
 void queue_release(ModulationPlayback& playback, const ReleasedSink& release) noexcept;

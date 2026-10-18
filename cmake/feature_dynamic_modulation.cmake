@@ -25,7 +25,7 @@ endif()
 
 if(BLOKKILY_BUILD_TESTS)
     add_executable(blokkily_dynamic_modulation_tests tests/dynamic_modulation_tests.cpp)
-    target_include_directories(blokkily_dynamic_modulation_tests PRIVATE tests)
+    target_include_directories(blokkily_dynamic_modulation_tests PRIVATE tests src)
     target_link_libraries(blokkily_dynamic_modulation_tests PRIVATE blokkily_core)
     target_compile_definitions(blokkily_dynamic_modulation_tests PRIVATE
         ${BLOKKILY_EFFECT_FIXTURE_DEFINITIONS}
@@ -42,6 +42,7 @@ if(BLOKKILY_BUILD_TESTS)
             lfo_tempo_sync
             lfo_step_on_its_sample
             lfo_bar_sync
+            lfo_fine_steps
             macro_live
             follower_hears_source
             bounce_matches_playback

@@ -37,6 +37,12 @@ Feature: Modulators move plugin parameters while the song plays
     And the rendered level swings between 0.45 and 0.05
     And in the block where the LFO turns, the samples before a note later in that block already hear the new modulation
 
+  # dynamic_modulation_lfo_fine_steps
+  Scenario: An LFO moves its parameter every 16 samples
+    Given a steady level through the CLAP effect, and a 40 Hz sine LFO on its Gain
+    When the song plays
+    Then the gain changes every 16 samples, and at each 16th sample it is exactly the sine there, not a 128-sample stair
+
   # dynamic_modulation_lfo_step_on_its_sample
   Scenario: A synced LFO steps on its own sample
     Given the same one-beat square LFO, at 120 BPM for two bars and 60 BPM after

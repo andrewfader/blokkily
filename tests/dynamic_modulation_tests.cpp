@@ -12,6 +12,7 @@
 // At 120 bpm and 480 ticks a beat, one tick is 50 samples at 48 kHz and a
 // 4/4 bar is 96000 samples.
 
+#include "audio/engine/test_access.hpp"
 #include "support/audio_probe.hpp"
 
 #include "blokkily/audio/bounce.hpp"
@@ -197,6 +198,49 @@ Modulator macro(double value, ProcessorAddress where, double depth,
 }
 
 // --- Scenarios ------------------------------------------------------------
+
+// features/dynamic_modulation.feature: An LFO moves its parameter every 16
+// samples. A steady level through the CLAP effect, a 40 Hz sine LFO on its
+// Gain: the gain the output is scaled by changes every 16 samples, and at
+// each 16th sample is exactly the sine at that sample - not a chunk-long
+// stair of 128.
+void dc_source(void* context, StereoBlock track, std::uint64_t) noexcept {
+    const float level = *static_cast<const float*>(context);
+    for (auto& sample : track.left) sample += level;
+    for (auto& sample : track.right) sample += level;
+}
+void lfo_fine_steps_case() {
+    // A silent instrument (no notes) and the steady level after it.
+    auto song = song_of({Pattern(bar, 480)});
+    EffectSlot effect;
+    effect.plugin = {"CLAP", BLOKKILY_TEST_CLAP_EFFECT_PATH, "dev.blokkily.test.effect", {}};
+    song.tracks[0].inserts = {effect};
+    const ProcessorAddress insert{BusKind::track, 0, 0};
+    constexpr double rate_hz = 40.0; // the fastest an LFO runs
+    constexpr double depth = 0.2;
+    song.modulators = {lfo(LfoShape::sine, rate_hz, insert, depth)};
+    song.modulators[0].targets[0].parameter_index = 0; // the effect's Gain, 0..1
+    require(song.consistent(), "the song is valid");
+    SongEngine engine;
+    engine.set_processor(insert, clap_effect());
+    prepare(engine, song);
+    float level = 0.5F;
+    engine::TestAccess::set_test_source(engine, 0, &dc_source, &level);
+    engine.set_playing(true);
+    const auto out = render(engine, 4096);
+    std::size_t changes = 0;
+    double worst = 0.0;
+    for (std::size_t t = 256; t < 4096; ++t) {
+        const double gain = out.left[t] / (level * centre);
+        const double point = 16.0 * std::floor(static_cast<double>(t) / 16.0);
+        const double wanted = 0.25 + depth * std::sin(2.0 * 3.14159265358979323846 * rate_hz * point / rate);
+        worst = std::max(worst, std::abs(gain - wanted));
+        if (out.left[t] != out.left[t - 1]) ++changes;
+    }
+    std::cerr << "lfo fine steps: " << changes << " changes in 3840 samples, worst " << worst << '\n';
+    require(worst < 1e-4, "at every 16th sample the gain is the sine there");
+    require(changes >= 3840 / 16 - 8, "the gain moves every 16 samples, not every 128");
+}
 
 // features/dynamic_modulation.feature: LFO shapes.
 void lfo_shapes_case() {
@@ -736,6 +780,7 @@ int main(int argc, char** argv) {
         else if (name == "removed_modulation_releases") removed_modulation_releases_case();
         else if (name == "song_model") song_model_case();
         else if (name == "lfo_bar_sync") lfo_bar_sync_case();
+        else if (name == "lfo_fine_steps") lfo_fine_steps_case();
         else {
             std::cerr << "Unknown case: " << name << "\n";
             return 2;

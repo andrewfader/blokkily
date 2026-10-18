@@ -36,10 +36,10 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Modulation
 
-- Modulation is evaluated once per chunk of at most 128 samples, whatever the
-  device's block size. An LFO's steps (a square's turn, a saw's reset, a new
-  sample-and-hold value) land on their own sample, but a sine or triangle
-  moves in 128-sample stairs.
+- An LFO is evaluated every 16 samples, whatever the device's block size, and
+  each value reaches its processor on its own sample; an LFO's steps (a
+  square's turn, a saw's reset, a new sample-and-hold value) land on their
+  own sample. A macro and a follower move once per 128-sample chunk.
 - A follower targeting its own track, or a track that the render order cannot
   place after its source, receives the previous chunk's level.
 

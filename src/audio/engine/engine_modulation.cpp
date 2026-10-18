@@ -176,21 +176,32 @@ void advance_modulators(ModulationPlayback& playback, const ArrangementRouting& 
                 state.free_phase = phase;
             }
             const auto shape = static_cast<LfoShape>(controls.shape.load(std::memory_order_relaxed));
-            state.output = lfo_value(shape, phase);
-            if (!time.rolling && time.sample_rate > 0.0) {
-                const double beats = bars ? sync * time.beats_per_bar : sync;
-                const double cycles_per_second = sync > 0.0 ? time.bpm / 60.0 / beats : rate;
-                state.free_phase = std::fmod(
-                    phase + cycles_per_second * static_cast<double>(time.frames) / time.sample_rate,
-                    1.0e6);
-            }
+            // How far the phase moves a sample: the chunk's tempo holds
+            // across it, and a chunk never crosses one of the LFO's steps.
+            const double per_beat_cycles = bars ? 1.0 / (sync * time.beats_per_bar) : 1.0 / sync;
+            const double cycles_per_second =
+                sync > 0.0 ? time.bpm / 60.0 * per_beat_cycles : rate;
+            const double per_sample =
+                time.sample_rate > 0.0 ? cycles_per_second / time.sample_rate : 0.0;
+            const auto points = std::clamp<std::size_t>(
+                (time.frames + modulation_step - 1) / modulation_step, 1, modulation_points);
+            for (std::size_t point = 0; point < points; ++point)
+                state.points[point] = lfo_value(
+                    shape, phase + per_sample * static_cast<double>(point * modulation_step));
+            state.point_count = static_cast<std::uint32_t>(points);
+            state.output = state.points[0];
+            if (!time.rolling && time.sample_rate > 0.0)
+                state.free_phase =
+                    std::fmod(phase + per_sample * static_cast<double>(time.frames), 1.0e6);
             break;
         }
         case Modulator::Kind::macro:
             state.output = controls.value.load(std::memory_order_relaxed);
+            state.point_count = 1;
             break;
         case Modulator::Kind::follower:
             state.output = state.follower.level();
+            state.point_count = 1;
             break;
         }
     }
@@ -221,18 +232,40 @@ std::size_t modulation_events(ModulationPlayback& playback, const ArrangementRou
     }
     for (const auto& sink : routing.sinks) {
         if (!(sink.where == where) || count >= out.size()) continue;
-        double amount = 0.0;
+        // As many points as the most finely moving modulator on it has.
+        std::uint32_t points = 1;
         for (std::uint32_t i = 0; i < sink.count; ++i) {
             const auto& share = routing.shares[sink.first + i];
-            if (share.modulator >= maximum_modulators ||
-                share.target >= Modulator::maximum_targets)
-                continue;
-            const float depth =
-                playback.controls[share.modulator].depth[share.target].load(std::memory_order_relaxed);
-            amount += static_cast<double>(playback.state[share.modulator].output) * depth *
-                      share.range;
+            if (share.modulator < maximum_modulators)
+                points = std::max(points, playback.state[share.modulator].point_count);
         }
-        out[count++] = {PluginEvent::Type::parameter_modulation, 0, sink.parameter, amount};
+        double previous = 0.0;
+        for (std::uint32_t point = 0; point < points && count < out.size(); ++point) {
+            double amount = 0.0;
+            for (std::uint32_t i = 0; i < sink.count; ++i) {
+                const auto& share = routing.shares[sink.first + i];
+                if (share.modulator >= maximum_modulators ||
+                    share.target >= Modulator::maximum_targets)
+                    continue;
+                const auto& state = playback.state[share.modulator];
+                const float depth = playback.controls[share.modulator]
+                                        .depth[share.target]
+                                        .load(std::memory_order_relaxed);
+                // A follower reads its source as it rendered this chunk:
+                // `output`, one value for the whole chunk.
+                const float value = state.point_count > 1
+                                        ? state.points[std::min(point, state.point_count - 1)]
+                                        : state.output;
+                amount += static_cast<double>(value) * depth * share.range;
+            }
+            // Every chunk starts with its amount; a point after it is sent
+            // only when the amount has moved.
+            if (point > 0 && amount == previous) continue;
+            out[count++] = {PluginEvent::Type::parameter_modulation,
+                            static_cast<std::uint32_t>(point * modulation_step), sink.parameter,
+                            amount};
+            previous = amount;
+        }
     }
     return count;
 }

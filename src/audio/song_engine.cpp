@@ -808,8 +808,9 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
     auto& events = track.events;
     const auto capacity = events.size();
     const auto& timeline = timeline_for(index);
-    // The modulators' offsets come first, at offset 0, so the events stay in
-    // time order whatever follows them (wave 5.1).
+    // The modulators' offsets come first, the chunk's own at offset 0 and
+    // its later points after (wave 5.1); the list is put in time order at the
+    // end.
     std::size_t count =
         modulation_for(track_instrument(static_cast<std::uint32_t>(index)), events);
     // Notes the arrangement still owes a release come next.
@@ -878,13 +879,11 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
     // Played input, each on the sample of this chunk it was placed on
     // (gather_block_input): later than what comes before it, so the events
     // are put back in time order below.
-    bool placed_late = false;
     for (std::size_t arrived = 0; arrived < incoming_count_; ++arrived) {
         const auto& routed = incoming_[arrived];
         if (routed.track != index || count >= capacity) continue;
         events[count] = routed.event;
         const auto offset = routed.event.sample_offset;
-        placed_late = placed_late || offset > 0;
         ++count;
         // Captured where it was played: against what the performer heard as
         // its sample of this block began, which the speakers sounded the
@@ -969,20 +968,11 @@ std::size_t SongEngine::collect_events(TrackPlayback& track, std::size_t index,
             }
         }
     }
-    // Input placed part way into the chunk goes where its sample falls among
-    // the rest, which are in time order: a stable insertion, which neither
-    // allocates nor moves anything but what is out of place.
-    if (placed_late) {
-        for (std::size_t at = 1; at < count; ++at) {
-            const PluginEvent moving = events[at];
-            std::size_t to = at;
-            while (to > 0 && events[to - 1].sample_offset > moving.sample_offset) {
-                events[to] = events[to - 1];
-                --to;
-            }
-            events[to] = moving;
-        }
-    }
+    // Input placed part way into the chunk, and the modulators' later points
+    // (every engine::modulation_step), go where their samples fall among the
+    // rest: a stable insertion, which neither allocates nor moves anything
+    // but what is out of place.
+    engine::sort_by_offset(std::span{events.data(), count});
     return count;
 }
 
@@ -1030,8 +1020,8 @@ void SongEngine::drain_insert_edits(void* context, PluginInstance& processor,
 std::span<const PluginEvent> SongEngine::insert_events(void* context,
                                                        ProcessorAddress where) noexcept {
     auto& chunk = *static_cast<DrainContext*>(context);
-    // Modulation first, all at offset 0; the lanes' events, in time order,
-    // after it (wave 5.1).
+    // Modulation first; the lanes' events, in time order, after it (wave
+    // 5.1); then all of it in time order.
     std::size_t count = chunk.engine->modulation_for(where, chunk.scratch);
     if (chunk.rolling && chunk.automation != nullptr) {
         const auto* lanes = engine::lanes_for(*chunk.automation, where);
@@ -1042,19 +1032,8 @@ std::span<const PluginEvent> SongEngine::insert_events(void* context,
     // A launched cell's locks on this processor, merged in time order.
     const auto launched = engine::launcher_insert_events(*chunk.engine->launcher_, where,
                                                          chunk.scratch.subspan(count));
-    if (launched > 0) {
-        count += launched;
-        auto events = chunk.scratch.first(count);
-        for (std::size_t i = 1; i < events.size(); ++i) {
-            const auto moving = events[i];
-            std::size_t j = i;
-            while (j > 0 && events[j - 1].sample_offset > moving.sample_offset) {
-                events[j] = events[j - 1];
-                --j;
-            }
-            events[j] = moving;
-        }
-    }
+    count += launched;
+    engine::sort_by_offset(chunk.scratch.first(count));
     return chunk.scratch.first(count);
 }
 
