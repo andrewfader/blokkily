@@ -255,8 +255,10 @@ bool ScoreModel::alterSelected(int semitones) {
     return select(step, key);
 }
 
-int ScoreModel::clefRefPos() const {
-    const notation::Clef clef(static_cast<notation::ClefKind>(clef_kind_));
+int ScoreModel::clefRefPos() const { return clef_ref_pos(clef_kind_); }
+
+int ScoreModel::clef_ref_pos(int clef_kind) {
+    const notation::Clef clef(static_cast<notation::ClefKind>(clef_kind));
     if (!clef.pitched()) return 4;
     // The pitch the clef names: G4 for G clefs, F3 for F clefs, C4 for C clefs.
     notation::SpelledPitch ref{notation::Step::C, notation::Accidental::Natural, 4};
@@ -276,13 +278,12 @@ void ScoreModel::rebuild() {
     stale_ = false;
     QVariantMap settings;
     if (song_ != nullptr) settings = song_->notationSettings(song_->selectedTrack(), song_->currentSection());
-    clef_kind_ = std::max(0, static_cast<int>(clefNames().indexOf(settings.value("clef", "Treble").toString())));
+    clef_kind_ = clef_index(settings);
     key_fifths_ = std::clamp(settings.value("keyFifths", 0).toInt(), -7, 7);
     time_beats_ = std::max(1, settings.value("timeBeats", 4).toInt());
     time_beat_unit_ = std::max(1, settings.value("timeUnit", 4).toInt());
     unmetered_ = settings.value("unmetered", false).toBool();
 
-    const notation::Clef clef(static_cast<notation::ClefKind>(clef_kind_));
     const notation::KeySignature key(key_fifths_);
     notation::TimeSignature time = notation::TimeSignature::unmetered();
     try {
@@ -290,32 +291,59 @@ void ScoreModel::rebuild() {
     } catch (const std::invalid_argument&) {
         time = notation::TimeSignature(4, 4);
     }
-
     // The key signature: each accidental on the line or space it is written
     // at for this clef.
-    key_sig_.clear();
-    if (clef.pitched()) {
-        const notation::Clef treble(notation::ClefKind::Treble);
-        int shift = (treble.bottom_line_diatonic() - clef.bottom_line_diatonic()) % 7;
-        if (shift > 3) shift -= 7;
-        if (shift < -3) shift += 7;
-        const bool sharps = key_fifths_ > 0;
-        for (int i = 0; i < std::abs(key_fifths_); ++i) {
-            int pos = (sharps ? kSharpTreble[i] : kFlatTreble[i]) + shift;
-            if (pos > 9) pos -= 7;
-            if (pos < -1) pos += 7;
-            key_sig_.push_back(QVariantMap{{"pos", pos}, {"acc", sharps ? 1 : -1}});
+    key_sig_ = key_signature_for(clef_kind_, key_fifths_);
+
+    const auto staff_of = [&](const blokkily::Pattern& pattern, int clef_kind) {
+        return notation::to_staff(drawable(pattern), key,
+                                  notation::Clef(static_cast<notation::ClefKind>(clef_kind)), time);
+    };
+    std::vector<StaffSpec> staves;
+    const auto& open = std::as_const(*pattern_).pattern();
+    const int selected = song_ != nullptr ? song_->selectedTrack() : 0;
+    if (full_score_ && song_ != nullptr) {
+        // Every track's part of the open section, top to bottom in track
+        // order; the selected track's is the one notes are written on.
+        const auto names = song_->trackNames();
+        for (int track = 0; track < song_->trackCount(); ++track) {
+            const int part = song_->partOf(song_->currentSection(), track);
+            if (part < 0) continue;
+            const bool chosen = track == selected;
+            const auto& pattern = chosen ? open : song_->song().patterns[static_cast<std::size_t>(part)].pattern;
+            const int clef_kind = chosen ? clef_kind_ : clef_index(song_->notationSettings(track, song_->currentSection()));
+            staves.push_back({staff_of(pattern, clef_kind), pattern.ticks_per_beat(), track,
+                              names.value(track), clef_kind, chosen});
         }
     }
+    if (staves.empty())
+        staves.push_back({staff_of(open, clef_kind_), open.ticks_per_beat(), selected,
+                          song_ != nullptr ? song_->trackNames().value(selected) : QString(), clef_kind_, true});
+    layout(staves);
+    // A selection the pattern no longer holds (an undo, another editor) goes.
+    if (selected_step_ >= 0 && selectedObject().isEmpty()) selected_step_ = selected_key_ = -1;
+    emit scoreChanged();
+}
 
-    // The step grid writes notes shorter than their step (a gate under 100%):
-    // drawn exactly they would read as dotted 32nds and rests. A note that
-    // starts on a step is drawn to the end of the steps it sounds in, unless
-    // it is exactly a tuplet's value (a triplet eighth from a take or a
-    // score), which is drawn as the tuplet it is.
-    blokkily::Pattern shown = std::as_const(*pattern_).pattern();
+void ScoreModel::setFullScore(bool on) {
+    if (full_score_ == on) return;
+    full_score_ = on;
+    rebuild();
+}
+
+int ScoreModel::clef_index(const QVariantMap& settings) const {
+    return std::max(0, static_cast<int>(clefNames().indexOf(settings.value("clef", "Treble").toString())));
+}
+
+// The step grid writes notes shorter than their step (a gate under 100%):
+// drawn exactly they would read as dotted 32nds and rests. A note that
+// starts on a step is drawn to the end of the steps it sounds in, unless it
+// is exactly a tuplet's value (a triplet eighth from a take or a score),
+// which is drawn as the tuplet it is.
+blokkily::Pattern ScoreModel::drawable(const blokkily::Pattern& pattern) {
+    blokkily::Pattern shown = pattern;
     const Tick step = std::max<Tick>(1, shown.ticks_per_beat() / 4);
-    for (const auto& trigger : std::as_const(*pattern_).pattern().events()) {
+    for (const auto& trigger : pattern.events()) {
         if (trigger.start % step != 0 || trigger.duration % step == 0) continue;
         if (trigger.duration > 0) {
             const auto written = notation::notate_ticks(trigger.duration, shown.ticks_per_beat());
@@ -325,68 +353,48 @@ void ScoreModel::rebuild() {
         drawn.duration = std::min((trigger.duration + step - 1) / step * step, shown.length() - trigger.start);
         (void)shown.update(trigger.id, drawn);
     }
-    layout(notation::to_staff(shown, key, clef, time));
-    // A selection the pattern no longer holds (an undo, another editor) goes.
-    if (selected_step_ >= 0 && selectedObject().isEmpty()) selected_step_ = selected_key_ = -1;
-    emit scoreChanged();
+    return shown;
 }
 
-void ScoreModel::layout(const notation::Staff& staff) {
-    const Tick tpb = std::as_const(*pattern_).pattern().ticks_per_beat();
-    objects_.clear();
-    barlines_.clear();
-    beams_.clear();
-    time_map_.clear();
-    transposition_ = staff.transposition();
-    measure_count_ = static_cast<int>(staff.measures.size());
-
-    // Every object where it falls, and which accidentals print.
-    std::vector<Entry> entries;
-    std::vector<bool> show_acc;
-    for (const auto& placed : notation::place(staff, tpb)) {
-        entries.push_back({placed.measure, placed.onset, placed.length,
-                           &staff.measures[placed.measure].objects[placed.index], placed.voice});
-        show_acc.push_back(placed.accidental_shown);
+QVariantList ScoreModel::key_signature_for(int clef_kind, int fifths) {
+    QVariantList signature;
+    const notation::Clef clef(static_cast<notation::ClefKind>(clef_kind));
+    if (!clef.pitched()) return signature;
+    const notation::Clef treble(notation::ClefKind::Treble);
+    int shift = (treble.bottom_line_diatonic() - clef.bottom_line_diatonic()) % 7;
+    if (shift > 3) shift -= 7;
+    if (shift < -3) shift += 7;
+    const bool sharps = fifths > 0;
+    for (int i = 0; i < std::abs(fifths); ++i) {
+        int pos = (sharps ? kSharpTreble[i] : kFlatTreble[i]) + shift;
+        if (pos > 9) pos -= 7;
+        if (pos < -1) pos += 7;
+        signature.push_back(QVariantMap{{"pos", pos}, {"acc", sharps ? 1 : -1}});
     }
-    std::vector<Tick> measure_end;
-    notation::TimeSignature time = staff.time;
-    Tick measure_start = 0;
-    for (const auto& measure : staff.measures) {
-        if (measure.time) time = *measure.time;
-        measure_start += notation::measure_ticks(measure, time, tpb);
-        measure_end.push_back(measure_start);
-    }
+    return signature;
+}
 
-    // Columns: one per onset; each takes room for the time to the next.
-    std::map<std::pair<std::size_t, Tick>, double> column_x;
-    double x = 0.0;
-    const bool barred = staff.time.metered();
-    for (std::size_t i = 0; i < entries.size();) {
-        const std::size_t m = entries[i].measure;
-        x += i == 0 ? 0.6 : 0.0;
-        std::size_t j = i;
-        while (j < entries.size() && entries[j].measure == m) {
-            std::size_t k = j;
-            bool accidental = false;
-            while (k < entries.size() && entries[k].measure == m && entries[k].onset == entries[j].onset) {
-                accidental = accidental || show_acc[k];
-                ++k;
-            }
-            const Tick next = k < entries.size() && entries[k].measure == m ? entries[k].onset : measure_end[m];
-            if (accidental) x += kAccidentalRoom;
-            column_x[{m, entries[j].onset}] = x;
-            time_map_.emplace_back(x, entries[j].onset);
-            x += room_for(next - entries[j].onset, tpb);
-            j = k;
-        }
-        // Chant has no barlines, not even a closing one.
-        if (barred) barlines_.push_back(QVariantMap{{"x", x}, {"final", j == entries.size()}});
-        time_map_.emplace_back(x, measure_end[m]);
-        x += kBarPadding;
-        i = j;
-    }
-    content_width_ = x;
+namespace {
 
+// One staff drawn against the score's shared columns: its notes and rests,
+// stems, beams, ties, tuplets and lyrics, and how high and low it reaches.
+struct StaffDrawing {
+    QVariantList objects;
+    QVariantList beams;
+    int highest = 8;
+    int lowest = 0;
+};
+
+StaffDrawing draw_staff(const notation::Staff& staff, const std::vector<Entry>& entries,
+                        const std::vector<bool>& show_acc,
+                        const std::map<std::pair<std::size_t, Tick>, double>& column_x,
+                        const std::vector<Tick>& measure_end, Tick tpb, bool editable,
+                        int selected_step, int selected_key) {
+    StaffDrawing drawing;
+    const auto column = [&](std::pair<std::size_t, Tick> at) {
+        const auto found = column_x.find(at);
+        return found != column_x.end() ? found->second : 0.0;
+    };
     const auto pos_of = [&](const notation::NotationNote& note) {
         return staff.clef.pitched() ? notation::staff_position(note.spelled, staff.clef) : 4;
     };
@@ -505,20 +513,20 @@ void ScoreModel::layout(const notation::Staff& staff) {
         }
     }
 
-    highest_pos_ = 8;
-    lowest_pos_ = 0;
+    drawing.highest = 8;
+    drawing.lowest = 0;
     bool lyrics = false;
     std::map<std::tuple<std::size_t, Tick, int>, bool> stem_drawn;
     std::map<std::pair<int, int>, Tick> tied_from;
     for (std::size_t i = 0; i < entries.size(); ++i) {
         const Entry& entry = entries[i];
-        const double at = column_x[{entry.measure, entry.onset}];
+        const double at = column({entry.measure, entry.onset});
         const bool shared = voice_height[entry.measure].size() > 1;
         if (const auto* rest = std::get_if<notation::Rest>(entry.object)) {
             const int value = static_cast<int>(rest->duration.value);
             int pos = value <= 0 ? 6 : 4;
             if (shared) pos += entry.voice == top_voice[entry.measure] ? 4 : -4;
-            objects_.push_back(QVariantMap{{"kind", "rest"}, {"x", at}, {"pos", pos}, {"value", value},
+            drawing.objects.push_back(QVariantMap{{"kind", "rest"}, {"x", at}, {"pos", pos}, {"value", value},
                                            {"dots", rest->duration.dots}, {"voice", entry.voice},
                                            {"tuplet", rest->duration.tuplet() ? rest->duration.tuplet_actual : 0}});
             continue;
@@ -549,8 +557,8 @@ void ScoreModel::layout(const notation::Staff& staff) {
         stem_drawn[chord] = stem_drawn[chord] || stemmed;
         const int stem_from = up ? low : high;
         const int stem_to = beam != nullptr ? beam->pos : up ? std::max(high + 7, 4) : std::min(low - 7, 4);
-        highest_pos_ = std::max(highest_pos_, draws_stem && up ? stem_to : pos + 1);
-        lowest_pos_ = std::min(lowest_pos_, draws_stem && !up ? stem_to : pos - 1);
+        drawing.highest = std::max(drawing.highest, draws_stem && up ? stem_to : pos + 1);
+        drawing.lowest = std::min(drawing.lowest, draws_stem && !up ? stem_to : pos - 1);
 
         // The tie lands on the next note of this pitch in this voice.
         double tie_to = -1.0;
@@ -561,7 +569,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
                     entries[k].onset == entry.onset + entry.length && next->spelled.step == note.spelled.step &&
                     next->spelled.octave == note.spelled.octave &&
                     next->spelled.accidental == note.spelled.accidental) {
-                    tie_to = column_x[{entries[k].measure, entries[k].onset}];
+                    tie_to = column({entries[k].measure, entries[k].onset});
                     break;
                 }
             }
@@ -595,11 +603,11 @@ void ScoreModel::layout(const notation::Staff& staff) {
                     const auto* member = std::get_if<notation::NotationNote>(entries[k].object);
                     top = std::max(top, member != nullptr ? pos_of(*member) + 7 : 6);
                     if (member != nullptr && member->chord) continue;
-                    tuplet_end = column_x[{entries[k].measure, entries[k].onset}];
+                    tuplet_end = column({entries[k].measure, entries[k].onset});
                     covered += entries[k].length;
                 }
                 tuplet_pos = top + 2;
-                highest_pos_ = std::max({highest_pos_, high + 10, tuplet_pos + 2});
+                drawing.highest = std::max({drawing.highest, high + 10, tuplet_pos + 2});
             }
         }
 
@@ -612,16 +620,16 @@ void ScoreModel::layout(const notation::Staff& staff) {
             for (std::size_t k = i + 1; k < entries.size(); ++k) {
                 const auto* next = std::get_if<notation::NotationNote>(entries[k].object);
                 if (next != nullptr && entries[k].voice == entry.voice && !next->chord && !next->lyric.empty()) {
-                    hyphen_to = column_x[{entries[k].measure, entries[k].onset}];
+                    hyphen_to = column({entries[k].measure, entries[k].onset});
                     break;
                 }
             }
         lyrics = lyrics || !note.lyric.empty();
-        objects_.push_back(QVariantMap{
+        drawing.objects.push_back(QVariantMap{
             {"kind", "note"},
             {"step", source_step},
             {"key", midi},
-            {"selected", source_step >= 0 && source_step == selected_step_ && midi == selected_key_},
+            {"selected", source_step >= 0 && editable && source_step == selected_step && midi == selected_key},
             {"x", at},
             {"pos", pos},
             {"acc", static_cast<int>(note.spelled.accidental)},
@@ -648,7 +656,7 @@ void ScoreModel::layout(const notation::Staff& staff) {
             {"beamed", beam != nullptr},
         });
     }
-    if (lyrics) lowest_pos_ = std::min(lowest_pos_, -6);
+    if (lyrics) drawing.lowest = std::min(drawing.lowest, -6);
 
     // The beams themselves: the main one across the group, and for each
     // shorter value a beam across every run of notes that short, or a hook
@@ -656,10 +664,10 @@ void ScoreModel::layout(const notation::Staff& staff) {
     // when it opens the group).
     for (const auto& group : beam_groups) {
         const auto x_of = [&](std::size_t index) {
-            return column_x[{std::get<0>(group.chords[index]), std::get<1>(group.chords[index])}];
+            return column({std::get<0>(group.chords[index]), std::get<1>(group.chords[index])});
         };
         const auto beam = [&](double from, double to, int level, int hook) {
-            beams_.push_back(QVariantMap{{"fromX", from}, {"toX", to}, {"pos", group.pos}, {"up", group.up},
+            drawing.beams.push_back(QVariantMap{{"fromX", from}, {"toX", to}, {"pos", group.pos}, {"up", group.up},
                                          {"level", level}, {"hook", hook}});
         };
         beam(x_of(0), x_of(group.chords.size() - 1), 0, 0);
@@ -677,7 +685,93 @@ void ScoreModel::layout(const notation::Staff& staff) {
                 i = j + 1;
             }
         }
-        if (group.up) highest_pos_ = std::max(highest_pos_, group.pos + 1);
-        else lowest_pos_ = std::min(lowest_pos_, group.pos - 1);
+        if (group.up) drawing.highest = std::max(drawing.highest, group.pos + 1);
+        else drawing.lowest = std::min(drawing.lowest, group.pos - 1);
+    }
+    return drawing;
+}
+
+} // namespace
+
+void ScoreModel::layout(const std::vector<StaffSpec>& staves) {
+    objects_.clear();
+    barlines_.clear();
+    beams_.clear();
+    staves_.clear();
+    time_map_.clear();
+    if (staves.empty()) return;
+    const Tick tpb = staves.front().ticks_per_beat;
+    const auto& first = staves.front().staff;
+    measure_count_ = static_cast<int>(first.measures.size());
+
+    // Every staff's objects where they fall, and which accidentals print.
+    std::vector<std::vector<Entry>> entries(staves.size());
+    std::vector<std::vector<bool>> show_acc(staves.size());
+    for (std::size_t s = 0; s < staves.size(); ++s)
+        for (const auto& placed : notation::place(staves[s].staff, tpb)) {
+            entries[s].push_back({placed.measure, placed.onset, placed.length,
+                                  &staves[s].staff.measures[placed.measure].objects[placed.index], placed.voice});
+            show_acc[s].push_back(placed.accidental_shown);
+        }
+    // The parts of a section share its length and meter: the first one's
+    // measures are every one's.
+    std::vector<Tick> measure_end;
+    notation::TimeSignature time = first.time;
+    Tick measure_start = 0;
+    for (const auto& measure : first.measures) {
+        if (measure.time) time = *measure.time;
+        measure_start += notation::measure_ticks(measure, time, tpb);
+        measure_end.push_back(measure_start);
+    }
+
+    // Columns: one per onset in any staff, so a full score's staves line up;
+    // each takes room for the time to the next onset in any of them.
+    std::map<std::pair<std::size_t, Tick>, double> column_x;
+    std::vector<std::map<Tick, bool>> onsets(measure_end.size()); // measure -> onset -> accidental
+    for (std::size_t s = 0; s < staves.size(); ++s)
+        for (std::size_t i = 0; i < entries[s].size(); ++i) {
+            if (entries[s][i].measure >= onsets.size()) continue;
+            auto& accidental = onsets[entries[s][i].measure][entries[s][i].onset];
+            accidental = accidental || show_acc[s][i];
+        }
+    double x = 0.6;
+    const bool barred = first.time.metered();
+    for (std::size_t m = 0; m < measure_end.size(); ++m) {
+        for (auto it = onsets[m].begin(); it != onsets[m].end(); ++it) {
+            const auto next = std::next(it);
+            const Tick to = next != onsets[m].end() ? next->first : measure_end[m];
+            if (it->second) x += kAccidentalRoom;
+            column_x[{m, it->first}] = x;
+            time_map_.emplace_back(x, it->first);
+            x += room_for(to - it->first, tpb);
+        }
+        // Chant has no barlines, not even a closing one.
+        if (barred) barlines_.push_back(QVariantMap{{"x", x}, {"final", m + 1 == measure_end.size()}});
+        time_map_.emplace_back(x, measure_end[m]);
+        x += kBarPadding;
+    }
+    content_width_ = x;
+
+    for (std::size_t s = 0; s < staves.size(); ++s) {
+        const auto& spec = staves[s];
+        const auto drawing = draw_staff(spec.staff, entries[s], show_acc[s], column_x, measure_end, tpb,
+                                        spec.selected, selected_step_, selected_key_);
+        if (spec.selected) {
+            objects_ = drawing.objects;
+            beams_ = drawing.beams;
+            highest_pos_ = drawing.highest;
+            lowest_pos_ = drawing.lowest;
+            transposition_ = spec.staff.transposition();
+        }
+        staves_.push_back(QVariantMap{{"track", spec.track},
+                                      {"name", spec.name},
+                                      {"selected", spec.selected},
+                                      {"clefKind", spec.clef_kind},
+                                      {"clefRefPos", clef_ref_pos(spec.clef_kind)},
+                                      {"keySignature", key_signature_for(spec.clef_kind, key_fifths_)},
+                                      {"objects", drawing.objects},
+                                      {"beams", drawing.beams},
+                                      {"highestPos", drawing.highest},
+                                      {"lowestPos", drawing.lowest}});
     }
 }

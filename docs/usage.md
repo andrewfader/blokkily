@@ -854,7 +854,11 @@ and two armed tracks receiving deterministic MIDI input. See
 
 The SCORE view (the SCORE chip in the view switcher) draws the open part as
 staff notation in its clef, key and meter, which the view's pickers and CHANT
-set for the song. Type the part's lyrics in its LYRICS field the way they are
+set for the song. FULL shows the full score instead: every track's part of
+the open section on a staff of its own, named and in its own clef, lined up
+so what sounds together is drawn together; the selected track's staff is the
+one you write on (in the accent colour), and pressing another staff selects
+its track. Type the part's lyrics in its LYRICS field the way they are
 sung - `A-ma-zing grace`, one syllable per note in time order, `_` to hold a
 syllable over another note - in any script, Hebrew included; ENTER lays them
 on the notes as one step of undo.

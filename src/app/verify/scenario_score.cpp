@@ -20,6 +20,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <map>
 #include <source_location>
 #include <utility>
 
@@ -481,7 +482,108 @@ void run_score(VerifyContext& ctx) {
     ctx.finish(" SCORE view, clefs saved and undone, chant, key signatures, chords and voices, note entry");
 }
 
+// features/score_view.feature, run by bdd_full_score: FULL shows every
+// track's part of the section, a staff each, in shared columns: a note on the
+// same beat in two parts is drawn at the same x, however differently each
+// part is written around it. A press on another staff writes on that track,
+// and a click there enters a note into its part.
+void run_full_score(VerifyContext& ctx) {
+    auto* const window = ctx.window;
+    auto& song = ctx.song;
+    auto& pattern = ctx.pattern;
+    const auto check = [&ctx](bool ok, std::source_location at = std::source_location::current()) {
+        if (!ok) std::cerr << "full score failed at line " << at.line() << '\n';
+        ctx.check(ok);
+    };
+    const auto settle = [window] {
+        VerifyContext::settle(300);
+        QCoreApplication::processEvents();
+        (void)window->grabWindow();
+    };
+    check(ctx.controller.verifyClap(ctx.parser.value("clap-fixture")));
+    auto* const score = score_model(ctx);
+    check(score != nullptr && song.trackCount() >= 2);
+    if (score == nullptr || song.trackCount() < 2) {
+        ctx.finish(" no score or too few tracks");
+        return;
+    }
+    check(window->setProperty("view", "SCORE"));
+    // The lead in eighths over the first two beats, the bass in quarters.
+    song.selectSection(0);
+    song.selectTrack(0);
+    for (int step = 0; step < pattern.stepCount(); ++step) pattern.clearStep(step);
+    for (int step = 0; step < 8; step += 2) pattern.setStepKey(step, 72 + step);
+    for (int step = 0; step < pattern.stepCount(); ++step)
+        if (step % 2 == 0 && step < 8) pattern.setStepDuration(step, 240);
+    song.selectTrack(1);
+    for (int step = 0; step < pattern.stepCount(); ++step) pattern.clearStep(step);
+    pattern.setStepKey(0, 43);
+    pattern.setStepKey(4, 45);
+    song.selectTrack(0);
+    settle();
+    auto* chip = ctx.named("fullScoreChip");
+    check(VerifyContext::usable(chip, 30, 16));
+    if (chip) ctx.click_at(chip, {chip->width() / 2, chip->height() / 2}, Qt::LeftButton);
+    settle();
+    check(score->property("fullScore").toBool());
+    const auto staves = score->property("staves").toList();
+    check(staves.size() == song.trackCount());
+    // Each staff's notes by the step they draw.
+    const auto steps_of = [&](int staff) {
+        std::map<int, double> at;
+        for (const auto& item : score->property("staves").toList().value(staff).toMap().value("objects").toList()) {
+            const auto object = item.toMap();
+            if (object.value("kind").toString() == "note")
+                at[object.value("step").toInt()] = object.value("x").toDouble();
+        }
+        return at;
+    };
+    const auto lead = steps_of(0);
+    const auto bass = steps_of(1);
+    std::cerr << "full score: lead notes " << lead.size() << ", bass notes " << bass.size() << '\n';
+    check(lead.size() == 4 && bass.size() >= 2);
+    // What sounds together lines up: beat one, and beat two.
+    check(lead.count(0) && bass.count(0) && std::abs(lead.at(0) - bass.at(0)) < 1e-9);
+    check(lead.count(4) && bass.count(4) && std::abs(lead.at(4) - bass.at(4)) < 1e-9);
+    // And the bass's own spacing follows the lead's eighths between them.
+    check(lead.count(2) && lead.at(2) > lead.at(0) && lead.at(2) < bass.at(4));
+    check(staves.value(0).toMap().value("selected").toBool() && !staves.value(1).toMap().value("selected").toBool());
+    check(staves.value(0).toMap().value("name").toString() == song.trackNames().value(0));
+    ctx.reached("full score: every part a staff, in shared columns");
+    {
+        const QString path = ctx.parser.value("screenshot");
+        if (!path.isEmpty()) check(ctx.save_screenshot_to(path.left(path.size() - 4) + "-full.png"));
+    }
+
+    // A press on the bass staff writes on the bass from then on.
+    auto* bass_staff = ctx.named("scoreStaff1");
+    check(VerifyContext::usable(bass_staff, 200, 30));
+    if (bass_staff) ctx.click_at(bass_staff, {bass_staff->width() / 2, bass_staff->height() / 2}, Qt::LeftButton);
+    settle();
+    check(song.selectedTrack() == 1);
+    check(score->property("staves").toList().value(1).toMap().value("selected").toBool());
+    // A click on its staff, at beat three, enters a note into the bass part.
+    auto* input = ctx.named("staffInput");
+    const auto before = pattern.rowCount();
+    double x = 0.0;
+    QMetaObject::invokeMethod(score, "xForTick", Q_RETURN_ARG(double, x), Q_ARG(int, 960));
+    auto* canvas = ctx.named("scoreCanvas");
+    if (input && canvas) {
+        const double sp = canvas->property("sp").toDouble();
+        const double header = canvas->property("headerWidth").toDouble();
+        const double y_bottom = canvas->property("yBottom").toDouble() - input->y();
+        ctx.click_at(input, {header + (x + 0.6) * sp, y_bottom - 4 * sp / 2}, Qt::LeftButton);
+    }
+    settle();
+    std::cerr << "full score: the bass part holds " << pattern.rowCount() << " notes, " << before << " before\n";
+    check(pattern.rowCount() == before + 1 && pattern.hasStep(8));
+    ctx.reached("full score: another staff is written on, and a click enters a note into its part");
+    check(ctx.save_screenshot());
+    ctx.finish("a full score of the section");
+}
+
 [[maybe_unused]] const bool registered = register_scenario("score", run_score);
+[[maybe_unused]] const bool registered_full = register_scenario("full_score", run_full_score);
 
 }  // namespace
 }  // namespace blokkily::verify

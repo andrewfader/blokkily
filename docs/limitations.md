@@ -78,10 +78,11 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Staff notation
 
-- The SCORE view draws one part at a time. Notes entered on its staff land
-  on the step grid (sixteenths), up to a whole note long; tuplets, ties you
-  draw yourself and finer rhythms are written in the piano roll. There is no
-  full score of every part together yet.
+- The full score (FULL) shows the open section's parts together, one system
+  that scrolls; it does not break into pages or systems of several bars.
+  Notes entered on a staff land on the step grid (sixteenths), up to a whole
+  note long; tuplets, ties you draw yourself and finer rhythms are written in
+  the piano roll.
 - Lyrics are one verse: a note carries one syllable. Hebrew and other scripts
   are drawn correctly, but cantillation marks (te'amim) are not.
 - Beams join eighths and shorter by the beat and are always flat; a beam is

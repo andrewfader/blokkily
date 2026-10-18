@@ -9,7 +9,11 @@ Feature: The pattern is also shown as true staff notation
   picker covers the full roster including the obscure clefs (French violin,
   subbass, the C clefs); CHANT draws an unmetered chant staff with bare
   noteheads for hymn and nusach-style melodies. A long part scrolls sideways
-  and the staff grows to fit high and low notes.
+  and the staff grows to fit high and low notes. FULL draws the full score:
+  every track's part of the section on a staff of its own, named, in its own
+  clef, all of them in shared columns so what sounds together lines up; the
+  selected track's staff is the one written on, and a press on another
+  staff selects its track.
 
   Proved by the bdd_score gate (src/app/verify/scenario_score.cpp), which
   saves build/artifacts/score-view.png and one screenshot per scenario.
@@ -82,3 +86,13 @@ Feature: The pattern is also shown as true staff notation
     When the key is D major and the producer clicks the top line
     Then the note written is F#5, from the key signature
     And the piano roll's lookups find every note the staff wrote
+
+  # bdd_full_score
+  Scenario: The full score of the section
+    Given the lead in eighths over the first two beats and the bass in quarters
+    When FULL is pressed in the SCORE view
+    Then every track's part is a staff, named, the selected one written on
+    And a note on beat one, and on beat two, sits at the same x in both staves, the lead's eighths between them
+    When the bass staff is pressed
+    Then the bass is the track written on, and a click on its staff at beat three enters a note into the bass part
+

@@ -67,6 +67,13 @@ Rectangle {
                 implicitHeight: 20; accessibleLabel: "Export the song as a MusicXML score"
                 onClicked: exportScoreDialog.open()
             }
+            // Every track's part of the section, a staff each, lined up.
+            Chip {
+                objectName: "fullScoreChip"; text: "FULL"
+                implicitHeight: 20; accessibleLabel: "Full score: every part of the section"
+                on: scoreModel.fullScore
+                onClicked: scoreModel.fullScore = !scoreModel.fullScore
+            }
             Chip {
                 objectName: "chantChip"; text: "CHANT"
                 implicitHeight: 20; accessibleLabel: "Unmetered chant staff"
@@ -166,30 +173,66 @@ Rectangle {
         }
 
         // The staff scrolls sideways: a long part is drawn at its full
-        // length rather than squeezed or cut off at the panel's edge.
+        // length rather than squeezed or cut off at the panel's edge. The
+        // full score stacks a staff per part and scrolls down too.
         Flickable {
             id: scroller
             objectName: "scoreScroller"
             Layout.fillWidth: true; Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.HorizontalFlick
-            contentWidth: scoreCanvas.contentWidthPx; contentHeight: height
+            flickableDirection: scoreModel.fullScore ? Flickable.HorizontalAndVerticalFlick
+                                                     : Flickable.HorizontalFlick
+            contentWidth: scoreCanvas.contentWidthPx
+            contentHeight: Math.max(height, scoreCanvas.totalHeight)
             ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             Canvas {
                 id: scoreCanvas
                 objectName: "scoreCanvas"
-                height: scroller.height
-                // One staff space, sized so the highest and lowest things on
-                // the staff (ledger notes, stems, lyrics) fit the height.
-                readonly property real span: (Math.max(scoreModel.highestPos, 8) + 4
-                                              - Math.min(scoreModel.lowestPos, 0) + 4) / 2
-                readonly property real sp: Math.max(6, Math.min(16, height / Math.max(span, 1)))
-                // The bottom line's y, leaving room above for what sits high.
-                readonly property real yBottom: (Math.max(scoreModel.highestPos, 8) + 4) * sp / 2
-                // Clef, key and time signature, then the notes.
-                readonly property real headerWidth: (1 + 3.4 + scoreModel.keySignature.length * 1.35
+                readonly property var staves: scoreModel.staves
+                // A staff's reach in staff positions, with room around it.
+                function reachOf(staff) {
+                    return { high: Math.max(staff.highestPos, 8) + 4, low: Math.min(staff.lowestPos, 0) - 4 };
+                }
+                // One staff space: a part's staff fills the height; a full
+                // score's staves keep a readable size and the view scrolls.
+                readonly property real sp: {
+                    if (scoreModel.fullScore) return 8;
+                    var only = staves.length > 0 ? reachOf(staves[0]) : { high: 12, low: -4 };
+                    return Math.max(6, Math.min(16, scroller.height / Math.max((only.high - only.low) / 2, 1)));
+                }
+                // Each staff's top, bottom line and height, top to bottom; a
+                // full score names each part above its staff.
+                readonly property real labelRoom: scoreModel.fullScore ? 14 : 0
+                readonly property var geometry: {
+                    var placed = [];
+                    var top = 0;
+                    for (var i = 0; i < staves.length; i++) {
+                        var reach = reachOf(staves[i]);
+                        var height = labelRoom + (reach.high - reach.low) * sp / 2;
+                        placed.push({ top: top, height: height, yBottom: top + labelRoom + reach.high * sp / 2 });
+                        top += height;
+                    }
+                    return placed;
+                }
+                readonly property real totalHeight: geometry.length > 0
+                    ? geometry[geometry.length - 1].top + geometry[geometry.length - 1].height : 0
+                readonly property int selectedIndex: {
+                    for (var i = 0; i < staves.length; i++) if (staves[i].selected) return i;
+                    return 0;
+                }
+                // The written-on staff's bottom line, for note entry.
+                readonly property real yBottom: geometry.length > selectedIndex ? geometry[selectedIndex].yBottom : 0
+                // Clef, key and time signature, then the notes; the widest
+                // key signature of the staves sets where every one begins.
+                readonly property int keyRoom: {
+                    var widest = 0;
+                    for (var i = 0; i < staves.length; i++) widest = Math.max(widest, staves[i].keySignature.length);
+                    return widest;
+                }
+                readonly property real headerWidth: (1 + 3.4 + keyRoom * 1.35
                                                      + (scoreModel.unmetered ? 0.6 : 3.2)) * sp
                 // The whole part's width. The canvas itself is only the
                 // visible window onto it, following the scroll: a long part
@@ -198,22 +241,26 @@ Rectangle {
                                                                 headerWidth + (scoreModel.contentWidth + 1.5) * sp)
                 x: Math.max(0, Math.min(scroller.contentX, contentWidthPx - scroller.width))
                 width: scroller.width
+                height: Math.max(scroller.height, totalHeight)
 
                 onPaint: {
                     var ctx = getContext("2d");
                     ctx.clearRect(0, 0, width, height);
                     ctx.save();
                     ctx.translate(-x, 0);
-                    try { paintScore(ctx, x, x + width); } finally { ctx.restore(); }
+                    try {
+                        for (var i = 0; i < staves.length && i < geometry.length; i++)
+                            paintStaff(ctx, staves[i], geometry[i], x, x + width);
+                    } finally { ctx.restore(); }
                 }
-                // Draws in the part's coordinates; what lies wholly outside
-                // left..right is skipped.
-                function paintScore(ctx, left, right) {
-                    var W = contentWidthPx, H = height;
+                // Draws one staff in the part's coordinates; what lies wholly
+                // outside left..right is skipped.
+                function paintStaff(ctx, staff, place, left, right) {
+                    var W = contentWidthPx;
                     var sp = scoreCanvas.sp;
                     var ink = Theme.ink;
                     var lineW = Math.max(1, sp * 0.09);
-                    var yBottom = scoreCanvas.yBottom;
+                    var yBottom = place.yBottom;
                     // Staff position p (0 = bottom line, 2 = next line, ...) to y.
                     function yPos(p) { return yBottom - p * sp / 2; }
                     function hline(x, y, w) { ctx.fillRect(x, y - lineW / 2, w, lineW); }
@@ -245,16 +292,24 @@ Rectangle {
                         ctx.font = ready ? musicFont : "12px sans-serif";
                     }
 
+                    // ---- the part's name, over a full score's staff; the
+                    // staff notes are written on in the accent colour
+                    if (scoreModel.fullScore && staff.name.length > 0) {
+                        ctx.fillStyle = staff.selected ? Theme.acid : Theme.muted;
+                        text(staff.name.toUpperCase(), left + 0.6 * sp, place.top + 11, 10, "left");
+                        ctx.fillStyle = ink;
+                    }
+
                     // ---- staff lines
                     for (var l = 0; l < 5; l++) hline(0, yPos(2 * l), W);
 
                     // ---- clef (glyph origin sits on the reference line)
                     var clefX = 1.0 * sp;
-                    if (ready) ctx.fillText(code(Smufl.clefGlyph(scoreModel.clefKind)), clefX, yPos(scoreModel.clefRefPos));
-                    else hline(clefX, yPos(scoreModel.clefRefPos), 2.4 * sp);
+                    if (ready) ctx.fillText(code(Smufl.clefGlyph(staff.clefKind)), clefX, yPos(staff.clefRefPos));
+                    else hline(clefX, yPos(staff.clefRefPos), 2.4 * sp);
 
                     // ---- key signature
-                    var ks = scoreModel.keySignature;
+                    var ks = staff.keySignature;
                     var ksX = clefX + 3.4 * sp;
                     for (var k = 0; k < ks.length; k++) {
                         var ax = ksX + k * 1.35 * sp;
@@ -263,7 +318,7 @@ Rectangle {
                     }
 
                     // ---- time signature
-                    var tsX = ksX + ks.length * 1.35 * sp + 0.6 * sp;
+                    var tsX = ksX + scoreCanvas.keyRoom * 1.35 * sp + 0.6 * sp;
                     if (!scoreModel.unmetered) {
                         if (ready) {
                             var top = Smufl.digits(scoreModel.timeBeats);
@@ -280,7 +335,6 @@ Rectangle {
 
                     var x0 = scoreCanvas.headerWidth;
                     function xAt(units) { return x0 + units * sp; }
-
                     // ---- barlines (the last one double)
                     var bars = scoreModel.barlines;
                     for (var bl = 0; bl < bars.length; bl++) {
@@ -296,7 +350,7 @@ Rectangle {
                                          : "accidentalDoubleFlat");
                     }
 
-                    var objects = scoreModel.objects;
+                    var objects = staff.objects;
                     var nhw = 1.18 * sp; // noteheadBlack advance
                     for (var i = 0; i < objects.length; i++) {
                         var o = objects[i];
@@ -395,7 +449,7 @@ Rectangle {
                     }
 
                     // ---- beams, from stem to stem; a hook is a short beam from one
-                    var beams = scoreModel.beams;
+                    var beams = staff.beams;
                     var beamH = 0.5 * sp, beamGap = 0.75 * sp, stemW = 0.13 * sp;
                     for (var bi = 0; bi < beams.length; bi++) {
                         var bm = beams[bi];
@@ -419,17 +473,37 @@ Rectangle {
                 onXChanged: requestPaint()
             }
 
-            // Note entry, over the whole part: x in staff spaces from the
-            // first column (to the notehead's left edge, as objects' x), y in
-            // staff positions.
+            // A full score's other staves: a press on one makes its track the
+            // one written on.
+            Repeater {
+                model: scoreModel.fullScore ? scoreCanvas.staves.length : 0
+                MouseArea {
+                    required property int index
+                    readonly property var staff: scoreCanvas.staves[index]
+                    objectName: "scoreStaff" + index
+                    visible: staff !== undefined && !staff.selected
+                    y: scoreCanvas.geometry[index] ? scoreCanvas.geometry[index].top : 0
+                    width: scoreCanvas.contentWidthPx
+                    height: scoreCanvas.geometry[index] ? scoreCanvas.geometry[index].height : 0
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: songModel.selectTrack(staff.track)
+                }
+            }
+
+            // Note entry, over the staff written on: x in staff spaces from
+            // the first column (to the notehead's left edge, as objects' x), y
+            // in staff positions.
             MouseArea {
                 id: staffInput
                 objectName: "staffInput"
-                width: scoreCanvas.contentWidthPx; height: scroller.height
+                y: scoreCanvas.geometry[scoreCanvas.selectedIndex] ? scoreCanvas.geometry[scoreCanvas.selectedIndex].top : 0
+                width: scoreCanvas.contentWidthPx
+                height: scoreModel.fullScore && scoreCanvas.geometry[scoreCanvas.selectedIndex]
+                        ? scoreCanvas.geometry[scoreCanvas.selectedIndex].height : scroller.height
                 activeFocusOnTab: true
                 cursorShape: Qt.CrossCursor
                 function unitsAt(px) { return (px - scoreCanvas.headerWidth) / scoreCanvas.sp - 0.59; }
-                function posAt(py) { return (scoreCanvas.yBottom - py) / (scoreCanvas.sp / 2); }
+                function posAt(py) { return (scoreCanvas.yBottom - y - py) / (scoreCanvas.sp / 2); }
                 onPressed: mouse => {
                     forceActiveFocus();
                     scoreModel.click(unitsAt(mouse.x), posAt(mouse.y));

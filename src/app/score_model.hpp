@@ -2,6 +2,7 @@
 
 #include "blokkily/notation/clef.hpp"
 #include "blokkily/notation/signature.hpp"
+#include "blokkily/model/pattern.hpp"
 #include "blokkily/notation/staff.hpp"
 
 #include <QObject>
@@ -85,6 +86,14 @@ class ScoreModel final : public QObject {
     // per turn of the event loop while it is, and once it is shown again
     // while it is not.
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    // The full score: every track's part of the open section as a staff of
+    // its own, top to bottom, the staves' notes in shared columns so what
+    // sounds together lines up. The selected track's staff is still the one
+    // notes are written on; objects, beams and the rest describe it.
+    Q_PROPERTY(bool fullScore READ fullScore WRITE setFullScore NOTIFY scoreChanged)
+    // Each staff: {track, name, selected, clefKind, clefRefPos, keySignature,
+    // objects, beams, highestPos, lowestPos}; one in a part's score.
+    Q_PROPERTY(QVariantList staves READ staves NOTIFY scoreChanged)
 
 public:
     ScoreModel(PatternModel* pattern, SongModel* song, QObject* parent = nullptr);
@@ -122,6 +131,9 @@ public:
     void setDotted(bool dotted);
     bool active() const noexcept { return active_; }
     void setActive(bool active);
+    bool fullScore() const noexcept { return full_score_; }
+    void setFullScore(bool on);
+    QVariantList staves() const { return staves_; }
     int selectedStep() const noexcept { return selected_step_; }
     int selectedKey() const noexcept { return selected_key_; }
 
@@ -156,7 +168,21 @@ private:
     // A change it follows: rebuilt on the next turn of the event loop, or
     // when the score is next shown.
     void queueRebuild();
-    void layout(const blokkily::notation::Staff& staff);
+    // One staff to lay out: a part as notation, its track and clef, and
+    // whether it is the staff notes are written on.
+    struct StaffSpec {
+        blokkily::notation::Staff staff;
+        blokkily::Tick ticks_per_beat = 480;
+        int track = 0;
+        QString name;
+        int clef_kind = 0;
+        bool selected = true;
+    };
+    void layout(const std::vector<StaffSpec>& staves);
+    int clef_index(const QVariantMap& settings) const;
+    static blokkily::Pattern drawable(const blokkily::Pattern& pattern);
+    static QVariantList key_signature_for(int clef_kind, int fifths);
+    static int clef_ref_pos(int clef_kind);
     void write(const QVariantMap& settings);
     bool select(int step, int key);
     QVariantMap selectedObject() const;
@@ -172,6 +198,8 @@ private:
     QVariantList barlines_;
     QVariantList beams_;
     QVariantList key_sig_;
+    QVariantList staves_;
+    bool full_score_ = false;
     int measure_count_ = 0;
     double content_width_ = 0.0;
     int highest_pos_ = 8;

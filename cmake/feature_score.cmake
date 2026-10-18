@@ -39,6 +39,17 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
         TIMEOUT 180)
 
+    # FULL: every part of the section a staff, in shared columns, and note
+    # entry on whichever staff is chosen.
+    add_test(NAME bdd_full_score
+        COMMAND blokkily --verify --scenario full_score
+            --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+            --screenshot ${CMAKE_BINARY_DIR}/artifacts/full-score.png)
+    set_tests_properties(bdd_full_score PROPERTIES
+        LABELS "bdd;e2e;integration;screenshot;score"
+        ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}"
+        TIMEOUT 120)
+
     # SCORE IN builds the song from a Hebrew hymn for voice and organ, its
     # lyrics show under the staff and are retyped in the LYRICS field, and
     # SCORE OUT writes the song and reads the file back.
