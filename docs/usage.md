@@ -210,7 +210,10 @@ MULTI in the sampler panel imports a multi-sampled instrument: pick every
 file at once and each is placed by its name (Piano_C#3_v2.wav: key C#3,
 velocity layer 2; pp, mf, ff work too). EDIT opens the zone map (keys
 across, velocities up; click a box to edit that zone), the zone's VEL range,
-and its waveform, where START, END and the loop markers are dragged. See
+and its waveform, where START, END and the loop markers are dragged. Double-click
+the waveform to zoom in on that point and right double-click to zoom out;
+Ctrl and the wheel zoom around the pointer, Shift and the wheel move along
+the file. See
 [the scenarios](../features/sampler_editing.feature).
 
 LV2 plugins are found in `$LV2_PATH`, `~/.lv2`, `/usr/local/lib/lv2` and

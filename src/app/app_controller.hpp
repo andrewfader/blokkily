@@ -619,9 +619,10 @@ public:
     Q_INVOKABLE bool setSamplerVelocityRange(int low, int high);
     Q_INVOKABLE bool setSamplerRegion(double start, double end);
     Q_INVOKABLE bool setSamplerLoopPoints(double start, double end);
-    // The selected zone's whole file as `columns` low, high pairs, flattened
-    // (as WaveformItem draws them), for the panel's waveform.
-    Q_INVOKABLE QVariantList samplerPeaks(int columns) const;
+    // The selected zone's file as `columns` low, high pairs, flattened (as
+    // WaveformItem draws them), for the panel's waveform: the frames from
+    // `from` to `to`, or the whole file when `to` is not after `from`.
+    Q_INVOKABLE QVariantList samplerPeaks(int columns, double from = 0, double to = -1) const;
     // How many recompiles have run, and how many graphs have been built.
     int recompileCount() const noexcept { return recompiler_.recompiles(); }
     int rebuildCount() const noexcept { return rebuilds_; }

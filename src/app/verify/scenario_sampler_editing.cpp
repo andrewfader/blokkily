@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QMetaObject>
 
 #include <cmath>
 #include <iostream>
@@ -121,6 +122,65 @@ void run_sampler_editing(VerifyContext& ctx) {
     check(view.value("loop").toString() == "forward" && view.value("loopStart").toDouble() == 20000);
     check(ctx.named("samplerLoopStartMarker") && ctx.named("samplerLoopStartMarker")->isVisible());
     ctx.reached("sampler editing: START, END and the loop move on the waveform");
+
+    // Double-clicked twice in its middle, the waveform shows a quarter of
+    // the file around it, drawn from that quarter's own frames, and a pixel
+    // there is a quarter of the frames it was; right double clicks zoom out.
+    {
+        auto* zoom_area = ctx.named("samplerWaveformZoom");
+        check(zoom_area != nullptr);
+        const auto double_click = [&](Qt::MouseButton button) {
+            if (zoom_area == nullptr) return;
+            const QPointF middle{zoom_area->width() / 2, zoom_area->height() / 2};
+            ctx.mouse_at(zoom_area, middle, QEvent::MouseButtonPress, button, button);
+            ctx.mouse_at(zoom_area, middle, QEvent::MouseButtonRelease, button, Qt::NoButton);
+            ctx.mouse_at(zoom_area, middle, QEvent::MouseButtonPress, button, button);
+            ctx.mouse_at(zoom_area, middle, QEvent::MouseButtonDblClick, button, button);
+            ctx.mouse_at(zoom_area, middle, QEvent::MouseButtonRelease, button, Qt::NoButton);
+            layout();
+        };
+        const double frames = wave ? wave->property("frames").toDouble() : 0.0;
+        const auto per_pixel = [&] {
+            QVariant one, two;
+            QMetaObject::invokeMethod(wave, "frameOf", Q_RETURN_ARG(QVariant, one), Q_ARG(QVariant, 40.0));
+            QMetaObject::invokeMethod(wave, "frameOf", Q_RETURN_ARG(QVariant, two), Q_ARG(QVariant, 41.0));
+            return two.toDouble() - one.toDouble();
+        };
+        const double whole = wave ? per_pixel() : 0.0;
+        double_click(Qt::LeftButton);
+        double_click(Qt::LeftButton);
+        check(wave != nullptr && std::abs(wave->property("zoom").toDouble() - 4.0) < 1e-9);
+        check(VerifyContext::reads_whole(ctx.named("samplerZoomReadout"), QString::fromUtf8("\xC3\x97" "4.0")));
+        const double from = wave ? wave->property("viewStart").toDouble() : 0.0;
+        check(std::abs(from - frames * 3.0 / 8.0) < frames / 200.0);
+        check(wave && std::abs(per_pixel() * 4.0 - whole) < 1e-6);
+        const auto zoomed = c.samplerPeaks(64, from, from + frames / 4.0);
+        check(zoomed.size() == 128 && zoomed != c.samplerPeaks(64));
+        // START (12000) and END (36000) stand where the zoomed view puts
+        // those frames, in view or out of it.
+        auto* end_marker = ctx.named("samplerEndMarker");
+        const auto placed = [&](QQuickItem* marker, double frame) {
+            const double want = 1.0 + (frame - from) / (frames / 4.0) * (wave->width() - 2.0);
+            return marker != nullptr && std::abs(marker->x() + marker->width() / 2.0 - want) < 0.5;
+        };
+        check(wave && placed(start, 12000.0) && placed(end_marker, 36000.0));
+        const QString shot = ctx.parser.value("screenshot");
+        if (!shot.isEmpty()) check(ctx.save_screenshot_to(shot.left(shot.size() - 4) + "-zoomed.png"));
+        double_click(Qt::RightButton);
+        double_click(Qt::RightButton);
+        check(wave && std::abs(wave->property("zoom").toDouble() - 1.0) < 1e-9);
+        // The panel's rows keep their labels whole.
+        for (const auto& [chip, label] : {std::pair{"samplerLoop_off", "OFF"}, std::pair{"samplerLoop_forward", "FWD"},
+                                          std::pair{"samplerLoop_ping_pong", "P-P"}}) {
+            auto* item = ctx.named(chip);
+            QQuickItem* text = nullptr;
+            if (item != nullptr)
+                for (auto* child : item->childItems())
+                    if (child->property("text").toString() == QString::fromLatin1(label)) text = child;
+            check(VerifyContext::reads_whole(text, QString::fromLatin1(label)));
+        }
+    }
+    ctx.reached("sampler editing: the waveform zooms in and out");
 
     // The program plays: a C5 struck sounds.
     s.selectTrack(0);

@@ -510,7 +510,7 @@ bool AppController::setSamplerLoopPoints(double start, double end) {
     });
 }
 
-QVariantList AppController::samplerPeaks(int columns) const {
+QVariantList AppController::samplerPeaks(int columns, double from_frame, double to_frame) const {
     QVariantList peaks;
     const auto program = samplerProgram(song_ != nullptr ? song_->selectedTrack() : -1);
     if (!program || program->zones.empty() || columns <= 0) return peaks;
@@ -519,9 +519,15 @@ QVariantList AppController::samplerPeaks(int columns) const {
     const auto audio = zone_audio(assets_.get(), processorContext().project_dir, selected);
     if (!audio || audio->left.empty()) return peaks;
     const auto frames = audio->left.size();
+    // The window drawn: the whole file, or the frames asked for within it.
+    const auto first = static_cast<std::size_t>(std::clamp(from_frame, 0.0, static_cast<double>(frames - 1)));
+    const auto last = to_frame > from_frame
+                          ? std::clamp(static_cast<std::size_t>(std::ceil(to_frame)), first + 1, frames)
+                          : frames;
+    const auto span = last - first;
     for (int column = 0; column < columns; ++column) {
-        const auto from = frames * static_cast<std::size_t>(column) / static_cast<std::size_t>(columns);
-        const auto to = std::max(from + 1, frames * static_cast<std::size_t>(column + 1) / static_cast<std::size_t>(columns));
+        const auto from = first + span * static_cast<std::size_t>(column) / static_cast<std::size_t>(columns);
+        const auto to = std::max(from + 1, first + span * static_cast<std::size_t>(column + 1) / static_cast<std::size_t>(columns));
         float low = 0.0F, high = 0.0F;
         for (auto frame = from; frame < to && frame < frames; ++frame) {
             const float sample = audio->right.empty() ? audio->left[frame]

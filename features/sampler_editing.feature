@@ -36,5 +36,8 @@ Feature: Editing a sampler: multi-samples, velocity layers and the waveform
     When EDIT is opened and the map's last box clicked
     Then Lead_C5_ff is the zone edited, its velocities 64-127, and editing them undoes alone
     And the waveform is drawn, START and END move on it, and loop points turn a loop on
+    When the waveform is double-clicked twice in its middle
+    Then it shows a quarter of the file around there, drawn from those frames, reads ×4.0, and each marker stands at its frame
+    And two right double clicks show the whole file again, and the LOOP row's labels read whole
     And C5 struck through the production callback sounds
     And the browser keeps its room and the rail's foot can be scrolled to

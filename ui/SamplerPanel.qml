@@ -277,7 +277,10 @@ Rectangle {
             }
 
             // The zone's file: what plays (START..END) and its loop, each marker
-            // dragged to move it.
+            // dragged to move it. A double click zooms in on where it lands, a
+            // right double click out; Ctrl and the wheel zoom around the
+            // pointer, Shift and the wheel move along the file. The wheel
+            // alone still scrolls the rail, and the panel is no taller.
             Rectangle {
                 id: wave
                 objectName: "samplerWaveform"
@@ -285,22 +288,65 @@ Rectangle {
                 implicitHeight: 52
                 visible: panel.hasZone && panel.sampler.frames > 0
                 radius: 3; color: Theme.bg; border.color: Theme.line
+                clip: true
                 readonly property real frames: Math.max(1, panel.sampler.frames || 1)
                 readonly property real startFrame: panel.sampler.start || 0
                 readonly property real endFrame: panel.sampler.end > 0 ? panel.sampler.end : frames
                 readonly property bool looped: panel.sampler.loop !== undefined && panel.sampler.loop !== "off"
-                function xOf(frame) { return 1 + frame / frames * (width - 2) }
-                function frameOf(x) { return Math.max(0, Math.min(frames, (x - 1) / (width - 2) * frames)) }
+                // The frames in view: the whole file until zoomed.
+                property real viewStart: 0
+                property real viewFrames: frames
+                readonly property real zoom: frames / viewFrames
+                onFramesChanged: { viewStart = 0; viewFrames = frames }
+                function xOf(frame) { return 1 + (frame - viewStart) / viewFrames * (width - 2) }
+                function frameOf(x) {
+                    return Math.max(0, Math.min(frames, viewStart + (x - 1) / (width - 2) * viewFrames))
+                }
+                // Zooms by `factor` keeping `frame` where it is on screen, no
+                // closer than 64 frames across the waveform.
+                function zoomBy(factor, frame) {
+                    const at = (frame - viewStart) / viewFrames
+                    const shown = Math.max(Math.min(frames, 64), Math.min(frames, viewFrames / factor))
+                    viewFrames = shown
+                    viewStart = Math.max(0, Math.min(frames - shown, frame - at * shown))
+                }
+                function scrollBy(fraction) {
+                    viewStart = Math.max(0, Math.min(frames - viewFrames, viewStart + fraction * viewFrames))
+                }
                 WaveformItem {
                     objectName: "samplerWaveformPeaks"
                     anchors.fill: parent; anchors.margins: 1
                     color: Theme.amber
-                    peaks: wave.visible ? (panel.sampler, appController.samplerPeaks(Math.max(1, Math.round(width / 2)))) : []
+                    peaks: wave.visible ? (panel.sampler, appController.samplerPeaks(Math.max(1, Math.round(width / 2)),
+                                                                                    wave.viewStart, wave.viewStart + wave.viewFrames)) : []
+                }
+                // Under the markers, so a marker is still dragged where it is.
+                MouseArea {
+                    objectName: "samplerWaveformZoom"
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onDoubleClicked: mouse => wave.zoomBy(mouse.button === Qt.RightButton ? 0.5 : 2,
+                                                          wave.frameOf(mouse.x))
+                }
+                Label {
+                    objectName: "samplerZoomReadout"
+                    anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 3
+                    visible: wave.zoom > 1.001
+                    text: "×" + (wave.zoom >= 10 ? Math.round(wave.zoom) : wave.zoom.toFixed(1))
+                    color: Theme.ink; font.pixelSize: 9; font.bold: true; font.family: Theme.mono
+                }
+                WheelHandler {
+                    acceptedModifiers: Qt.ControlModifier
+                    onWheel: event => wave.zoomBy(Math.pow(2, event.angleDelta.y / 120), wave.frameOf(point.position.x))
+                }
+                WheelHandler {
+                    acceptedModifiers: Qt.ShiftModifier
+                    onWheel: event => wave.scrollBy(-(event.angleDelta.y + event.angleDelta.x) / 120 * 0.25)
                 }
                 // What does not play is shaded.
-                Rectangle { x: 1; width: Math.max(0, wave.xOf(wave.startFrame) - 1); height: parent.height
+                Rectangle { x: 1; width: Math.max(0, Math.min(wave.width - 2, wave.xOf(wave.startFrame) - 1)); height: parent.height
                     color: "#b00e0f12" }
-                Rectangle { x: wave.xOf(wave.endFrame); width: Math.max(0, wave.width - 1 - x); height: parent.height
+                Rectangle { x: Math.max(1, wave.xOf(wave.endFrame)); width: Math.max(0, wave.width - 1 - x); height: parent.height
                     color: "#b00e0f12" }
                 Rectangle {
                     visible: wave.looped
