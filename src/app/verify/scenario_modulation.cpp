@@ -187,9 +187,19 @@ void run_modulation(VerifyContext& ctx) {
     {
         const auto rows = controller.browserPlugins();
         QQuickItem* compressor = nullptr;
+        // The list makes only the rows on screen; a rail taller than the
+        // window leaves Compressor below them until it is scrolled to.
         for (int row = 0; row < rows.size(); ++row)
-            if (rows.at(row).toMap().value("name").toString() == "Compressor")
+            if (rows.at(row).toMap().value("name").toString() == "Compressor") {
+                if (auto* list = ctx.named("pluginBrowser")) {
+                    constexpr int contain = 4; // ListView.Contain
+                    QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, row),
+                                              Q_ARG(int, contain));
+                    lay_out();
+                }
                 compressor = ctx.named(QString("browserRow%1").arg(row));
+            }
+        check(VerifyContext::usable(compressor, 60, 18));
         check(click(compressor));
     }
     check(song.song().tracks.at(0).inserts.size() == 1 &&
