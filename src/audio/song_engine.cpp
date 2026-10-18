@@ -492,6 +492,50 @@ void SongEngine::rebase_lock(ProcessorAddress where, std::int32_t parameter, dou
         if (base.where == where && base.parameter == parameter && !base.modulation) base.value = value;
 }
 
+std::uint64_t SongEngine::until_modulator_step(std::uint64_t from,
+                                                std::uint64_t frames) const noexcept {
+    if (live_ == nullptr || frames <= 1 || !(sample_rate_ > 0.0)) return frames;
+    const auto& arranged = *live_;
+    const double per_beat = static_cast<double>(std::max<Tick>(1, arranged.ticks_per_beat));
+    const auto count = std::min(arranged.routing.modulators.size(), maximum_modulators);
+    std::uint64_t until = frames;
+    for (std::size_t m = 0; m < count; ++m) {
+        if (arranged.routing.modulators[m].kind != Modulator::Kind::lfo) continue;
+        const auto& controls = modulation_->controls[m];
+        const auto shape = static_cast<LfoShape>(controls.shape.load(std::memory_order_relaxed));
+        // Where the shape jumps, in cycles: sine and triangle never do.
+        const double every = shape == LfoShape::square ? 0.5
+                             : shape == LfoShape::sine || shape == LfoShape::triangle ? 0.0
+                                                                                      : 1.0;
+        if (every == 0.0) continue;
+        const double sync = controls.sync_beats.load(std::memory_order_relaxed);
+        const bool bars = controls.sync_in_bars.load(std::memory_order_relaxed);
+        const double rate = controls.rate_hz.load(std::memory_order_relaxed);
+        // The LFO's phase at a song sample, as advance_modulators reads it.
+        const auto phase_at = [&](std::uint64_t sample) noexcept {
+            const auto at = static_cast<double>(sample);
+            if (!(sync > 0.0)) return at / sample_rate_ * rate;
+            const double tick = arranged.clock.tick_at(at);
+            if (!bars) return tick / per_beat / sync;
+            const auto bar = arranged.meter.bar_at(static_cast<Tick>(tick));
+            const auto bar_ticks = static_cast<double>(std::max<Tick>(1, arranged.meter.bar_length(bar)));
+            return (bar + (tick - static_cast<double>(arranged.meter.bar_start(bar))) / bar_ticks) / sync;
+        };
+        const double start = phase_at(from);
+        const double step = (std::floor(start / every) + 1.0) * every;
+        if (!std::isfinite(start) || phase_at(from + until) < step) continue;
+        // The first sample at or past the step, found by halving.
+        std::uint64_t low = from, high = from + until;
+        while (high - low > 1) {
+            const auto middle = low + (high - low) / 2;
+            if (phase_at(middle) >= step) high = middle;
+            else low = middle;
+        }
+        until = std::min(until, high - from);
+    }
+    return until;
+}
+
 bool SongEngine::recompile(const Song& song, std::uint64_t seed, std::string* error,
                            const AudioAssets& assets, const ClipRenditions& renditions) {
     const auto fail = [error](const char* message) {
@@ -1524,9 +1568,12 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
                 frames, engine::automation_grid - song_position % engine::automation_grid);
         // A modulated song steps its modulators on a fixed grid, whatever
         // block the device asked for, so a bounce sounds as playback did.
-        if (live_ != nullptr && !live_->routing.modulators.empty())
+        if (live_ != nullptr && !live_->routing.modulators.empty()) {
             frames = std::min<std::uint64_t>(
                 frames, engine::modulation_grid - song_position % engine::modulation_grid);
+            // ...and an LFO that steps inside that grid steps on its sample.
+            frames = until_modulator_step(song_position, frames);
+        }
         // A strip moved from the interface is reached across a short ramp
         // rather than stepped to: the chunk it ramps across is that short.
         if (strip_move_pending()) frames = std::min<std::uint64_t>(frames, smoothing_frames);

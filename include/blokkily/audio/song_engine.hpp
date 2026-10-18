@@ -586,6 +586,12 @@ private:
     // The samples playback wraps at and to: the arrangement loop while it is
     // on and well formed, otherwise the song's end and its start.
     [[nodiscard]] std::uint64_t wrap_end_sample() const noexcept;
+    // Callback: how many of the `frames` from song sample `from` play before
+    // a rolling LFO steps (a square's turn, a saw's reset, a new
+    // sample-and-hold value), so a chunk ends there and the next starts on
+    // the step's own sample; `frames` when none steps in them.
+    [[nodiscard]] std::uint64_t until_modulator_step(std::uint64_t from,
+                                                     std::uint64_t frames) const noexcept;
     [[nodiscard]] std::uint64_t wrap_start_sample() const noexcept;
     // Keeps the playhead inside the wrap window. Callback, no allocation.
     void fold_playhead() noexcept;

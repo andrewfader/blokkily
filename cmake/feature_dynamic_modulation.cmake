@@ -40,6 +40,7 @@ if(BLOKKILY_BUILD_TESTS)
             envelope_follower
             lfo_reaches_clap
             lfo_tempo_sync
+            lfo_step_on_its_sample
             lfo_bar_sync
             macro_live
             follower_hears_source
@@ -53,6 +54,7 @@ if(BLOKKILY_BUILD_TESTS)
             ENVIRONMENT "${BLOKKILY_HEADLESS_TEST_ENV}" TIMEOUT 120)
     endforeach()
     set_property(TEST dynamic_modulation_lfo_reaches_clap dynamic_modulation_lfo_tempo_sync
+                      dynamic_modulation_lfo_step_on_its_sample
                       dynamic_modulation_lfo_bar_sync
                       dynamic_modulation_macro_live
                       dynamic_modulation_follower_hears_source

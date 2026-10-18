@@ -358,6 +358,44 @@ void lfo_tempo_sync_case() {
               << faster.size() << " at 240\n";
 }
 
+// features/dynamic_modulation.feature: A synced LFO steps on its own sample.
+// The same one-beat square at 120 BPM and then 60: every turn lands on the
+// sample its half beat falls on (12000 apart, then 24000), not at the next
+// 128-sample grid point after it, whatever block the device asks for.
+void lfo_step_on_its_sample_case() {
+    constexpr Tick bars = 4;
+    Pattern pattern(bar * bars, 480);
+    Trigger trigger;
+    trigger.start = 0;
+    trigger.duration = bar * bars - 1;
+    trigger.musical_data = Note{60, 1.0F, 0.0F};
+    (void)pattern.add(trigger);
+    auto song = song_of({std::move(pattern)});
+    song.tempo.points = {{0, 120.0, false}, {2 * bar, 60.0, false}};
+    auto synced = lfo(LfoShape::square, 7.0, track_instrument(0), 0.2);
+    synced.sync_beats = 1.0;
+    song.modulators = {synced};
+    SongEngine engine;
+    prepare(engine, song);
+    engine.set_playing(true);
+    const std::size_t at_120 = 8 * 24000;
+    const std::size_t total = at_120 + 8 * 48000;
+    const auto out = render(engine, total);
+    std::vector<std::size_t> expected;
+    for (std::size_t at = 12000; at < at_120; at += 12000) expected.push_back(at);
+    for (std::size_t at = at_120; at < total - 1000; at += 24000) expected.push_back(at);
+    std::vector<std::size_t> found;
+    bool high = out.left[1000] / centre > 0.25;
+    for (std::size_t index = 1001; index < total - 1000; ++index) {
+        const bool now = out.left[index] / centre > 0.25;
+        if (now != high) found.push_back(index);
+        high = now;
+    }
+    std::ostringstream turns;
+    for (const auto at : found) turns << ' ' << at;
+    require(found == expected, "every turn lands on its half beat's sample; turns at" + turns.str());
+}
+
 // features/dynamic_modulation.feature: A bar follows the meter. A square LFO
 // synced to one bar over four bars of 3/4 and then four of 7/8, at 120 BPM:
 // the level turns every half bar, 36000 samples apart in 3/4 (a bar of three
@@ -691,6 +729,7 @@ int main(int argc, char** argv) {
         else if (name == "envelope_follower") envelope_follower_case();
         else if (name == "lfo_reaches_clap") lfo_reaches_clap_case();
         else if (name == "lfo_tempo_sync") lfo_tempo_sync_case();
+        else if (name == "lfo_step_on_its_sample") lfo_step_on_its_sample_case();
         else if (name == "macro_live") macro_live_case();
         else if (name == "follower_hears_source") follower_hears_source_case();
         else if (name == "bounce_matches_playback") bounce_matches_playback_case();

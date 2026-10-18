@@ -43,8 +43,9 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 ## Modulation
 
 - Modulation is evaluated once per chunk of at most 128 samples, whatever the
-  device's block size. A synced LFO therefore turns on at the first chunk
-  after its beat, up to 127 samples late.
+  device's block size. An LFO's steps (a square's turn, a saw's reset, a new
+  sample-and-hold value) land on their own sample, but a sine or triangle
+  moves in 128-sample stairs.
 - A follower targeting its own track, or a track that the render order cannot
   place after its source, receives the previous chunk's level.
 

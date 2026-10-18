@@ -37,6 +37,12 @@ Feature: Modulators move plugin parameters while the song plays
     And the rendered level swings between 0.45 and 0.05
     And in the block where the LFO turns, the samples before a note later in that block already hear the new modulation
 
+  # dynamic_modulation_lfo_step_on_its_sample
+  Scenario: A synced LFO steps on its own sample
+    Given the same one-beat square LFO, at 120 BPM for two bars and 60 BPM after
+    When the song plays in blocks of 256 samples
+    Then every turn of the level lands on the sample its half beat falls on, 12000 and then 24000 apart
+
   # dynamic_modulation_lfo_tempo_sync
   Scenario: A synced LFO's cycle follows the tempo map
     Given a square LFO synced to one beat, aimed at the CLAP synth's Level, whose free rate is 7 Hz
