@@ -6,6 +6,7 @@
 
 #include <QCoreApplication>
 #include <QQuickItem>
+#include <QRectF>
 #include <QStringList>
 
 #include <functional>
@@ -129,6 +130,31 @@ void run_language(VerifyContext& ctx) {
         check(ctx.save_screenshot_to(path.left(path.size() - 4) + QStringLiteral("-de.png")));
     }
     ctx.reached("language: DEUTSCH redraws the window in German, every label whole");
+
+    // The tour's buttons are the longest German labels in one row: the
+    // bubble grows to hold them, side by side, none over another.
+    check(click("helpButton"));
+    VerifyContext::settle(900);
+    layout();
+    {
+        const auto rect = [&](const char* name) {
+            auto* item = ctx.named(QString::fromLatin1(name));
+            return item ? item->mapRectToScene(QRectF(0, 0, item->width(), item->height())) : QRectF();
+        };
+        const QRectF bubble = rect("tutorialBubble");
+        const QRectF frame(0, 0, ctx.window->width(), ctx.window->height());
+        check(text_of("tutorialAsk") == QStringLiteral("FRAGEN") && frame.contains(bubble));
+        const char* buttons[] = {"tutorialCancel", "tutorialAsk", "tutorialBack", "tutorialNext"};
+        for (int index = 0; index < 4; ++index) {
+            check(VerifyContext::usable(ctx.named(QString::fromLatin1(buttons[index])), 28, 18)
+                  && bubble.contains(rect(buttons[index])));
+            if (index > 0) check(rect(buttons[index - 1]).right() < rect(buttons[index]).left());
+        }
+    }
+    check(click("helpButton"));
+    VerifyContext::settle(900);
+    layout();
+    ctx.reached("language: the tour's buttons sit whole in its bubble, in German");
 
     // Remembered, and RESET is the layout's, not the language's.
     check(click("viewSETTINGS") && click("resetLayout"));

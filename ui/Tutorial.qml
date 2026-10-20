@@ -4,8 +4,10 @@ import QtQuick.Controls
 // The guided tour behind the HELP button. Blokkily hops from one part of the
 // window to the next with a speech bubble, a ring flies to the control being
 // talked about, and a keycap tooltip follows it with the key that drives it.
-// The tour ends at its last step, on CANCEL, on the bubble's close button, on
-// Escape or X, or when HELP is pressed again; Blokkily then jumps off screen.
+// The tour ends at its last step, on ASK, on CANCEL, on the bubble's close
+// button, on Escape or X, or when HELP is pressed again; Blokkily then jumps
+// off screen. Finished, or skipped with ASK or F1, it hands over to the
+// floating guide with its question box ready (askRequested).
 //
 // The window puts it in its overlay so the ring can reach the transport bar
 // as well as the panels.
@@ -25,12 +27,15 @@ Item {
     property bool leaving: false
     property int step: 0
 
+    // The tour is over and the producer wants the guide's question box.
+    signal askRequested()
+
     // Each stop: the objectName of what it points at ("" for none), a title,
     // what Blokkily says, and the key that drives it. A stop whose target is
     // not on screen (a view that hides it, a feature not built) is passed by.
     readonly property var steps: [
         { target: "", title: "HI, I'M BLOKKILY",
-          text: qsTr("Half T-block, half broccoli, all groove. Let me show you around. Press Esc or X any time to send me away."),
+          text: qsTr("Half T-block, half broccoli, all groove. Let me show you around, or press ASK or F1 to skip straight to asking me. Esc or X sends me away."),
           keys: "" },
         { target: "playButton", title: "TRANSPORT",
           text: qsTr("Play, record and rewind the song from here."),
@@ -60,7 +65,7 @@ Item {
           text: qsTr("Ask for a beat or a bassline in plain words and approve what comes back."),
           keys: "CTRL+K" },
         { target: "helpButton", title: "THAT'S THE TOUR",
-          text: qsTr("Press HELP whenever you want me back. Now go make something!"),
+          text: qsTr("Press HELP whenever you want me back. Next, ask me anything."),
           keys: "F1" }
     ]
     readonly property var current: steps[step]
@@ -98,12 +103,20 @@ Item {
         tour.forceActiveFocus()
     }
 
-    function finish() {
+    function finish() { leave(false) }
+
+    // Skips what is left of the tour and goes straight to asking.
+    function skipToAsk() { leave(true) }
+
+    // Ends the tour; `ask` hands the keyboard to the guide's question box
+    // rather than back to the editors.
+    function leave(ask) {
         if (!running) return
         running = false
         leaving = true
         exitAnimation.restart()
         if (focusHome !== null) focusHome.forceActiveFocus()
+        if (ask) askRequested()
     }
 
     function toggle() {
@@ -113,7 +126,7 @@ Item {
 
     function next() {
         var index = nextShown(step)
-        if (index < 0) { finish(); return }
+        if (index < 0) { skipToAsk(); return }
         step = index
         place()
     }
@@ -320,7 +333,8 @@ Item {
         id: bubble
         objectName: "tutorialBubble"
         x: tour.bubbleX; y: tour.bubbleY
-        width: 300
+        // Wider when a language's button labels need it.
+        width: Math.max(300, leftButtons.implicitWidth + rightButtons.implicitWidth + 16 + 28)
         height: bubbleColumn.implicitHeight + 24
         opacity: tour.fade
         radius: 8
@@ -389,12 +403,23 @@ Item {
             }
             Item {
                 width: parent.width; height: 26
-                Chip {
-                    objectName: "tutorialCancel"
-                    text: qsTr("CANCEL")
-                    onClicked: tour.finish()
+                Row {
+                    id: leftButtons
+                    spacing: 6
+                    Chip {
+                        objectName: "tutorialCancel"
+                        text: qsTr("CANCEL")
+                        onClicked: tour.finish()
+                    }
+                    Chip {
+                        objectName: "tutorialAsk"
+                        text: qsTr("ASK", "skip the tour to the guide's question box")
+                        accessibleLabel: "Skip the tour and ask the guide"
+                        onClicked: tour.skipToAsk()
+                    }
                 }
                 Row {
+                    id: rightButtons
                     anchors.right: parent.right
                     spacing: 6
                     Chip {

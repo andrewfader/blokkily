@@ -3,10 +3,11 @@ Feature: Blokkily shows a newcomer around
   a guided tour. Blokkily, the
   mascot (a pixel-art T tetromino that is also a broccoli), hops from stop to
   stop with a speech bubble; a ring flies to the control being talked about
-  and a keycap tooltip names the key that drives it. The tour leaves when it
-  is finished, on CANCEL, on the bubble's close button, on Escape or X, or
-  when HELP is pressed again. It never blocks the window: the producer can
-  still play while it talks.
+  and a keycap tooltip names the key that drives it. F1 starts it too. The
+  tour leaves on CANCEL, on the bubble's close button, on Escape or X, or
+  when HELP is pressed again. Finished, or skipped with ASK or a second F1,
+  it hands over to the floating guide with the keyboard in its question box.
+  It never blocks the window: the producer can still play while it talks.
 
   # bdd_tutorial "tutorial: HELP sits beside the keyboard hints, whole and on screen"
   # bdd_tutorial "tutorial: HELP brings Blokkily in with a bubble"
@@ -43,7 +44,23 @@ Feature: Blokkily shows a newcomer around
     Then the tour goes forward a stop and back again
     And the step cursor in the editors has not moved
 
-  # bdd_tutorial "tutorial: DONE sends Blokkily away and gives the keyboard back"
+  # bdd_tutorial "tutorial: DONE goes on to the guide's question box"
+  # bdd_tutorial "tutorial: ASK skips the rest of the tour to the question box"
+  # bdd_tutorial "tutorial: F1 starts the tour, and again skips to the question box"
+  Scenario Outline: The tour ends in asking
+    Given the guide is off and the tour is running
+    When the producer <moves on>
+    Then Blokkily, the bubble and the ring are gone and HELP is not lit
+    And the guide is on with its bubble open
+    And the keyboard is in its question box, which is wholly on screen at a usable size
+    And a key typed there is a question, and no note was written
+
+    Examples:
+      | moves on                         |
+      | clicks DONE at the last stop     |
+      | clicks ASK on a later stop       |
+      | presses F1 to start, then again  |
+
   # bdd_tutorial "tutorial: Escape ends it"
   # bdd_tutorial "tutorial: X ends it, and is not typed as a note"
   # bdd_tutorial "tutorial: the bubble's close button ends it"
@@ -53,11 +70,11 @@ Feature: Blokkily shows a newcomer around
     Given the tour is running
     When the producer <leaves>
     Then Blokkily, the bubble and the ring are gone and HELP is not lit
+    And the guide stays off
     And the keyboard is back with note entry, and no note was written
 
     Examples:
       | leaves                        |
-      | clicks DONE at the last stop  |
       | presses Escape                |
       | presses X                     |
       | clicks the bubble's close box |

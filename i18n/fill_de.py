@@ -209,8 +209,8 @@ DE = {
     "STP": "SCH", "ROL": "ROL", "SCR": "NOT", "KEY": "TAS", "LNC": "LNC", "VER": "VER", "NTS": "NTZ",
     "SCANNING…": "SUCHT…", "SCAN": "SUCHE", "RESCAN": "SUCHEN", "RESCAN PLUGINS": "PLUGINS SUCHEN",
     # Tour
-    "Half T-block, half broccoli, all groove. Let me show you around. Press Esc or X any time to send me away.":
-        "Halb T-Block, halb Brokkoli, ganz Groove. Ich zeige dir alles. Mit Esc oder X schickst du mich jederzeit weg.",
+    "Half T-block, half broccoli, all groove. Let me show you around, or press ASK or F1 to skip straight to asking me. Esc or X sends me away.":
+        "Halb T-Block, halb Brokkoli, ganz Groove. Ich zeige dir alles, oder du drückst FRAGEN oder F1 und fragst mich gleich. Esc oder X schickt mich weg.",
     "Play, record and rewind the song from here.": "Von hier spielst, nimmst auf und spulst den Song zurück.",
     "Drag it up or down, scroll it, or double-click to type a tempo.":
         "Nach oben oder unten ziehen, scrollen oder doppelklicken, um ein Tempo einzutippen.",
@@ -228,8 +228,8 @@ DE = {
         "Jede Spur hat Fader, Pan, Stumm und Solo. Änderungen hörst du sofort.",
     "Ask for a beat or a bassline in plain words and approve what comes back.":
         "In einfachen Worten nach einem Beat oder einer Basslinie fragen und das Ergebnis annehmen.",
-    "Press HELP whenever you want me back. Now go make something!":
-        "Drück HILFE, wann immer du mich zurückwillst. Und jetzt mach was!",
+    "Press HELP whenever you want me back. Next, ask me anything.":
+        "Drück HILFE, wann immer du mich zurückwillst. Jetzt frag mich, was du willst.",
     "CANCEL": "ABBRECHEN", "BACK": "ZURÜCK", "DONE": "FERTIG", "NEXT": "WEITER",
     # Versions
     "differs: ": "anders: ", "none saved yet": "noch keine gesichert",
@@ -250,7 +250,8 @@ SHORT = {
     "KEYS": "TAST", "LNCH": "LNCH", "VERS": "VERS", "NOTE": "NTZ",
     "STP": "STP", "ROL": "ROL", "SCR": "NOT", "KEY": "TAS", "LNC": "LNC", "VER": "VER", "NTS": "NTZ",
 }
-BY_COMMENT = {"short view tab": SHORT, "empty the whole song": {"CLEAR": "LEER"}}
+BY_COMMENT = {"short view tab": SHORT, "empty the whole song": {"CLEAR": "LEER"},
+              "skip the tour to the guide's question box": {"ASK": "FRAGEN"}}
 
 
 def main(path: Path) -> int:

@@ -19,6 +19,12 @@ Feature: The window in another language
     Then SETTINGS and the editors show their labels in German, RESET reads ZURÜCKSETZEN and HELP reads HILFE
     And no label that read whole in English is cut short or pushed past the window's edge
 
+  # bdd_language "language: the tour's buttons sit whole in its bubble, in German"
+  Scenario: The tour's buttons fit in German
+    Given the window in German
+    When HELP is pressed
+    Then ABBRECHEN, FRAGEN, ZURÜCK and WEITER sit side by side, each at a usable size, inside the tour's bubble
+
   # bdd_language
   Scenario: The language is a choice, not layout
     Given the window in German

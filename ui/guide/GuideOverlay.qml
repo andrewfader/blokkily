@@ -41,6 +41,14 @@ Item {
         return { x: area.x, y: area.y, w: area.width, h: area.height }
     }
 
+    // Turns the guide on and opens its bubble with the keyboard in the
+    // question box: where the tour hands over.
+    function ask() {
+        guideController.guideEnabled = true
+        guideController.open()
+        questionField.forceActiveFocus()
+    }
+
     property var spot: targetItem()
     property bool hasSpot: guideController.spotlightTarget !== "" && spot !== null
 

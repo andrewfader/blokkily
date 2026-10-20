@@ -1530,8 +1530,8 @@
 <context>
     <name>Tutorial</name>
     <message>
-        <source>Half T-block, half broccoli, all groove. Let me show you around. Press Esc or X any time to send me away.</source>
-        <translation>Halb T-Block, halb Brokkoli, ganz Groove. Ich zeige dir alles. Mit Esc oder X schickst du mich jederzeit weg.</translation>
+        <source>Half T-block, half broccoli, all groove. Let me show you around, or press ASK or F1 to skip straight to asking me. Esc or X sends me away.</source>
+        <translation>Halb T-Block, halb Brokkoli, ganz Groove. Ich zeige dir alles, oder du drückst FRAGEN oder F1 und fragst mich gleich. Esc oder X schickt mich weg.</translation>
     </message>
     <message>
         <source>Play, record and rewind the song from here.</source>
@@ -1570,12 +1570,17 @@
         <translation>In einfachen Worten nach einem Beat oder einer Basslinie fragen und das Ergebnis annehmen.</translation>
     </message>
     <message>
-        <source>Press HELP whenever you want me back. Now go make something!</source>
-        <translation>Drück HILFE, wann immer du mich zurückwillst. Und jetzt mach was!</translation>
+        <source>Press HELP whenever you want me back. Next, ask me anything.</source>
+        <translation>Drück HILFE, wann immer du mich zurückwillst. Jetzt frag mich, was du willst.</translation>
     </message>
     <message>
         <source>CANCEL</source>
         <translation>ABBRECHEN</translation>
+    </message>
+    <message>
+        <source>ASK</source>
+        <comment>skip the tour to the guide's question box</comment>
+        <translation>FRAGEN</translation>
     </message>
     <message>
         <source>BACK</source>

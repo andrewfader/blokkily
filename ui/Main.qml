@@ -521,8 +521,12 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+6"; enabled: !root.typing
         onActivated: { patternModel.toggleStep(15, root.entryBase); if (patternModel.hasStep(15)) appController.auditionStep(15) } }
 
-    // F1 asks for help, as it does everywhere else.
-    Shortcut { sequence: StandardKey.HelpContents; onActivated: tutorial.toggle() }
+    // F1 asks for help, as it does everywhere else: the tour, and pressed
+    // again during it, straight to the guide's question box.
+    Shortcut {
+        sequence: StandardKey.HelpContents
+        onActivated: tutorial.running ? tutorial.skipToAsk() : tutorial.start()
+    }
 
     header: TransportBar {
         view: root.view
@@ -536,6 +540,7 @@ ApplicationWindow {
         id: tutorial
         parent: root.Overlay.overlay
         focusHome: noteEntry
+        onAskRequested: guide.ask()
     }
 
     // The always-on floating guide. Same overlay layer as the tour, above the
@@ -543,6 +548,7 @@ ApplicationWindow {
     // drawn nothing while disabled; the GUIDE chip in the transport bar
     // toggles it.
     GuideOverlay {
+        id: guide
         parent: root.Overlay.overlay
     }
 

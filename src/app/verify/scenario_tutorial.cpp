@@ -7,6 +7,8 @@
 #include "verify/harness.hpp"
 
 #include <QCoreApplication>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QKeyEvent>
 #include <QRectF>
 
@@ -24,6 +26,12 @@ constexpr const char* stops[] = {
     "helpButton",
 };
 constexpr int stop_count = static_cast<int>(sizeof(stops) / sizeof(stops[0]));
+
+QObject* guide_controller(VerifyContext& ctx) {
+    auto* engine = qmlEngine(ctx.window);
+    if (engine == nullptr) return nullptr;
+    return engine->rootContext()->contextProperty("guideController").value<QObject*>();
+}
 
 QRectF scene_rect(const QQuickItem* item) {
     if (item == nullptr) return {};
@@ -165,13 +173,36 @@ void run_tutorial(VerifyContext& ctx) {
     check(next != nullptr && next->property("text").toString() == "DONE");
 
     // ---------------------------------------------------------------------
-    ctx.reached("tutorial: DONE sends Blokkily away and gives the keyboard back");
+    // Finished or skipped, the tour hands over to the floating guide with
+    // the keyboard in its question box; nothing is typed into the pattern.
+    auto* const guide = guide_controller(ctx);
+    check(guide != nullptr);
+    const auto asking = [&] {
+        auto* focus = window->activeFocusItem();
+        auto* field = ctx.named("guideQuestionField");
+        return gone() && help != nullptr && !help->property("on").toBool() && guide != nullptr
+               && guide->property("guideEnabled").toBool() && guide->property("bubbleVisible").toBool()
+               && VerifyContext::usable(field, 120, 20) && frame.contains(scene_rect(field))
+               && focus == field;
+    };
+    // Back to where a producer who never asked starts: the guide off.
+    const auto guide_off = [&] {
+        if (guide != nullptr) guide->setProperty("guideEnabled", false);
+        ctx.named("noteEntry")->forceActiveFocus();
+        lay_out();
+    };
+    ctx.reached("tutorial: DONE goes on to the guide's question box");
+    check(guide != nullptr && !guide->property("guideEnabled").toBool());
     check(press("tutorialNext"));
     land();
-    check(gone());
-    check(help != nullptr && !help->property("on").toBool());
-    check(window->activeFocusItem() != nullptr
-          && window->activeFocusItem()->objectName() == "noteEntry");
+    check(asking());
+    // What is typed there is a question, not a note.
+    ctx.type_key(Qt::Key_Z, QStringLiteral("z"));
+    lay_out();
+    check(ctx.named("guideQuestionField")->property("text").toString() == "z");
+    check(ctx.pattern.property("eventCount").toInt() == events);
+    QMetaObject::invokeMethod(ctx.named("guideQuestionField"), "clear");
+    guide_off();
 
     // ---------------------------------------------------------------------
     // Every other way out, each from a fresh tour.
@@ -180,6 +211,31 @@ void run_tutorial(VerifyContext& ctx) {
         land();
         check(running() && tour->isVisible() && step() == 0);
     };
+    ctx.reached("tutorial: ASK skips the rest of the tour to the question box");
+    open();
+    auto* const ask = ctx.named("tutorialAsk");
+    check(VerifyContext::usable(ask, 28, 18) && frame.contains(scene_rect(ask)));
+    check(ask != nullptr && scene_rect(bubble).contains(scene_rect(ask)));
+    check(press("tutorialNext"));
+    land();
+    check(press("tutorialAsk"));
+    land();
+    check(asking());
+    guide_off();
+
+    ctx.reached("tutorial: F1 starts the tour, and again skips to the question box");
+    ctx.type_key(Qt::Key_F1, QString());
+    land();
+    check(running() && step() == 0);
+    ctx.type_key(Qt::Key_F1, QString());
+    land();
+    check(asking());
+    {
+        QString shot = ctx.parser.value("screenshot");
+        if (!shot.isEmpty()) check(ctx.save_screenshot_to(shot.left(shot.size() - 4) + "-ask.png"));
+    }
+    guide_off();
+
     ctx.reached("tutorial: Escape ends it");
     open();
     ctx.type_key(Qt::Key_Escape, QString(QChar(27)));
@@ -211,6 +267,9 @@ void run_tutorial(VerifyContext& ctx) {
     check(press("helpButton"));
     land();
     check(gone());
+    check(guide != nullptr && !guide->property("guideEnabled").toBool());
+    check(window->activeFocusItem() != nullptr
+          && window->activeFocusItem()->objectName() == "noteEntry");
     check(ctx.pattern.property("eventCount").toInt() == events);
     check(ctx.pattern.selectedStep() == cursor);
 
@@ -223,7 +282,7 @@ void run_tutorial(VerifyContext& ctx) {
     VerifyContext::settle(1600);
     lay_out();
     check(ctx.save_screenshot());
-    ctx.finish(" HELP, every stop, and every way out of the tour");
+    ctx.finish(" HELP, every stop, every way out of the tour, and on to asking");
 }
 
 [[maybe_unused]] const bool registered = register_scenario("tutorial", run_tutorial);
