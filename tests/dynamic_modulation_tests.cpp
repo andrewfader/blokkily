@@ -542,6 +542,52 @@ void macro_live_case() {
             "the key kept sounding across the moves");
 }
 
+// An instrument that says how often it is asked for its parameters: a
+// sandboxed plugin answers that over its pipe.
+class CountingInstrument final : public PluginInstance {
+public:
+    explicit CountingInstrument(int* asked) : asked_(asked) {}
+    bool activate(double, std::uint32_t, std::uint32_t) override { return true; }
+    void process(StereoBlock audio, std::span<const PluginEvent>) noexcept override {
+        std::fill(audio.left.begin(), audio.left.end(), 0.0F);
+        std::fill(audio.right.begin(), audio.right.end(), 0.0F);
+    }
+    std::vector<ParameterInfo> parameters() const override {
+        ++*asked_;
+        return {{level_parameter, "Level", 0.0, 2.0, 0.5, true}};
+    }
+    std::vector<std::byte> save_state() override { return {}; }
+    bool load_state(std::span<const std::byte>) override { return true; }
+    std::string format() const override { return "Test"; }
+
+private:
+    int* asked_;
+};
+
+// features/dynamic_modulation.feature: An edit does not ask every modulated
+// plugin for its parameters again. Regression: each recompile read a
+// target's whole parameter list once per modulation target.
+void ranges_read_once_case() {
+    auto song = song_of({held(0, bar - 1)});
+    song.modulators = {macro(0.5, track_instrument(0), 0.4), macro(1.0, track_instrument(0), -0.2)};
+    int asked = 0;
+    SongEngine engine;
+    engine.set_instrument(0, std::make_unique<CountingInstrument>(&asked));
+    std::string error;
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
+    const int prepared = asked;
+    for (int edit = 0; edit < 5; ++edit) {
+        song.patterns[0].pattern = held(0, bar - 1 - edit);
+        require(engine.recompile(song, 0, &error), "recompile: " + error);
+    }
+    std::cout << "parameters read " << asked << " times (" << prepared << " by prepare)\n";
+    require(prepared <= 1 && asked == prepared, "five edits read the parameters no more than prepare did");
+    // A new processor is read afresh.
+    engine.set_instrument(0, std::make_unique<CountingInstrument>(&asked));
+    require(engine.recompile(song, 0, &error), "recompile: " + error);
+    require(asked == prepared + 1, "a processor put in its place is asked once");
+}
+
 // features/dynamic_modulation.feature: A follower follows its source track's
 // audio, after its inserts and before its fader, and its source renders first.
 void follower_hears_source_case() {
@@ -775,6 +821,7 @@ int main(int argc, char** argv) {
         else if (name == "lfo_tempo_sync") lfo_tempo_sync_case();
         else if (name == "lfo_step_on_its_sample") lfo_step_on_its_sample_case();
         else if (name == "macro_live") macro_live_case();
+        else if (name == "ranges_read_once") ranges_read_once_case();
         else if (name == "follower_hears_source") follower_hears_source_case();
         else if (name == "bounce_matches_playback") bounce_matches_playback_case();
         else if (name == "removed_modulation_releases") removed_modulation_releases_case();

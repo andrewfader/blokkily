@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <limits>
@@ -536,6 +537,10 @@ private:
     // Where the chunk being processed starts in the device's block: a stem
     // is laid out at the same place, so a block split into chunks fills it.
     std::size_t chunk_begin_ = 0;
+    // Each processor's parameter ranges, read once rather than at every
+    // recompile (a sandboxed plugin answers over its pipe). Forgotten whenever
+    // a processor is placed, released or the engine is prepared.
+    mutable std::map<const PluginInstance*, std::map<std::int32_t, double>> parameter_ranges_;
     friend struct engine::TestAccess;
     using Arrangement = engine::Arrangement;
     using TrackPlayback = engine::TrackPlayback;

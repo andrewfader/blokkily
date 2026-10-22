@@ -743,6 +743,9 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     blokkily::set_sandbox_period(device_open ? audio_output_->device_info().buffer_frames : 0);
     progress_.report(0.92, QStringLiteral("PREPARING THE MIX"));
     if (!next->prepare(song, rate, 512, 0, &error, assets, clipRenditions(rate))) {
+        // The device was opened against the engine about to go: it is closed
+        // with it, and opened again by the next rebuild that succeeds.
+        if (audio_output_) audio_output_->close();
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
         notify(QStringLiteral("error"), status_);
         emit statusChanged();

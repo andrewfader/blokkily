@@ -74,6 +74,13 @@ Feature: Modulators move plugin parameters while the song plays
     And each is scaled by its parameter's range
     And the change is heard in the next block without a recompile or a released note
 
+  # dynamic_modulation_ranges_read_once
+  Scenario: An edit does not ask the modulated plugins for their parameters again
+    Given two macros on an instrument's Level
+    When the song is edited five times
+    Then the instrument was asked for its parameters no more often than when the engine was prepared
+    And an instrument put in its place is asked once
+
   # dynamic_modulation_follower_hears_source
   Scenario: A follower follows another track, whatever its fader
     Given a follower of a muted, faded-down track aimed at an earlier track's Level

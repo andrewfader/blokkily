@@ -108,6 +108,7 @@ std::unique_ptr<PluginInstance>* SongEngine::processor_slot(ProcessorAddress whe
 }
 
 void SongEngine::set_processor(ProcessorAddress where, std::unique_ptr<PluginInstance> instance) {
+    parameter_ranges_.clear();
     // Makes room for the address first; prepare() trims every chain to the
     // song afterwards.
     engine::InsertChain* chain = nullptr;
@@ -139,6 +140,7 @@ PluginInstance* SongEngine::processor(ProcessorAddress where) const {
 }
 
 std::vector<ReleasedProcessor> SongEngine::release_processors() {
+    parameter_ranges_.clear();
     std::vector<ReleasedProcessor> released;
     const auto release_chain = [&released](engine::InsertChain& chain, BusKind kind,
                                            std::uint32_t bus) {
@@ -254,6 +256,7 @@ bool SongEngine::prepare(const Song& song, double sample_rate,
                          std::uint32_t maximum_block_size, std::uint64_t seed,
                          std::string* error, const AudioAssets& assets,
                          const ClipRenditions& renditions) {
+    parameter_ranges_.clear();
     const auto fail = [error](const char* message) {
         if (error != nullptr) *error = message;
         return false;
@@ -427,9 +430,15 @@ bool SongEngine::compile_into(Arrangement& target, const Song& song,
         [this](ProcessorAddress where, std::int32_t parameter) -> std::optional<double> {
             const auto* instance = processor(where);
             if (instance == nullptr) return std::nullopt;
-            for (const auto& info : instance->parameters())
-                if (info.id == parameter) return info.max - info.min;
-            return std::nullopt;
+            auto known = parameter_ranges_.find(instance);
+            if (known == parameter_ranges_.end()) {
+                std::map<std::int32_t, double> ranges;
+                for (const auto& info : instance->parameters()) ranges[info.id] = info.max - info.min;
+                known = parameter_ranges_.emplace(instance, std::move(ranges)).first;
+            }
+            const auto range = known->second.find(parameter);
+            if (range == known->second.end()) return std::nullopt;
+            return range->second;
         });
     // The launcher's grid and loops, with the seed the timelines use, so a
     // printed take plays what the launcher played (wave 6.1).

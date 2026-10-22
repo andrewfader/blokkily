@@ -44,6 +44,7 @@ if(BLOKKILY_BUILD_TESTS)
             lfo_bar_sync
             lfo_fine_steps
             macro_live
+            ranges_read_once
             follower_hears_source
             bounce_matches_playback
             removed_modulation_releases
