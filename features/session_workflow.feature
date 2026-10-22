@@ -71,6 +71,17 @@ Feature: A session can be worked on without fear of losing it
   Scenario: Buttons say what they do
     Then resting the pointer on a short button such as FRZ, M or + PAT names what it does
 
+  Scenario: A double-click puts a fader back
+    Given a track's fader at -12 dB
+    When the fader is double-clicked
+    Then it is at 0 dB, and one undo takes it back to -12 dB
+
+  Scenario: A muted track says so outside the mixer
+    When a track is muted
+    Then its header on the arrangement shows M, and its menu's Mute is ticked
+    When it is unmuted
+    Then neither does
+
   Scenario: Any number of tracks fit the mixer
     Given the song has nine tracks
     Then the mixer's strips scroll
@@ -141,6 +152,7 @@ Feature: A session can be worked on without fear of losing it
     Then the song is one empty pattern on one track that has no instrument
     And it has no clips, audio clips, effects, returns, automation or modulators
     And a bar rendered from the start of the song is silent
+    And a notice says the song is cleared and that UNDO brings it back
     When they click UNDO
     Then every track, pattern and clip is back with its instrument
     And the first bar is heard again

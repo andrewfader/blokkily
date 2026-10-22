@@ -708,6 +708,10 @@
         <source>CI </source>
         <translation>VZ </translation>
     </message>
+    <message>
+        <source>Click level %1 dB</source>
+        <translation>Klick-Pegel %1 dB</translation>
+    </message>
 </context>
 <context>
     <name>MixerPanel</name>
@@ -1711,6 +1715,13 @@
     <message>
         <source>NEXT</source>
         <translation>WEITER</translation>
+    </message>
+</context>
+<context>
+    <name>ValueDial</name>
+    <message>
+        <source>Double-click to reset</source>
+        <translation>Doppelklick setzt zurück</translation>
     </message>
 </context>
 <context>

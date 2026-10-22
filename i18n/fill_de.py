@@ -127,6 +127,8 @@ DE = {
     "Zoom the arrangement in": "Arrangement vergrößern",
     "Zoom the arrangement out": "Arrangement verkleinern",
     "Dismiss": "Schließen",
+    "Double-click to reset": "Doppelklick setzt zurück",
+    "Click level %1 dB": "Klick-Pegel %1 dB",
     # Mixer
     "MIXER": "MIXER", "CLICK": "KLICK", "NO CI": "VZ –", "CI ": "VZ ",
     " TRACK": " SPUR", " TRACKS": " SPUREN", "+ RETURN": "+ RETURN", "MASTER": "MASTER",

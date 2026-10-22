@@ -350,14 +350,42 @@ ColumnLayout {
                         border.color: track.selected ? Theme.acid : Theme.line
                         objectName: "trackHeader" + trackIndex
                         Label {
-                            anchors.centerIn: parent
-                            width: parent.width - 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: 3
+                            width: parent.width - 6 - (trackFlags.width > 0 ? trackFlags.width + 2 : 0)
                             horizontalAlignment: Text.AlignHCenter
                             elide: Text.ElideRight
                             text: track.name
                             color: track.audible ? Theme.ink : Theme.muted
                             font.pixelSize: 9; font.bold: true
                             font.letterSpacing: 0.6
+                        }
+                        // Muted, soloed and armed read here too, with the
+                        // mixer tucked away: a muted track and one silenced
+                        // by another's solo no longer look the same.
+                        Row {
+                            id: trackFlags
+                            objectName: "trackFlags" + trackIndex
+                            anchors.right: parent.right; anchors.rightMargin: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 1
+                            Repeater {
+                                model: [{ on: track.mute === true, letter: "M", tone: Theme.amber },
+                                        { on: track.solo === true, letter: "S", tone: Theme.blue },
+                                        { on: track.armed === true, letter: "R", tone: Theme.record }]
+                                Rectangle {
+                                    required property var modelData
+                                    visible: modelData.on
+                                    width: 10; height: 12; radius: 2
+                                    color: modelData.tone
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: parent.modelData.letter
+                                        color: Theme.onAccent
+                                        font.pixelSize: 8; font.bold: true
+                                    }
+                                }
+                            }
                         }
                         // Click selects, double-click names,
                         // the right button offers the rest.

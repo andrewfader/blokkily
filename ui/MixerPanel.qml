@@ -135,6 +135,7 @@ Rectangle {
                 ValueDial {
                     Layout.fillWidth: true
                     label: qsTr("LEVEL"); from: -60; to: 6
+                    defaultValue: 0
                     value: songModel.masterGainDb
                     readout: (songModel.masterGainDb <= -95.95 ? "-inf"
                               : (songModel.masterGainDb > 0 ? "+" : "")

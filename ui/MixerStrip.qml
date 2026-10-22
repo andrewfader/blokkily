@@ -171,6 +171,7 @@ Rectangle {
         // letting go hands the strip back to the lane.
         ValueDial {
             objectName: "gainDial" + root.trackIndex
+            defaultValue: 0
             Layout.fillWidth: true
             label: qsTr("GAIN"); from: -60; to: 6; grip: 18
             value: modelData.gainDb
@@ -182,6 +183,7 @@ Rectangle {
         }
         ValueDial {
             objectName: "panDial" + root.trackIndex
+            defaultValue: 0
             Layout.fillWidth: true
             label: qsTr("PAN"); from: -1; to: 1; grip: 18
             accent: Theme.blue

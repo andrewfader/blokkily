@@ -46,6 +46,10 @@ ColumnLayout {
             from: -60; to: 6; stepSize: 0.5
             value: songModel.metronomeLevelDb
             onMoved: songModel.setMetronomeLevelDb(value)
+            HoverHandler { id: clickLevelHover }
+            ToolTip.visible: clickLevelHover.hovered || pressed
+            ToolTip.delay: pressed ? 0 : 600
+            ToolTip.text: qsTr("Click level %1 dB").arg(songModel.metronomeLevelDb.toFixed(1))
             background: Rectangle {
                 x: parent.leftPadding; y: parent.topPadding + parent.availableHeight / 2 - height / 2
                 width: parent.availableWidth; height: 3; radius: 1.5

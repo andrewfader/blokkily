@@ -1386,6 +1386,69 @@ struct DefaultScenario {
             }
             reached("workflow: buttons say what they do");
 
+            // A double-click puts a fader back at 0 dB, as one step of history.
+            {
+                song.setTrackGain(added, -12.0);
+                lay_out();
+                auto* fader = childNamed(item("mixerStrips"), QString("gainDial%1Slider").arg(added));
+                valid = valid && fader != nullptr;
+                // The strip scrolled into the mixer's view, as by hand.
+                auto* scroller = item("mixerScroll");
+                if (fader != nullptr && scroller != nullptr) {
+                    const double top = fader->mapToItem(scroller, QPointF(0, 0)).y();
+                    const double below = top + fader->height() - scroller->height();
+                    const double y = scroller->property("contentY").toDouble();
+                    if (top < 0) scroller->setProperty("contentY", y + top - 8);
+                    else if (below > 0) scroller->setProperty("contentY", y + below + 8);
+                    lay_out();
+                }
+                if (fader != nullptr) {
+                    // On the handle, where a press takes hold of the fader
+                    // without moving it.
+                    auto* handle = fader->property("handle").value<QQuickItem*>();
+                    const QPointF middle = handle != nullptr
+                        ? handle->mapToItem(fader, QPointF(handle->width() / 2, handle->height() / 2))
+                        : QPointF(fader->width() / 2, fader->height() / 2);
+                    // Held still, a press and its release leave the gain alone.
+                    click_at(fader, middle, Qt::LeftButton);
+                    mouse_at(fader, middle, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+                    mouse_at(fader, middle, QEvent::MouseButtonDblClick, Qt::LeftButton, Qt::LeftButton);
+                    mouse_at(fader, middle, QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+                    lay_out();
+                }
+                const auto gain_now = [&] { return song.song().tracks.at(static_cast<std::size_t>(added)).mix.gain_db; };
+                std::cerr << "gain after a double-click: " << gain_now() << '\n';
+                valid = valid && gain_now() == 0.0;
+                song.undo();
+                valid = valid && gain_now() == -12.0;
+                song.setTrackGain(added, 0.0);
+            }
+            reached("workflow: a double-click resets a fader");
+
+            // Muted reads on the arrangement's track header, and the track's
+            // menu is ticked.
+            {
+                song.toggleMute(added);
+                lay_out();
+                auto* flags = named(QString("trackFlags%1").arg(added));
+                const auto shown = [&] {
+                    int count = 0;
+                    if (flags != nullptr)
+                        for (auto* child : flags->childItems())
+                            count += child->isVisible() && !child->inherits("QQuickRepeater") ? 1 : 0;
+                    return count;
+                };
+                valid = valid && shown() == 1;
+                auto* menu = window->findChild<QObject*>("trackMenu");
+                auto* mute_item = window->findChild<QObject*>("trackMenuMute");
+                if (menu != nullptr) menu->setProperty("target", added);
+                valid = valid && mute_item != nullptr && mute_item->property("checked").toBool();
+                song.toggleMute(added);
+                lay_out();
+                valid = valid && shown() == 0 && mute_item != nullptr && !mute_item->property("checked").toBool();
+            }
+            reached("workflow: a muted track says so on its header and in its menu");
+
             // However many tracks the song has, every strip can be reached
             // and the master stays inside the window.
             {
@@ -1603,6 +1666,9 @@ struct DefaultScenario {
                               && controller.projectPath() == path_full;
                 valid = valid && first_bar() == 0.0F
                               && controller.soundfontStatus() == "No instrument";
+                // The clear says it happened, and how to take it back.
+                valid = valid && !controller.notices().isEmpty()
+                              && controller.notices().back().toMap().value("text").toString().contains("UNDO");
                 lay_out();
                 // What the producer is left with, as evidence to look at.
                 if (parser.isSet("screenshot")) {

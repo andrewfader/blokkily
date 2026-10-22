@@ -581,6 +581,7 @@ void AppController::clearEverything() {
     soundfont_status_ = QStringLiteral("No instrument");
     emit soundfontStatusChanged();
     status_ = QStringLiteral("Cleared · UNDO brings it back");
+    notify(QStringLiteral("done"), QStringLiteral("The song is cleared. UNDO brings it back."));
     emit statusChanged();
 }
 

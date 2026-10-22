@@ -76,6 +76,7 @@ Rectangle {
 
         ValueDial {
             objectName: "returnGain" + root.busIndex
+            defaultValue: 0
             Layout.fillWidth: true
             label: qsTr("RETURN"); from: -60; to: 6; grip: 18
             value: root.mix.gainDb

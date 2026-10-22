@@ -292,8 +292,13 @@ ApplicationWindow {
         property string name: ""
         MenuItem { text: qsTr("Rename…")
             onTriggered: renamePopup.ask("TRACK", trackMenu.target, trackMenu.name) }
-        MenuItem { text: qsTr("Mute"); onTriggered: songModel.toggleMute(trackMenu.target) }
-        MenuItem { text: qsTr("Solo"); onTriggered: songModel.toggleSolo(trackMenu.target) }
+        // Ticked when the track is muted or soloed, so the menu says how it is.
+        MenuItem { objectName: "trackMenuMute"; text: qsTr("Mute"); checkable: true
+            checked: songModel.tracks[trackMenu.target] !== undefined && songModel.tracks[trackMenu.target].mute === true
+            onTriggered: songModel.toggleMute(trackMenu.target) }
+        MenuItem { objectName: "trackMenuSolo"; text: qsTr("Solo"); checkable: true
+            checked: songModel.tracks[trackMenu.target] !== undefined && songModel.tracks[trackMenu.target].solo === true
+            onTriggered: songModel.toggleSolo(trackMenu.target) }
         MenuItem { text: qsTr("Delete"); enabled: songModel.trackCount > 1
             onTriggered: songModel.deleteTrack(trackMenu.target) }
         MenuSeparator {}
