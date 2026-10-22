@@ -7,6 +7,10 @@
 
 #include <filesystem>
 #include <fstream>
+#if defined(__linux__)
+#include <csignal>
+#include <sys/resource.h>
+#endif
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -119,6 +123,50 @@ int main() {
                   "both saved files are byte-identical to the file opened");
             std::filesystem::remove_all(folder);
         }
+    }
+
+    // Scenario: A save that fails half way leaves the song that was there.
+    {
+        const auto project = ProjectFile::parse("blokkily-project 5\n" + v5_body, &error);
+        const auto folder = std::filesystem::temp_directory_path() /
+                            ("blokkily-project-save-" + std::to_string(blokkily::test::process_id()));
+        std::filesystem::remove_all(folder);
+        std::filesystem::create_directories(folder);
+        const auto song = folder / "song.blok";
+        check(project.has_value() && ProjectFile::save(*project, song, &error), "the song saves");
+        const std::string before = read_file(song);
+        check(!std::filesystem::exists(folder / "song.blok.saving"), "a save leaves no file beside the song");
+#if defined(__linux__)
+        // A disk that fills part way through: the file may grow no larger
+        // than 64 bytes while the save runs.
+        rlimit was{};
+        getrlimit(RLIMIT_FSIZE, &was);
+        const auto old_handler = std::signal(SIGXFSZ, SIG_IGN);
+        rlimit small = was;
+        small.rlim_cur = 64;
+        setrlimit(RLIMIT_FSIZE, &small);
+        std::string why;
+        const bool saved = project && ProjectFile::save(*project, song, &why);
+        setrlimit(RLIMIT_FSIZE, &was);
+        std::signal(SIGXFSZ, old_handler);
+        check(!saved, "a save onto a full disk fails");
+        check(why.find(song.string()) != std::string::npos, "the failure names the file");
+        check(read_file(song) == before, "a failed save leaves the song that was there, whole");
+        check(!std::filesystem::exists(folder / "song.blok.saving"), "a failed save leaves nothing beside the song");
+#endif
+        std::string missing;
+        check(!ProjectFile::load(folder / "absent.blok", &missing).has_value() &&
+                  missing.find("absent.blok") != std::string::npos,
+              "a file that cannot be opened is named in the error");
+        std::filesystem::remove_all(folder);
+    }
+
+    // Scenario: A file from a newer Blokkily says so.
+    {
+        std::string why;
+        check(!ProjectFile::parse("blokkily-project 99\n" + v4_body, &why).has_value() &&
+                  why.find("newer Blokkily") != std::string::npos,
+              "a file from a newer Blokkily says so");
     }
 
     // Scenario: A file from before the song model is refused.

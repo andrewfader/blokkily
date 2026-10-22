@@ -19,6 +19,14 @@ Feature: Project files keep opening as the program grows
     Given a project file that declares format 3, or a format newer than this build
     When the producer opens it
     Then it is refused with a reason rather than half-loaded
+    And a file from a newer build says it was made by a newer Blokkily
+
+  Scenario: A save that fails half way leaves the song that was there
+    Given a saved song
+    When saving it again fails part way through, as on a full disk
+    Then the failure names the file and the cause
+    And the song on disk is the one saved before, whole
+    And nothing is left beside it
 
   Scenario: The legacy tempo line is read in every format
     Given a format 4 or format 5 project with a "tempo" line

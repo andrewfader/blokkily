@@ -3,6 +3,8 @@
 #include "records.hpp"
 
 #include <array>
+#include <cerrno>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -87,8 +89,20 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
         return std::nullopt;
     }
     const auto version = header.integer(1);
-    if (!version || *version < oldest_readable_version || *version > format_version) {
-        (void)fail(error, "unsupported project format version");
+    if (!version) {
+        (void)fail(error, "the project file's format version is unreadable");
+        return std::nullopt;
+    }
+    if (*version > format_version) {
+        (void)fail(error, "made by a newer Blokkily (format " + std::to_string(*version) +
+                              "; this one reads formats " + std::to_string(oldest_readable_version) +
+                              " to " + std::to_string(format_version) + ")");
+        return std::nullopt;
+    }
+    if (*version < oldest_readable_version) {
+        (void)fail(error, "made by a Blokkily too old to read (format " + std::to_string(*version) +
+                              "; this one reads formats " + std::to_string(oldest_readable_version) +
+                              " to " + std::to_string(format_version) + ")");
         return std::nullopt;
     }
 
@@ -121,22 +135,71 @@ std::optional<Project> ProjectFile::parse(const std::string& text, std::string* 
     return project;
 }
 
+namespace {
+
+// Why the last file operation failed, as the system says it.
+std::string system_reason() {
+    return errno != 0 ? std::string(std::strerror(errno)) : std::string("unknown error");
+}
+
+enum class Written { whole, unopened, broken };
+
+// Writes `text` to `file` from the start, truncating it; `why` says what
+// went wrong.
+Written write_whole(const std::filesystem::path& file, const std::string& text, std::string* why) {
+    errno = 0;
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        *why = "cannot open " + file.string() + " for writing: " + system_reason();
+        return Written::unopened;
+    }
+    out << text;
+    out.flush();
+    if (out) out.close();
+    if (!out) {
+        *why = "could not write " + file.string() + ": " + system_reason();
+        return Written::broken;
+    }
+    return Written::whole;
+}
+
+} // namespace
+
 bool ProjectFile::save(const Project& project, const std::filesystem::path& file,
                        std::string* error) {
     std::error_code failure;
     const auto parent = file.parent_path();
     if (!parent.empty()) std::filesystem::create_directories(parent, failure);
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    if (!out) return fail(error, "cannot open project file for writing");
-    out << serialize(project, directory_of(file));
-    if (!out) return fail(error, "failed while writing project file");
-    return true;
+    const auto text = serialize(project, directory_of(file));
+    // Written beside the file and moved over it once whole, so a save that
+    // fails half way (a full disk) leaves the song that was there.
+    auto temporary = file;
+    temporary += ".saving";
+    std::string why;
+    switch (write_whole(temporary, text, &why)) {
+    case Written::whole:
+        std::filesystem::rename(temporary, file, failure);
+        if (!failure) return true;
+        std::filesystem::remove(temporary, failure);
+        return fail(error, "could not replace " + file.string() + ": " + failure.message());
+    case Written::broken:
+        std::filesystem::remove(temporary, failure);
+        return fail(error, why);
+    case Written::unopened:
+        break;
+    }
+    // A folder that takes no new file, where only the song itself is
+    // writable, has it written in place as before.
+    if (!std::filesystem::exists(file, failure))
+        return fail(error, "cannot write " + file.string() + why.substr(why.rfind(':')));
+    return write_whole(file, text, &why) == Written::whole || fail(error, why);
 }
 
 std::optional<Project> ProjectFile::load(const std::filesystem::path& file, std::string* error) {
+    errno = 0;
     std::ifstream in(file, std::ios::binary);
     if (!in) {
-        (void)fail(error, "cannot open project file for reading");
+        (void)fail(error, "cannot open " + file.string() + ": " + system_reason());
         return std::nullopt;
     }
     std::ostringstream buffer;
