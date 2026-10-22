@@ -8,6 +8,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 
 #include <iostream>
 #include <source_location>
@@ -44,14 +45,22 @@ void run_notices(VerifyContext& ctx) {
     stack->setProperty("doneFor", 300);
 
     // ------------------------------------------------- a save that fails
-    const QString nowhere = QStringLiteral("/proc/blokkily-cannot/song.blok");
+    // Under a file rather than a folder: no system can make that folder or
+    // write there.
+    {
+        QFile blocker(work + QStringLiteral("/not-a-folder"));
+        check(blocker.open(QIODevice::WriteOnly));
+    }
+    const QString nowhere = work + QStringLiteral("/not-a-folder/song.blok");
     check(!c.saveProjectFile(nowhere));
     layout();
     check(last().value("level") == "error" && last().value("text").toString().contains(nowhere));
     auto* text = ctx.named("noticeText0");
     auto* notice = ctx.named("notice0");
     std::cerr << "notice: " << (text ? text->property("text").toString().toStdString() : "none") << '\n';
-    check(text && VerifyContext::usable(notice, 300, 30) && VerifyContext::reads_whole(text, text->property("text").toString()));
+    // Readable in full: wrapped onto lines as it needs, nothing cut off.
+    check(text && VerifyContext::usable(notice, 300, 30) && text->isVisible() &&
+          !text->property("truncated").toBool());
     // Over the editors, at the foot of the window.
     if (notice) {
         const auto bottom = notice->mapToScene({0, notice->height()}).y();
