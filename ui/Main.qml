@@ -673,6 +673,10 @@ ApplicationWindow {
 
     // Ctrl+[ and Ctrl+] bring a hidden bar out from the keyboard, or send it
     // back.
+    // Every key the window answers, listed.
+    Shortcut { sequence: "Ctrl+/"; onActivated: keysSheet.opened ? keysSheet.close() : keysSheet.open() }
+    KeysSheet { id: keysSheet; parent: root.Overlay.overlay }
+
     Shortcut { sequence: "Ctrl+["; onActivated: rail.toggle() }
     Shortcut { sequence: "Ctrl+]"; onActivated: mixer.toggle() }
 
@@ -910,6 +914,12 @@ ApplicationWindow {
                         // The guided tour, at the end of the keys it explains.
                         // Lit while the tour runs; a press starts it or sends
                         // it away. The hints beside it elide to make room.
+                        Chip { objectName: "keysButton"; text: "?"
+                               implicitHeight: 20; implicitWidth: 26
+                               hint: qsTr("Keyboard shortcuts (Ctrl+/)")
+                               accessibleLabel: qsTr("Keyboard shortcuts")
+                               on: keysSheet.opened
+                               onClicked: keysSheet.opened ? keysSheet.close() : keysSheet.open() }
                         Chip { id: helpChip; objectName: "helpButton"; text: qsTr("HELP")
                                implicitHeight: 20
                                accessibleLabel: "Help: a guided tour"

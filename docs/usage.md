@@ -824,6 +824,7 @@ or transport shortcuts.
 | Shortcut | Action |
 | --- | --- |
 | F1 | Start or leave the guided tour |
+| Ctrl+/ | List every key in a sheet over the window (also the ? beside HELP) |
 | Space | Play or stop |
 | Return or Home | Go to the start of the song |
 | Arrow keys | Move the step cursor |

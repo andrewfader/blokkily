@@ -3,7 +3,7 @@
 # (features/window_layout.feature).
 
 if(BLOKKILY_BUILD_GUI)
-    set(BLOKKILY_WINDOW_LAYOUT_QML ui/SettingsPanel.qml ui/SideBar.qml ui/PanelDock.qml)
+    set(BLOKKILY_WINDOW_LAYOUT_QML ui/SettingsPanel.qml ui/SideBar.qml ui/PanelDock.qml ui/KeysSheet.qml)
     foreach(qml_file IN LISTS BLOKKILY_WINDOW_LAYOUT_QML)
         get_filename_component(qml_name "${qml_file}" NAME)
         set_source_files_properties("${qml_file}" PROPERTIES QT_RESOURCE_ALIAS "${qml_name}")

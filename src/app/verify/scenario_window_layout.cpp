@@ -11,6 +11,7 @@
 #include <QCoreApplication>
 
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <source_location>
 
@@ -229,6 +230,40 @@ void run_window_layout(VerifyContext& ctx) {
     check(mixer->width() == 300 && c.uiSettings().value("ui/mixerWidth").toInt() == 300);
     check(VerifyContext::usable(ctx.named("mixerPanel"), 290, 600));
     ctx.reached("window layout: the mixer's inner edge widens it, remembered");
+
+    // --------------------------------------------- the keys, listed
+    {
+        auto* sheet = window->findChild<QObject*>("keysSheet");
+        check(sheet != nullptr && !sheet->property("opened").toBool());
+        ctx.chord_key(Qt::Key_Slash, Qt::ControlModifier);
+        settle(300);
+        check(sheet && sheet->property("opened").toBool());
+        auto* content = sheet ? sheet->property("contentItem").value<QQuickItem*>() : nullptr;
+        check(VerifyContext::usable(content, 400, 300));
+        // It names a key and what it does, readable in full.
+        bool named = false;
+        const std::function<void(QQuickItem*)> look = [&](QQuickItem* item) {
+            if (item == nullptr) return;
+            if (item->property("text").toString() == "Ctrl+M" && item->isVisible() && item->width() > 20) named = true;
+            for (auto* child : item->childItems()) look(child);
+        };
+        look(content);
+        check(named);
+        if (ctx.parser.isSet("screenshot")) {
+            QString path = ctx.parser.value("screenshot");
+            check(ctx.save_screenshot_to(path.left(path.size() - 4) + QStringLiteral("-keys.png")));
+        }
+        ctx.type_key(Qt::Key_Escape, QString());
+        settle(300);
+        check(sheet && !sheet->property("opened").toBool());
+        check(click("keysButton"));
+        settle(300);
+        check(sheet && sheet->property("opened").toBool() && flag(ctx.named("keysButton"), "on"));
+        ctx.chord_key(Qt::Key_Slash, Qt::ControlModifier);
+        settle(300);
+        check(sheet && !sheet->property("opened").toBool());
+    }
+    ctx.reached("window layout: Ctrl+/ and the ? list the keys");
 
     // ------------------------------------------------------- reset
     // SETTINGS opens where the editors were, below the keyboard moved to

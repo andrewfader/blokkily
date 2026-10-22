@@ -446,6 +446,153 @@
     </message>
 </context>
 <context>
+    <name>KeysSheet</name>
+    <message>
+        <source>TRANSPORT</source>
+        <translation>TRANSPORT</translation>
+    </message>
+    <message>
+        <source>Play or stop</source>
+        <translation>Abspielen oder anhalten</translation>
+    </message>
+    <message>
+        <source>Return or Home</source>
+        <translation>Eingabe oder Pos1</translation>
+    </message>
+    <message>
+        <source>Go to the start of the song</source>
+        <translation>Zum Anfang des Songs</translation>
+    </message>
+    <message>
+        <source>Arm recording</source>
+        <translation>Aufnahme scharf schalten</translation>
+    </message>
+    <message>
+        <source>Mute the selected track</source>
+        <translation>Die gewählte Spur stummschalten</translation>
+    </message>
+    <message>
+        <source>Solo the selected track</source>
+        <translation>Die gewählte Spur solo schalten</translation>
+    </message>
+    <message>
+        <source>STEPS AND TRACKER</source>
+        <translation>SCHRITTE UND TRACKER</translation>
+    </message>
+    <message>
+        <source>Arrow keys</source>
+        <translation>Pfeiltasten</translation>
+    </message>
+    <message>
+        <source>Move the step cursor</source>
+        <translation>Den Schrittcursor bewegen</translation>
+    </message>
+    <message>
+        <source>Transpose the step by a semitone</source>
+        <translation>Den Schritt um einen Halbton transponieren</translation>
+    </message>
+    <message>
+        <source>Transpose the step by an octave</source>
+        <translation>Den Schritt um eine Oktave transponieren</translation>
+    </message>
+    <message>
+        <source>Change the tracker entry octave</source>
+        <translation>Die Eingabeoktave des Trackers ändern</translation>
+    </message>
+    <message>
+        <source>Next / previous tracker channel</source>
+        <translation>Nächster / vorheriger Tracker-Kanal</translation>
+    </message>
+    <message>
+        <source>Backspace or Delete</source>
+        <translation>Rücktaste oder Entf</translation>
+    </message>
+    <message>
+        <source>Clear a tracker row</source>
+        <translation>Eine Trackerzeile leeren</translation>
+    </message>
+    <message>
+        <source>Push later rows down / pull them up</source>
+        <translation>Spätere Zeilen nach unten schieben / hochziehen</translation>
+    </message>
+    <message>
+        <source>Alt+arrows</source>
+        <translation>Alt+Pfeile</translation>
+    </message>
+    <message>
+        <source>Nudge micro-timing and note length</source>
+        <translation>Mikro-Timing und Notenlänge verschieben</translation>
+    </message>
+    <message>
+        <source>Copy / paste the selected step</source>
+        <translation>Den gewählten Schritt kopieren / einfügen</translation>
+    </message>
+    <message>
+        <source>Duplicate the step onto the next row</source>
+        <translation>Den Schritt in die nächste Zeile duplizieren</translation>
+    </message>
+    <message>
+        <source>Toggle a step</source>
+        <translation>Einen Schritt umschalten</translation>
+    </message>
+    <message>
+        <source>FILE</source>
+        <translation>DATEI</translation>
+    </message>
+    <message>
+        <source>Save / save to a new file</source>
+        <translation>Sichern / in eine neue Datei sichern</translation>
+    </message>
+    <message>
+        <source>New session / open a project</source>
+        <translation>Neue Session / ein Projekt öffnen</translation>
+    </message>
+    <message>
+        <source>New window / open in a new window</source>
+        <translation>Neues Fenster / in neuem Fenster öffnen</translation>
+    </message>
+    <message>
+        <source>Bounce the arrangement to disk</source>
+        <translation>Das Arrangement auf die Platte bouncen</translation>
+    </message>
+    <message>
+        <source>Undo / redo</source>
+        <translation>Rückgängig / wiederholen</translation>
+    </message>
+    <message>
+        <source>WINDOW</source>
+        <translation>FENSTER</translation>
+    </message>
+    <message>
+        <source>Bring the left / right bar out, or send it back</source>
+        <translation>Die linke / rechte Leiste hervorholen oder zurückschicken</translation>
+    </message>
+    <message>
+        <source>Search the plugin browser</source>
+        <translation>Im Plugin-Browser suchen</translation>
+    </message>
+    <message>
+        <source>Ask the assistant</source>
+        <translation>Den Assistenten fragen</translation>
+    </message>
+    <message>
+        <source>Start or leave the guided tour</source>
+        <translation>Die Tour starten oder verlassen</translation>
+    </message>
+    <message>
+        <source>Show or hide these keys</source>
+        <translation>Diese Tasten zeigen oder verbergen</translation>
+    </message>
+    <message>
+        <source>KEYS</source>
+        <translation>TASTEN</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Schließen</translation>
+    </message>
+</context>
+<context>
     <name>LauncherView</name>
     <message>
         <source>SCENE LAUNCHER</source>
@@ -660,6 +807,14 @@
     <message>
         <source>SPACE play  |  HOME rewind  |  ARROWS move  |  SHIFT+UP/DOWN transpose  |  INSERT push  |  ALT nudge  |  CTRL+D duplicate  |  CTRL+M mute  |  CTRL+L solo</source>
         <translation>LEER spielt  |  POS1 zurück  |  PFEILE bewegen  |  UMSCH+AUF/AB transponiert  |  EINFG schiebt  |  ALT verrückt  |  STRG+D dupliziert  |  STRG+M stumm  |  STRG+L solo</translation>
+    </message>
+    <message>
+        <source>Keyboard shortcuts (Ctrl+/)</source>
+        <translation>Tastenkürzel (Strg+/)</translation>
+    </message>
+    <message>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastenkürzel</translation>
     </message>
     <message>
         <source>HELP</source>
