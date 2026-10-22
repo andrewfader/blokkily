@@ -629,7 +629,8 @@ foreach(blokkily_feature
         plugin_isolation
         roll_zoom
         language
-        notices)
+        notices
+        track_colours)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

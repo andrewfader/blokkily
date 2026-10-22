@@ -7,6 +7,7 @@
 #include "blokkily/audio/mixer.hpp"
 #include "blokkily/instruments/sampler_program.hpp"
 
+#include <QColor>
 #include <QFileInfo>
 #include <QtGlobal>
 
@@ -199,6 +200,7 @@ QVariantList SongModel::tracks() const {
         row["gainText"] = gain_readout(track.mix.gain_db);
         row["pan"] = track.mix.pan;
         row["panText"] = pan_readout(track.mix.pan);
+        row["colour"] = QString::fromStdString(track.colour);
         row["mute"] = track.mix.mute;
         row["solo"] = track.mix.solo;
         row["audible"] = blokkily::audible(song_.heard_strip(index), solo);
@@ -527,6 +529,20 @@ void SongModel::renamePattern(int section, const QString& name) {
     // Each part carries its section's name, so a lane's clip reads the same.
     for (auto& slot : song_.patterns)
         if (slot.section == static_cast<std::size_t>(section)) slot.name = wanted;
+    announceSong();
+}
+
+void SongModel::setTrackColour(int track, const QString& colour) {
+    if (!validTrack(track)) return;
+    const QColor parsed(colour);
+    const std::string wanted = colour.isEmpty() || !parsed.isValid()
+                                   ? std::string()
+                                   : parsed.name(QColor::HexRgb).toStdString();
+    if (!colour.isEmpty() && wanted.empty()) return;
+    auto& target = song_.tracks[static_cast<std::size_t>(track)];
+    if (target.colour == wanted) return;
+    checkpoint();
+    target.colour = wanted;
     announceSong();
 }
 

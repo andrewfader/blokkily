@@ -302,6 +302,9 @@ public:
     // Renames section `section` and every part of it.
     Q_INVOKABLE void renamePattern(int section, const QString& name);
     Q_INVOKABLE void renameTrack(int track, const QString& name);
+    // The track's colour, "#rrggbb", or "" for the window's own for its
+    // place. One step of history.
+    Q_INVOKABLE void setTrackColour(int track, const QString& colour);
     Q_INVOKABLE bool undo();
     Q_INVOKABLE bool redo();
     // Mixer moves. These change how the song sounds without changing what it

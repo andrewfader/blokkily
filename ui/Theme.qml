@@ -23,6 +23,12 @@ QtObject {
     readonly property color violet: light ? "#7a5ce0" : "#a98bff"
     // Recording, and nothing else: a red that means the song is being written.
     readonly property color record: light ? "#d92b3d" : "#ff4d5e"
+    // The colours a track can be given (its menu's COLOUR), mid-tones that
+    // read on both themes and under onAccent text. A track not given one is
+    // drawn in blue, as every track was before.
+    readonly property var trackPalette: ["#e5484d", "#f76b15", "#ffb224", "#46a758",
+                                         "#12a594", "#4d7cff", "#8e4ec6", "#d6409f"]
+    function trackColour(chosen) { return chosen !== undefined && chosen !== "" ? chosen : blue }
     // Text and marks drawn on a lit accent.
     readonly property color onAccent: "#0e0f12"
 

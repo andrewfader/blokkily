@@ -161,6 +161,29 @@ int main() {
         std::filesystem::remove_all(folder);
     }
 
+    // Scenario: A track's colour is saved with it.
+    {
+        auto project = ProjectFile::parse("blokkily-project 5\n" + v5_body, &error);
+        check(project.has_value(), "the song parses");
+        if (project) {
+            const auto plain = ProjectFile::serialize(*project);
+            check(plain.find("track_colour") == std::string::npos, "an uncoloured song writes no colour");
+            project->song.tracks[1].colour = "#46a758";
+            const auto text = ProjectFile::serialize(*project);
+            check(text.find("track_colour 1 #46a758\n") != std::string::npos, "the colour is written");
+            const auto reopened = ProjectFile::parse(text, &error);
+            check(reopened && reopened->song.tracks[1].colour == "#46a758" &&
+                      reopened->song.tracks[0].colour.empty(),
+                  "the colour reads back on its track alone");
+            for (const char* bad : {"track_colour 1 green\n", "track_colour 9 #46a758\n",
+                                    "track_colour 1 #46a758\ntrack_colour 1 #000000\n"}) {
+                std::string why;
+                check(!ProjectFile::parse(plain + bad, &why).has_value() && !why.empty(),
+                      "a malformed colour, one for a missing track, or two for a track, is refused");
+            }
+        }
+    }
+
     // Scenario: A file from a newer Blokkily says so.
     {
         std::string why;

@@ -319,6 +319,35 @@ ApplicationWindow {
             onTriggered: songModel.toggleSolo(trackMenu.target) }
         MenuItem { text: qsTr("Delete"); enabled: songModel.trackCount > 1
             onTriggered: songModel.deleteTrack(trackMenu.target) }
+        // The track's colour, on its clips, its header and its strip.
+        Menu {
+            id: colourMenu
+            objectName: "trackColourMenu"
+            title: qsTr("Colour")
+            MenuItem { objectName: "trackColourAuto"; text: qsTr("Automatic")
+                onTriggered: songModel.setTrackColour(trackMenu.target, "") }
+            Instantiator {
+                model: Theme.trackPalette
+                delegate: MenuItem {
+                    required property var modelData
+                    required property int index
+                    readonly property var names: [qsTr("Red"), qsTr("Orange"), qsTr("Amber"), qsTr("Green"),
+                                                  qsTr("Teal"), qsTr("Blue"), qsTr("Violet"), qsTr("Pink")]
+                    objectName: "trackColour" + index
+                    text: names[index]
+                    leftPadding: 30
+                    indicator: Rectangle {
+                        x: 10; anchors.verticalCenter: parent.verticalCenter
+                        width: 12; height: 12; radius: 3
+                        color: parent.modelData
+                        border.color: Theme.line
+                    }
+                    onTriggered: songModel.setTrackColour(trackMenu.target, modelData)
+                }
+                onObjectAdded: function(i, item) { colourMenu.insertItem(i + 1, item) }
+                onObjectRemoved: function(i, item) { colourMenu.removeItem(item) }
+            }
+        }
         MenuSeparator {}
         // The next hardware controller moved is bound to the control.
         MenuItem { objectName: "learnGain"; text: qsTr("MIDI learn gain")

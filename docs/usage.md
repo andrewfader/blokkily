@@ -79,8 +79,10 @@ as one step of undo.
 ### Pattern and track management
 
 DUP copies the open pattern into a new one. Right-click a pattern to rename,
-duplicate, clear or delete it. Right-click a track to rename, mute, solo or
-delete it. Double-click either name to edit it.
+duplicate, clear or delete it. Right-click a track to rename, mute, solo,
+colour or delete it. Double-click either name to edit it. A track given a
+COLOUR has its clips drawn in it and a bar of it on its header and its mixer
+strip; Automatic draws it as before. The colour is saved with the song.
 
 +TRK adds a track on the piano preset of the first SoundFont already assigned
 in the session, or of an installed bank if none is assigned. Without an

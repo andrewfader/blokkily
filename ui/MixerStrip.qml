@@ -30,6 +30,14 @@ Rectangle {
     radius: 6
     color: modelData.selected ? Theme.raised : Theme.panel
     border.color: modelData.selected ? Theme.acid : Theme.line
+    // A track given a colour carries it across the strip's top.
+    Rectangle {
+        objectName: "stripColour" + root.trackIndex
+        visible: root.modelData.colour !== undefined && root.modelData.colour !== ""
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 1 }
+        height: 3; radius: 1.5
+        color: Theme.trackColour(root.modelData.colour)
+    }
 
     MouseArea {
         anchors.fill: parent

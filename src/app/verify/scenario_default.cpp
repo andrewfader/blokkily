@@ -8,6 +8,7 @@
 #include "blokkily/project/project.hpp"
 #include "blokkily/sequencer/scheduler.hpp"
 
+#include <QColor>
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -1448,6 +1449,34 @@ struct DefaultScenario {
                 valid = valid && shown() == 0 && mute_item != nullptr && !mute_item->property("checked").toBool();
             }
             reached("workflow: a muted track says so on its header and in its menu");
+
+            // COLOUR in the track's menu colours its clips, its header and its
+            // strip; one undo takes it back.
+            {
+                auto* menu = window->findChild<QObject*>("trackMenu");
+                if (menu != nullptr) menu->setProperty("target", added);
+                auto* green = window->findChild<QObject*>("trackColour3");
+                valid = valid && green != nullptr;
+                if (green != nullptr) QMetaObject::invokeMethod(green, "triggered");
+                lay_out();
+                const auto chosen = QString::fromStdString(song.song().tracks.at(static_cast<std::size_t>(added)).colour);
+                auto* edge = named(QString("trackColour%1").arg(added));
+                auto* strip = named(QString("stripColour%1").arg(added));
+                const auto shows = [](QQuickItem* item) { return item != nullptr && item->isVisible() && item->width() >= 3; };
+                std::cerr << "track colour " << chosen.toStdString() << '\n';
+                valid = valid && chosen == "#46a758" && shows(edge) && shows(strip)
+                              && edge->property("color").value<QColor>() == QColor("#46a758");
+                if (parser.isSet("screenshot")) {
+                    const QString path = parser.value("screenshot");
+                    valid = valid && ctx.save_screenshot_to(path.left(path.size() - 4) + QStringLiteral("-colour.png"));
+                }
+                song.undo();
+                lay_out();
+                valid = valid && song.song().tracks.at(static_cast<std::size_t>(added)).colour.empty()
+                              && edge != nullptr && !edge->isVisible();
+            }
+            reached("workflow: a track's colour is chosen from its menu and undone");
+
 
             // However many tracks the song has, every strip can be reached
             // and the master stays inside the window.

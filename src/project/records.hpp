@@ -99,6 +99,8 @@ struct ParseContext {
     std::vector<std::size_t> comped_out_clips;
     std::vector<std::size_t> take_sections;
     bool midi_merge = false;
+    // Track colours as read (records_colour.cpp), by track.
+    std::vector<std::pair<std::size_t, std::string>> track_colours;
 
     // Records the reason and returns false.
     bool fail(std::string message) const { return project_io::fail(error, std::move(message)); }
@@ -151,6 +153,7 @@ struct RecordModule {
 [[nodiscard]] const RecordModule& loop_records();
 // Pattern swing: swing (records_swing.cpp).
 [[nodiscard]] const RecordModule& swing_records();
+[[nodiscard]] const RecordModule& colour_records();
 // Track arpeggiators: arp (records_arpeggiator.cpp).
 [[nodiscard]] const RecordModule& arpeggiator_records();
 // Comped-out takes and punch: comped_out, punch (records_comping.cpp).

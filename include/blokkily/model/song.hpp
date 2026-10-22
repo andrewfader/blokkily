@@ -217,6 +217,9 @@ struct Track {
     // clip - its instrument and inserts rendered to audio - and they are
     // not loaded; its fader, pan, sends and mutes still apply.
     bool frozen = false;
+    // The colour the track is drawn in, as "#rrggbb"; empty is the
+    // window's own colour for its place in the song.
+    std::string colour;
 };
 
 // One part of a section: the notes one track plays in it. `section` and

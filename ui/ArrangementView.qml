@@ -349,6 +349,14 @@ ColumnLayout {
                         color: track.selected ? Theme.raised : Theme.panel
                         border.color: track.selected ? Theme.acid : Theme.line
                         objectName: "trackHeader" + trackIndex
+                        // The track's colour, down the header's leading edge.
+                        Rectangle {
+                            objectName: "trackColour" + trackIndex
+                            visible: track.colour !== undefined && track.colour !== ""
+                            width: 3; radius: 1.5
+                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 2 }
+                            color: Theme.trackColour(track.colour)
+                        }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             x: 3
@@ -422,11 +430,12 @@ ColumnLayout {
                             Layout.preferredHeight: 22
                             radius: 3
                             readonly property bool atPlayhead: transport.bar === index
+                            readonly property color tone: Theme.trackColour(track.colour)
                             color: hollow ? Theme.hollow
-                                 : filled ? (track.audible ? Theme.blue : Theme.line)
+                                 : filled ? (track.audible ? tone : Theme.line)
                                           : (index % 4 === 0 ? Theme.cell : Theme.stripe)
                             border.color: atPlayhead ? Theme.acid
-                                        : filled ? Theme.blue : Theme.gridline
+                                        : filled ? tone : Theme.gridline
                             border.width: atPlayhead ? 2 : 1
                             Label {
                                 anchors.centerIn: parent
