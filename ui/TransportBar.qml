@@ -11,6 +11,8 @@ ToolBar {
     // Where the keyboard goes back to once the tempo has been typed.
     property Item focusHome: null
     signal viewPicked(string name)
+    // Every step of history, asked for by a right-click on UNDO.
+    signal historyRequested()
     // Short of room, the bar gives up what is least needed first: the event
     // count, then the long labels, then the wordmark and the readouts'
     // captions. The controls themselves never run off the window's edge,
@@ -240,9 +242,10 @@ ToolBar {
             // As wide as the widest of the three labels, whatever the language.
             readonly property real chipWidth: Math.ceil(Math.max(historyName.advanceWidth, undoChip.labelWidth,
                                                                  redoChip.labelWidth)) + 12
-            Chip { id: undoChip; objectName: "undoButton"; hint: qsTr("Undo (Ctrl+Z)"); text: qsTr("UNDO"); enabled: songModel.canUndo
+            Chip { id: undoChip; objectName: "undoButton"; hint: qsTr("Undo (Ctrl+Z). Right-click: every step, branches too (Ctrl+H)"); text: qsTr("UNDO"); enabled: songModel.canUndo
                    labelPadding: 10; implicitWidth: parent.chipWidth
-                   onClicked: songModel.undo() }
+                   onClicked: songModel.undo()
+                   onRightClicked: root.historyRequested() }
             Chip { id: redoChip; objectName: "redoButton"; hint: qsTr("Redo (Ctrl+Shift+Z)"); text: qsTr("REDO"); enabled: songModel.canRedo
                    labelPadding: 10; implicitWidth: parent.chipWidth
                    onClicked: songModel.redo() }

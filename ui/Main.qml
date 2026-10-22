@@ -649,6 +649,7 @@ ApplicationWindow {
         view: root.view
         focusHome: noteEntry
         onViewPicked: name => root.view = name
+        onHistoryRequested: historyPanel.open()
     }
 
     // The guided tour. It lives in the overlay, above the header, so it can
@@ -766,6 +767,10 @@ ApplicationWindow {
 
     // Ctrl+[ and Ctrl+] bring a hidden bar out from the keyboard, or send it
     // back.
+    // Every step of history, branches too.
+    Shortcut { sequence: "Ctrl+H"; onActivated: historyPanel.opened ? historyPanel.close() : historyPanel.open() }
+    HistoryPanel { id: historyPanel; parent: root.Overlay.overlay }
+
     // Every key the window answers, listed.
     Shortcut { sequence: "Ctrl+/"; onActivated: keysSheet.opened ? keysSheet.close() : keysSheet.open() }
     KeysSheet { id: keysSheet; parent: root.Overlay.overlay }

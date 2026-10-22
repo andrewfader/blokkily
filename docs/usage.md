@@ -865,6 +865,7 @@ or transport shortcuts.
 | Ctrl+K | Focus the assistant prompt bar |
 | Escape in the assistant | Return keyboard focus to the editors |
 | Ctrl+Z | Undo |
+| Ctrl+H | Every step of history, branches too; click one to go there (also right-click UNDO) |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+S | Save |
 | Ctrl+Shift+S | Save to a new file |

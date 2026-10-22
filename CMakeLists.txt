@@ -631,7 +631,8 @@ foreach(blokkily_feature
         language
         notices
         track_colours
-        note_selection)
+        note_selection
+        undo_history)
     include(cmake/feature_${blokkily_feature}.cmake)
 endforeach()
 

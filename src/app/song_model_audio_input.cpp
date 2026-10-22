@@ -121,7 +121,7 @@ void SongModel::relocateAudioFiles(
     relocate(song_);
     // Every step of history names the file where it now is, so undoing back
     // to a take that was recorded before the save still finds its audio.
-    for (auto& step : undo_) relocate(step.song);
-    for (auto& step : redo_) relocate(step.song);
+    for (auto& [id, step] : history_)
+        if (step.stored) relocate(step.snapshot.song);
     emit audioClipsChanged();
 }

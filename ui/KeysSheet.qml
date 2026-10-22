@@ -48,7 +48,8 @@ Popup {
             ["Ctrl+N / Ctrl+O", QT_TR_NOOP("New session / open a project")],
             ["Ctrl+Shift+N / Ctrl+Shift+O", QT_TR_NOOP("New window / open in a new window")],
             ["Ctrl+E", QT_TR_NOOP("Bounce the arrangement to disk")],
-            ["Ctrl+Z / Ctrl+Shift+Z", QT_TR_NOOP("Undo / redo")] ] },
+            ["Ctrl+Z / Ctrl+Shift+Z", QT_TR_NOOP("Undo / redo")],
+            ["Ctrl+H", QT_TR_NOOP("Every step of history, branches too")] ] },
         { title: QT_TR_NOOP("WINDOW"), keys: [
             ["Ctrl+[ / Ctrl+]", QT_TR_NOOP("Bring the left / right bar out, or send it back")],
             ["Ctrl+F", QT_TR_NOOP("Search the plugin browser")],

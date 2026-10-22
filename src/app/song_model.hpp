@@ -208,8 +208,19 @@ public:
     // A peak as the fraction of a meter's bar to light: its decibels mapped
     // onto the last 60 dB.
     static double meterFraction(double peak);
-    bool canUndo() const noexcept { return !undo_.empty(); }
-    bool canRedo() const noexcept { return !redo_.empty(); }
+    bool canUndo() const;
+    bool canRedo() const;
+    // Every step of history (features/undo_history.feature), as a tree: an
+    // edit made after an undo starts a branch beside the steps undone, which
+    // stay. Each entry is {id, label, time, depth, current, onPath}: depth
+    // counts the branches it is off the first line, onPath says it lies
+    // between the start and where the song is now, in the order they were
+    // made, the start first.
+    Q_PROPERTY(QVariantList history READ history NOTIFY historyChanged)
+    QVariantList history() const;
+    // Puts the song as it was at step `id`, whatever branch it is on; one
+    // undo from there goes to the step before it.
+    Q_INVOKABLE bool jumpToHistory(qint64 id);
     bool dirty() const noexcept { return state_id_ != saved_id_ || versions_changed_; }
     QString notes() const;
     Q_INVOKABLE void setNotes(const QString& text);
@@ -838,13 +849,31 @@ private:
     // Which chain the effect rack edits; a track rack follows the selection.
     blokkily::BusKind rack_kind_ = blokkily::BusKind::track;
     int rack_return_ = 0;
-    std::vector<Snapshot> undo_;
+    // The history tree, by state id: each step's song as it was when it was
+    // last left (the one the song is at now is stored when it is left), the
+    // step before it, the ones made after it, and which of those redo takes.
+    struct HistoryNode {
+        std::optional<std::uint64_t> parent;
+        std::vector<std::uint64_t> children;
+        std::optional<std::uint64_t> next;
+        Snapshot snapshot;
+        bool stored = false;
+        qint64 made = 0;
+    };
+    std::map<std::uint64_t, HistoryNode> history_;
+    // Stores the song as it is now in its step, before leaving it.
+    void leaveCurrentStep();
+    // Goes to step `id` (stored), keeping redo pointed along the way back.
+    void enterStep(std::uint64_t id);
+    // Lets the oldest steps off the current line go once history is too long.
+    void pruneHistory();
+    // Starts history afresh at the song as it is.
+    void resetHistory();
     std::vector<blokkily::ProjectVersion> versions_;
     // Each version's figures, read once from its text (versions_ order).
     mutable std::vector<QVariantMap> version_figures_;
     // A version saved, renamed or removed since the project was saved.
     bool versions_changed_ = false;
-    std::vector<Snapshot> redo_;
     std::uint64_t state_id_ = 0;
     std::uint64_t saved_id_ = 0;
     std::uint64_t next_id_ = 1;
