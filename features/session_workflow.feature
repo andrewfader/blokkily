@@ -55,8 +55,12 @@ Feature: A session can be worked on without fear of losing it
     Then the new track is selected and carries the SoundFont the session uses
     And a key played on it is rendered as non-silent audio on that track
 
-  Scenario: A track is renamed from the keyboard
-    When the producer asks to rename a track and types "keys two" and Return
+  Scenario: A track is renamed
+    When the producer asks to rename a track
+    Then the field says RENAME TRACK, with RENAME and CANCEL beside it
+    When they type "keys two"
+    Then it counts 8 of the 24 characters a name holds
+    When they press RENAME (or Return)
     Then the track is called KEYS TWO and the rename field has closed
 
   Scenario: A track's meter moves while the song plays

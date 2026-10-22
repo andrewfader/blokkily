@@ -709,8 +709,28 @@
         <translation>WIEDERHERSTELLEN</translation>
     </message>
     <message>
-        <source>RENAME </source>
-        <translation>UMBENENNEN: </translation>
+        <source>RENAME PATTERN</source>
+        <translation>PATTERN UMBENENNEN</translation>
+    </message>
+    <message>
+        <source>RENAME TRACK</source>
+        <translation>SPUR UMBENENNEN</translation>
+    </message>
+    <message>
+        <source>CANCEL</source>
+        <translation>ABBRECHEN</translation>
+    </message>
+    <message>
+        <source>Keep the name (Escape)</source>
+        <translation>Den Namen behalten (Esc)</translation>
+    </message>
+    <message>
+        <source>RENAME</source>
+        <translation>UMBENENNEN</translation>
+    </message>
+    <message>
+        <source>Use the new name (Return)</source>
+        <translation>Den neuen Namen nehmen (Eingabe)</translation>
     </message>
     <message>
         <source>Rename…</source>
@@ -735,6 +755,46 @@
     <message>
         <source>Solo</source>
         <translation>Solo</translation>
+    </message>
+    <message>
+        <source>Colour</source>
+        <translation>Farbe</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatisch</translation>
+    </message>
+    <message>
+        <source>Red</source>
+        <translation>Rot</translation>
+    </message>
+    <message>
+        <source>Orange</source>
+        <translation>Orange</translation>
+    </message>
+    <message>
+        <source>Amber</source>
+        <translation>Bernstein</translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation>Grün</translation>
+    </message>
+    <message>
+        <source>Teal</source>
+        <translation>Petrol</translation>
+    </message>
+    <message>
+        <source>Blue</source>
+        <translation>Blau</translation>
+    </message>
+    <message>
+        <source>Violet</source>
+        <translation>Violett</translation>
+    </message>
+    <message>
+        <source>Pink</source>
+        <translation>Pink</translation>
     </message>
     <message>
         <source>MIDI learn gain</source>

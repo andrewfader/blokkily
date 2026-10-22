@@ -72,7 +72,7 @@ DE = {
     "“%1” was not saved when Blokkily last closed. It was autosaved %2.":
         "„%1“ war beim letzten Schließen von Blokkily nicht gesichert. Automatisch gesichert: %2.",
     "Untitled": "Unbenannt", "DISCARD": "VERWERFEN", "RECOVER": "WIEDERHERSTELLEN",
-    "RENAME ": "UMBENENNEN: ", "Rename…": "Umbenennen…", "Duplicate": "Duplizieren",
+    "Rename…": "Umbenennen…", "Duplicate": "Duplizieren",
     "Clear steps": "Schritte leeren", "Delete": "Löschen", "Mute": "Stumm", "Solo": "Solo",
     "MIDI learn gain": "MIDI-Learn Pegel", "MIDI learn pan": "MIDI-Learn Pan",
     "MIDI learn mute": "MIDI-Learn Stumm", "MIDI learn solo": "MIDI-Learn Solo",
@@ -127,6 +127,10 @@ DE = {
     "Zoom the arrangement in": "Arrangement vergrößern",
     "Zoom the arrangement out": "Arrangement verkleinern",
     "Dismiss": "Schließen",
+    "RENAME PATTERN": "PATTERN UMBENENNEN", "RENAME TRACK": "SPUR UMBENENNEN",
+    "Keep the name (Escape)": "Den Namen behalten (Esc)", "Use the new name (Return)": "Den neuen Namen nehmen (Eingabe)",
+    "Colour": "Farbe", "Automatic": "Automatisch", "Red": "Rot", "Orange": "Orange", "Amber": "Bernstein",
+    "Green": "Grün", "Teal": "Petrol", "Blue": "Blau", "Violet": "Violett", "Pink": "Pink",
     "Swing for every track of the pattern. Ctrl: this track only. Shift: steps of 25%":
         "Swing für jede Spur des Patterns. Strg: nur diese Spur. Umschalt: in Schritten von 25%",
     # The keys sheet

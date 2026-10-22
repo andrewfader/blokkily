@@ -260,24 +260,45 @@ ApplicationWindow {
             renameField.selectAll()
         }
         onClosed: noteEntry.forceActiveFocus()
+        function accept() {
+            if (renamePopup.kind === "PATTERN")
+                songModel.renamePattern(renamePopup.target, renameField.text)
+            else
+                songModel.renameTrack(renamePopup.target, renameField.text)
+            renamePopup.close()
+        }
         ColumnLayout {
             spacing: 8
-            SectionLabel { text: qsTr("RENAME ") + renamePopup.kind }
+            SectionLabel {
+                objectName: "renameTitle"
+                text: renamePopup.kind === "PATTERN" ? qsTr("RENAME PATTERN") : qsTr("RENAME TRACK")
+            }
             TextField {
                 id: renameField
                 objectName: "renameField"
-                Layout.preferredWidth: 220
+                Layout.preferredWidth: 240
                 color: Theme.ink; font.pixelSize: 13; font.bold: true
                 selectByMouse: true
                 maximumLength: 24
-                onAccepted: {
-                    if (renamePopup.kind === "PATTERN")
-                        songModel.renamePattern(renamePopup.target, text)
-                    else
-                        songModel.renameTrack(renamePopup.target, text)
-                    renamePopup.close()
-                }
+                onAccepted: renamePopup.accept()
                 Keys.onEscapePressed: renamePopup.close()
+            }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 6
+                // How much of a name fits: it says so as the limit nears.
+                Label {
+                    objectName: "renameLength"
+                    text: renameField.length + " / " + renameField.maximumLength
+                    color: renameField.length >= renameField.maximumLength ? Theme.amber : Theme.muted
+                    font.pixelSize: 9; font.family: Theme.mono
+                }
+                Item { Layout.fillWidth: true }
+                Chip { objectName: "renameCancel"; text: qsTr("CANCEL"); implicitHeight: 22
+                       hint: qsTr("Keep the name (Escape)")
+                       onClicked: renamePopup.close() }
+                Chip { objectName: "renameAccept"; text: qsTr("RENAME"); implicitHeight: 22; on: true
+                       hint: qsTr("Use the new name (Return)")
+                       onClicked: renamePopup.accept() }
             }
         }
     }

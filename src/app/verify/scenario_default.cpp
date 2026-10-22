@@ -1318,10 +1318,23 @@ struct DefaultScenario {
                                           Q_ARG(QVariant, added),
                                           Q_ARG(QVariant, song.tracks().at(added).toMap()
                                                               .value("name")));
+                lay_out();
+                // It says what is renamed, and its buttons are usable.
+                auto* title = named("renameTitle");
+                valid = valid && title != nullptr
+                              && VerifyContext::reads_whole(title, QStringLiteral("RENAME TRACK"))
+                              && VerifyContext::usable(named("renameAccept"), 40, 18)
+                              && VerifyContext::usable(named("renameCancel"), 40, 18);
                 for (const QChar character : QString("keys two"))
                     type_key(static_cast<Qt::Key>(character.toUpper().unicode()),
                              QString(character));
-                type_key(Qt::Key_Return, "\r");
+                lay_out();
+                auto* length = named("renameLength");
+                valid = valid && length != nullptr && length->property("text").toString() == "8 / 24";
+                // RENAME takes the name, as Return does.
+                if (auto* accept = named("renameAccept"))
+                    click_at(accept, {accept->width() / 2, accept->height() / 2}, Qt::LeftButton);
+                lay_out();
                 valid = valid && song.tracks().at(added).toMap().value("name").toString()
                                      == "KEYS TWO"
                               && !popup->property("visible").toBool();
