@@ -24,7 +24,7 @@ if(BLOKKILY_BUILD_TESTS)
     target_compile_options(blokkily_loop_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_loop_tests blokkily_test_clap)
-    foreach(loop_case wraps_playback off_plays_the_song mixer_live)
+    foreach(loop_case wraps_playback off_plays_the_song turned_on_after_a_lap mixer_live)
         add_test(NAME loop_${loop_case} COMMAND blokkily_loop_tests ${loop_case})
         set_tests_properties(loop_${loop_case} PROPERTIES
             LABELS "bdd;integration;audio;engine;clap;arrangement_loop"

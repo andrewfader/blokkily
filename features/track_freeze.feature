@@ -16,6 +16,12 @@ Feature: Track freeze
     And the bounce is the live bounce sample for sample, then silence
     And a fader moved after the freeze sounds as it would have unfrozen
 
+  # freeze_automated_song_stems
+  Scenario: A song with automation freezes and splits into stems whole
+    Given another track's gain is on a lane, so the engine renders each block in pieces
+    Then the master stem is the mix, sample for sample
+    And frozen, the song is the same within -80 dB
+
   # freeze_other_clips
   Scenario: The track's own clips play once
     Given the track also plays an audio clip

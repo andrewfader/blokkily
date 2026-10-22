@@ -692,6 +692,9 @@ std::uint64_t SongEngine::heard_position(std::uint64_t song_position) const noex
         const auto into = position - start;
         return into >= latency ? start + into - latency : end - (latency - into);
     }
+    // Before a loop's IN the playhead has not wrapped to get there: it
+    // started there, so nothing earlier is heard yet.
+    if (loop_enabled()) return position >= latency ? position - latency : 0;
     return position >= latency ? position - latency : end - (latency - position);
 }
 
@@ -1172,6 +1175,7 @@ void SongEngine::process_chunk(StereoBlock output, const InputBlock& input,
                                std::uint64_t song_position, bool from_timeline,
                                std::size_t chunk_begin) noexcept {
     const auto frames = output.left.size();
+    chunk_begin_ = chunk_begin;
     std::fill(output.left.begin(), output.left.end(), 0.0F);
     std::fill(output.right.begin(), output.right.end(), 0.0F);
     const auto end = song_position + frames;
@@ -1592,8 +1596,15 @@ void SongEngine::process(StereoBlock output, InputBlock input) noexcept {
             seek_cursors(song_position);
             cursors_valid_ = true;
         }
-        const auto until_wrap = wrap_end_sample() - song_position;
-        if (until_wrap == 0) break;
+        const auto wrap_end = wrap_end_sample();
+        // A loop changed between the fold and here: the rest of the block
+        // is silence rather than whatever the device's buffer held.
+        if (wrap_end <= song_position) {
+            std::fill(output.left.begin() + static_cast<std::ptrdiff_t>(rendered), output.left.end(), 0.0F);
+            std::fill(output.right.begin() + static_cast<std::ptrdiff_t>(rendered), output.right.end(), 0.0F);
+            break;
+        }
+        const auto until_wrap = wrap_end - song_position;
         // A chunk never exceeds what prepare() sized the per-track buffers for,
         // however long a block the host asks for.
         auto frames = std::min<std::uint64_t>(

@@ -533,6 +533,9 @@ private:
     std::vector<float> tap_left_, tap_right_;
     std::vector<OutputTap> stem_taps_;
     std::vector<std::vector<float>> stem_left_, stem_right_;
+    // Where the chunk being processed starts in the device's block: a stem
+    // is laid out at the same place, so a block split into chunks fills it.
+    std::size_t chunk_begin_ = 0;
     friend struct engine::TestAccess;
     using Arrangement = engine::Arrangement;
     using TrackPlayback = engine::TrackPlayback;

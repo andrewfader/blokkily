@@ -89,6 +89,51 @@ Song frozen_from(const Song& song, const fs::path& dir) {
     return frozen;
 }
 
+// Track 1's gain on a lane: the engine then renders every block in
+// chunks that stop at the lane's grid points.
+Song automated_song() {
+    auto song = make_song();
+    AutomationTarget target;
+    target.kind = AutomationTarget::Kind::gain;
+    song.tracks[1].automation.push_back({target, {{0, -12.0}, {1920, -3.0}}});
+    return song;
+}
+
+// The largest difference between two renders, sample for sample, over the
+// frames both have.
+double difference(const WaveData& a, const WaveData& b) {
+    double worst = 0.0;
+    for (std::size_t i = 0; i < std::min(a.interleaved.size(), b.interleaved.size()); ++i)
+        worst = std::max(worst, static_cast<double>(std::abs(a.interleaved[i] - b.interleaved[i])));
+    return worst;
+}
+
+// Regression: a stem was laid at the start of the block for every chunk
+// the block was split into, so with a lane anywhere in the song each
+// stem, freeze and per-bus analysis was the last chunk over stale audio.
+void automated_song_stems() {
+    const auto dir = fs::path(BLOKKILY_FREEZE_WORK) / "automated";
+    fs::create_directories(dir);
+    const auto song = automated_song();
+    Built built;
+    build(built, song);
+    const auto mix = bounce(built.engine, dir / "mix.wav");
+    const auto master = bounce(built.engine, dir / "master.wav", OutputTap{BusKind::master, 0});
+    std::cout << "master stem against the mix: " << difference(mix, master) << '\n';
+    require(mix.frames == master.frames && difference(mix, master) < 1e-6,
+            "the master stem is the mix, sample for sample, with a lane splitting each block");
+    // Frozen and played back, the automated song is still the same.
+    const auto frozen = frozen_from(song, dir);
+    Built cold;
+    build(cold, frozen);
+    const auto after = bounce(cold.engine, dir / "after.wav");
+    std::cout << "frozen against live: " << difference(mix, after) << '\n';
+    // The lane's gain is drawn straight across each chunk, and the frozen
+    // song's clip cuts its blocks into other chunks: the curve is met
+    // within -80 dB, not to the bit.
+    require(difference(mix, after) < 1e-4, "frozen in an automated song, the song is the same");
+}
+
 void sounds_the_same() {
     const auto dir = fs::path(BLOKKILY_FREEZE_WORK) / "same";
     fs::create_directories(dir);
@@ -197,6 +242,7 @@ int main(int argc, char** argv) {
         if (which == "sounds_the_same") sounds_the_same();
         else if (which == "other_clips") other_clips();
         else if (which == "records") records();
+        else if (which == "automated_song_stems") automated_song_stems();
         else throw std::runtime_error("unknown case");
         std::cout << "PASS " << which << '\n';
     } catch (const std::exception& e) {

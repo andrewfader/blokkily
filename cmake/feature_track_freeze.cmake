@@ -18,7 +18,7 @@ if(BLOKKILY_BUILD_TESTS)
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
         BLOKKILY_FREEZE_WORK="${CMAKE_BINARY_DIR}/freeze-tests")
     add_dependencies(blokkily_freeze_tests blokkily_test_clap blokkily_test_clap_effect)
-    foreach(case sounds_the_same other_clips records)
+    foreach(case sounds_the_same other_clips records automated_song_stems)
         add_test(NAME freeze_${case} COMMAND blokkily_freeze_tests ${case})
         set_tests_properties(freeze_${case} PROPERTIES
             LABELS "bdd;integration;audio;clap;mixer;freeze"

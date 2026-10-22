@@ -26,6 +26,12 @@ Feature: Playback can loop a stretch of the arrangement
     When playback starts at the beginning
     Then the note in bar 1 sounds, then the note in bar 3
 
+  # loop_turned_on_after_a_lap
+  Scenario: LOOP turned on after the song has come round stays where it is
+    Given the same song, played with the loop off once round and into bar 1
+    When the loop is turned on from bar 2 to bar 4
+    Then the playhead is still in bar 1, where the song had come round to
+
   # loop_mixer_live
   Scenario: A mute still reaches the mix while the loop plays
     Given the loop playing the note in bar 3

@@ -41,9 +41,11 @@ void SongEngine::tap_output(OutputTap source, StereoBlock block, std::uint64_t p
         std::copy(block.right.begin(), block.right.end(), tap_right_.begin());
     }
     for (std::size_t index = 0; index < stem_taps_.size(); ++index)
-        if (stem_taps_[index] == source) {
-            std::copy(block.left.begin(), block.left.end(), stem_left_[index].begin());
-            std::copy(block.right.begin(), block.right.end(), stem_right_[index].begin());
+        if (stem_taps_[index] == source &&
+            chunk_begin_ + block.left.size() <= stem_left_[index].size()) {
+            std::copy(block.left.begin(), block.left.end(), stem_left_[index].begin() + chunk_begin_);
+            std::copy(block.right.begin(), block.right.end(),
+                      stem_right_[index].begin() + chunk_begin_);
         }
     if (auto* ring = output_capture_.load(std::memory_order_acquire);
         ring != nullptr && source == capture_source_ && rolling && is_recording())

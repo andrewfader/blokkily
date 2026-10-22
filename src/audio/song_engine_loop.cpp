@@ -50,6 +50,14 @@ std::uint64_t SongEngine::wrap_start_sample() const noexcept {
 
 void SongEngine::fold_playhead() noexcept {
     if (!loop_enabled_.load(std::memory_order_acquire)) return;
+    // Played with the loop off, the playhead counts on past the song's end
+    // (the song wraps by the modulo): turned on, the loop starts from where
+    // the song has come round to, not from that count. (Exactly at the
+    // song's end is a loop that ends there, folded below.)
+    if (song_samples_ != 0 && sample_position_ > song_samples_) {
+        sample_position_ %= song_samples_;
+        cursors_valid_ = false;
+    }
     const auto end = wrap_end_sample();
     if (end == 0 || sample_position_ < end) return;
     const auto start = wrap_start_sample();
@@ -70,13 +78,16 @@ void SongEngine::apply_loop(const Song& song) {
                   sample_for_tick(published_clock_, static_cast<double>(song.loop.end)));
     else
         set_punch(false, 0, 0);
-    if (!song.loop.active() || song_samples_ == 0) {
+    // The length recompile() has just published: the callback may not have
+    // taken the new arrangement yet, and song_samples_ is the callback's.
+    const auto song_samples = published_song_samples_.load(std::memory_order_acquire);
+    if (!song.loop.active() || song_samples == 0) {
         set_loop(false, 0, 0);
         return;
     }
     auto start = sample_for_tick(published_clock_, static_cast<double>(song.loop.start));
     auto end = sample_for_tick(published_clock_, static_cast<double>(song.loop.end));
-    if (end > song_samples_) end = song_samples_;
+    if (end > song_samples) end = song_samples;
     if (start >= end) {
         set_loop(false, 0, 0);
         return;

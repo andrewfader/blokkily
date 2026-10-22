@@ -126,6 +126,29 @@ void wraps_playback_case() {
             "the playhead stays inside the loop");
 }
 
+// features/arrangement_loop.feature: LOOP turned on after the song has come
+// round keeps the playhead where it is. Regression: the playhead counted on
+// past the song's end while the loop was off, and turning it on folded that
+// count into the loop, jumping to another bar.
+void turned_on_after_a_lap_case() {
+    auto song = loop_song();
+    SongEngine engine;
+    prepare(engine, song);
+    const auto length = engine.song_samples();
+    require(length > 2 * bar_samples, "the song is longer than the loop");
+    engine.set_playing(true);
+    // Round the song once and half a bar into its first bar.
+    (void)render(engine, static_cast<std::size_t>(length + bar_samples / 2));
+    song.loop = {true, bar_ticks, 3 * bar_ticks};
+    engine.apply_mix(song);
+    (void)render(engine, block);
+    engine.set_playing(false);
+    const auto at = engine.sample_position();
+    std::cout << "playhead at " << at << " of a " << bar_samples << "-sample bar\n";
+    require(at >= bar_samples / 2 && at < bar_samples,
+            "the playhead stays in the first bar, where the song had come round to");
+}
+
 // features/arrangement_loop.feature: With LOOP off the song plays through
 void off_plays_the_song_case() {
     auto song = loop_song();
@@ -259,6 +282,7 @@ int main(int argc, char** argv) {
         const std::string name = argv[1];
         if (name == "wraps_playback") wraps_playback_case();
         else if (name == "off_plays_the_song") off_plays_the_song_case();
+        else if (name == "turned_on_after_a_lap") turned_on_after_a_lap_case();
         else if (name == "mixer_live") mixer_live_case();
         else if (name == "bounce_is_the_arrangement") bounce_is_the_arrangement_case();
         else if (name == "project") project_case();
