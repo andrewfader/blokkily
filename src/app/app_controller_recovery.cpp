@@ -24,15 +24,38 @@ void AppController::startAutosave(const QString& directory, int interval_ms) {
     recovery_ = std::make_unique<RecoveryStore>(directory);
     if (!recovery_->enabled()) return;
     (void)recovery_->own_id();
-    autosave_timer_.setInterval(std::max(100, interval_ms));
+    autosave_fixed_ms_ = interval_ms;
     connect(&autosave_timer_, &QTimer::timeout, this, [this] {
         // Never in the middle of a load or an export: the song is between
         // two states then, and the engine is busy.
         if (progress_.loading()) return;
         (void)autosaveNow();
     });
-    autosave_timer_.start();
+    applyAutosaveInterval();
     emit recoveriesChanged();
+}
+
+int AppController::autosaveSeconds() const {
+    return std::max(0, setting(QStringLiteral("project/autosaveSeconds"), 30).toInt());
+}
+
+void AppController::setAutosaveSeconds(int seconds) {
+    seconds = std::max(0, seconds);
+    if (seconds == autosaveSeconds()) return;
+    storeSetting(QStringLiteral("project/autosaveSeconds"), seconds);
+    applyAutosaveInterval();
+    emit autosaveStatusChanged();
+}
+
+void AppController::applyAutosaveInterval() {
+    if (!recovery_ || !recovery_->enabled()) return;
+    const int ms = autosave_fixed_ms_ > 0 ? autosave_fixed_ms_ : autosaveSeconds() * 1000;
+    if (ms <= 0) {
+        autosave_timer_.stop();
+        return;
+    }
+    autosave_timer_.setInterval(std::max(100, ms));
+    autosave_timer_.start();
 }
 
 QVariantList AppController::recoveries() const {

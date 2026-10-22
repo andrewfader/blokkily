@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QImage>
 
 #include <algorithm>
@@ -131,6 +132,27 @@ void run_settings(VerifyContext& ctx) {
     check(click("viewSETTINGS"));
     check(ctx.window->property("view").toString() == "SETTINGS");
     ctx.reached("settings: the SETTINGS view lays out the audio, MIDI and window settings");
+
+    // AUTOSAVE sets how often unsaved work is copied aside, at once.
+    {
+        QTemporaryDir store;
+        check(store.isValid());
+        c.startAutosave(store.path(), 0);
+        check(c.autosaveSeconds() == 30 && c.autosaveIntervalMs() == 30000);
+        // At the foot of the page: scrolled to, as by hand.
+        if (auto* scroll = ctx.named("editorScroll"), *chip = ctx.named("autosave10"); scroll && chip) {
+            const double below = chip->mapToItem(scroll, QPointF(0, chip->height())).y() - scroll->height();
+            if (below > 0) scroll->setProperty("contentY", scroll->property("contentY").toDouble() + below + 8);
+            layout();
+        }
+        check(VerifyContext::usable(ctx.named("autosave10"), 30, 18));
+        check(click("autosave10") && c.autosaveSeconds() == 10 && c.autosaveIntervalMs() == 10000);
+        check(click("autosaveOFF") && c.autosaveSeconds() == 0 && c.autosaveIntervalMs() == -1);
+        check(click("autosave30") && c.autosaveSeconds() == 30 && c.autosaveIntervalMs() == 30000);
+        if (auto* scroll = ctx.named("editorScroll")) scroll->setProperty("contentY", 0);
+        layout();
+    }
+    ctx.reached("settings: AUTOSAVE sets how often unsaved work is copied aside");
 
     // 44.1 kHz and a 256-frame block, picked from their menus.
     check(pick("audioSampleRate", "44100 Hz"));

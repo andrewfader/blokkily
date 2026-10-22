@@ -1395,6 +1395,34 @@
         <source>drag a panel&apos;s grip in the left margin to move it, the gap under it to size it, and a bar&apos;s inner edge to widen it</source>
         <translation>den Griff eines Bereichs am linken Rand ziehen, um ihn zu verschieben, die Lücke darunter, um seine Größe zu ändern, und die Innenkante einer Leiste, um sie zu verbreitern</translation>
     </message>
+    <message>
+        <source>PROJECT</source>
+        <translation>PROJEKT</translation>
+    </message>
+    <message>
+        <source>AUTOSAVE</source>
+        <translation>AUTOSPEICH.</translation>
+    </message>
+    <message>
+        <source>10 S</source>
+        <translation>10 S</translation>
+    </message>
+    <message>
+        <source>30 S</source>
+        <translation>30 S</translation>
+    </message>
+    <message>
+        <source>2 MIN</source>
+        <translation>2 MIN</translation>
+    </message>
+    <message>
+        <source>unsaved work is not copied aside: a crash loses what was not saved</source>
+        <translation>Ungesichertes wird nicht beiseitegelegt: ein Absturz verliert, was nicht gesichert war</translation>
+    </message>
+    <message>
+        <source>unsaved work is copied aside this often, and offered back after a crash</source>
+        <translation>Ungesichertes wird so oft beiseitegelegt und nach einem Absturz wieder angeboten</translation>
+    </message>
 </context>
 <context>
     <name>StepEditors</name>

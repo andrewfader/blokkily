@@ -161,6 +161,10 @@ class AppController final : public QObject {
     Q_PROPERTY(QVariantList recoveries READ recoveries NOTIFY recoveriesChanged)
     // When the open song was last autosaved, for the project card.
     Q_PROPERTY(QString autosaveStatus READ autosaveStatus NOTIFY autosaveStatusChanged)
+    // How often unsaved work is copied aside, in seconds; 0 is never. Chosen
+    // in SETTINGS and remembered; $BLOKKILY_AUTOSAVE_MS overrides it.
+    Q_PROPERTY(int autosaveSeconds READ autosaveSeconds WRITE setAutosaveSeconds
+                   NOTIFY autosaveStatusChanged)
     // How far the plugin scan has got, 0 to 1, or negative when none is running.
     Q_PROPERTY(double scanProgress READ scanProgress NOTIFY scanProgressChanged)
 
@@ -460,9 +464,15 @@ public:
     void setRenderCancel(std::function<bool()> cancelled) { render_cancel_ = std::move(cancelled); }
     // --- Autosave and crash recovery (app_controller_recovery.cpp) -----------
     // Keeps an unsaved song in `directory` (recovery.hpp) every `interval_ms`
-    // while it has changes, and finds what earlier windows left there. An
-    // empty directory leaves both off.
+    // while it has changes (0: as often as autosaveSeconds says), and finds
+    // what earlier windows left there. An empty directory leaves both off.
     void startAutosave(const QString& directory, int interval_ms);
+    int autosaveSeconds() const;
+    Q_INVOKABLE void setAutosaveSeconds(int seconds);
+    // How often the copy is written now, in milliseconds; -1 when it is not.
+    Q_INVOKABLE int autosaveIntervalMs() const {
+        return autosave_timer_.isActive() ? autosave_timer_.interval() : -1;
+    }
     QVariantList recoveries() const;
     QString autosaveStatus() const { return autosave_status_; }
     // Writes the recovery copy now if the song has unsaved changes, and
@@ -1087,6 +1097,9 @@ private:
     QString midi_learn_status_;
     std::unique_ptr<RecoveryStore> recovery_;
     QTimer autosave_timer_;
+    // An interval the launch fixed ($BLOKKILY_AUTOSAVE_MS), or 0 for the setting's.
+    int autosave_fixed_ms_ = 0;
+    void applyAutosaveInterval();
     // What was last written, so an unchanged song is not written again.
     QByteArray last_autosave_;
     QString autosave_status_;

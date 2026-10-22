@@ -35,11 +35,12 @@
 
 namespace {
 
-// How often unsaved work is copied aside: $BLOKKILY_AUTOSAVE_MS, else 30 s.
+// How often unsaved work is copied aside when the launch fixes it
+// ($BLOKKILY_AUTOSAVE_MS); 0 leaves it to SETTINGS · AUTOSAVE.
 int autosave_ms() {
     bool ok = false;
     const int configured = qEnvironmentVariableIntValue("BLOKKILY_AUTOSAVE_MS", &ok);
-    return ok && configured > 0 ? configured : 30000;
+    return ok && configured > 0 ? configured : 0;
 }
 
 } // namespace

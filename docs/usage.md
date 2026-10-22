@@ -404,6 +404,11 @@ bars auto-hide at any window width as they ship; WINDOW · DOCK · WHEN WIDE
 lets a window wide enough for both bars beside the editors dock them whether
 or not they auto-hide.
 
+PROJECT · AUTOSAVE says how often unsaved work is copied to the recovery folder
+(and offered back after a crash): every 10 or 30 seconds (as it ships) or 2
+minutes, or OFF, when a crash loses whatever was not saved. The choice takes
+effect at once and is remembered.
+
 WINDOW · LANGUAGE is ENGLISH, DEUTSCH, or SYSTEM, the desktop's own
 language as it ships, in English where Blokkily has no translation. The
 window's labels, menus, hints and the tour change at once; names a song gives

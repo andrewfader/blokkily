@@ -314,6 +314,31 @@ Rectangle {
                     text: qsTr("drag a panel's grip in the left margin to move it, the gap under it to size it, and a bar's inner edge to widen it")
                 }
             }
+
+            // ----------------------------------------------------- project
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
+            SectionLabel { text: qsTr("PROJECT"); color: Theme.acid }
+            SettingRow {
+                label: qsTr("AUTOSAVE")
+                Repeater {
+                    model: [{ name: "OFF", label: QT_TR_NOOP("OFF"), seconds: 0 },
+                            { name: "10", label: QT_TR_NOOP("10 S"), seconds: 10 },
+                            { name: "30", label: QT_TR_NOOP("30 S"), seconds: 30 },
+                            { name: "120", label: QT_TR_NOOP("2 MIN"), seconds: 120 }]
+                    Chip {
+                        required property var modelData
+                        objectName: "autosave" + modelData.name
+                        text: qsTr(modelData.label); implicitHeight: 24
+                        on: appController.autosaveSeconds === modelData.seconds
+                        onClicked: appController.setAutosaveSeconds(modelData.seconds)
+                    }
+                }
+                Hint {
+                    text: appController.autosaveSeconds === 0
+                          ? qsTr("unsaved work is not copied aside: a crash loses what was not saved")
+                          : qsTr("unsaved work is copied aside this often, and offered back after a crash")
+                }
+            }
             Item { Layout.fillHeight: true }
         }
     }

@@ -21,6 +21,14 @@ Feature: The SETTINGS view: the audio device, its rate and its block
     And a second press goes back to the view it was opened from
 
   # bdd_settings
+  Scenario: AUTOSAVE says how often unsaved work is copied aside
+    Given the window copies unsaved work aside every 30 seconds, as it ships
+    When 10 S is picked under PROJECT · AUTOSAVE
+    Then it is copied every 10 seconds from then on
+    When OFF is picked
+    Then it is not copied at all
+
+  # bdd_settings
   Scenario: Another rate and block reach the device
     When 44.1 kHz and a 256-frame buffer are picked from their menus
     Then the device is opened again at them, the song is prepared at 44.1 kHz, and RUNNING says so
