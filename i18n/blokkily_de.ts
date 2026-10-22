@@ -1064,6 +1064,10 @@
 <context>
     <name>PatternSwing</name>
     <message>
+        <source>Swing for every track of the pattern. Ctrl: this track only. Shift: steps of 25%</source>
+        <translation>Swing für jede Spur des Patterns. Strg: nur diese Spur. Umschalt: in Schritten von 25%</translation>
+    </message>
+    <message>
         <source>SWING</source>
         <translation>SWING</translation>
     </message>

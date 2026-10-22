@@ -2,7 +2,8 @@ Feature: A pattern can swing its even sixteenths
   SWING on the open pattern delays the even sixteenths when they play, so a
   straight grid can shuffle without rewriting the notes. 0% is straight; 100%
   delays those steps by half a sixteenth. The editors keep the grid. Swing is
-  saved with the pattern and is one undo step.
+  every track's part of the pattern, or with Ctrl held one track's alone; it
+  is saved with the pattern and is one undo step.
 
   The engine scenarios are proved by blokkily_swing_tests
   (tests/swing_tests.cpp). The interface scenarios are proved by the
@@ -51,3 +52,12 @@ Feature: A pattern can swing its even sixteenths
     When it is set to 100%
     Then playback hears the second step late
     And undo puts the grid back to straight
+
+  # bdd_pattern_swing
+  Scenario: One track can swing on its own
+    Given the pattern on two tracks, both swung 100%
+    When the second track is selected and Ctrl-Shift-clicking SWING's − takes it to 0%
+    Then only that track's part is straight, and the readout says 0%* while the tracks differ
+    And the first track still reads 100%*
+    When SWING's − is clicked without Ctrl
+    Then every track swings 99% and the mark is gone

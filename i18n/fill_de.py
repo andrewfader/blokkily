@@ -127,6 +127,8 @@ DE = {
     "Zoom the arrangement in": "Arrangement vergrößern",
     "Zoom the arrangement out": "Arrangement verkleinern",
     "Dismiss": "Schließen",
+    "Swing for every track of the pattern. Ctrl: this track only. Shift: steps of 25%":
+        "Swing für jede Spur des Patterns. Strg: nur diese Spur. Umschalt: in Schritten von 25%",
     # The keys sheet
     "TRANSPORT": "TRANSPORT", "Close": "Schließen", "Keyboard shortcuts": "Tastenkürzel",
     "Keyboard shortcuts (Ctrl+/)": "Tastenkürzel (Strg+/)",

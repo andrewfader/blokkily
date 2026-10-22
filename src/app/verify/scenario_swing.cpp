@@ -146,6 +146,28 @@ void run_swing(VerifyContext& ctx) {
     check(song.patternSwing() == 100);
     reached("pattern-swing: the swing survives a save and a load");
 
+    // Ctrl swings the selected track's part alone; without it, every track's.
+    song.addTrack();
+    song.selectTrack(0);
+    check(song.setPatternSwing(100));
+    song.selectTrack(1);
+    lay_out();
+    for (int step = 0; step < 4; ++step)
+        check(press("patternSwingDown", Qt::ShiftModifier | Qt::ControlModifier));
+    check(song.patternSwing() == 0 && song.swingVaries());
+    check(readout != nullptr && VerifyContext::reads_whole(readout, QStringLiteral("0%*")));
+    song.selectTrack(0);
+    lay_out();
+    check(song.patternSwing() == 100);
+    check(readout != nullptr && VerifyContext::reads_whole(readout, QStringLiteral("100%*")));
+    check(press("patternSwingDown"));
+    check(song.patternSwing() == 99 && !song.swingVaries());
+    song.selectTrack(1);
+    check(song.patternSwing() == 99);
+    song.selectTrack(0);
+    lay_out();
+    reached("pattern-swing: Ctrl swings one track's part, a plain click every track's");
+
     lay_out();
     check(ctx.save_screenshot());
     ctx.finish(" | swing " + std::to_string(song.patternSwing()) + "%");

@@ -26,8 +26,10 @@ erase a sounding note, the engine releases it.
 SWING beside the pattern length delays the even sixteenths when they play,
 from 0% (straight) to 100% (half a sixteenth late). 67% is a 40-tick delay,
 close to a triplet shuffle. The editors keep the straight grid. Click +/−, or
-scroll the control; hold Shift to jump by 25%. The change is one undo step
-and is saved with the pattern.
+scroll the control; hold Shift to jump by 25%. It sets every track's part of
+the pattern; hold Ctrl to swing only the selected track's, and the readout is
+marked with * while the tracks differ. The change is one undo step and is
+saved with the pattern.
 
 The step inspector edits transposition, velocity, micro-timing, probability,
 ratchets, loop conditions and parameter locks. Locks have an

@@ -41,6 +41,8 @@ class SongModel final : public QObject {
     Q_PROPERTY(QVariantList sections READ sections NOTIFY arrangementChanged)
     Q_PROPERTY(int currentSection READ currentSection NOTIFY arrangementChanged)
     Q_PROPERTY(int patternSwing READ patternSwing NOTIFY arrangementChanged)
+    // The open section's tracks swing by different amounts.
+    Q_PROPERTY(bool swingVaries READ swingVaries NOTIFY arrangementChanged)
     Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY arrangementChanged)
     Q_PROPERTY(int bars READ bars NOTIFY arrangementChanged)
     // Every bar the timeline shows, laid out by the meter map (plan F-A): one
@@ -271,7 +273,11 @@ public:
     // play, 0 to 100. Every part of the section takes the same value. One
     // step of history; the engine is rebuilt so playback hears it.
     int patternSwing() const;
+    bool swingVaries() const;
+    // Every part of the open section swings by `percent`.
     Q_INVOKABLE bool setPatternSwing(int percent);
+    // Only the selected track's part does.
+    Q_INVOKABLE bool setPartSwing(int percent);
     // Section and track housekeeping. A copy of the open section, every
     // track's part of it, is how a variation is started; clearing empties
     // every part; deleting takes section `section` with its parts and clips.
