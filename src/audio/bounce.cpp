@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 #include <vector>
 
 namespace blokkily {
@@ -126,8 +127,20 @@ bool render(SongEngine& engine, std::vector<Target>& targets, WaveFormat format,
         longest_latency = std::max(longest_latency, target.latency);
     }
     const std::uint64_t length = end - start;
-    const std::uint64_t tail = std::max(tail_frames, engine.effect_tail_samples());
-    const std::uint64_t total = length + tail;
+    // Every export runs on past the song by what was asked for, or by the
+    // effects' own tails.
+    const std::uint64_t settled = length + std::max(tail_frames, engine.effect_tail_samples());
+    // An instrument's release can go on longer (a pad's slow release, a
+    // one-shot sample): while one still sounds, the file runs on with it,
+    // as far as the longest instrument's tail, and ends once each file has
+    // been silent this long.
+    std::uint64_t most = settled;
+    const auto longest = static_cast<std::uint64_t>(engine.sample_rate() * 60.0);
+    for (const auto where : engine.processor_addresses())
+        if (const auto* instance = engine.processor(where))
+            most = std::max(most, length + std::min(instance->tail_samples(), longest));
+    const auto quiet_enough = static_cast<std::uint64_t>(engine.sample_rate() * 0.1);
+    std::uint64_t total = settled;
     std::uint64_t rendered = 0;
     std::uint64_t progressed = 0;
     bool wrote = true;
@@ -143,21 +156,40 @@ bool render(SongEngine& engine, std::vector<Target>& targets, WaveFormat format,
         const std::span<float> left_block{left.data(), frames};
         const std::span<float> right_block{right.data(), frames};
         engine.process({left_block, right_block});
-        std::size_t tap = 0;
-        for (auto& target : targets) {
+        // Each file's part of this block: what it hears, past whatever is
+        // still its compensation.
+        const auto part_of = [&](const Target& target, std::size_t tap) {
             const auto heard_left = target.source ? engine.stem_left(tap).first(frames)
                                                   : std::span<const float>{left_block};
             const auto heard_right = target.source ? engine.stem_right(tap).first(frames)
                                                    : std::span<const float>{right_block};
-            if (target.source) ++tap;
-            // Whatever part of this block is still the compensation is skipped.
             const auto skip = static_cast<std::size_t>(
                 rendered >= target.latency ? 0
                                            : std::min<std::uint64_t>(frames, target.latency - rendered));
-            if (skip == frames || target.report.frames >= total) continue;
-            const auto kept = std::min<std::uint64_t>(frames - skip, total - target.report.frames);
-            const auto kept_left = heard_left.subspan(skip, static_cast<std::size_t>(kept));
-            const auto kept_right = heard_right.subspan(skip, static_cast<std::size_t>(kept));
+            return std::tuple{heard_left.subspan(skip), heard_right.subspan(skip)};
+        };
+        // A release still sounding moves every file's end on, before any of
+        // them is written, so they stay the same length.
+        if (most > total) {
+            std::size_t tap = 0;
+            for (const auto& target : targets) {
+                const auto [part_left, part_right] = part_of(target, tap);
+                if (target.source) ++tap;
+                float peak = 0.0F;
+                for (std::size_t frame = 0; frame < part_left.size(); ++frame)
+                    peak = std::max({peak, std::abs(part_left[frame]), std::abs(part_right[frame])});
+                if (peak > 1e-5F)
+                    total = std::max(total, std::min(most, target.report.frames + part_left.size() + quiet_enough));
+            }
+        }
+        std::size_t tap = 0;
+        for (auto& target : targets) {
+            const auto [part_left, part_right] = part_of(target, tap);
+            if (target.source) ++tap;
+            if (part_left.empty() || target.report.frames >= total) continue;
+            const auto kept = std::min<std::uint64_t>(part_left.size(), total - target.report.frames);
+            const auto kept_left = part_left.first(static_cast<std::size_t>(kept));
+            const auto kept_right = part_right.first(static_cast<std::size_t>(kept));
             for (std::size_t frame = 0; frame < kept_left.size(); ++frame)
                 target.report.peak = std::max({target.report.peak, std::abs(kept_left[frame]),
                                                std::abs(kept_right[frame])});

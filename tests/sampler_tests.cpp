@@ -9,8 +9,11 @@
 
 #include "fixtures/audio_fixture_content.hpp"
 #include "support/audio_probe.hpp"
+#include "support/process_id.hpp"
 
+#include "blokkily/audio/bounce.hpp"
 #include "blokkily/audio/song_engine.hpp"
+#include "blokkily/audio/wave_file.hpp"
 #include "blokkily/instruments/sampler.hpp"
 #include "blokkily/model/tuning.hpp"
 #include "blokkily/project/project.hpp"
@@ -874,6 +877,46 @@ void kit_handoff() {
     require(sampler->kit_count() == 1, "only the live kit remains");
 }
 
+// A note held to the song's last sample, released slowly: the export waits
+// for the release instead of cutting it at the song's end. Regression: only
+// effects' tails were waited for, so the file ended in a click.
+void export_release_tail() {
+    constexpr Tick length = 8192;   // one tick per sample at 120 BPM, 48 kHz
+    Pattern pattern(length, 24000);
+    Trigger note;
+    note.start = 0;
+    note.duration = length;
+    note.musical_data = Note{60, 1.0F, 0.0F};
+    (void)pattern.add(note);
+    Song song;
+    song.patterns = {{"Tail", std::move(pattern)}};
+    song.tracks = {Track{}};
+    song.clips = {{0, 0, 0, 1}};
+    auto zone = dc_zone();
+    zone.envelope.release_s = 0.5;
+    SongEngine engine;
+    engine.set_instrument(0, sampler_with(keyed({zone})));
+    std::string error;
+    require(engine.prepare(song, rate, block, 0, &error), "prepare: " + error);
+    const auto file = std::filesystem::temp_directory_path() /
+                      ("blokkily-sampler-tail-" + std::to_string(blokkily::test::process_id()) + ".wav");
+    require(bounce_song(engine, file, WaveFormat::float32, 0, {}, &error).has_value(), "bounce: " + error);
+    const auto wave = read_wave(file, &error);
+    std::filesystem::remove(file);
+    require(wave.has_value(), "read back: " + error);
+    const auto frames = static_cast<std::size_t>(wave->frames);
+    std::cout << "song " << length << " frames, file " << frames << " frames\n";
+    require(frames > length + static_cast<std::size_t>(rate * 0.25),
+            "the file runs on past the song's end into the release");
+    const auto level_at = [&](std::size_t frame) {
+        return std::abs(wave->interleaved[frame * wave->channels]);
+    };
+    require(level_at(length + 1200) > 0.05F, "25 ms after the end the release still sounds");
+    require(level_at(frames - 1) < 1e-4F, "and the file ends once it has died away");
+    require(frames < length + static_cast<std::size_t>(rate * 2.5),
+            "without seconds of silence after it");
+}
+
 const std::map<std::string, std::function<void()>> cases{
     {"file_metadata", file_metadata},
     {"missing_sample", missing_sample},
@@ -894,6 +937,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"pattern_locks", pattern_locks},
     {"pressure", pressure},
     {"kit_handoff", kit_handoff},
+    {"export_release_tail", export_release_tail},
 };
 
 } // namespace

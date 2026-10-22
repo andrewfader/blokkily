@@ -48,7 +48,8 @@ if(BLOKKILY_BUILD_TESTS)
             parameters
             pattern_locks
             pressure
-            kit_handoff)
+            kit_handoff
+            export_release_tail)
         add_test(NAME sampler_${sampler_case}
             COMMAND blokkily_sampler_tests ${sampler_case})
         set_tests_properties(sampler_${sampler_case} PROPERTIES

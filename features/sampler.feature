@@ -114,6 +114,13 @@ Feature: A sampler plays recorded sound as an instrument
     And key 62 is not pressed
     And per-note pressure of one half on a playing note makes it half again as loud
 
+  # sampler_export_release_tail
+  Scenario: An export waits for a slow release at the song's end
+    Given a sampler note held to the song's last sample, with a slow release
+    When the song is exported
+    Then the file runs on past the song's end while the release sounds
+    And it ends once the release has died away, not seconds later
+
   # sampler_kit_handoff
   Scenario: A new program reaches a running sampler without cutting it
     Given a sampler holding a note
