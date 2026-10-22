@@ -1,9 +1,10 @@
 // features/window_layout.feature, run by bdd_window_layout with --auto-hide
 // (the side bars as they ship): the bars tuck away at 1280 px and come out
 // when the pointer rests on their strip, stay while used, and go when not;
-// keys and the tour bring them out; a roomy window or auto-hide off docks
-// them; the editors' panels move by their grips and the keyboard is sized by
-// the gap under it; a bar widens by its inner edge; RESET puts it all back.
+// keys and the tour bring them out; a wide window docks them only when
+// DOCK · WHEN WIDE is on, and auto-hide off docks one; the editors' panels
+// move by their grips and the keyboard is sized by the gap under it; a bar
+// widens by its inner edge; RESET puts it all back.
 // Everything is driven through pointer and key events at the real window.
 #include "verify/harness.hpp"
 
@@ -146,9 +147,18 @@ void run_window_layout(VerifyContext& ctx) {
     check(!flag(rail, "revealed") && !flag(mixer, "revealed"));
     ctx.reached("window layout: Ctrl+], Ctrl+F and the tour bring the bars out");
 
-    // ----------------------------------------------- room docks the bars
+    // ---------------------------- room docks the bars only when asked to
     window->resize(1700, 1080);
     settle(100);
+    // As it ships, a wide window still tucks them away.
+    check(!flag(rail, "docked") && !flag(mixer, "docked"));
+    check(rail->width() == 14 && mixer->width() == 14 && rail_strip->isVisible() && mixer_strip->isVisible());
+    check(scene_x(editors) == 14 && editors->width() == 1700 - 28);
+    check(click("viewSETTINGS"));
+    check(click("dockWhenRoomy"));
+    check(c.uiSettings().value("ui/dockWhenRoomy").toBool() == true);
+    check(click("viewALL"));
+    settle(50);
     check(flag(rail, "docked") && flag(mixer, "docked"));
     std::cerr << "wide editors " << scene_x(editors) << " +" << editors->width() << '\n';
     check(scene_x(editors) == 232 && editors->width() == 1700 - 232 - 250);
@@ -161,7 +171,7 @@ void run_window_layout(VerifyContext& ctx) {
     check(scene_x(editors) == 232);
     check(c.uiSettings().value("ui/autoHideRail").toBool() == false);
     check(click("viewALL"));
-    ctx.reached("window layout: a roomy window, or auto-hide off, docks the bars");
+    ctx.reached("window layout: a wide window docks the bars when asked, and auto-hide off docks one");
 
     // ---------------------------------------------------- panels move
     auto* arrangement = ctx.named("arrangementView");
@@ -221,6 +231,13 @@ void run_window_layout(VerifyContext& ctx) {
     ctx.reached("window layout: the mixer's inner edge widens it, remembered");
 
     // ------------------------------------------------------- reset
+    // SETTINGS opens where the editors were, below the keyboard moved to
+    // the top: RESET is scrolled to, as it would be by hand.
+    if (auto* scroll = ctx.named("editorScroll"), *reset = ctx.named("resetLayout"); scroll && reset) {
+        const double below = reset->mapToItem(scroll, QPointF(0, reset->height())).y() - scroll->height();
+        if (below > 0) scroll->setProperty("contentY", scroll->property("contentY").toDouble() + below + 8);
+        layout();
+    }
     check(click("resetLayout"));
     check(click("viewALL"));
     settle(50);

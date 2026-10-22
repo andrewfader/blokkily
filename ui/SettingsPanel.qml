@@ -247,7 +247,22 @@ Rectangle {
                     onClicked: appController.setUiSetting("ui/autoHideMixer", !on)
                 }
                 Hint {
-                    text: qsTr("a hidden bar comes back when the pointer rests on its edge, and stays while it is used; both stay docked when the window has room for them")
+                    text: qsTr("a hidden bar comes back when the pointer rests on its edge, and stays while it is used")
+                }
+            }
+            SettingRow {
+                label: qsTr("DOCK")
+                // On, a window with room for both bars beside the editors
+                // docks them even where they auto-hide.
+                Chip {
+                    objectName: "dockWhenRoomy"
+                    text: qsTr("WHEN WIDE"); implicitHeight: 24
+                    accessibleLabel: "Dock both bars when the window has room for them"
+                    on: root.uiFlag("ui/dockWhenRoomy", false)
+                    onClicked: appController.setUiSetting("ui/dockWhenRoomy", !on)
+                }
+                Hint {
+                    text: qsTr("on, a window with room for both bars beside the editors docks them; off, they auto-hide at any width")
                 }
             }
             SettingRow {

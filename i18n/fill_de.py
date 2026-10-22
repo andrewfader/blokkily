@@ -177,8 +177,11 @@ DE = {
         "jedes Plugin läuft in einem eigenen Prozess: stürzt eines ab oder hängt, verstummt es und kann neu geladen werden, und Blokkily läuft weiter. Kostet einen Block Latenz, der ausgeglichen wird",
     "not available in this build: plugins run inside Blokkily": "in diesem Build nicht verfügbar: Plugins laufen in Blokkily",
     "WINDOW": "FENSTER", "AUTO-HIDE": "AUTO-AUSBL.", "LEFT BAR": "LINKS", "RIGHT BAR": "RECHTS",
-    "a hidden bar comes back when the pointer rests on its edge, and stays while it is used; both stay docked when the window has room for them":
-        "eine ausgeblendete Leiste kommt zurück, wenn der Zeiger an ihrem Rand ruht, und bleibt, solange sie benutzt wird; beide bleiben angedockt, wenn das Fenster Platz für sie hat",
+    "a hidden bar comes back when the pointer rests on its edge, and stays while it is used":
+        "eine ausgeblendete Leiste kommt zurück, wenn der Zeiger an ihrem Rand ruht, und bleibt, solange sie benutzt wird",
+    "DOCK": "ANDOCKEN", "WHEN WIDE": "WENN BREIT",
+    "on, a window with room for both bars beside the editors docks them; off, they auto-hide at any width":
+        "an: ein Fenster mit Platz für beide Leisten neben den Editoren dockt sie an; aus: sie blenden sich bei jeder Breite aus",
     "THEME": "DESIGN", "DARK": "DUNKEL", "LIGHT": "HELL",
     "SYSTEM follows the desktop's light or dark setting": "SYSTEM folgt der hellen oder dunklen Einstellung des Desktops",
     "LANGUAGE": "SPRACHE",

@@ -4,8 +4,9 @@ Feature: The window's bars auto-hide, and its panels move and size
   the editors are worked, and slides out over them when wanted. Intelligently:
   resting on the strip brings it out, passing over it does not; it stays while
   the pointer is over it, while something in it has the keyboard, while a
-  press that began in it is held, and while a menu is open; a window with room
-  for both bars beside the editors docks them anyway. The editors' panels move
+  press that began in it is held, and while a menu is open. At first they auto-hide at
+  any width; DOCK · WHEN WIDE in SETTINGS lets a window with room
+  for both bars beside the editors dock them. The editors' panels move
   by the grip in the margin to their left, the keyboard is sized by the gap
   under it, and a bar is widened by its inner edge. All of it is remembered,
   and RESET in SETTINGS puts it back. The window is dark as it ships, light
@@ -33,9 +34,12 @@ Feature: The window's bars auto-hide, and its panels move and size
     And while the tour runs both bars are out for it to point at
 
   # bdd_window_layout
-  Scenario: Room for everything, or auto-hide off, docks the bars
+  Scenario: A wide window docks the bars only when asked, and auto-hide off docks one
     When the window is wide enough for both bars beside the editors
+    Then both bars are still strips at its edges
+    When DOCK · WHEN WIDE is switched on in SETTINGS
     Then both bars are docked, and the editors are narrower by their widths
+    And at 1280 px they are strips again
     When the left bar's auto-hide is switched off in SETTINGS at 1280 px
     Then the left bar is docked and the right bar is still a strip
 

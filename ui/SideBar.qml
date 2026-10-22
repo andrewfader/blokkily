@@ -12,8 +12,8 @@ import QtQuick.Controls
 //     its edge), while a menu or a popup is open, and while the window asks
 //     (the tour pointing at it);
 //   - it goes once none of that has been true for a moment.
-// A window with room for both bars beside the editors docks them anyway:
-// there is nothing to make room for. Its inner edge drags to widen it.
+// A window with room for both bars beside the editors docks them anyway,
+// when the window is set to (`roomy`). Its inner edge drags to widen it.
 Item {
     id: bar
     // "left" or "right": the window edge it lives on.
@@ -21,7 +21,8 @@ Item {
     // Shown down the strip while the bar is tucked away.
     property string title: ""
     property bool autoHide: true
-    // The window has room for the bar docked beside the editors.
+    // The window has room for the bar docked beside the editors, and is set
+    // to dock it there.
     property bool roomy: false
     // Something outside wants it out (the tour pointing at it).
     property bool held: false

@@ -395,9 +395,10 @@ passing over the edge on the way somewhere else does not bring it out. It
 stays while the pointer is over it, while something in it has the keyboard
 (the plugin search), while a press that began in it is still held, and while
 a menu is open, and goes a moment after none of that is true. Ctrl+F brings
-the left bar out with its search. A window wide enough for both bars beside
-the editors docks them whether or not they auto-hide; turned off, a bar is
-always docked.
+the left bar out with its search. Turned off, a bar is always docked. The
+bars auto-hide at any window width as they ship; WINDOW · DOCK · WHEN WIDE
+lets a window wide enough for both bars beside the editors dock them whether
+or not they auto-hide.
 
 WINDOW · LANGUAGE is ENGLISH, DEUTSCH, or SYSTEM, the desktop's own
 language as it ships, in English where Blokkily has no translation. The

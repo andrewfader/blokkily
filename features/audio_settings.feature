@@ -17,7 +17,7 @@ Feature: The SETTINGS view: the audio device, its rate and its block
     Given the SETTINGS gear is pressed above the editors
     Then the system, output, input, sample rate and buffer pickers are laid out at a usable size, each listing its choices
     And the editors give the view their room, while the rail and the mixer stay
-    And the MIDI clock and sync and the window's auto-hide switches are there
+    And the MIDI clock and sync and the window's auto-hide and docking switches are there
     And a second press goes back to the view it was opened from
 
   # bdd_settings

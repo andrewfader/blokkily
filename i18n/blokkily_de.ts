@@ -1246,8 +1246,20 @@
         <translation>RECHTS</translation>
     </message>
     <message>
-        <source>a hidden bar comes back when the pointer rests on its edge, and stays while it is used; both stay docked when the window has room for them</source>
-        <translation>eine ausgeblendete Leiste kommt zurück, wenn der Zeiger an ihrem Rand ruht, und bleibt, solange sie benutzt wird; beide bleiben angedockt, wenn das Fenster Platz für sie hat</translation>
+        <source>a hidden bar comes back when the pointer rests on its edge, and stays while it is used</source>
+        <translation>eine ausgeblendete Leiste kommt zurück, wenn der Zeiger an ihrem Rand ruht, und bleibt, solange sie benutzt wird</translation>
+    </message>
+    <message>
+        <source>DOCK</source>
+        <translation>ANDOCKEN</translation>
+    </message>
+    <message>
+        <source>WHEN WIDE</source>
+        <translation>WENN BREIT</translation>
+    </message>
+    <message>
+        <source>on, a window with room for both bars beside the editors docks them; off, they auto-hide at any width</source>
+        <translation>an: ein Fenster mit Platz für beide Leisten neben den Editoren dockt sie an; aus: sie blenden sich bei jeder Breite aus</translation>
     </message>
     <message>
         <source>THEME</source>

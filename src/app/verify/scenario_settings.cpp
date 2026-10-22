@@ -119,7 +119,8 @@ void run_settings(VerifyContext& ctx) {
     check(editors != nullptr && !editors->isVisible());
     check(VerifyContext::usable(ctx.named("instrumentPanel"), 150, 200) &&
           VerifyContext::usable(ctx.named("mixerPanel"), 150, 200));
-    for (const char* name : {"midiClockPort", "followClock", "autoHideRail", "autoHideMixer", "resetLayout"})
+    for (const char* name : {"midiClockPort", "followClock", "autoHideRail", "autoHideMixer", "dockWhenRoomy",
+                             "resetLayout"})
         check(VerifyContext::usable(ctx.named(QString::fromLatin1(name)), 30, 18));
     std::cerr << "running: " << c.audioDevice().toStdString() << '\n';
     check(ctx.named("audioDeviceStatus") &&

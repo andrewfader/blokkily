@@ -648,8 +648,11 @@ ApplicationWindow {
         objectName: "workspace"
         anchors.fill: parent
         // The editors at the width they are designed for, beside both bars:
-        // a window that wide docks the bars whether or not they auto-hide.
-        readonly property bool roomy: width >= rail.barWidth + mixer.barWidth + 1100
+        // a window that wide docks the bars whether or not they auto-hide,
+        // when WINDOW · DOCK · WHEN WIDE says so. As it ships they auto-hide
+        // at any width.
+        readonly property bool roomy: root.uiFlag("ui/dockWhenRoomy", false)
+                                      && width >= rail.barWidth + mixer.barWidth + 1100
 
         // ---------------------------------------------------------------- rail
         SideBar {
