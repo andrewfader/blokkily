@@ -45,8 +45,9 @@ sixteenth-note steps. See [MIDI file exchange](usage.md#midi-file-exchange).
 
 ## Arrangement loop
 
-- Export always renders the whole arrangement. A loop is for playback; the
-  bounce turns it off for that pass so the file is the song from its start.
+- An export does not loop: the bounce turns the loop off for that pass, so the
+  file is the song from its start, or with LOOP ONLY lit on the rail the loop's bars
+  once.
 
 ## Scene launcher
 

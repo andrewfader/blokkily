@@ -1060,8 +1060,8 @@ bool AppController::exportAudioFile(const QString& path, const QString& depth, b
 }
 
 bool AppController::exportAudioRange(const QString& path, int fromBar, int toBar,
-                                     const QString& depth) {
-    return exportAudio(path, depth, false, false, fromBar, toBar);
+                                     const QString& depth, bool withClick, bool dither) {
+    return exportAudio(path, depth, withClick, dither, fromBar, toBar);
 }
 
 bool AppController::barRange(int fromBar, int toBar, blokkily::BounceOptions& options,

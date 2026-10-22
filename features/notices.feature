@@ -3,7 +3,8 @@ Feature: The window says what went wrong, and what finished
   that would not load, an export that finished - is said in a notice at the
   foot of the window, over the editors, whichever side bars are hidden. It
   names the file or the plugin and why. A failure or a warning stays until its
-  × is pressed; a finished piece of work goes by itself after a moment. The
+  × is pressed; a finished piece of work goes by itself after a moment, and the
+  next one takes its place. The
   same thing is said once, not again at every rebuild.
 
   # bdd_notices
@@ -18,6 +19,8 @@ Feature: The window says what went wrong, and what finished
   Scenario: A finished save is said and goes by itself
     When the song is saved
     Then a notice says it was saved, with the file's name
+    When it is saved again under another name
+    Then that notice takes the place of the first rather than stacking on it
     And it goes by itself
 
   # bdd_notices

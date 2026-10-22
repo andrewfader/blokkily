@@ -189,12 +189,33 @@ void run_midi_output(VerifyContext& ctx) {
         controller.restoreMidiClock();
         controller.refreshMidiPorts();
         check(controller.midiClockPort().isEmpty() && remembered() == "Unplugged synth");
+        // The keyboard is remembered the same way: chosen, it is opened
+        // again at the next launch; NONE is remembered as none.
+        const auto input = [&file] {
+            return QSettings(file, QSettings::IniFormat).value("midi/inputPort").toString();
+        };
+        check(controller.selectMidiPort(0) && input() == "Deterministic input");
+        check(controller.selectMidiPort(-1) && input().isEmpty() && controller.midiPort().isEmpty());
+        check(controller.selectMidiPort(0));
+        {
+            QSettings settings(file, QSettings::IniFormat);
+            settings.setValue("midi/inputPort", "Deterministic input");
+            settings.sync();
+        }
+        check(controller.selectMidiPort(-1));
+        {
+            QSettings settings(file, QSettings::IniFormat);
+            settings.setValue("midi/inputPort", "Deterministic input");
+            settings.sync();
+        }
+        controller.restoreMidiClock();
+        check(controller.midiPort() == "Deterministic input" && input() == "Deterministic input");
         // The user's own settings were never written.
         const QFileInfo after(user_settings);
         check(after.exists() == existed && (!existed || after.lastModified() == stamp));
         check(controller.setMidiClockPort("Deterministic output"));
     }
-    reached("midi output: the clock port is remembered between launches");
+    reached("midi output: the clock port and the keyboard are remembered between launches");
 
     lay_out();
     check(ctx.save_screenshot());

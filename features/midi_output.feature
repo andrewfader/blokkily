@@ -73,7 +73,7 @@ Feature: The song plays outboard gear and sends it MIDI clock
     And undo gives the track its synth back
 
   # bdd_midi_output
-  Scenario: The first window remembers where the clock goes
+  Scenario: The first window remembers where the clock goes and which keyboard plays
     Given a window that remembers the clock port in its settings
     When the producer picks OFF for CLOCK, and then the deterministic output
     Then the settings say no port, and then that port
@@ -81,4 +81,8 @@ Feature: The song plays outboard gear and sends it MIDI clock
     Then the clock goes to it again without being picked
     When the remembered port is not plugged in
     Then the clock stays off and the port stays remembered for when it is
+    When the producer plays from the deterministic input, and then picks None
+    Then the settings say that input, and then none
+    When a later launch finds the remembered input listed
+    Then it is opened again without being picked
     And the user's own settings file is never written by the gate

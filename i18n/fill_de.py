@@ -127,6 +127,8 @@ DE = {
     "Zoom the arrangement in": "Arrangement vergrößern",
     "Zoom the arrangement out": "Arrangement verkleinern",
     "Dismiss": "Schließen",
+    "WHOLE SONG": "GANZER SONG", "LOOP ONLY": "NUR LOOP",
+    "Export only the loop's bars, from IN to OUT": "Nur die Takte des Loops exportieren, von EIN bis AUS",
     "Double-click to reset": "Doppelklick setzt zurück",
     "Click level %1 dB": "Klick-Pegel %1 dB",
     # Mixer

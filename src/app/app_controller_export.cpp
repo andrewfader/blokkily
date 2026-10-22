@@ -48,8 +48,8 @@ bool AppController::exportTrackFiles(const QString& directory, const QString& fo
 }
 
 bool AppController::exportTrackFilesRange(const QString& directory, int fromBar, int toBar,
-                                          const QString& format, const QString& depth) {
-    return exportStems(directory, format, depth, false, fromBar, toBar);
+                                          const QString& format, const QString& depth, bool dither) {
+    return exportStems(directory, format, depth, dither, fromBar, toBar);
 }
 
 bool AppController::exportStems(const QString& directory, const QString& format,

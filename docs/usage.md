@@ -335,7 +335,11 @@ quality. A file name ending in `.mp3` or `.ogg` is encoded as such whichever
 chip is lit. DITHER (on unless turned off) adds TPDF dither when a WAV is
 written at 16 or 24 bits, so quiet fades and tails keep their sound rather
 than breaking up; the same mix still writes the same bytes. See
-[the dither scenarios](../features/dither.feature).
+[the dither scenarios](../features/dither.feature). LOOP ONLY, while the
+arrangement has a loop, makes BOUNCE and STEMS write only its bars, IN to OUT,
+each starting from silence as playback from IN does and keeping its tail. The
+format, depth and DITHER are remembered between launches; LOOP ONLY is not:
+WHOLE SONG is back at the next launch.
 
 STEMS asks for a folder and writes every track, then every return, as a file
 of its own in the chosen type: `01 Lead.wav`, `02 Bass.wav`, ... Each is the

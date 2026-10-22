@@ -59,6 +59,20 @@ Feature: Export as MP3, Ogg, stems and a scope video
     And STEMS and SCOPE VIDEO are usable buttons
 
   # bdd_export_formats
+  Scenario: LOOP ONLY on the rail exports the loop's bars
+    Given no loop, LOOP ONLY on the rail is out of play and WHOLE SONG is lit
+    When the loop is bar 2 and LOOP ONLY is picked on the rail
+    Then BOUNCE writes the same file as an export of bar 2, shorter than the song
+    When the loop is turned off
+    Then BOUNCE writes the whole song again
+
+  # bdd_export_formats
+  Scenario: The export's choices are remembered
+    Given the producer has chosen WAV at 32-bit float, with DITHER on
+    Then the choices are kept for the next launch
+    And LAYOUT · RESET in SETTINGS leaves them
+
+  # bdd_export_formats
   Scenario: A scope video of the tracks over the master
     Given three CLAP tracks at different pitches
     When the scope video is exported

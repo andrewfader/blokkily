@@ -95,12 +95,14 @@ void AppController::refreshMidiPorts() {
 bool AppController::selectMidiPort(int index) {
     if (index < 0) {
         midi_input_->close();
+        rememberMidiInput();
         emit midiChanged();
         return true;
     }
     std::string error;
     if (!midi_input_->open(static_cast<std::size_t>(index), &error)) {
         status_ = QString("MIDI input unavailable · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), status_);
         emit statusChanged();
         emit midiChanged();
         return false;
@@ -111,6 +113,7 @@ bool AppController::selectMidiPort(int index) {
     (void)ensureAudioRunning();
     meter_timer_.start();
     status_ = QString("MIDI · %1").arg(midiPort());
+    rememberMidiInput();
     emit statusChanged();
     emit midiChanged();
     return true;

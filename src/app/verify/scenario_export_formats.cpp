@@ -196,6 +196,53 @@ void run_export_formats(VerifyContext& ctx) {
     layout();
     check(dither && !dither->isEnabled());
     ctx.reached("export formats: DITHER dithers a 16-bit WAV, and only that");
+    // The choices are remembered between launches, and LAYOUT · RESET,
+    // which is the layout's, leaves them.
+    check(c.uiSettings().value("ui/exportDepth").toString() == "FLOAT32" &&
+          c.uiSettings().value("ui/exportFormat").toString() == "WAV");
+    c.resetUiSettings();
+    layout();
+    check(ctx.window->property("exportDepth").toString() == "FLOAT32" &&
+          c.uiSettings().value("ui/exportDither").toBool());
+    // RESET let the bars auto-hide again; the gate reads them docked.
+    c.setUiSetting(QStringLiteral("ui/autoHideRail"), false);
+    c.setUiSetting(QStringLiteral("ui/autoHideMixer"), false);
+    layout();
+    ctx.reached("export formats: the export's choices are remembered, and RESET keeps them");
+
+    // LOOP on the rail: BOUNCE writes the loop's bars only, as a range
+    // export of them does; with no loop it is out of play.
+    {
+        auto* loop_only = ctx.named("exportLoopOnlyButton");
+        check(VerifyContext::usable(loop_only, 60, 16) && loop_only && !loop_only->isEnabled());
+        check(VerifyContext::usable(ctx.named("exportWholeSongButton"), 60, 16));
+        auto& song = ctx.song;
+        song.setLoopStartBar(1);
+        song.setLoopEndBar(2);
+        layout();
+        check(loop_only && loop_only->isEnabled());
+        if (loop_only) ctx.click_at(loop_only, {loop_only->width() / 2, loop_only->height() / 2}, Qt::LeftButton);
+        layout();
+        check(ctx.window->property("exportsLoop").toBool());
+        QVariant done;
+        QMetaObject::invokeMethod(ctx.window, "exportTo", Q_RETURN_ARG(QVariant, done),
+                                  Q_ARG(QVariant, stem_base + "-loop.wav"));
+        check(done.toBool());
+        check(c.exportAudioRange(stem_base + "-bar2.wav", 1, 2, "FLOAT32"));
+        check(c.exportAudioFile(stem_base + "-whole.wav", "FLOAT32"));
+        const auto loop_wave = blokkily::read_wave((stem_base + "-loop.wav").toStdString(), &error);
+        const auto bar_wave = blokkily::read_wave((stem_base + "-bar2.wav").toStdString(), &error);
+        const auto whole_wave = blokkily::read_wave((stem_base + "-whole.wav").toStdString(), &error);
+        check(loop_wave && bar_wave && whole_wave);
+        if (loop_wave && bar_wave && whole_wave) {
+            std::cerr << "loop export " << loop_wave->frames << " frames, whole song " << whole_wave->frames << '\n';
+            check(loop_wave->interleaved == bar_wave->interleaved && loop_wave->frames < whole_wave->frames);
+        }
+        song.setLoopEnabled(false);
+        layout();
+        check(!ctx.window->property("exportsLoop").toBool());
+    }
+    ctx.reached("export formats: LOOP bounces the loop's bars only");
 
     // Stems: one file per track, named after it, each its own bus.
     const QString stems_dir = stem_base + "-stems";

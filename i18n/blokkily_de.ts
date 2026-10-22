@@ -986,6 +986,18 @@
         <translation>SCOPE-VIDEO</translation>
     </message>
     <message>
+        <source>WHOLE SONG</source>
+        <translation>GANZER SONG</translation>
+    </message>
+    <message>
+        <source>LOOP ONLY</source>
+        <translation>NUR LOOP</translation>
+    </message>
+    <message>
+        <source>Export only the loop&apos;s bars, from IN to OUT</source>
+        <translation>Nur die Takte des Loops exportieren, von EIN bis AUS</translation>
+    </message>
+    <message>
         <source>MIDI IN</source>
         <translation>MIDI EIN</translation>
     </message>

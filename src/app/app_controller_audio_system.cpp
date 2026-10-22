@@ -276,9 +276,11 @@ void AppController::setUiSetting(const QString& key, const QVariant& value) {
 }
 
 void AppController::resetUiSettings() {
-    // RESET puts the layout back; the theme and the language are choices,
-    // not layout.
+    // RESET puts the layout back; the theme, the language and how exports
+    // are written are choices, not layout.
     for (const auto& key : uiSettings().keys())
-        if (key != QStringLiteral("ui/theme") && key != QStringLiteral("ui/language")) storeSetting(key, {});
+        if (key != QStringLiteral("ui/theme") && key != QStringLiteral("ui/language") &&
+            !key.startsWith(QStringLiteral("ui/export")))
+            storeSetting(key, {});
     emit uiSettingsChanged();
 }

@@ -74,6 +74,10 @@ void run_notices(VerifyContext& ctx) {
     check(c.saveProjectFile(work + QStringLiteral("/kept.blok")));
     layout();
     check(last().value("level") == "done" && last().value("text").toString().contains("kept.blok"));
+    // A second save replaces the first's note rather than stacking on it.
+    check(c.saveProjectFile(work + QStringLiteral("/kept-again.blok")));
+    layout();
+    check(c.notices().size() == 1 && last().value("text").toString().contains("kept-again.blok"));
     VerifyContext::settle(600);
     layout();
     check(c.notices().isEmpty());

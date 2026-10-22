@@ -19,7 +19,11 @@ QVariantList AppController::notices() const {
 
 void AppController::notify(const QString& level, const QString& text) {
     if (text.isEmpty()) return;
-    std::erase_if(notices_, [&](const Notice& notice) { return notice.text == text; });
+    // The same text moves to the end; a finished piece of work replaces the
+    // one before it, so a run of exports leaves one note, not a column.
+    std::erase_if(notices_, [&](const Notice& notice) {
+        return notice.text == text || (level == QStringLiteral("done") && notice.level == level);
+    });
     notices_.push_back({next_notice_++, level, text});
     while (notices_.size() > most_notices) notices_.erase(notices_.begin());
     emit noticesChanged();

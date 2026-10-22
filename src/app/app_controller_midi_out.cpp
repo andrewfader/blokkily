@@ -15,6 +15,7 @@
 
 namespace {
 constexpr auto clock_setting = "midi/clockPort";
+constexpr auto input_setting = "midi/inputPort";
 
 const blokkily::InstrumentSlot* midi_out_slot(const SongModel* song, int track) {
     if (song == nullptr || track < 0 ||
@@ -108,12 +109,7 @@ bool AppController::setMidiClockPort(const QString& port) {
     midi_clock_port_ = clock_output_ ? port : QString();
     status_ = midi_clock_port_.isEmpty() ? QStringLiteral("MIDI clock · off")
                                          : QString("MIDI clock · %1").arg(midi_clock_port_);
-    if (remember_clock_) {
-        const auto settings = clock_settings_file_.isEmpty()
-                                  ? std::make_unique<QSettings>()
-                                  : std::make_unique<QSettings>(clock_settings_file_, QSettings::IniFormat);
-        settings->setValue(clock_setting, midi_clock_port_);
-    }
+    rememberMidiPort(clock_setting, midi_clock_port_);
     emit statusChanged();
     emit midiChanged();
     return true;
@@ -124,11 +120,39 @@ void AppController::rememberMidiClock(const QString& settings_file) {
     clock_settings_file_ = settings_file;
 }
 
+void AppController::rememberMidiPort(const char* key, const QString& port) {
+    if (!remember_clock_) return;
+    const auto settings = clock_settings_file_.isEmpty()
+                              ? std::make_unique<QSettings>()
+                              : std::make_unique<QSettings>(clock_settings_file_, QSettings::IniFormat);
+    settings->setValue(key, port);
+}
+
+QString AppController::rememberedMidiPort(const char* key) const {
+    return (clock_settings_file_.isEmpty()
+                ? QSettings().value(key)
+                : QSettings(clock_settings_file_, QSettings::IniFormat).value(key))
+        .toString();
+}
+
 void AppController::restoreMidiClock() {
-    if (!remember_clock_ || !midi_clock_port_.isEmpty()) return;
-    const QString port = (clock_settings_file_.isEmpty()
-                              ? QSettings().value(clock_setting)
-                              : QSettings(clock_settings_file_, QSettings::IniFormat).value(clock_setting))
-                             .toString();
-    if (!port.isEmpty() && midi_out_ports_.contains(port)) (void)setMidiClockPort(port);
+    if (!remember_clock_) return;
+    if (midi_clock_port_.isEmpty()) {
+        const QString port = rememberedMidiPort(clock_setting);
+        if (!port.isEmpty() && midi_out_ports_.contains(port)) (void)setMidiClockPort(port);
+    }
+    // The keyboard played last time is opened again once it is listed.
+    if (!midi_input_->is_open()) {
+        const auto index = midi_ports_.indexOf(rememberedMidiPort(input_setting));
+        if (index >= 0 && !rememberedMidiPort(input_setting).isEmpty()) {
+            restoring_input_ = true;
+            (void)selectMidiPort(static_cast<int>(index));
+            restoring_input_ = false;
+        }
+    }
+}
+
+void AppController::rememberMidiInput() {
+    // Chosen by the producer, not reopened from what was remembered.
+    if (!restoring_input_) rememberMidiPort(input_setting, midi_input_->is_open() ? midiPort() : QString());
 }

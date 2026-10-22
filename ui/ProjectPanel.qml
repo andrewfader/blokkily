@@ -16,6 +16,9 @@ ColumnLayout {
     signal exportDitherToggled()
     // Whether the next bounce has the metronome in it, owned by the window.
     property bool exportClick: false
+    // Whether BOUNCE and STEMS write only the loop's bars, owned by the window.
+    property bool exportLoopOnly: false
+    signal exportLoopOnlyToggled()
     signal newRequested()
     signal openRequested()
     signal saveRequested()
@@ -165,6 +168,29 @@ ColumnLayout {
         Chip { objectName: "exportScopeButton"; text: qsTr("SCOPE VIDEO")
             Layout.fillWidth: true; accent: Theme.amber
             onClicked: root.exportScopeRequested() }
+    }
+    // What BOUNCE and STEMS write: the whole song, or only the loop's bars,
+    // IN to OUT, while there is a loop.
+    RowLayout {
+        Layout.fillWidth: true; spacing: 4
+        Chip {
+            objectName: "exportWholeSongButton"
+            Layout.fillWidth: true; implicitHeight: 20
+            text: qsTr("WHOLE SONG")
+            accent: Theme.amber
+            on: !(root.exportLoopOnly && songModel.loopEnabled)
+            onClicked: if (root.exportLoopOnly) root.exportLoopOnlyToggled()
+        }
+        Chip {
+            objectName: "exportLoopOnlyButton"
+            Layout.fillWidth: true; implicitHeight: 20
+            text: qsTr("LOOP ONLY")
+            accent: Theme.amber
+            enabled: songModel.loopEnabled
+            on: root.exportLoopOnly && songModel.loopEnabled
+            hint: qsTr("Export only the loop's bars, from IN to OUT")
+            onClicked: if (!root.exportLoopOnly) root.exportLoopOnlyToggled()
+        }
     }
     RowLayout {
         Layout.fillWidth: true; spacing: 4

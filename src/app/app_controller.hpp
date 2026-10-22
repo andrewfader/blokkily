@@ -236,12 +236,14 @@ public:
     // is the studio's, not the song's: a window that remembers it keeps the
     // choice in the user's settings.
     Q_INVOKABLE bool setMidiClockPort(const QString& port);
-    // Makes this window remember the clock port between launches, in the
-    // user's settings or, for a test, in the INI file `settings_file`. Only
-    // the first window remembers it, so two never clock the same gear.
+    // Makes this window remember its MIDI ports between launches - where the
+    // clock goes and which keyboard plays it - in the user's settings or, for
+    // a test, in the INI file `settings_file`. Only the first window
+    // remembers them, so two never clock the same gear.
     void rememberMidiClock(const QString& settings_file = {});
     // Sends the clock to the remembered port when it is listed and the clock
-    // is off; a port that is not plugged in stays remembered for later.
+    // is off, and opens the remembered keyboard when it is listed and no
+    // input is open; a port that is not plugged in stays remembered for later.
     void restoreMidiClock();
     // The output `port` names, opened when first asked for; nullptr when it
     // cannot be opened. Shared with every MIDI Out instrument playing it.
@@ -450,7 +452,8 @@ public:
     // toBar of -1 is the song's end. The stretch starts from silence, as
     // playback from fromBar does, and keeps its tail.
     Q_INVOKABLE bool exportAudioRange(const QString& path, int fromBar, int toBar = -1,
-                                      const QString& depth = "FLOAT32");
+                                      const QString& depth = "FLOAT32", bool withClick = false,
+                                      bool dither = false);
     // Asked between the blocks of every render (an export, a stem export, an
     // analysis); true abandons it. The MCP server answers whether the agent
     // that asked for the render has hung up.
@@ -584,7 +587,7 @@ public:
     // The stems of bars fromBar up to (not including) toBar; -1 is the end.
     Q_INVOKABLE bool exportTrackFilesRange(const QString& directory, int fromBar, int toBar = -1,
                                            const QString& format = "WAV",
-                                           const QString& depth = "PCM24");
+                                           const QString& depth = "PCM24", bool dither = false);
     // An oscilloscope video (corrscope's kind) of the song: every track's
     // waveform in a lane of its own and the master's beneath them, with the
     // master bounce as its sound, encoded by ffmpeg as H.264 and AAC.
@@ -1116,6 +1119,12 @@ private:
     std::shared_ptr<blokkily::MidiOutput> clock_output_;
     bool remember_clock_ = false;
     QString clock_settings_file_;
+    // True while the remembered keyboard is being opened again, which is not
+    // a choice to remember.
+    bool restoring_input_ = false;
+    void rememberMidiPort(const char* key, const QString& port);
+    QString rememberedMidiPort(const char* key) const;
+    void rememberMidiInput();
     // Makes the factory create MIDI Out instruments from this controller's
     // outputs (blokkily::midi_out_format).
     void registerMidiOut();

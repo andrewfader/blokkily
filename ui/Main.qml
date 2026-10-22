@@ -62,15 +62,33 @@ ApplicationWindow {
         viewBeforeSettings = view
         return "SETTINGS"
     }
-    // Bit depth the next bounce is written at.
-    property string exportDepth: "PCM24"
-    // The file a bounce or stem export is written as: WAV, MP3 or OGG.
-    property string exportFormat: "WAV"
-    // Whether a 16- or 24-bit WAV is dithered (on, as mastering expects).
-    property bool exportDither: true
+    // How the next export is written, remembered between launches (and
+    // kept by LAYOUT · RESET, which is the layout's): the bit depth, the
+    // file (WAV, MP3 or OGG), and whether a 16- or 24-bit WAV is dithered
+    // (on, as mastering expects).
+    readonly property string exportDepth: ui["ui/exportDepth"] !== undefined ? ui["ui/exportDepth"] : "PCM24"
+    readonly property string exportFormat: ui["ui/exportFormat"] !== undefined ? ui["ui/exportFormat"] : "WAV"
+    readonly property bool exportDither: uiFlag("ui/exportDither", true)
     // Whether the next bounce has the metronome in it (off: the click is a
     // guide, not part of the mix).
     property bool exportClick: false
+    // Whether BOUNCE and STEMS write only the loop's bars (while there is a
+    // loop); the whole song otherwise.
+    property bool exportLoopOnly: false
+    readonly property bool exportsLoop: exportLoopOnly && songModel.loopEnabled
+    // What BOUNCE writes to `path`, as the rail has it set.
+    function exportTo(path) {
+        return exportsLoop
+            ? appController.exportAudioRange(path, songModel.loopStartBar, songModel.loopEndBar,
+                                             exportDepth, exportClick, exportDither)
+            : appController.exportAudioFile(path, exportDepth, exportClick, exportDither)
+    }
+    function exportStemsTo(folder) {
+        return exportsLoop
+            ? appController.exportTrackFilesRange(folder, songModel.loopStartBar, songModel.loopEndBar,
+                                                  exportFormat, exportDepth, exportDither)
+            : appController.exportTrackFiles(folder, exportFormat, exportDepth, exportDither)
+    }
     readonly property bool showTracker: view === "ALL" || view === "TRACKER"
     readonly property bool showRoll: view === "ALL" || view === "PIANO"
     readonly property bool showScore: view === "SCORE"
@@ -349,14 +367,12 @@ ApplicationWindow {
                    : [qsTr("Wave audio (*.wav)")]
         fileMode: FileDialog.SaveFile
         defaultSuffix: root.exportFormat.toLowerCase()
-        onAccepted: appController.exportAudioFile(selectedFile.toString(), root.exportDepth,
-                                                  root.exportClick, root.exportDither)
+        onAccepted: root.exportTo(selectedFile.toString())
     }
     FolderDialog {
         id: exportStemsDialog
         title: qsTr("Export every track as a file of its own")
-        onAccepted: appController.exportTrackFiles(selectedFolder.toString(), root.exportFormat,
-                                                   root.exportDepth, root.exportDither)
+        onAccepted: root.exportStemsTo(selectedFolder.toString())
     }
     FileDialog {
         id: exportScopeDialog
@@ -717,14 +733,16 @@ ApplicationWindow {
                 ProjectPanel {
                     Layout.fillWidth: true
                     exportDepth: root.exportDepth
-                    onExportDepthPicked: depth => root.exportDepth = depth
+                    onExportDepthPicked: depth => appController.setUiSetting("ui/exportDepth", depth)
                     exportFormat: root.exportFormat
                     exportDither: root.exportDither
-                    onExportDitherToggled: root.exportDither = !root.exportDither
-                    onExportFormatPicked: format => root.exportFormat = format
+                    onExportDitherToggled: appController.setUiSetting("ui/exportDither", !root.exportDither)
+                    onExportFormatPicked: format => appController.setUiSetting("ui/exportFormat", format)
                     onExportStemsRequested: exportStemsDialog.open()
                     onExportScopeRequested: exportScopeDialog.open()
                     exportClick: root.exportClick
+                    exportLoopOnly: root.exportLoopOnly
+                    onExportLoopOnlyToggled: root.exportLoopOnly = !root.exportLoopOnly
                     onExportClickToggled: root.exportClick = !root.exportClick
                     onNewRequested: root.whenDiscarded(function() { appController.newProject() })
                     onOpenRequested: root.openProject(false)
