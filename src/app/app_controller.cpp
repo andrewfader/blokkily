@@ -352,6 +352,24 @@ void AppController::pollMeters() {
     std::vector<float> returns(engine_->return_count(), 0.0F);
     for (std::size_t bus = 0; bus < returns.size(); ++bus) returns[bus] = engine_->return_peak(bus);
     song_->setReturnMeters(returns);
+    pollEngineHealth();
+}
+
+void AppController::pollEngineHealth() {
+    if (!audio_output_ || !audio_output_->is_running()) return;
+    // The worst block of the last few polls, falling back slowly, so a
+    // spike is seen rather than gone before it is drawn.
+    const double load = std::max(static_cast<double>(audio_output_->take_peak_load()), dsp_load_ * 0.92);
+    const int dropped = static_cast<int>(audio_output_->dropouts());
+    const bool moved = std::lround(load * 100.0) != std::lround(dsp_load_ * 100.0) || dropped != dropouts_;
+    dsp_load_ = load;
+    // Said once however many follow: the mixer's header counts them.
+    if (dropped > dropouts_)
+        notify(QStringLiteral("warning"),
+               QStringLiteral("The audio device ran dry and the sound dropped out. A larger buffer "
+                              "in SETTINGS gives the mix more time."));
+    dropouts_ = dropped;
+    if (moved) emit engineHealthChanged();
 }
 
 bool AppController::builtFromCurrentGraph() const {

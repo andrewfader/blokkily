@@ -935,6 +935,18 @@
         <translation>MIXER</translation>
     </message>
     <message>
+        <source>DSP %1%</source>
+        <translation>DSP %1%</translation>
+    </message>
+    <message>
+        <source> · %1 DROP</source>
+        <translation> · %1 AUSF.</translation>
+    </message>
+    <message>
+        <source>The share of each audio block&apos;s time the mix takes to render, at its recent worst. Past 100% the device runs dry and drops out; a larger buffer in SETTINGS gives it more time.</source>
+        <translation>Der Anteil der Zeit jedes Audioblocks, den der Mix zum Rendern braucht, zuletzt im schlechtesten Fall. Über 100% läuft das Gerät leer und setzt aus; ein größerer Puffer in EINSTELLUNGEN gibt ihm mehr Zeit.</translation>
+    </message>
+    <message>
         <source> TRACK</source>
         <translation> SPUR</translation>
     </message>

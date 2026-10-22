@@ -21,6 +21,20 @@ Rectangle {
             Layout.fillWidth: true
             SectionLabel { text: qsTr("MIXER") }
             Item { Layout.fillWidth: true }
+            // How hard the audio device is pushed: amber past 70%, red at a
+            // dropout or past 90%.
+            Label {
+                objectName: "dspLoad"
+                readonly property int percent: Math.round(appController.dspLoad * 100)
+                text: qsTr("DSP %1%").arg(percent)
+                      + (appController.dropouts > 0 ? qsTr(" · %1 DROP").arg(appController.dropouts) : "")
+                color: appController.dropouts > 0 || percent > 90 ? Theme.record
+                     : percent > 70 ? Theme.amber : Theme.muted
+                font.pixelSize: 9; font.letterSpacing: 0.8; font.family: Theme.mono
+                HoverHandler { id: dspHover }
+                ToolTip.visible: dspHover.hovered; ToolTip.delay: 500
+                ToolTip.text: qsTr("The share of each audio block's time the mix takes to render, at its recent worst. Past 100% the device runs dry and drops out; a larger buffer in SETTINGS gives it more time.")
+            }
             Label {
                 objectName: "mixerTrackCount"
                 text: songModel.trackCount + (songModel.trackCount === 1 ? qsTr(" TRACK") : qsTr(" TRACKS"))

@@ -63,6 +63,11 @@ class AppController final : public QObject {
     // level "error", "warning" or "done". An error or a warning stays until
     // it is dismissed; a "done" goes by itself after a moment.
     Q_PROPERTY(QVariantList notices READ notices NOTIFY noticesChanged)
+    // How hard the audio device is pushed: the share of each block's time the
+    // mix takes to render (1.0 is all of it), held at its recent worst, and
+    // the dropouts the device has reported since it opened.
+    Q_PROPERTY(double dspLoad READ dspLoad NOTIFY engineHealthChanged)
+    Q_PROPERTY(int dropouts READ dropouts NOTIFY engineHealthChanged)
     Q_PROPERTY(QVariantList plugins READ plugins NOTIFY pluginsChanged)
     Q_PROPERTY(QVariantList browserPlugins READ browserPlugins NOTIFY browserChanged)
     Q_PROPERTY(QString browserFilter READ browserFilter WRITE setBrowserFilter
@@ -176,6 +181,8 @@ public:
     ~AppController() override;
     QString status() const { return status_; }
     QVariantList notices() const;
+    double dspLoad() const noexcept { return dsp_load_; }
+    int dropouts() const noexcept { return dropouts_; }
     Q_INVOKABLE void dismissNotice(int id);
     // Tells the producer something: shown at once, over the editors. The same
     // text again moves to the end rather than showing twice.
@@ -847,6 +854,7 @@ public:
 
 signals:
     void noticesChanged();
+    void engineHealthChanged();
     void patternPlayheadChanged();
     void followPlaybackChanged();
     void statusChanged();
@@ -1031,6 +1039,10 @@ private:
         QString text;
     };
     std::vector<Notice> notices_;
+    double dsp_load_ = 0.0;
+    int dropouts_ = 0;
+    // Reads the device's load and dropouts, on the meter timer.
+    void pollEngineHealth();
     int next_notice_ = 1;
     // The processors the last engine could not load, told once rather than
     // at every rebuild that still cannot load them.

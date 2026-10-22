@@ -153,6 +153,11 @@ public:
     // worth knowing rather than assuming.
     [[nodiscard]] std::uint64_t callback_count() const noexcept;
     [[nodiscard]] unsigned int largest_block() const noexcept;
+    // The largest share of a block's time the mix took to render since this
+    // was last asked (1.0 is all of it: the device then runs dry), and the
+    // dropouts the device has reported since it opened.
+    [[nodiscard]] float take_peak_load() noexcept;
+    [[nodiscard]] std::uint64_t dropouts() const noexcept;
 
 private:
     struct Impl;

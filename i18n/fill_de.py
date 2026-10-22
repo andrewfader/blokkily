@@ -127,6 +127,10 @@ DE = {
     "Zoom the arrangement in": "Arrangement vergrößern",
     "Zoom the arrangement out": "Arrangement verkleinern",
     "Dismiss": "Schließen",
+    "Stop the export; nothing is written (Escape)": "Den Export anhalten; nichts wird geschrieben (Esc)",
+    "DSP %1%": "DSP %1%", " · %1 DROP": " · %1 AUSF.",
+    "The share of each audio block's time the mix takes to render, at its recent worst. Past 100% the device runs dry and drops out; a larger buffer in SETTINGS gives it more time.":
+        "Der Anteil der Zeit jedes Audioblocks, den der Mix zum Rendern braucht, zuletzt im schlechtesten Fall. Über 100% läuft das Gerät leer und setzt aus; ein größerer Puffer in EINSTELLUNGEN gibt ihm mehr Zeit.",
     "RENAME PATTERN": "PATTERN UMBENENNEN", "RENAME TRACK": "SPUR UMBENENNEN",
     "Keep the name (Escape)": "Den Namen behalten (Esc)", "Use the new name (Return)": "Den neuen Namen nehmen (Eingabe)",
     "Colour": "Farbe", "Automatic": "Automatisch", "Red": "Rot", "Orange": "Orange", "Amber": "Bernstein",

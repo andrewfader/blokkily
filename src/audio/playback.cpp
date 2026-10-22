@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -102,6 +103,10 @@ struct RtAudioOutput::Impl {
     // nothing here allocates, locks, or blocks the callback.
     std::atomic<std::uint64_t> callbacks{0};
     std::atomic<unsigned int> largest{0};
+    // The worst share of a block's time the mix took since it was read, and
+    // the dropouts (underruns, overruns, xruns) the server has reported.
+    std::atomic<float> peak_load{0.0F};
+    std::atomic<std::uint64_t> dropouts{0};
     // How many input channels the callback is handed: what the duplex stream
     // opened with, or what the deterministic device models.
     unsigned int input_channels = 0;
@@ -167,12 +172,22 @@ struct RtAudioOutput::Impl {
         while (frames > seen &&
                !largest.compare_exchange_weak(seen, frames, std::memory_order_relaxed)) {
         }
+        const auto began = std::chrono::steady_clock::now();
         source->process(output, block);
+        const auto rate = info.sample_rate;
+        if (rate == 0 || frames == 0) return;
+        const std::chrono::duration<double> took = std::chrono::steady_clock::now() - began;
+        const auto load = static_cast<float>(took.count() * rate / frames);
+        float worst = peak_load.load(std::memory_order_relaxed);
+        while (load > worst &&
+               !peak_load.compare_exchange_weak(worst, load, std::memory_order_relaxed)) {
+        }
     }
 
     static int callback(void* output, void* input, unsigned int frames, double,
-                        RtAudioStreamStatus, void* user) {
+                        RtAudioStreamStatus status, void* user) {
         auto* self = static_cast<Impl*>(user);
+        if (status != 0) self->dropouts.fetch_add(1, std::memory_order_relaxed);
         auto* samples = static_cast<float*>(output);
         // RtAudio hands a duplex stream's input non-interleaved, channel by
         // channel, exactly as InputBlock reads it.
@@ -245,6 +260,13 @@ bool RtAudioOutput::Impl::open_jack(std::string* error) {
     }
     jack_input.assign(jack_inputs.size() * jack_input_capacity, 0.0F);
     input_channels = static_cast<unsigned int>(jack_inputs.size());
+    (void)jack_set_xrun_callback(
+        jack,
+        [](void* user) noexcept -> int {
+            static_cast<Impl*>(user)->dropouts.fetch_add(1, std::memory_order_relaxed);
+            return 0;
+        },
+        this);
     if (jack_set_process_callback(jack, &Impl::jack_process, this) != 0) {
         if (error) *error = "JACK refused the process callback";
         close_jack();
@@ -307,6 +329,14 @@ std::uint64_t RtAudioOutput::callback_count() const noexcept {
 
 unsigned int RtAudioOutput::largest_block() const noexcept {
     return impl_->largest.load(std::memory_order_relaxed);
+}
+
+float RtAudioOutput::take_peak_load() noexcept {
+    return impl_->peak_load.exchange(0.0F, std::memory_order_relaxed);
+}
+
+std::uint64_t RtAudioOutput::dropouts() const noexcept {
+    return impl_->dropouts.load(std::memory_order_relaxed);
 }
 
 RtAudioOutput::RtAudioOutput(Mode mode, unsigned int negotiated_rate)

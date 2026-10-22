@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 
 #include <algorithm>
+#include <iostream>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -103,6 +104,15 @@ void run_swing(VerifyContext& ctx) {
     check(press("playButton"));
     check(transport.playing());
     const auto heard = listen(3 * sixteenth_samples);
+    // The blocks just rendered show as the device's load in the mixer's header.
+    VerifyContext::settle(120);
+    lay_out();
+    auto* dsp = ctx.named("dspLoad");
+    std::cerr << "dsp load " << controller.dspLoad() << " reads "
+              << (dsp ? dsp->property("text").toString().toStdString() : "nothing") << '\n';
+    check(controller.dspLoad() > 0.0 && dsp != nullptr && dsp->isVisible()
+          && dsp->property("text").toString().startsWith("DSP ")
+          && VerifyContext::reads_whole(dsp, dsp->property("text").toString()));
     check(press("playButton"));
     (void)ctx.pump();
     check(peak_at(heard, 0) > 0.05F);
