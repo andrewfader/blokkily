@@ -20,6 +20,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLocalSocket>
+#include <QMouseEvent>
 #include <QRegularExpression>
 #include <QTimer>
 
@@ -291,6 +292,40 @@ void run_loading(VerifyContext& ctx) {
         details << " | export peak=" << peak;
     }
     reached("loading: an export writes the same file whether its progress is shown or not");
+
+    // CANCEL on an export's progress, pressed a few frames in: the export
+    // stops, nothing of it is left, and the window says so.
+    {
+        progress->setTiming(0, 0);
+        const QString abandoned = QFileInfo(exported).absolutePath() + "/loading-export-cancelled.wav";
+        QFile::remove(abandoned);
+        int drawn = 0;
+        bool offered = false;
+        on_frame = [&] {
+            if (++drawn != 3) return;
+            auto* chip = ctx.named("cancelLoad");
+            offered = chip != nullptr && chip->isVisible() && VerifyContext::usable(chip, 40, 18);
+            if (chip == nullptr) return;
+            // A press as the device would send it, to the window, held back
+            // from everything but CANCEL.
+            const QPointF at = chip->mapToScene({chip->width() / 2, chip->height() / 2});
+            QCoreApplication::postEvent(window, new QMouseEvent(QEvent::MouseButtonPress, at, at,
+                                                                window->mapToGlobal(at.toPoint()),
+                                                                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier));
+            QCoreApplication::postEvent(window, new QMouseEvent(QEvent::MouseButtonRelease, at, at,
+                                                                window->mapToGlobal(at.toPoint()),
+                                                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier));
+        };
+        const bool written = controller.exportAudioFile(abandoned, "FLOAT32");
+        on_frame = nullptr;
+        lay_out();
+        const auto notices = controller.notices();
+        std::cerr << "cancel: offered " << offered << ", written " << written << ", frames " << drawn << '\n';
+        check(offered && !written && !QFile::exists(abandoned) && drawn < 90);
+        check(!notices.isEmpty() && notices.back().toMap().value("text").toString().contains("cancelled"));
+        check(!progress->active() && !progress->cancellable());
+    }
+    reached("loading: CANCEL stops an export and leaves nothing behind");
 
     // ---- the plugin scan ---------------------------------------------------
     // A folder of its own beside the gate's artifacts (a plugin must be on a

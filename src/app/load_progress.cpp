@@ -2,6 +2,9 @@
 
 #include <QCoreApplication>
 #include <QEvent>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QWindow>
 #include <QTimer>
 
 #include <cmath>
@@ -45,8 +48,24 @@ void LoadProgress::begin(const QString& title) {
     emit holdRequests(true);
 }
 
+void LoadProgress::allowCancel() {
+    if (depth_ == 0 || cancellable_) return;
+    cancellable_ = true;
+    emit changed();
+}
+
+void LoadProgress::cancel() {
+    if (!cancellable_ || cancel_requested_) return;
+    cancel_requested_ = true;
+    detail_ = QStringLiteral("CANCELLING…");
+    emit changed();
+}
+
 void LoadProgress::end() {
     if (depth_ == 0 || --depth_ > 0) return;
+    cancellable_ = false;
+    cancel_requested_ = false;
+    cancel_area_ = {};
     const bool was_shown = shown_;
     if (was_shown) QCoreApplication::instance()->removeEventFilter(this);
     shown_ = false;
@@ -106,6 +125,16 @@ void LoadProgress::pump() {
 }
 
 bool LoadProgress::eventFilter(QObject* watched, QEvent* event) {
+    // CANCEL is the one thing that can be pressed, and Escape the one key:
+    // read off what reaches the window itself, before it is handed on.
+    if (cancellable_ && qobject_cast<QWindow*>(watched) != nullptr) {
+        if (event->type() == QEvent::KeyPress &&
+            static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape)
+            cancel();
+        if (event->type() == QEvent::MouseButtonRelease &&
+            cancel_area_.contains(static_cast<QMouseEvent*>(event)->scenePosition()))
+            cancel();
+    }
     switch (event->type()) {
     // Nothing can be played, clicked or typed into a half-loaded song, and
     // the window is not closed under the work.

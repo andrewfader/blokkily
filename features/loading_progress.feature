@@ -80,6 +80,13 @@ Feature: The window shows what it is loading, and opens quickly
     Then the second export draws no frame
     And the two files, read back from disk, hold the same samples, and they are not silent
 
+  # bdd_loading_progress "loading: CANCEL stops an export and leaves nothing behind"
+  Scenario: CANCEL stops an export
+    Given an export showing its progress
+    When CANCEL on it is pressed a few frames in
+    Then the export stops, no file is left where it was going, and a notice says it was cancelled
+    And the progress closes
+
   # bdd_loading_progress "loading: the plugin scan fills a strip along the transport bar"
   Scenario: The plugin scan is shown along the transport bar
     Given a folder with a plugin that scans and one that never returns

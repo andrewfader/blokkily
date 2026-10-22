@@ -116,6 +116,34 @@ Rectangle {
                 font.pixelSize: 11; font.family: Theme.mono
                 elide: Text.ElideMiddle
             }
+            // An export can be abandoned: nothing of it is left on disk.
+            // Every other press is held back from the work, so the progress
+            // is told where this one is.
+            Item {
+                width: parent.width
+                height: cancelChip.height
+                visible: overlay.progress.cancellable
+                Chip {
+                    id: cancelChip
+                    objectName: "cancelLoad"
+                    anchors.right: parent.right
+                    text: qsTr("CANCEL"); implicitHeight: 22
+                    accent: Theme.record
+                    on: overlay.progress.cancelRequested
+                    hint: qsTr("Stop the export; nothing is written (Escape)")
+                    onClicked: overlay.progress.cancel()
+                    function publish() {
+                        const corner = mapToItem(null, 0, 0)
+                        overlay.progress.cancelArea = Qt.rect(corner.x, corner.y, width, height)
+                    }
+                    // Again at every report: by then the frame before it
+                    // has laid the card out.
+                    Connections {
+                        target: overlay.progress
+                        function onChanged() { if (cancelChip.visible) cancelChip.publish() }
+                    }
+                }
+            }
         }
     }
 }

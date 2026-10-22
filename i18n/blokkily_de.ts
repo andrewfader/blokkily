@@ -648,6 +648,17 @@
     </message>
 </context>
 <context>
+    <name>LoadingOverlay</name>
+    <message>
+        <source>CANCEL</source>
+        <translation>ABBRECHEN</translation>
+    </message>
+    <message>
+        <source>Stop the export; nothing is written (Escape)</source>
+        <translation>Den Export anhalten; nichts wird geschrieben (Esc)</translation>
+    </message>
+</context>
+<context>
     <name>LoopControls</name>
     <message>
         <source>LOOP</source>

@@ -19,6 +19,7 @@
 
 #include <QElapsedTimer>
 #include <QObject>
+#include <QRectF>
 #include <QString>
 
 #include <functional>
@@ -33,6 +34,13 @@ class LoadProgress final : public QObject {
     Q_PROPERTY(QString detail READ detail NOTIFY changed)
     // 0 to 1, or negative while there is nothing to count yet.
     Q_PROPERTY(double fraction READ fraction NOTIFY changed)
+    // The work can be abandoned (an export): CANCEL is offered, and Escape
+    // or a press on it asks the work to stop at its next block.
+    Q_PROPERTY(bool cancellable READ cancellable NOTIFY changed)
+    Q_PROPERTY(bool cancelRequested READ cancelRequested NOTIFY changed)
+    // Where CANCEL is in the window, which a press reaches while every other
+    // press is held back from the half-done work.
+    Q_PROPERTY(QRectF cancelArea MEMBER cancel_area_)
 
 public:
     // How long work runs before it is shown, and how often it then draws.
@@ -76,6 +84,11 @@ public:
     // at every percent, so what is drawn does not depend on how fast the
     // machine is.
     Q_INVOKABLE void setTiming(int reveal_ms, int frame_ms);
+    // Offers CANCEL for the open load; forgotten when it ends.
+    void allowCancel();
+    [[nodiscard]] bool cancellable() const noexcept { return cancellable_; }
+    [[nodiscard]] bool cancelRequested() const noexcept { return cancel_requested_; }
+    Q_INVOKABLE void cancel();
     // Runs `work` once the outermost scope has closed, on the next turn of the
     // event loop: what a cut-in owed the engine.
     void afterLoad(std::function<void()> work);
@@ -98,6 +111,9 @@ private:
     int depth_ = 0;
     bool shown_ = false;
     bool pumping_ = false;
+    bool cancellable_ = false;
+    bool cancel_requested_ = false;
+    QRectF cancel_area_;
     int frames_ = 0;
     int reveal_ms_ = default_reveal_ms;
     int frame_ms_ = default_frame_ms;

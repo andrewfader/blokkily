@@ -1136,6 +1136,12 @@ bool AppController::exportAudio(const QString& path, const QString& depth, bool 
     }
     std::string error;
     const auto report = bounceThroughEngine(local_path(path).toStdString(), format, options, &error);
+    if (!report && error == "cancelled") {
+        export_status_ = QStringLiteral("Export cancelled");
+        notify(QStringLiteral("done"), QStringLiteral("Export cancelled. Nothing was written."));
+        emit exportStatusChanged();
+        return false;
+    }
     if (!report) {
         export_status_ = QString("Export failed · %1").arg(QString::fromStdString(error));
         notify(QStringLiteral("error"), export_status_);
@@ -1165,10 +1171,16 @@ std::optional<blokkily::BounceReport> AppController::bounceThroughEngine(
     std::optional<blokkily::BounceReport> report;
     withEngineStopped([&](std::uint64_t tail) {
         options.progress = bounceProgress(engine_->sample_rate());
-        options.cancelled = render_cancel_;
+        options.cancelled = exportCancelled();
         report = bounce_song(*engine_, file, format, tail, options, error);
     });
     return report;
+}
+
+std::function<bool()> AppController::exportCancelled() {
+    // CANCEL on the window's progress, or the agent that asked hanging up.
+    progress_.allowCancel();
+    return [this] { return progress_.cancelRequested() || (render_cancel_ && render_cancel_()); };
 }
 
 void AppController::withEngineStopped(const std::function<void(std::uint64_t tail)>& work) {

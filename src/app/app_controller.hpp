@@ -1226,6 +1226,8 @@ private:
     // analyzeRender both render through.
     // Brings the song up to date, stops the device and runs `work` with the
     // tail every export is given, then starts the device again.
+    // Offers CANCEL on the export under way; true once it is pressed.
+    std::function<bool()> exportCancelled();
     void withEngineStopped(const std::function<void(std::uint64_t tail)>& work);
     std::optional<blokkily::BounceReport> bounceThroughEngine(
         const std::filesystem::path& file, blokkily::WaveFormat format,

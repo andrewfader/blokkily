@@ -78,10 +78,16 @@ bool AppController::exportStems(const QString& directory, const QString& format,
     std::optional<std::vector<blokkily::StemFile>> stems;
     withEngineStopped([&](std::uint64_t tail) {
         options.progress = bounceProgress(engine_->sample_rate());
-        options.cancelled = render_cancel_;
+        options.cancelled = exportCancelled();
         stems = blokkily::bounce_stems(*engine_, song_->song(), folder.toStdString(),
                                        wave_depth(depth), tail, options, &error);
     });
+    if (!stems && error == "cancelled") {
+        export_status_ = QStringLiteral("Stem export cancelled");
+        notify(QStringLiteral("done"), QStringLiteral("Stem export cancelled. Nothing was written."));
+        emit exportStatusChanged();
+        return false;
+    }
     if (!stems) {
         export_status_ = QString("Stem export failed · %1").arg(QString::fromStdString(error));
         notify(QStringLiteral("error"), export_status_);
