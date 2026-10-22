@@ -36,7 +36,7 @@ Rectangle {
             }
             // Turns the browser to its effects, where a click inserts here.
             Chip {
-                objectName: "addEffectButton"
+                objectName: "addEffectButton"; hint: qsTr("Show effects in the browser: a click there inserts it here")
                 text: qsTr("+ FX"); implicitHeight: 20
                 on: appController.browserKind === "effect"
                 onClicked: appController.setBrowserKind("effect")
@@ -45,10 +45,10 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true; spacing: 4
-            Chip { objectName: "recordRackOutput"; text: qsTr("RESAMPLE"); implicitHeight: 20
+            Chip { objectName: "recordRackOutput"; hint: qsTr("Record this rack's output to a new audio track while the song plays"); text: qsTr("RESAMPLE"); implicitHeight: 20
                 on: appController.outputRecordingArmed
                 onClicked: appController.toggleRackOutputRecording() }
-            Chip { objectName: "bounceRackOutput"; text: qsTr("STEM"); implicitHeight: 20
+            Chip { objectName: "bounceRackOutput"; hint: qsTr("Render this rack to audio on a new track"); text: qsTr("STEM"); implicitHeight: 20
                 onClicked: stemMenu.open()
                 Menu { id: stemMenu
                     MenuItem { text: qsTr("Bounce to new track"); onTriggered: appController.bounceRackInPlace(false) }
@@ -125,7 +125,7 @@ Rectangle {
                         }
                         Item { Layout.fillWidth: true }
                         Chip {
-                            objectName: "bypass" + index
+                            objectName: "bypass" + index; hint: qsTr("Bypass: pass the sound through this effect untouched")
                             text: qsTr("BYP"); implicitHeight: 20; implicitWidth: 40; accent: Theme.amber
                             on: modelData.bypass
                             onClicked: songModel.setInsertBypass(root.rack.kind, root.rack.bus,

@@ -58,6 +58,11 @@
 class AppController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    // What the window has to tell the producer (features/notices.feature;
+    // app_controller_notices.cpp), oldest first: each {id, level, text}, the
+    // level "error", "warning" or "done". An error or a warning stays until
+    // it is dismissed; a "done" goes by itself after a moment.
+    Q_PROPERTY(QVariantList notices READ notices NOTIFY noticesChanged)
     Q_PROPERTY(QVariantList plugins READ plugins NOTIFY pluginsChanged)
     Q_PROPERTY(QVariantList browserPlugins READ browserPlugins NOTIFY browserChanged)
     Q_PROPERTY(QString browserFilter READ browserFilter WRITE setBrowserFilter
@@ -166,6 +171,11 @@ public:
                            std::unique_ptr<blokkily::MidiInput> midi = {});
     ~AppController() override;
     QString status() const { return status_; }
+    QVariantList notices() const;
+    Q_INVOKABLE void dismissNotice(int id);
+    // Tells the producer something: shown at once, over the editors. The same
+    // text again moves to the end rather than showing twice.
+    void notify(const QString& level, const QString& text);
     LoadProgress* progress() noexcept { return &progress_; }
     double scanProgress() const;
     // The narration feed: every mutating command below appends an AppEvent
@@ -823,6 +833,7 @@ public:
     void pollCountIn();
 
 signals:
+    void noticesChanged();
     void patternPlayheadChanged();
     void followPlaybackChanged();
     void statusChanged();
@@ -1001,6 +1012,16 @@ private:
                                                 const std::string& track_name);
 
     QString status_ = "Ready — CLAP native";
+    struct Notice {
+        int id = 0;
+        QString level;
+        QString text;
+    };
+    std::vector<Notice> notices_;
+    int next_notice_ = 1;
+    // The processors the last engine could not load, told once rather than
+    // at every rebuild that still cannot load them.
+    QStringList unloaded_;
     // Plugins already reported as having broken (serviceEditors), so each is
     // reported once.
     std::unordered_set<const blokkily::PluginInstance*> failed_reported_;
@@ -1066,6 +1087,7 @@ private:
     // What was last written, so an unchanged song is not written again.
     QByteArray last_autosave_;
     QString autosave_status_;
+    bool autosave_failing_ = false;
     // A song read from a file (or a recovery copy) becomes the open one, as
     // the project at `path`.
     void installProject(blokkily::Project project, const QString& path);
@@ -1206,6 +1228,8 @@ private:
     std::vector<blokkily::ScanCacheEntry> scan_cache_;
     std::size_t scan_index_ = 0;
     int scan_failures_ = 0;
+    // The plugins this scan could not describe, each with why.
+    QStringList scan_failed_now_;
     bool scanning_ = false;
     bool scan_expired_ = false;
     bool scan_cache_loaded_ = false;

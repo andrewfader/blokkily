@@ -272,6 +272,7 @@ bool AppController::auditionPitches(const std::vector<blokkily::TunedPitch>& pit
     std::string error;
     if (audio_output_ && !audio_output_->start(&error)) {
         status_ = QString("Audio start failed · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), status_);
         emit statusChanged();
         return false;
     }
@@ -670,6 +671,32 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
                                  .arg(name.toUpper()).arg(placed + 1).arg(total));
         });
     error = build.error;
+    // Each processor the song names that could not be loaded is told once,
+    // by its bus and its plugin, with why: the track still looks as it did
+    // and would otherwise just be silent.
+    QStringList unloaded;
+    for (const auto& [address, reason] : build.failures) {
+        QString bus = QStringLiteral("MASTER");
+        if (address.kind == blokkily::BusKind::track && address.bus < song.tracks.size())
+            bus = QString::fromStdString(song.tracks[address.bus].name);
+        else if (address.kind == blokkily::BusKind::ret && address.bus < song.returns.size())
+            bus = QString::fromStdString(song.returns[address.bus].name);
+        const auto* slot = blokkily::song_slot(song, address);
+        const QString plugin = slot == nullptr ? QString()
+                               : !slot->path.empty()
+                                   ? QFileInfo(QString::fromStdString(slot->path)).completeBaseName()
+                                   : QString::fromStdString(slot->identifier);
+        unloaded.push_back(QStringLiteral("%1 · %2: %3").arg(bus, plugin, QString::fromStdString(reason)));
+    }
+    if (unloaded != unloaded_) {
+        unloaded_ = unloaded;
+        if (!unloaded.isEmpty())
+            notify(QStringLiteral("warning"),
+                   QStringLiteral("Could not load %1, so it is silent. %2")
+                       .arg(unloaded.size() == 1 ? QStringLiteral("a plugin")
+                                                 : QStringLiteral("%1 plugins").arg(unloaded.size()),
+                            unloaded.join(QStringLiteral("; "))));
+    }
     const int loaded = build.loaded;
     adopted_processors_ = build.adopted;
     // The device is opened before the engine is prepared, because the server
@@ -716,6 +743,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     progress_.report(0.92, QStringLiteral("PREPARING THE MIX"));
     if (!next->prepare(song, rate, 512, 0, &error, assets, clipRenditions(rate))) {
         status_ = QString("Song could not prepare · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), status_);
         emit statusChanged();
         emit activeInstrumentChanged();
         return false;
@@ -750,6 +778,9 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
     // can still be arranged and bounced to a file on a silent host.
     if (!device_open) {
         status_ = QString("Audio device unavailable · %1").arg(device_failure);
+        notify(QStringLiteral("warning"),
+               QStringLiteral("No audio device: %1. The song can still be edited and exported.")
+                   .arg(device_failure.isEmpty() ? QStringLiteral("none could be opened") : device_failure));
         emit statusChanged();
         emit activeInstrumentChanged();
         return loaded > 0;
@@ -760,6 +791,7 @@ bool AppController::rebuildEngine(const blokkily::TrackRemap* remap) {
         transport_->stop();
         engine_->set_playing(false);
         status_ = QString("Audio start failed · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), status_);
         emit statusChanged();
         return false;
     }
@@ -914,6 +946,7 @@ void AppController::togglePlayback() {
     if (audio_output_ && !audio_output_->start(&error)) {
         engine_->set_playing(false);
         status_ = QString("Audio start failed · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), status_);
         emit statusChanged();
         return;
     }
@@ -991,6 +1024,7 @@ bool AppController::exportMidiFile(const QString& path) {
     const bool written = blokkily::write_midi_file(local_path(path).toStdString(), song_->song(), &error);
     export_status_ = written ? QString("MIDI saved · %1").arg(QFileInfo(local_path(path)).fileName())
                              : QString("MIDI export failed · %1").arg(QString::fromStdString(error));
+    notify(written ? QStringLiteral("done") : QStringLiteral("error"), export_status_);
     emit exportStatusChanged();
     return written;
 }
@@ -1056,6 +1090,7 @@ bool AppController::exportAudio(const QString& path, const QString& depth, bool 
                                 bool dither, int fromBar, int toBar) {
     if (!engine_) {
         export_status_ = "Load an instrument before exporting";
+        notify(QStringLiteral("error"), export_status_);
         emit exportStatusChanged();
         return false;
     }
@@ -1073,6 +1108,7 @@ bool AppController::exportAudio(const QString& path, const QString& depth, bool 
     QString out_of_song;
     if (!barRange(fromBar, toBar, options, &out_of_song)) {
         export_status_ = QString("Export failed · %1").arg(out_of_song);
+        notify(QStringLiteral("error"), export_status_);
         emit exportStatusChanged();
         return false;
     }
@@ -1080,6 +1116,7 @@ bool AppController::exportAudio(const QString& path, const QString& depth, bool 
     const auto report = bounceThroughEngine(local_path(path).toStdString(), format, options, &error);
     if (!report) {
         export_status_ = QString("Export failed · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), export_status_);
         emit exportStatusChanged();
         return false;
     }
@@ -1092,6 +1129,8 @@ bool AppController::exportAudio(const QString& path, const QString& depth, bool 
     if (options.dither && options.container == blokkily::ExportContainer::wav &&
         format != blokkily::WaveFormat::float32)
         export_status_ += " · dithered";
+    notify(report->clipped ? QStringLiteral("warning") : QStringLiteral("done"),
+           QStringLiteral("Exported %1").arg(export_status_));
     emit exportStatusChanged();
     emitBusEvent(blokkily::guide::EventKind::bounce_finished,
                  QFileInfo(local_path(path)).fileName().toStdString());
@@ -1408,6 +1447,10 @@ bool AppController::saveProject(const QString& path) {
         song_->markSaved();
         forgetAutosave();
     }
+    if (valid)
+        notify(QStringLiteral("done"), QStringLiteral("Saved %1").arg(QFileInfo(path).fileName()));
+    else
+        notify(QStringLiteral("error"), QStringLiteral("Could not save the song · %1").arg(QString::fromStdString(error)));
     project_status_ = valid ? "Saved" : "Save failed";
     project_detail_ = valid ? QString("%1 · %2 track%3")
                                   .arg(QFileInfo(path).fileName())
@@ -1426,6 +1469,8 @@ bool AppController::loadProject(const QString& path) {
     std::string error;
     auto project = blokkily::ProjectFile::load(path.toStdString(), &error);
     if (!project) {
+        notify(QStringLiteral("error"), QStringLiteral("Could not open %1 · %2")
+                                            .arg(QFileInfo(path).fileName(), QString::fromStdString(error)));
         project_status_ = "Load failed";
         project_detail_ = QString::fromStdString(error);
         emit projectStatusChanged();

@@ -59,6 +59,8 @@ class SongModel final : public QObject {
     Q_PROPERTY(QStringList arpModes READ arpModes CONSTANT)
     Q_PROPERTY(QStringList arpRates READ arpRates CONSTANT)
     Q_PROPERTY(double masterPeak READ masterPeak NOTIFY metersChanged)
+    // The master's meter on the same 60 dB scale as the tracks' meters.
+    Q_PROPERTY(double masterMeter READ masterMeter NOTIFY metersChanged)
     // Each track's meter, as the fraction of its bar to light. Kept apart from
     // `tracks` so thirty meter updates a second do not re-read the whole song.
     Q_PROPERTY(QVariantList meters READ meters NOTIFY metersChanged)
@@ -197,7 +199,11 @@ public:
     [[nodiscard]] int barAt(blokkily::Tick tick) const;
     double masterGainDb() const noexcept { return song_.master_gain_db; }
     double masterPeak() const noexcept { return master_peak_; }
+    double masterMeter() const { return meterFraction(master_peak_); }
     QVariantList meters() const;
+    // A peak as the fraction of a meter's bar to light: its decibels mapped
+    // onto the last 60 dB.
+    static double meterFraction(double peak);
     bool canUndo() const noexcept { return !undo_.empty(); }
     bool canRedo() const noexcept { return !redo_.empty(); }
     bool dirty() const noexcept { return state_id_ != saved_id_ || versions_changed_; }

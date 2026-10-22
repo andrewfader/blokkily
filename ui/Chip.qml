@@ -7,6 +7,13 @@ Rectangle {
     property bool on: false
     property color accent: Theme.acid
     property string accessibleLabel: ""
+    // Said when the pointer rests on the chip: what it does, its key, and
+    // any gesture beyond a click. Without one, a label that says more than
+    // the chip's text does.
+    property string hint: ""
+    readonly property string tip: hint !== "" ? hint
+                                  : accessibleLabel !== "" && accessibleLabel.toUpperCase() !== text.toUpperCase()
+                                    ? accessibleLabel : chipText.truncated ? text : ""
     // The room left either side of the label. A chip sized to its text with
     // less padding than the usual says so, or its label is elided.
     property real labelPadding: 12
@@ -20,8 +27,20 @@ Rectangle {
     implicitHeight: 26
     opacity: enabled ? 1.0 : 0.4
     radius: 4
-    color: on ? accent : (chipMouse.containsMouse ? Theme.raised : "transparent")
-    border.color: on ? accent : Theme.line
+    color: chipMouse.pressed ? (on ? Qt.darker(accent, 1.2) : Theme.line)
+         : on ? accent : (chipMouse.containsMouse ? Theme.raised : "transparent")
+    border.color: on ? accent : activeFocus ? Theme.acid : Theme.line
+    Behavior on color { ColorAnimation { duration: 90 } }
+    Behavior on border.color { ColorAnimation { duration: 90 } }
+    ToolTip.visible: tip !== "" && chipMouse.containsMouse && !chipMouse.pressed
+    ToolTip.delay: 600
+    ToolTip.text: tip
+    Accessible.role: Accessible.Button
+    Accessible.name: accessibleLabel !== "" ? accessibleLabel : text
+    Accessible.description: hint
+    Accessible.onPressAction: clicked()
+    Keys.onSpacePressed: clicked()
+    Keys.onReturnPressed: clicked()
     Label {
         id: chipText; anchors.centerIn: parent
         // The chip sets its own size; the label has the same bounds so an
@@ -30,7 +49,7 @@ Rectangle {
         color: parent.on ? Theme.onAccent : Theme.ink
         font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
         elide: Text.ElideRight
-        Accessible.name: parent.accessibleLabel !== "" ? parent.accessibleLabel : text
+        Accessible.ignored: true
     }
     MouseArea {
         id: chipMouse; anchors.fill: parent; hoverEnabled: true

@@ -70,7 +70,7 @@ Rectangle {
                     ? songModel.returnMeters[root.busIndex] : 0
                 width: parent.width * level
                 height: parent.height; radius: 2
-                color: level > 0.998 ? "#ff4d4d" : Theme.amber
+                color: level > 0.998 ? Theme.record : Theme.amber
             }
         }
 

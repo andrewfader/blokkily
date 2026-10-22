@@ -443,13 +443,9 @@ QVariantList SongModel::returnMix() const {
 
 QVariantList SongModel::returnMeters() const {
     QVariantList fractions;
-    for (std::size_t index = 0; index < song_.returns.size(); ++index) {
-        const double peak =
-            index < return_peaks_.size() ? static_cast<double>(return_peaks_[index]) : 0.0;
-        fractions.push_back(
-            peak <= 0.0 ? 0.0
-                        : qBound(0.0, (blokkily::linear_to_db(peak) + 60.0) / 60.0, 1.0));
-    }
+    for (std::size_t index = 0; index < song_.returns.size(); ++index)
+        fractions.push_back(meterFraction(
+            index < return_peaks_.size() ? static_cast<double>(return_peaks_[index]) : 0.0));
     return fractions;
 }
 

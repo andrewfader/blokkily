@@ -73,6 +73,9 @@ struct GraphBuild {
     int loaded = 0;    // processors now in the engine
     int adopted = 0;   // of which carried over from the previous engine
     std::string error; // why the first processor that failed to load failed
+    // Every processor that failed to load, and why, so the window can name
+    // each one.
+    std::vector<std::pair<ProcessorAddress, std::string>> failures;
     // Processors created fresh, whose saved state still has to be loaded once
     // the engine is prepared.
     std::vector<ProcessorAddress> fresh;

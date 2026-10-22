@@ -78,11 +78,11 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true; spacing: 6
         SectionLabel { text: qsTr("ARRANGEMENT") }
-        Chip { objectName: "arrangeZoomOut"; text: "-"; implicitWidth: 24; implicitHeight: 22
+        Chip { objectName: "arrangeZoomOut"; hint: qsTr("Zoom the arrangement out"); text: "-"; implicitWidth: 24; implicitHeight: 22
             accessibleLabel: "Zoom the arrangement out"
             enabled: root.zoom > 1
             onClicked: root.setZoom(root.zoom / 1.5) }
-        Chip { objectName: "arrangeZoomIn"; text: "+"; implicitWidth: 24; implicitHeight: 22
+        Chip { objectName: "arrangeZoomIn"; hint: qsTr("Zoom the arrangement in"); text: "+"; implicitWidth: 24; implicitHeight: 22
             accessibleLabel: "Zoom the arrangement in"
             enabled: root.zoom < 16
             onClicked: root.setZoom(root.zoom * 1.5) }
@@ -137,14 +137,14 @@ ColumnLayout {
             }
         }
         // A new pattern is as long as the bar the playhead is in.
-        Chip { objectName: "addPatternButton"; text: qsTr("+PAT"); accent: Theme.blue
+        Chip { objectName: "addPatternButton"; hint: qsTr("New pattern, as long as the bar under the playhead"); text: qsTr("+PAT"); accent: Theme.blue
             onClicked: songModel.addPattern(transport.bar) }
         // A variation starts as a copy of what is open.
-        Chip { objectName: "duplicatePatternButton"; text: qsTr("DUP"); accent: Theme.blue
+        Chip { objectName: "duplicatePatternButton"; hint: qsTr("Duplicate the open pattern as a variation"); text: qsTr("DUP"); accent: Theme.blue
             onClicked: songModel.duplicatePattern() }
-        Chip { objectName: "addTrackButton"; text: qsTr("+TRK"); accent: Theme.blue
+        Chip { objectName: "addTrackButton"; hint: qsTr("New instrument track"); text: qsTr("+TRK"); accent: Theme.blue
             onClicked: appController.addTrack() }
-        Chip { objectName: "addAudioButton"; text: qsTr("+AUD"); accent: Theme.amber
+        Chip { objectName: "addAudioButton"; hint: qsTr("Import an audio file onto a new track"); text: qsTr("+AUD"); accent: Theme.amber
             onClicked: audioClipLane.importToNewTrack() }
     }
 

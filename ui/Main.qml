@@ -104,8 +104,11 @@ ApplicationWindow {
 
     // Save writes back to the file the session came from; a session that has
     // never been saved asks where to put it.
+    // A save that fails says why in a notice; only a session with no file
+    // yet asks where to put it.
     function save() {
-        if (!appController.saveProjectInPlace()) saveProjectDialog.open()
+        if (appController.projectPath === "") saveProjectDialog.open()
+        else appController.saveProjectInPlace()
     }
 
     // Asks for a song to open, in this window (once its unsaved work is let
@@ -556,6 +559,15 @@ ApplicationWindow {
     // how far it has got, above everything else, tour included.
     LoadingOverlay { parent: root.Overlay.overlay }
 
+    // Failures, and work that finished, said where they are seen: at the
+    // foot of the window over the editors, whichever bars are hidden.
+    NoticeStack {
+        parent: root.Overlay.overlay
+        z: 900
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom; anchors.bottomMargin: 16
+    }
+
     // Note entry from the computer keyboard, laid out the way a tracker has
     // always laid it out: the bottom two rows are one octave, the top two are
     // the octave above it. A key writes onto the row the cursor is on and steps
@@ -930,9 +942,10 @@ ApplicationWindow {
                                 Layout.fillWidth: true; Layout.minimumWidth: 0
                                 text: (appController.failedPlugins.length === 1
                                        ? qsTr("%1 has stopped and is silenced. The song and everything else play on.")
-                                       : qsTr("%1 have stopped and is silenced. The song and everything else play on."))
+                                       : qsTr("%1 have stopped and are silenced. The song and everything else play on."))
                                       .arg(appController.failedPlugins.join(", "))
                                 color: Theme.ink; font.pixelSize: 11
+                                wrapMode: Text.Wrap; maximumLineCount: 3
                                 elide: Text.ElideRight
                             }
                             Chip {

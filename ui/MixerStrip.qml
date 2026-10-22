@@ -19,6 +19,8 @@ Rectangle {
             automationMode: "READ", inserts: 0, inputText: "MIDI", monitorText: "MON AUTO",
             takesAudio: false, monitoring: false, fed: false, outputs: []})
     readonly property int trackIndex: index
+    // This strip's meter, as the fraction of its bar to light.
+    property real meterLevel: 0
     objectName: "mixerStrip" + index
     Layout.fillWidth: true
     // The arm, input and automation rows are fixed, and so are the faders'
@@ -65,13 +67,13 @@ Rectangle {
             }
             PluginEditorButton { track: trackIndex; available: modelData.hasInstrument }
             Chip {
-                objectName: "mute" + modelData.index
+                objectName: "mute" + modelData.index; hint: qsTr("Mute (Ctrl+M on the selected track)")
                 text: "M"; accent: Theme.amber
                 on: modelData.mute
                 onClicked: songModel.toggleMute(trackIndex)
             }
             Chip {
-                objectName: "solo" + modelData.index
+                objectName: "solo" + modelData.index; hint: qsTr("Solo: hear only soloed tracks (Ctrl+L on the selected track)")
                 text: "S"; accent: Theme.blue
                 on: modelData.solo
                 onClicked: songModel.toggleSolo(trackIndex)
@@ -95,7 +97,7 @@ Rectangle {
                 font.pixelSize: 9; font.bold: true; font.letterSpacing: 0.8
             }
             Chip {
-                objectName: "automationMode" + root.trackIndex
+                objectName: "automationMode" + root.trackIndex; hint: qsTr("Automation: READ plays lanes, TOUCH / LATCH / WRITE record moves, OFF ignores them. Click: next, right-click: back")
                 implicitWidth: 64; implicitHeight: 24
                 text: root.modelData.automationMode
                 accent: root.modelData.automationMode === "READ" ? Theme.acid : Theme.record
@@ -107,7 +109,7 @@ Rectangle {
             // FRZ renders the instrument and inserts to audio and stops
             // loading them; again brings them back.
             Chip {
-                objectName: "freeze" + root.trackIndex
+                objectName: "freeze" + root.trackIndex; hint: qsTr("Freeze: render the instrument and inserts to audio to save CPU; again to unfreeze")
                 implicitWidth: 40; implicitHeight: 24
                 text: qsTr("FRZ"); accent: Theme.blue
                 accessibleLabel: root.modelData.frozen ? "Unfreeze the track" : "Freeze the track"
@@ -157,12 +159,10 @@ Rectangle {
             // the strip has no reason to redraw.
             Rectangle {
                 objectName: "meterFill" + trackIndex
-                readonly property real level:
-                    songModel.meters[trackIndex] !== undefined
-                    ? songModel.meters[trackIndex] : 0
+                readonly property real level: root.meterLevel
                 width: parent.width * level
                 height: parent.height; radius: 2
-                color: level > 0.998 ? "#ff4d4d"
+                color: level > 0.998 ? Theme.record
                      : level > 0.948 ? Theme.amber : Theme.acid
             }
         }

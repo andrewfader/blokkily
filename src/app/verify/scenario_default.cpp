@@ -1338,9 +1338,34 @@ struct DefaultScenario {
                 lay_out();
                 auto* fill = childNamed(item("mixerStrips"), QString("meterFill%1").arg(added));
                 valid = valid && fill != nullptr && fill->width() > 1.0;
+                // The master reads on the same scale: -6 dB lights as much
+                // of its bar as of the strip's.
+                auto* master_meter = item("masterMeter");
+                auto* master_fill = master_meter && !master_meter->childItems().isEmpty()
+                                        ? master_meter->childItems().front() : nullptr;
+                if (fill && master_fill && fill->parentItem()) {
+                    const double strip = fill->width() / fill->parentItem()->width();
+                    const double master = master_fill->width() / master_meter->width();
+                    std::cerr << "meters at -6 dB: strip " << strip << ", master " << master << '\n';
+                    valid = valid && std::abs(strip - 0.9) < 0.01 && std::abs(master - strip) < 0.01;
+                } else {
+                    valid = false;
+                }
                 song.setMeters(std::vector<float>(levels.size(), 0.0F), 0.0F);
                 lay_out();
                 valid = valid && fill != nullptr && fill->width() < 0.5;
+                // An overload is still shown after it has passed, until
+                // it is clicked away.
+                auto* clip = item("masterClip");
+                const auto clip_text = [&] { return clip ? clip->property("text").toString() : QString(); };
+                valid = valid && clip_text() == "OK";
+                song.setMeters(std::vector<float>(levels.size(), 0.0F), 1.2F);
+                song.setMeters(std::vector<float>(levels.size(), 0.0F), 0.0F);
+                lay_out();
+                valid = valid && clip_text() == "CLIP";
+                if (clip) click_at(clip, QPointF(clip->width() / 2, clip->height() / 2), Qt::LeftButton);
+                lay_out();
+                valid = valid && clip_text() == "OK";
                 // Silence polled again moves nothing, so nothing is redrawn.
                 int redraws = 0;
                 const auto counting = QObject::connect(&song, &SongModel::metersChanged, [&redraws] { ++redraws; });
@@ -1349,6 +1374,17 @@ struct DefaultScenario {
                 valid = valid && redraws == 0;
             }
             reached("workflow: the track meter moves");
+
+            // A short button says what it does when the pointer rests on it.
+            for (const auto& [name, words] : {std::pair{QString("freeze%1").arg(added), QString("Freeze")},
+                                              std::pair{QString("mute%1").arg(added), QString("Mute")},
+                                              std::pair{QString("addPatternButton"), QString("New pattern")}}) {
+                auto* chip = childNamed(window->contentItem(), name);
+                const auto tip = chip ? chip->property("tip").toString() : QString();
+                if (!tip.startsWith(words)) std::cerr << "no hint on " << name.toStdString() << '\n';
+                valid = valid && tip.startsWith(words);
+            }
+            reached("workflow: buttons say what they do");
 
             // However many tracks the song has, every strip can be reached
             // and the master stays inside the window.

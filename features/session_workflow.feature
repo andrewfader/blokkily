@@ -62,8 +62,14 @@ Feature: A session can be worked on without fear of losing it
   Scenario: A track's meter moves while the song plays
     When the engine reports a level on one track
     Then that track's rendered meter lights
+    And the master's meter lights as far for the same level
     When the level falls to nothing
     Then the meter is dark
+    When the master goes over 0 dB for one update
+    Then CLIP stays lit after the level falls, until it is clicked
+
+  Scenario: Buttons say what they do
+    Then resting the pointer on a short button such as FRZ, M or + PAT names what it does
 
   Scenario: Any number of tracks fit the mixer
     Given the song has nine tracks

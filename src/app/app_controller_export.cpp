@@ -56,6 +56,7 @@ bool AppController::exportStems(const QString& directory, const QString& format,
                                 const QString& depth, bool dither, int fromBar, int toBar) {
     if (!engine_ || !song_) {
         export_status_ = "Load an instrument before exporting";
+        notify(QStringLiteral("error"), export_status_);
         emit exportStatusChanged();
         return false;
     }
@@ -69,6 +70,7 @@ bool AppController::exportStems(const QString& directory, const QString& format,
     QString out_of_song;
     if (!barRange(fromBar, toBar, options, &out_of_song)) {
         export_status_ = QString("Stem export failed · %1").arg(out_of_song);
+        notify(QStringLiteral("error"), export_status_);
         emit exportStatusChanged();
         return false;
     }
@@ -82,6 +84,7 @@ bool AppController::exportStems(const QString& directory, const QString& format,
     });
     if (!stems) {
         export_status_ = QString("Stem export failed · %1").arg(QString::fromStdString(error));
+        notify(QStringLiteral("error"), export_status_);
         emit exportStatusChanged();
         return false;
     }
@@ -92,6 +95,8 @@ bool AppController::exportStems(const QString& directory, const QString& format,
                          .arg(blokkily::container_name(container))
                          .arg(QFileInfo(folder).fileName())
                          .arg(clipped ? " · CLIPPED" : "");
+    notify(clipped ? QStringLiteral("warning") : QStringLiteral("done"),
+           QStringLiteral("Exported %1").arg(export_status_));
     emit exportStatusChanged();
     return true;
 }

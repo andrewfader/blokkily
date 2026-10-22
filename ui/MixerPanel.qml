@@ -11,6 +11,8 @@ Rectangle {
     signal trackMenuRequested(int index, string name)
     objectName: "mixerPanel"
     color: Theme.rail
+    // Every track's meter, read once for all the strips.
+    readonly property var meterLevels: songModel.meters
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 12; spacing: 8
@@ -48,6 +50,9 @@ Rectangle {
             Repeater {
                 model: songModel.trackCount
                 MixerStrip {
+                    // The meters are read once per update for every strip,
+                    // not once per strip.
+                    meterLevel: root.meterLevels[index] !== undefined ? root.meterLevels[index] : 0
                     onRenameRequested: (index, name) => root.trackRenameRequested(index, name)
                     onMenuRequested: (index, name) => root.trackMenuRequested(index, name)
                 }
@@ -94,20 +99,37 @@ Rectangle {
                         on: songModel.masterRacked
                         onClicked: songModel.selectRack("master", 0)
                     }
+                    // CLIP stays lit once the master has gone over, until
+                    // it is clicked, so an overload between glances is seen.
                     Label {
-                        text: songModel.masterPeak > 0.99 ? qsTr("CLIP") : qsTr("OK")
-                        color: songModel.masterPeak > 0.99 ? "#ff4d4d" : Theme.muted
+                        id: clipLight
+                        objectName: "masterClip"
+                        property bool held: false
+                        Connections {
+                            target: songModel
+                            function onMetersChanged() { if (songModel.masterPeak > 0.99) clipLight.held = true }
+                        }
+                        text: held ? qsTr("CLIP") : qsTr("OK")
+                        color: held ? Theme.record : Theme.muted
                         font.pixelSize: 9; font.bold: true
+                        TapHandler { onTapped: clipLight.held = false }
+                        HoverHandler { id: clipHover; cursorShape: clipLight.held ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                        ToolTip.visible: clipLight.held && clipHover.hovered; ToolTip.delay: 400
+                        ToolTip.text: qsTr("The master went over 0 dB. Click to clear")
                     }
                 }
+                // On the tracks' 60 dB scale, so a level reads the same here
+                // as on a strip.
                 Rectangle {
+                    objectName: "masterMeter"
                     Layout.fillWidth: true; implicitHeight: 5; radius: 2
                     color: Theme.well
                     Rectangle {
-                        width: parent.width * Math.min(1, songModel.masterPeak)
+                        readonly property real level: songModel.masterMeter
+                        width: parent.width * level
                         height: parent.height; radius: 2
-                        color: songModel.masterPeak > 0.99 ? "#ff4d4d"
-                             : songModel.masterPeak > 0.7 ? Theme.amber : Theme.acid
+                        color: level > 0.998 ? Theme.record
+                             : level > 0.948 ? Theme.amber : Theme.acid
                     }
                 }
                 ValueDial {

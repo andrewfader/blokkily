@@ -180,6 +180,7 @@ GraphBuild populate_graph(SongEngine& engine, const Song& song,
         auto instance = create_processor(*slot, context, &reason);
         if (!instance) {
             if (build.error.empty()) build.error = reason;
+            build.failures.emplace_back(address, reason);
             continue;
         }
         engine.set_processor(address, std::move(instance));

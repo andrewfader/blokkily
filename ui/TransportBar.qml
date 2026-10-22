@@ -83,8 +83,14 @@ ToolBar {
                 Label { anchors.centerIn: parent; text: transport.playing ? "||" : ">"
                     color: transport.playing ? Theme.onAccent : Theme.ink
                     font.family: Theme.mono; font.pixelSize: 14; font.bold: true }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                MouseArea { id: playMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                    hoverEnabled: true
                     onClicked: appController.togglePlayback() }
+                ToolTip.visible: playMouse.containsMouse; ToolTip.delay: 600
+                ToolTip.text: qsTr("Play / pause (Space)")
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Play / pause (Space)")
+                Accessible.onPressAction: appController.togglePlayback()
             }
             // Arms recording. While the song plays, what a MIDI keyboard
             // plays is written into the pattern under the playhead.
@@ -96,8 +102,14 @@ ToolBar {
                 border.color: armed ? Theme.record : Theme.line
                 Rectangle { anchors.centerIn: parent; width: 10; height: 10; radius: 5
                     color: parent.armed ? Theme.onAccent : Theme.record }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                MouseArea { id: recordMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                    hoverEnabled: true
                     onClicked: appController.toggleRecord() }
+                ToolTip.visible: recordMouse.containsMouse; ToolTip.delay: 600
+                ToolTip.text: qsTr("Arm recording (Ctrl+R)")
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Arm recording (Ctrl+R)")
+                Accessible.onPressAction: appController.toggleRecord()
             }
             Rectangle {
                 objectName: "rewindButton"
@@ -105,8 +117,14 @@ ToolBar {
                 color: Theme.raised; border.color: Theme.line
                 Label { anchors.centerIn: parent; text: "|<"; color: Theme.ink
                     font.family: Theme.mono; font.pixelSize: 12; font.bold: true }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                MouseArea { id: rewindMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                    hoverEnabled: true
                     onClicked: appController.rewindPlayback() }
+                ToolTip.visible: rewindMouse.containsMouse; ToolTip.delay: 600
+                ToolTip.text: qsTr("Back to the start (Home)")
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Back to the start (Home)")
+                Accessible.onPressAction: appController.rewindPlayback()
             }
         }
 
@@ -222,15 +240,15 @@ ToolBar {
             // As wide as the widest of the three labels, whatever the language.
             readonly property real chipWidth: Math.ceil(Math.max(historyName.advanceWidth, undoChip.labelWidth,
                                                                  redoChip.labelWidth)) + 12
-            Chip { id: undoChip; objectName: "undoButton"; text: qsTr("UNDO"); enabled: songModel.canUndo
+            Chip { id: undoChip; objectName: "undoButton"; hint: qsTr("Undo (Ctrl+Z)"); text: qsTr("UNDO"); enabled: songModel.canUndo
                    labelPadding: 10; implicitWidth: parent.chipWidth
                    onClicked: songModel.undo() }
-            Chip { id: redoChip; objectName: "redoButton"; text: qsTr("REDO"); enabled: songModel.canRedo
+            Chip { id: redoChip; objectName: "redoButton"; hint: qsTr("Redo (Ctrl+Shift+Z)"); text: qsTr("REDO"); enabled: songModel.canRedo
                    labelPadding: 10; implicitWidth: parent.chipWidth
                    onClicked: songModel.redo() }
             // Empties the song so the producer can start from nothing; it is one
             // step of history, so the UNDO beside it brings everything back.
-            Chip { objectName: "clearButton"; text: qsTr("CLEAR", "empty the whole song"); accent: Theme.record
+            Chip { objectName: "clearButton"; hint: qsTr("Clear the whole song. UNDO brings it back"); text: qsTr("CLEAR", "empty the whole song"); accent: Theme.record
                    labelPadding: 10; implicitWidth: parent.chipWidth
                    accessibleLabel: "Clear everything"
                    onClicked: appController.clearEverything() }

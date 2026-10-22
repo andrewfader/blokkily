@@ -62,15 +62,14 @@ void SongModel::emitMixMove() {
     mix_only_ = false;
 }
 
+double SongModel::meterFraction(double peak) {
+    return peak <= 0.0 ? 0.0 : qBound(0.0, (blokkily::linear_to_db(peak) + 60.0) / 60.0, 1.0);
+}
+
 QVariantList SongModel::meters() const {
     QVariantList fractions;
-    for (std::size_t index = 0; index < song_.tracks.size(); ++index) {
-        const double peak = index < peaks_.size() ? static_cast<double>(peaks_[index]) : 0.0;
-        // A meter reads in decibels; the bar is that mapped onto the last 60 dB.
-        fractions.push_back(peak <= 0.0 ? 0.0
-                                         : qBound(0.0, (blokkily::linear_to_db(peak) + 60.0) / 60.0,
-                                                  1.0));
-    }
+    for (std::size_t index = 0; index < song_.tracks.size(); ++index)
+        fractions.push_back(meterFraction(index < peaks_.size() ? static_cast<double>(peaks_[index]) : 0.0));
     return fractions;
 }
 

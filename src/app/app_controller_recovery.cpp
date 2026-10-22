@@ -70,6 +70,9 @@ bool AppController::autosaveNow() {
     if (written) last_autosave_ = text;
     autosave_status_ = written ? QStringLiteral("Autosaved %1").arg(QTime::currentTime().toString("HH:mm"))
                                : QStringLiteral("Autosave failed · %1").arg(error);
+    // A failure is said once while it lasts, not every few seconds.
+    if (!written && !autosave_failing_) notify(QStringLiteral("error"), autosave_status_);
+    autosave_failing_ = !written;
     emit autosaveStatusChanged();
     return written;
 }

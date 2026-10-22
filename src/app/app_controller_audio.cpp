@@ -58,6 +58,7 @@ blokkily::AudioAssets AppController::clipAssets(double rate) {
                       .arg(QString::fromStdString(*std::find_if(
                           report.reasons.begin(), report.reasons.end(),
                           [](const std::string& reason) { return !reason.empty(); })));
+        notify(QStringLiteral("warning"), status_);
         emit statusChanged();
     }
     song_->setMissingAudio(std::move(report.missing));
@@ -121,6 +122,7 @@ void AppController::finishImport(int ticket, const ImportResult& result) {
     if (!result.info || !result.asset || song_ == nullptr) {
         import_status_ = QString("Import failed · %1 · %2")
                              .arg(name, QString::fromStdString(result.error));
+        notify(QStringLiteral("error"), import_status_);
         emit importChanged();
         return;
     }

@@ -95,9 +95,38 @@ DE = {
     "HELP": "HILFE", "GUIDE": "GUIDE",
     "%1 has stopped and is silenced. The song and everything else play on.":
         "%1 ist ausgefallen und stummgeschaltet. Der Song und alles andere spielen weiter.",
-    "%1 have stopped and is silenced. The song and everything else play on.":
+    "%1 have stopped and are silenced. The song and everything else play on.":
         "%1 sind ausgefallen und stummgeschaltet. Der Song und alles andere spielen weiter.",
     "RELOAD": "NEU LADEN",
+    # Hints on hover
+    "Arm recording (Ctrl+R)": "Aufnahme scharf schalten (Strg+R)",
+    "Automation: READ plays lanes, TOUCH / LATCH / WRITE record moves, OFF ignores them. Click: next, right-click: back":
+        "Automation: READ spielt Spuren ab, TOUCH / LATCH / WRITE nehmen Bewegungen auf, OFF ignoriert sie. Klick: weiter, Rechtsklick: zurück",
+    "Back to the start (Home)": "Zurück zum Anfang (Pos1)",
+    "Bypass: pass the sound through this effect untouched": "Bypass: der Klang geht unverändert durch diesen Effekt",
+    "Clear the whole song. UNDO brings it back": "Den ganzen Song leeren. RÜCK holt ihn zurück",
+    "Count-in bars before recording. Click: more, right-click: fewer": "Vorzähltakte vor der Aufnahme. Klick: mehr, Rechtsklick: weniger",
+    "Duplicate the open pattern as a variation": "Das offene Pattern als Variation duplizieren",
+    "Freeze: render the instrument and inserts to audio to save CPU; again to unfreeze":
+        "Einfrieren: Instrument und Inserts zu Audio rendern, um CPU zu sparen; erneut zum Auftauen",
+    "Import an audio file onto a new track": "Eine Audiodatei auf eine neue Spur importieren",
+    "Metronome click while playing and recording": "Metronom-Klick beim Abspielen und Aufnehmen",
+    "Mute (Ctrl+M on the selected track)": "Stumm (Strg+M auf der gewählten Spur)",
+    "New instrument track": "Neue Instrumentenspur",
+    "New pattern, as long as the bar under the playhead": "Neues Pattern, so lang wie der Takt unter dem Abspielkopf",
+    "Open the instrument's own window": "Das eigene Fenster des Instruments öffnen",
+    "Play / pause (Space)": "Abspielen / Pause (Leertaste)",
+    "Record this rack's output to a new audio track while the song plays":
+        "Den Ausgang dieses Racks beim Abspielen auf eine neue Audiospur aufnehmen",
+    "Redo (Ctrl+Shift+Z)": "Wiederholen (Strg+Umschalt+Z)",
+    "Render this rack to audio on a new track": "Dieses Rack zu Audio auf einer neuen Spur rendern",
+    "Show effects in the browser: a click there inserts it here": "Effekte im Browser zeigen: ein Klick dort fügt ihn hier ein",
+    "Solo: hear only soloed tracks (Ctrl+L on the selected track)": "Solo: nur Solo-Spuren hören (Strg+L auf der gewählten Spur)",
+    "The master went over 0 dB. Click to clear": "Der Master lag über 0 dB. Klicken zum Löschen",
+    "Undo (Ctrl+Z)": "Rückgängig (Strg+Z)",
+    "Zoom the arrangement in": "Arrangement vergrößern",
+    "Zoom the arrangement out": "Arrangement verkleinern",
+    "Dismiss": "Schließen",
     # Mixer
     "MIXER": "MIXER", "CLICK": "KLICK", "NO CI": "VZ –", "CI ": "VZ ",
     " TRACK": " SPUR", " TRACKS": " SPUREN", "+ RETURN": "+ RETURN", "MASTER": "MASTER",

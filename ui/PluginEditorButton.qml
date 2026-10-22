@@ -6,7 +6,7 @@ Chip {
     required property int track
     // Whether the strip's track carries an instrument at all.
     property bool available: true
-    objectName: "editor" + track
+    objectName: "editor" + track; hint: qsTr("Open the instrument's own window")
     text: "E"
     accent: Theme.acid
     enabled: available

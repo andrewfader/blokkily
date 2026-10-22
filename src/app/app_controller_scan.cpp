@@ -119,6 +119,7 @@ void AppController::beginScan(const std::vector<std::filesystem::path>& clap_pat
     const auto soundfonts = blokkily::SoundFontCatalog::scan_paths(soundfont_paths);
     plugins_.clear();
     scan_failures_ = 0;
+    scan_failed_now_.clear();
     scan_index_ = 0;
     scan_queue_ = blokkily::enumerate_scan_candidates(clap_paths, vst3_paths, lv2_paths);
     scanning_ = true;
@@ -183,6 +184,9 @@ void AppController::scanNext() {
         }
         if (!QFileInfo(helper).isExecutable()) {
             status_ = QString("Plugin scan helper not found at %1").arg(helper);
+            notify(QStringLiteral("error"),
+                   QStringLiteral("Plugins cannot be scanned: the scan helper is missing at %1. Reinstalling Blokkily puts it back.")
+                       .arg(helper));
             emit statusChanged();
             scan_index_ = scan_queue_.size();
             break;
@@ -250,8 +254,14 @@ void AppController::completeCandidate(bool ok, const QString& failure,
     });
     scan_cache_.push_back(std::move(entry));
 
-    if (ok) appendRecords(records);
-    else ++scan_failures_;
+    if (ok) {
+        appendRecords(records);
+    } else {
+        ++scan_failures_;
+        scan_failed_now_.push_back(QStringLiteral("%1 (%2)").arg(
+            QFileInfo(QString::fromStdString(scan_queue_[scan_index_].path.string())).fileName(),
+            failure.isEmpty() ? QStringLiteral("no reason given") : failure));
+    }
     ++scan_index_;
     reportScanProgress();
     // Written as the scan goes, so a session closed halfway through does not
@@ -282,6 +292,16 @@ void AppController::finishScan() {
     status_ = QString("Scan: %1 CLAP, %2 VST3, %3 LV2, %4 SoundFont, %5 failure%6")
                   .arg(clap).arg(vst3).arg(lv2).arg(soundfonts).arg(scan_failures_)
                   .arg(scan_failures_ == 1 ? "" : "s");
+    // What could not be scanned this time, and why: such a plugin is left
+    // out of the browser until its file changes.
+    if (!scan_failed_now_.isEmpty())
+        notify(QStringLiteral("warning"),
+               QStringLiteral("%1 could not be scanned and %2 left out until %3 file changes: %4")
+                   .arg(scan_failed_now_.size() == 1 ? QStringLiteral("A plugin")
+                                                     : QStringLiteral("%1 plugins").arg(scan_failed_now_.size()),
+                        scan_failed_now_.size() == 1 ? QStringLiteral("is") : QStringLiteral("are"),
+                        scan_failed_now_.size() == 1 ? QStringLiteral("its") : QStringLiteral("their"),
+                        scan_failed_now_.join(QStringLiteral("; "))));
     emit statusChanged();
     emit scanningChanged();
     emit scanFinished();

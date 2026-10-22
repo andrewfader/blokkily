@@ -14,7 +14,7 @@ ColumnLayout {
     RowLayout {
         spacing: 4
         Chip {
-            objectName: "clickButton"
+            objectName: "clickButton"; hint: qsTr("Metronome click while playing and recording")
             text: qsTr("CLICK")
             // Wide enough to render "CLICK" / "NO CI" without eliding at
             // the standard UI font size; the surrounding transport row
@@ -26,7 +26,7 @@ ColumnLayout {
         // A click steps the count-in up, a right click steps it down; it
         // wraps round from 4 bars to none.
         Chip {
-            objectName: "countInButton"
+            objectName: "countInButton"; hint: qsTr("Count-in bars before recording. Click: more, right-click: fewer")
             text: songModel.countInBars === 0 ? qsTr("NO CI") : qsTr("CI ") + songModel.countInBars
             implicitWidth: 56; implicitHeight: 22
             accent: Theme.record

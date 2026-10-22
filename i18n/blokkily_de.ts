@@ -8,6 +8,14 @@
         <translation>ARRANGEMENT</translation>
     </message>
     <message>
+        <source>Zoom the arrangement out</source>
+        <translation>Arrangement verkleinern</translation>
+    </message>
+    <message>
+        <source>Zoom the arrangement in</source>
+        <translation>Arrangement vergrößern</translation>
+    </message>
+    <message>
         <source>click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes</source>
         <translation>Klick setzt auf jede Spur  |  Strg-Klick auf eine  |  Umschalt-Klick verlängert  |  Alt-Klick verschiebt  |  Rechtsklick entfernt</translation>
     </message>
@@ -16,16 +24,32 @@
         <translation>+PAT</translation>
     </message>
     <message>
+        <source>New pattern, as long as the bar under the playhead</source>
+        <translation>Neues Pattern, so lang wie der Takt unter dem Abspielkopf</translation>
+    </message>
+    <message>
         <source>DUP</source>
         <translation>DUP</translation>
+    </message>
+    <message>
+        <source>Duplicate the open pattern as a variation</source>
+        <translation>Das offene Pattern als Variation duplizieren</translation>
     </message>
     <message>
         <source>+TRK</source>
         <translation>+SPR</translation>
     </message>
     <message>
+        <source>New instrument track</source>
+        <translation>Neue Instrumentenspur</translation>
+    </message>
+    <message>
         <source>+AUD</source>
         <translation>+AUD</translation>
+    </message>
+    <message>
+        <source>Import an audio file onto a new track</source>
+        <translation>Eine Audiodatei auf eine neue Spur importieren</translation>
     </message>
     <message>
         <source>TEMPO</source>
@@ -120,6 +144,10 @@
         <translation>INSERTS</translation>
     </message>
     <message>
+        <source>Show effects in the browser: a click there inserts it here</source>
+        <translation>Effekte im Browser zeigen: ein Klick dort fügt ihn hier ein</translation>
+    </message>
+    <message>
         <source>+ FX</source>
         <translation>+ FX</translation>
     </message>
@@ -128,8 +156,16 @@
         <translation>RESAMPLE</translation>
     </message>
     <message>
+        <source>Record this rack&apos;s output to a new audio track while the song plays</source>
+        <translation>Den Ausgang dieses Racks beim Abspielen auf eine neue Audiospur aufnehmen</translation>
+    </message>
+    <message>
         <source>STEM</source>
         <translation>STEM</translation>
+    </message>
+    <message>
+        <source>Render this rack to audio on a new track</source>
+        <translation>Dieses Rack zu Audio auf einer neuen Spur rendern</translation>
     </message>
     <message>
         <source>Bounce to new track</source>
@@ -138,6 +174,10 @@
     <message>
         <source>Bounce and mute source</source>
         <translation>Bouncen und Quelle stummschalten</translation>
+    </message>
+    <message>
+        <source>Bypass: pass the sound through this effect untouched</source>
+        <translation>Bypass: der Klang geht unverändert durch diesen Effekt</translation>
     </message>
     <message>
         <source>BYP</source>
@@ -634,7 +674,7 @@
         <translation>%1 ist ausgefallen und stummgeschaltet. Der Song und alles andere spielen weiter.</translation>
     </message>
     <message>
-        <source>%1 have stopped and is silenced. The song and everything else play on.</source>
+        <source>%1 have stopped and are silenced. The song and everything else play on.</source>
         <translation>%1 sind ausgefallen und stummgeschaltet. Der Song und alles andere spielen weiter.</translation>
     </message>
     <message>
@@ -649,8 +689,16 @@
 <context>
     <name>MetronomeControls</name>
     <message>
+        <source>Metronome click while playing and recording</source>
+        <translation>Metronom-Klick beim Abspielen und Aufnehmen</translation>
+    </message>
+    <message>
         <source>CLICK</source>
         <translation>KLICK</translation>
+    </message>
+    <message>
+        <source>Count-in bars before recording. Click: more, right-click: fewer</source>
+        <translation>Vorzähltakte vor der Aufnahme. Klick: mehr, Rechtsklick: weniger</translation>
     </message>
     <message>
         <source>NO CI</source>
@@ -696,6 +744,10 @@
         <translation>OK</translation>
     </message>
     <message>
+        <source>The master went over 0 dB. Click to clear</source>
+        <translation>Der Master lag über 0 dB. Klicken zum Löschen</translation>
+    </message>
+    <message>
         <source>LEVEL</source>
         <translation>PEGEL</translation>
     </message>
@@ -707,8 +759,24 @@
         <translation>EINGEFROREN · </translation>
     </message>
     <message>
+        <source>Mute (Ctrl+M on the selected track)</source>
+        <translation>Stumm (Strg+M auf der gewählten Spur)</translation>
+    </message>
+    <message>
+        <source>Solo: hear only soloed tracks (Ctrl+L on the selected track)</source>
+        <translation>Solo: nur Solo-Spuren hören (Strg+L auf der gewählten Spur)</translation>
+    </message>
+    <message>
         <source>AUTO</source>
         <translation>AUTO</translation>
+    </message>
+    <message>
+        <source>Automation: READ plays lanes, TOUCH / LATCH / WRITE record moves, OFF ignores them. Click: next, right-click: back</source>
+        <translation>Automation: READ spielt Spuren ab, TOUCH / LATCH / WRITE nehmen Bewegungen auf, OFF ignoriert sie. Klick: weiter, Rechtsklick: zurück</translation>
+    </message>
+    <message>
+        <source>Freeze: render the instrument and inserts to audio to save CPU; again to unfreeze</source>
+        <translation>Einfrieren: Instrument und Inserts zu Audio rendern, um CPU zu sparen; erneut zum Auftauen</translation>
     </message>
     <message>
         <source>FRZ</source>
@@ -798,6 +866,13 @@
     </message>
 </context>
 <context>
+    <name>NoticeStack</name>
+    <message>
+        <source>Dismiss</source>
+        <translation>Schließen</translation>
+    </message>
+</context>
+<context>
     <name>PatternGroove</name>
     <message>
         <source>QUANT </source>
@@ -839,6 +914,13 @@
     <message>
         <source>EDITOR</source>
         <translation>EDITOR</translation>
+    </message>
+</context>
+<context>
+    <name>PluginEditorButton</name>
+    <message>
+        <source>Open the instrument&apos;s own window</source>
+        <translation>Das eigene Fenster des Instruments öffnen</translation>
     </message>
 </context>
 <context>
@@ -1386,6 +1468,18 @@
 <context>
     <name>TransportBar</name>
     <message>
+        <source>Play / pause (Space)</source>
+        <translation>Abspielen / Pause (Leertaste)</translation>
+    </message>
+    <message>
+        <source>Arm recording (Ctrl+R)</source>
+        <translation>Aufnahme scharf schalten (Strg+R)</translation>
+    </message>
+    <message>
+        <source>Back to the start (Home)</source>
+        <translation>Zurück zum Anfang (Pos1)</translation>
+    </message>
+    <message>
         <source>BAR</source>
         <translation>TAKT</translation>
     </message>
@@ -1403,8 +1497,20 @@
         <translation>RÜCK</translation>
     </message>
     <message>
+        <source>Undo (Ctrl+Z)</source>
+        <translation>Rückgängig (Strg+Z)</translation>
+    </message>
+    <message>
         <source>REDO</source>
         <translation>VOR</translation>
+    </message>
+    <message>
+        <source>Redo (Ctrl+Shift+Z)</source>
+        <translation>Wiederholen (Strg+Umschalt+Z)</translation>
+    </message>
+    <message>
+        <source>Clear the whole song. UNDO brings it back</source>
+        <translation>Den ganzen Song leeren. RÜCK holt ihn zurück</translation>
     </message>
     <message>
         <source>ALL</source>

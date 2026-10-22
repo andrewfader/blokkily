@@ -25,7 +25,12 @@ QNetworkAccessManager* LlmBackend::network() {
     // BLOKKILY_LLM_CASSETTE puts a recording or replaying network in place
     // of the live one (http_cassette.hpp).
     if (network_ == nullptr) network_ = cassetteFromEnvironment(this);
-    if (network_ == nullptr) network_ = new QNetworkAccessManager(this);
+    if (network_ == nullptr) {
+        network_ = new QNetworkAccessManager(this);
+        // A server that stops answering ends the request after a while,
+        // instead of leaving the prompt waiting for good.
+        network_->setTransferTimeout(90000);
+    }
     return network_;
 }
 
