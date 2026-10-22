@@ -464,6 +464,61 @@ int main() {
         check(song.consistent(&why), "the song stays consistent: " + why);
     }
 
+    // Scenario: Moving a track re-indexes everything that names a track.
+    {
+        using Kind = AutomationTarget::Kind;
+        Song song;
+        song.patterns.resize(2);
+        song.tracks.resize(3);
+        song.tracks[0].name = "A";
+        song.tracks[1].name = "B";
+        song.tracks[2].name = "C";
+        song.clips = {{0, 0, 0, 1}, {1, 1, 0, 1}, {2, 1, 1920, 2}};
+        song.audio_files = {{"/a.wav", 1000, 48000, 1}};
+        song.audio_clips = {{1, 0, 0, 0, 0, 100, 0, 0, 0, {}}, {3, 2, 0, 480, 0, 100, 0, 0, 0, {}}};
+        song.tracks[2].inserts.push_back({{"CLAP", "x", "", {}}, false, {}});
+        song.tracks[2].inserts[0].sidechain = 0;   // C is keyed by A
+        song.tracks[0].automation = {{target(Kind::gain, BusKind::track, 2, -1), {{0, 1.0}}}}; // C's gain
+        Modulator follower;
+        follower.kind = Modulator::Kind::follower;
+        follower.source_track = 1;                 // follows B
+        follower.targets = {{{BusKind::track, 2, -1}, 0, 0.5}};   // moves C's instrument
+        song.modulators = {follower};
+        song.launcher.scenes = {{"S", {SceneSlot{0}, std::nullopt, SceneSlot{1}}, 0.0}};
+        check(song.consistent(), "the three-track song to reorder is consistent");
+
+        Song unchanged = song;
+        check(unchanged.move_track(0, 3).empty() && unchanged.move_track(1, 1).empty() &&
+                  unchanged.tracks[0].name == "A" && unchanged.tracks[2].name == "C" &&
+                  unchanged.clips[2].track == 2,
+              "a move to nowhere, or to where the track is, changes nothing");
+
+        const auto map = song.move_track(2, 0);   // C to the front: C A B
+        check(map.size() == 3 && map[0] == std::optional<std::size_t>{1} &&
+                  map[1] == std::optional<std::size_t>{2} && map[2] == std::optional<std::size_t>{0},
+              "the index map sends 0->1, 1->2, 2->0");
+        check(song.tracks[0].name == "C" && song.tracks[1].name == "A" && song.tracks[2].name == "B",
+              "the tracks are C, A, B");
+        check(song.clips[0].track == 1 && song.clips[1].track == 2 && song.clips[2].track == 0,
+              "clips follow their tracks");
+        check(song.audio_clips[0].track == 1 && song.audio_clips[1].track == 0,
+              "audio clips follow their tracks");
+        check(song.tracks[0].inserts[0].sidechain == std::optional<std::uint32_t>{1},
+              "C's insert is still keyed by A, now track 1");
+        check(song.tracks[1].automation[0].target.processor.bus == 0,
+              "A's lane still drives C's gain, now track 0");
+        check(song.modulators[0].source_track == 2 && song.modulators[0].targets[0].processor.bus == 0,
+              "the follower still follows B and moves C");
+        const auto& cells = song.launcher.scenes[0].cells;
+        check(cells.size() == 3 && cells[0] && cells[0]->pattern == 1 && cells[1] &&
+                  cells[1]->pattern == 0 && !cells[2],
+              "launcher cells follow their tracks");
+        check(song.consistent(), "the reordered song is consistent");
+        check(!song.move_track(0, 2).empty() && song.tracks[2].name == "C" &&
+                  song.tracks[0].name == "A",
+              "moving back down shifts the others up");
+    }
+
     // Scenario: Unused audio files are dropped when saving.
     {
         Song song;

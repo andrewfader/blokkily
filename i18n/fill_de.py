@@ -123,10 +123,14 @@ DE = {
     "Show effects in the browser: a click there inserts it here": "Effekte im Browser zeigen: ein Klick dort fügt ihn hier ein",
     "Solo: hear only soloed tracks (Ctrl+L on the selected track)": "Solo: nur Solo-Spuren hören (Strg+L auf der gewählten Spur)",
     "The master went over 0 dB. Click to clear": "Der Master lag über 0 dB. Klicken zum Löschen",
-    "Undo (Ctrl+Z)": "Rückgängig (Strg+Z)",
     "Zoom the arrangement in": "Arrangement vergrößern",
     "Zoom the arrangement out": "Arrangement verkleinern",
     "Dismiss": "Schließen",
+    "HISTORY": "VERLAUF", "Every step of history, branches too": "Jeder Schritt des Verlaufs, auch Zweige",
+    "Click a step to go back or forward to it. An edit after an undo starts a branch; the steps undone stay here.":
+        "Einen Schritt anklicken, um zu ihm zu gehen. Eine Änderung nach einem Rückgängig beginnt einen Zweig; die rückgängig gemachten Schritte bleiben hier.",
+    "Undo (Ctrl+Z). Right-click: every step, branches too (Ctrl+H)": "Rückgängig (Strg+Z). Rechtsklick: jeder Schritt, auch Zweige (Strg+H)",
+    "Move up": "Nach oben", "Move down": "Nach unten",
     "Stop the export; nothing is written (Escape)": "Den Export anhalten; nichts wird geschrieben (Esc)",
     "DSP %1%": "DSP %1%", " · %1 DROP": " · %1 AUSF.",
     "The share of each audio block's time the mix takes to render, at its recent worst. Past 100% the device runs dry and drops out; a larger buffer in SETTINGS gives it more time.":
@@ -279,8 +283,8 @@ DE = {
     "TRACKER": "TRACKER", "OCT-": "OKT-", "OCT+": "OKT+",
     "TYPE ZSXDCVGBHNJM  ·  TAB CHANNEL  ·  DRAG VEL/FX": "TIPPE ZSXDCVGBHNJM  ·  TAB KANAL  ·  ZIEHE VEL/FX",
     "ROW": "ZEILE", "PIANO ROLL": "PIANOROLLE",
-    "drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases":
-        "Ziehen zeichnet  |  Note ziehen verschiebt  |  ihr Ende ziehen verlängert  |  Rechtsklick löscht",
+    "drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases  |  Shift chooses several":
+        "Ziehen zeichnet  |  Note ziehen verschiebt  |  ihr Ende ziehen verlängert  |  Rechtsklick löscht  |  Umschalt wählt mehrere",
     " KEYS": " TASTEN", "CTRL": "CTRL", "CC ": "CC ",
     "select a note to draw its own expression": "eine Note wählen, um ihren Ausdruck zu zeichnen",
     "drag sets each note's velocity": "Ziehen setzt den Anschlag jeder Note",

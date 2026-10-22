@@ -45,6 +45,12 @@ class PatternModel final : public QAbstractListModel {
     // Where the cursor is, kept apart from what the pattern holds: moving the
     // cursor is not an edit, and nothing downstream may treat it as one.
     Q_PROPERTY(int selectedStep READ selectedStep NOTIFY selectionChanged)
+    // Several notes chosen in the piano roll (features/note_selection.feature),
+    // each a key on a step: how many, a count that moves at every change of
+    // them (for the roll to redraw by), and whether notes have been copied.
+    Q_PROPERTY(int noteSelectionCount READ noteSelectionCount NOTIFY noteSelectionChanged)
+    Q_PROPERTY(int noteSelectionRevision READ noteSelectionRevision NOTIFY noteSelectionChanged)
+    Q_PROPERTY(bool notesCopied READ notesCopied NOTIFY noteSelectionChanged)
     // What the cursor's step holds. Read again whenever the cursor moves and
     // whenever the pattern under it is, whoever changed it: an undo, the
     // assistant or an agent edits the step without moving the cursor.
@@ -200,6 +206,28 @@ public:
     Q_INVOKABLE QString lyricsTextOf(int part) const;
     // The selected step, as a tracker copies a row: pitch, length, velocity,
     // locks and the rest. An empty row copies as empty, so pasting it clears.
+    // --- Several notes (features/note_selection.feature) -------------------
+    int noteSelectionCount() const noexcept { return static_cast<int>(selected_notes_.size()); }
+    int noteSelectionRevision() const noexcept { return note_selection_revision_; }
+    bool notesCopied() const noexcept { return !note_clipboard_.empty(); }
+    Q_INVOKABLE bool isNoteSelected(int step, int key) const;
+    // Chooses the note on `step` at `key` alone, or with `toggle` adds it to
+    // the notes chosen or takes it away.
+    Q_INVOKABLE void selectNote(int step, int key, bool toggle);
+    // Chooses every note starting on steps fromStep..toStep with a key in
+    // lowKey..highKey, alone or added to those chosen; returns how many are.
+    Q_INVOKABLE int selectNotesIn(int fromStep, int toStep, int lowKey, int highKey, bool add);
+    Q_INVOKABLE int selectAllNotes();
+    Q_INVOKABLE void clearNoteSelection();
+    // Each is one step of history. Removes the notes chosen; moves them by
+    // `steps` and `keys` together (false, changing nothing, when one would
+    // leave the pattern or land on a note not chosen); copies them; places
+    // the copy with its earliest note on `step` (notes that would leave the
+    // pattern or land on a note already there are left out).
+    Q_INVOKABLE int deleteSelectedNotes();
+    Q_INVOKABLE bool moveSelectedNotes(int steps, int keys);
+    Q_INVOKABLE void copySelectedNotes();
+    Q_INVOKABLE int pasteNotes(int step);
     Q_INVOKABLE void copySelected();
     Q_INVOKABLE bool pasteSelected();
     // Puts a copy of the selected step onto the next row and moves the cursor
@@ -279,6 +307,7 @@ public:
     void refresh();
 
 signals:
+    void noteSelectionChanged();
     void rollRangeChanged();
     // What the editors must redraw: an edit, a reload, or the song opening a
     // different pattern.
@@ -307,6 +336,21 @@ private:
     SongModel* song_ = nullptr;
     int revision_ = 0;
     int selected_step_ = -1;
+    // The notes chosen, as (step, key), and the part they were chosen in;
+    // the notes copied, each with its step from the earliest.
+    std::vector<std::pair<int, int>> selected_notes_;
+    int selected_notes_part_ = -1;
+    int note_selection_revision_ = 0;
+    // True while the chosen notes are edited one by one: the cursor following
+    // them lets none of them go.
+    bool moving_notes_ = false;
+    std::vector<std::pair<int, blokkily::Trigger>> note_clipboard_;
+    void noteSelectionMoved();
+    // The note on `step` at `key` as a trigger of its own (its length,
+    // velocity, cents and expression), or nothing.
+    [[nodiscard]] std::optional<blokkily::Trigger> rollNoteTrigger(int step, int key) const;
+    // Adds `note` (a one-note trigger) to `step`, beside what sounds there.
+    bool insertRollNote(int step, const blokkily::Trigger& note);
     bool has_clipboard_ = false;
     std::optional<blokkily::Trigger> clipboard_;
     // The roll's window once scrolled: its lowest key and how many keys it

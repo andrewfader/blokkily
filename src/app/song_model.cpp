@@ -519,6 +519,25 @@ bool SongModel::deleteTrack(int track) {
     return true;
 }
 
+bool SongModel::moveTrack(int from, int to) {
+    if (!validTrack(from) || !validTrack(to) || from == to) return false;
+    checkpoint();
+    auto remap = song_.move_track(static_cast<std::size_t>(from), static_cast<std::size_t>(to));
+    if (remap.empty()) return false;
+    // The meters and the selection go with their tracks.
+    auto peaks = peaks_;
+    for (std::size_t old = 0; old < remap.size() && old < peaks_.size(); ++old)
+        if (remap[old] && *remap[old] < peaks.size()) peaks[*remap[old]] = peaks_[old];
+    peaks_ = std::move(peaks);
+    if (selected_track_ >= 0 && static_cast<std::size_t>(selected_track_) < remap.size() &&
+        remap[static_cast<std::size_t>(selected_track_)])
+        selected_track_ = static_cast<int>(*remap[static_cast<std::size_t>(selected_track_)]);
+    track_remap_ = std::move(remap);
+    notifyStructureChanged();
+    track_remap_.reset();
+    return true;
+}
+
 void SongModel::renamePattern(int section, const QString& name) {
     if (section < 0 || static_cast<std::size_t>(section) >= song_.sections.size()) return;
     const auto wanted = display_name(name);

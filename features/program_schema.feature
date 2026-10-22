@@ -44,6 +44,13 @@ Feature: A song keeps its audio, effects, inputs and automation
     And everything on the last track now names the second track
     And the old-to-new index map says so
 
+  Scenario: Moving a track re-indexes everything that names a track
+    Given three tracks A, B and C with clips, audio clips, a key, a lane, a follower and launcher cells
+    When C is moved to the front
+    Then the tracks are C, A, B and the old-to-new index map says so
+    And every clip, key, lane, follower and cell still names the track it named before
+    And a move to nowhere, or to where a track already is, changes nothing
+
   Scenario: Unused audio files are dropped when saving
     Given a song listing an audio file no clip plays
     When its unused files are pruned

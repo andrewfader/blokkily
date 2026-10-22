@@ -1511,6 +1511,137 @@ struct DefaultScenario {
             }
             reached("workflow: the arrangement's playhead stands inside its bar");
 
+            // A track's header dragged up moves the track there, its
+            // instrument instance with it; one undo puts it back.
+            {
+                const auto names = [&] {
+                    QStringList list;
+                    for (const auto& track : song.song().tracks) list << QString::fromStdString(track.name);
+                    return list;
+                };
+                const auto before = names();
+                auto* moving = controller.engine() != nullptr
+                                   ? controller.engine()->processor(blokkily::track_instrument(static_cast<std::uint32_t>(added)))
+                                   : nullptr;
+                auto* header = named(QString("trackHeaderMouse%1").arg(added));
+                valid = valid && header != nullptr && moving != nullptr;
+                if (header != nullptr) {
+                    const QPointF from{header->width() / 2, header->height() / 2};
+                    mouse_at(header, from, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+                    for (int step = 1; step <= 8; ++step)
+                        mouse_at(header, from - QPointF(0, 24.0 * added * step / 8.0), QEvent::MouseMove,
+                                 Qt::NoButton, Qt::LeftButton);
+                    lay_out();
+                    auto* mark = named("trackDropMark0");
+                    valid = valid && mark != nullptr && mark->isVisible();
+                    mouse_at(header, from - QPointF(0, 24.0 * added), QEvent::MouseButtonRelease,
+                             Qt::LeftButton, Qt::NoButton);
+                    settle(50);
+                    controller.flushRecompile();
+                    lay_out();
+                }
+                const auto after = names();
+                std::cerr << "reordered: " << after.join(",").toStdString() << '\n';
+                valid = valid && after.first() == before.at(added) && after.size() == before.size();
+                // The instrument went with its track, not loaded again.
+                valid = valid && controller.engine() != nullptr
+                              && controller.engine()->processor(blokkily::track_instrument(0)) == moving;
+                song.undo();
+                controller.flushRecompile();
+                lay_out();
+                valid = valid && names() == before;
+                // Move down from the track's menu.
+                auto* menu = window->findChild<QObject*>("trackMenu");
+                if (menu != nullptr) menu->setProperty("target", 0);
+                auto* down = window->findChild<QObject*>("trackMoveDown");
+                valid = valid && down != nullptr;
+                if (down != nullptr) QMetaObject::invokeMethod(down, "triggered");
+                controller.flushRecompile();
+                lay_out();
+                valid = valid && names().at(1) == before.at(0) && names().at(0) == before.at(1);
+                song.undo();
+                controller.flushRecompile();
+                lay_out();
+                valid = valid && names() == before;
+            }
+            reached("workflow: a track is moved by dragging its header, or from its menu");
+
+            // A clip dragged along its lane moves there; with Ctrl it is
+            // copied there; a clip chosen, Ctrl+C, then Ctrl+V on another
+            // track pastes that track's part of the pattern at the playhead.
+            {
+                const auto clip_at = [&](int track, int bar) -> const blokkily::Clip* {
+                    for (const auto& clip : song.song().clips)
+                        if (clip.track == static_cast<std::size_t>(track) &&
+                            clip.start == song.barStart(bar))
+                            return &clip;
+                    return nullptr;
+                };
+                const auto clip_count = [&] { return song.song().clips.size(); };
+                const auto drag_clip = [&](int track, int from, int to, Qt::KeyboardModifiers held) {
+                    auto* cell = named(QString("clip%1-%2").arg(track).arg(from));
+                    auto* target = named(QString("clip%1-%2").arg(track).arg(to));
+                    if (cell == nullptr || target == nullptr) return false;
+                    auto* scene = window->contentItem();
+                    const QPointF start = cell->mapToScene({cell->width() / 2, cell->height() / 2});
+                    const QPointF end = target->mapToScene({target->width() / 2, target->height() / 2});
+                    ctx.mouse_at(scene, start, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, held);
+                    for (int step = 1; step <= 8; ++step)
+                        ctx.mouse_at(scene, start + (end - start) * (step / 8.0), QEvent::MouseMove,
+                                     Qt::NoButton, Qt::LeftButton, held);
+                    lay_out();
+                    auto* mark = named(QString("clipDropMark%1-%2").arg(track).arg(to));
+                    const bool marked = mark != nullptr && mark->isVisible();
+                    ctx.mouse_at(scene, end, QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton, held);
+                    settle(30);
+                    controller.flushRecompile();
+                    lay_out();
+                    return marked;
+                };
+                const auto before = clip_count();
+                valid = valid && clip_at(0, 2) != nullptr && clip_at(0, 5) == nullptr;
+                valid = valid && drag_clip(0, 2, 5, Qt::NoModifier);
+                valid = valid && clip_at(0, 2) == nullptr && clip_at(0, 5) != nullptr && clip_count() == before;
+                song.undo();
+                lay_out();
+                valid = valid && clip_at(0, 2) != nullptr && clip_at(0, 5) == nullptr;
+                reached("workflow: a clip dragged along its lane moves there");
+                valid = valid && drag_clip(0, 2, 5, Qt::ControlModifier);
+                valid = valid && clip_at(0, 2) != nullptr && clip_at(0, 5) != nullptr
+                              && clip_count() == before + 1
+                              && clip_at(0, 5)->pattern == clip_at(0, 2)->pattern;
+                song.undo();
+                lay_out();
+                valid = valid && clip_count() == before;
+                reached("workflow: a clip dragged with Ctrl is copied there");
+
+                // Chosen by a click, copied, and pasted onto the next track.
+                auto* cell = named("clip0-2");
+                if (cell != nullptr) click_at(cell, {cell->width() / 2, cell->height() / 2}, Qt::LeftButton);
+                settle(30);
+                lay_out();
+                chord_key(Qt::Key_C, Qt::ControlModifier);
+                valid = valid && song.clipCopied();
+                song.selectTrack(1);
+                controller.seekToBar(6);
+                lay_out();
+                chord_key(Qt::Key_V, Qt::ControlModifier);
+                controller.flushRecompile();
+                lay_out();
+                const auto* pasted = clip_at(1, 6);
+                const auto* source = clip_at(0, 2);
+                std::cerr << "pasted clip " << (pasted != nullptr) << '\n';
+                valid = valid && pasted != nullptr && source != nullptr
+                              && song.song().patterns.at(pasted->pattern).track == 1
+                              && song.song().patterns.at(pasted->pattern).section
+                                     == song.song().patterns.at(source->pattern).section;
+                song.undo();
+                controller.seekToBar(0);
+                lay_out();
+                valid = valid && clip_count() == before;
+            }
+            reached("workflow: a clip is copied and pasted onto another track");
+
             // However many tracks the song has, every strip can be reached
             // and the master stays inside the window.
             {

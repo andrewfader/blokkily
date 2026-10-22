@@ -65,7 +65,8 @@ public:
     void click_at(QQuickItem* item, QPointF local, Qt::MouseButton button,
                   Qt::KeyboardModifiers modifiers = Qt::NoModifier) const;
     void mouse_at(QQuickItem* target, QPointF local, QEvent::Type type,
-                  Qt::MouseButton button, Qt::MouseButtons held) const;
+                  Qt::MouseButton button, Qt::MouseButtons held,
+                  Qt::KeyboardModifiers modifiers = Qt::NoModifier) const;
     // Types one key at the window, the way a producer typing does.
     void type_key(Qt::Key key, const QString& text) const;
     void chord_key(Qt::Key key, Qt::KeyboardModifiers modifiers) const;

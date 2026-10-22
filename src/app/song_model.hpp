@@ -44,6 +44,8 @@ class SongModel final : public QObject {
     // The open section's tracks swing by different amounts.
     Q_PROPERTY(bool swingVaries READ swingVaries NOTIFY arrangementChanged)
     Q_PROPERTY(int selectedTrack READ selectedTrack NOTIFY arrangementChanged)
+    // A clip has been copied and can be pasted.
+    Q_PROPERTY(bool clipCopied READ clipCopied NOTIFY clipboardChanged)
     Q_PROPERTY(int bars READ bars NOTIFY arrangementChanged)
     // Every bar the timeline shows, laid out by the meter map (plan F-A): one
     // entry per bar, {start, ticks, numerator, denominator, x0, x1}, where
@@ -286,15 +288,19 @@ public:
     Q_INVOKABLE void clearPattern();
     Q_INVOKABLE bool deletePattern(int section);
     Q_INVOKABLE bool deleteTrack(int track);
+    // Moves track `from` to position `to`: its clips, parts, mixer strip,
+    // instrument and effects go with it. One step of history; the running
+    // instruments follow their tracks rather than loading again.
+    Q_INVOKABLE bool moveTrack(int from, int to);
     // Empties the song for a producer to build up from nothing: one track
     // with no instrument, one empty pattern, and no clips, audio, effects,
     // returns, automation or modulators. The tempo, meter and tuning go back
     // to their defaults; the click stays, as a session setting.
     // One step of history, so UNDO brings everything back.
     Q_INVOKABLE void clearSong();
-    // While structureChanged is being emitted for a deleted track: where each
-    // track before the deletion went (entry i is old track i's new index, or
-    // empty for the one removed). Null at any other time, so it can never be
+    // While structureChanged is being emitted for a deleted or moved track:
+    // where each track before the change went (entry i is old track i's new
+    // index, or empty for one removed). Null at any other time, so it can never be
     // applied to a later change.
     const std::vector<std::optional<std::size_t>>* pendingTrackRemap() const {
         return track_remap_ ? &*track_remap_ : nullptr;
@@ -385,6 +391,16 @@ public:
     [[nodiscard]] bool mixOnlyChange() const noexcept { return mix_only_; }
     // Moves the clip covering `bar` so it starts at `newBar` on the same track.
     Q_INVOKABLE bool moveClip(int track, int bar, int newBar);
+    // Places a copy of the clip covering `bar` so it starts at `newBar` on
+    // the same track, where the span it covers is free.
+    Q_INVOKABLE bool copyClip(int track, int bar, int newBar);
+    // Copies the clip covering `bar` of `track` (its pattern, repeats and
+    // length) for pasteClip; nothing is changed.
+    Q_INVOKABLE bool copyClipToClipboard(int track, int bar);
+    // Places the copied clip at `bar` of `track`: that track's part of the
+    // copied clip's pattern, as long as the copy was, where the span is free.
+    Q_INVOKABLE bool pasteClip(int track, int bar);
+    bool clipCopied() const noexcept { return clip_clipboard_.has_value(); }
     Q_INVOKABLE bool hasClip(int track, int bar) const;
     // Timebase edits (plan F-A). Each is one step of history; a tempo dragged
     // on a readout is one step however many moves it makes.
@@ -566,6 +582,8 @@ public:
     // up the tracker — is one step of history however many edits it makes.
     Q_INVOKABLE void beginGesture();
     Q_INVOKABLE void endGesture();
+    // A gesture is open: what is edited now is part of its one step.
+    [[nodiscard]] bool gestureOpen() const noexcept { return gesture_open_; }
     // The song on disk now matches the song in memory.
     void markSaved();
     // The song in memory is not on disk (a recovered copy): it is dirty until
@@ -716,6 +734,7 @@ public:
     bool printLauncherTake(const blokkily::LauncherTake& take);
 
 signals:
+    void clipboardChanged();
     void songChanged();
     // songChanged for anything but a fader, pan, mute or solo move. What
     // carries no strip readout is notified by this, so a fader dragged across
@@ -806,6 +825,14 @@ private:
     int selected_track_ = 0;
     std::vector<float> peaks_;
     std::optional<std::vector<std::optional<std::size_t>>> track_remap_;
+    // The clip copied for pasting, and the section its pattern is a part of
+    // (none in a song without sections, where it pastes on its own track).
+    std::optional<blokkily::Clip> clip_clipboard_;
+    std::optional<std::size_t> clip_clipboard_section_;
+    // Whether ticks [start, start + span) of `track` are free of every clip
+    // but `ignore`.
+    [[nodiscard]] bool spanFree(int track, blokkily::Tick start, blokkily::Tick span,
+                                const blokkily::Clip* ignore = nullptr) const;
     float master_peak_ = 0.0F;
     std::vector<float> return_peaks_;
     // Which chain the effect rack edits; a track rack follows the selection.

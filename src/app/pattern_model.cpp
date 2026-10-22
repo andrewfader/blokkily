@@ -181,6 +181,16 @@ void PatternModel::refresh() {
     // A fader pulled, a pan turned: the rows read the same, so the editors
     // are left alone rather than rebuilt once per pointer move.
     if (song_ != nullptr && song_->mixOnlyChange()) return;
+    // Chosen notes an undo, or another part opening, took away are let go.
+    if (!selected_notes_.empty() && !moving_notes_) {
+        const bool other_part = song_ == nullptr || selected_notes_part_ != song_->currentPattern();
+        const auto before = selected_notes_.size();
+        if (other_part) selected_notes_.clear();
+        else std::erase_if(selected_notes_, [this](const auto& note) {
+            return rollNoteDuration(note.first, note.second) <= 0;
+        });
+        if (selected_notes_.size() != before) noteSelectionMoved();
+    }
     beginResetModel();
     endResetModel();
     emit patternChanged();
@@ -825,6 +835,14 @@ void PatternModel::selectStep(int step) {
     // Selection is not an edit: the arrangement still plays what it played, so
     // nothing here may reach the engine and interrupt it.
     selected_step_ = qBound(-1, step, stepCount() - 1);
+    // The cursor gone to a step none of the chosen notes is on lets them go,
+    // so a key meant for that step never edits notes chosen earlier.
+    if (!selected_notes_.empty() && !moving_notes_ &&
+        std::none_of(selected_notes_.begin(), selected_notes_.end(),
+                     [this](const auto& note) { return note.first == selected_step_; })) {
+        selected_notes_.clear();
+        noteSelectionMoved();
+    }
     emit selectionChanged();
 }
 
@@ -1618,4 +1636,179 @@ void PatternModel::replace(blokkily::Pattern replacement) {
     emit patternChanged();
     emit contentChanged();
     emit selectionChanged();
+}
+
+// --- Several notes (features/note_selection.feature) -----------------------
+
+void PatternModel::noteSelectionMoved() {
+    selected_notes_part_ = song_ != nullptr ? song_->currentPattern() : -1;
+    ++note_selection_revision_;
+    emit noteSelectionChanged();
+}
+
+bool PatternModel::isNoteSelected(int step, int key) const {
+    if (song_ == nullptr || selected_notes_part_ != song_->currentPattern()) return false;
+    return std::find(selected_notes_.begin(), selected_notes_.end(), std::pair{step, key}) !=
+           selected_notes_.end();
+}
+
+void PatternModel::selectNote(int step, int key, bool toggle) {
+    if (rollNoteDuration(step, key) <= 0) return;
+    if (song_ == nullptr || selected_notes_part_ != song_->currentPattern()) selected_notes_.clear();
+    const auto chosen = std::pair{step, key};
+    const auto found = std::find(selected_notes_.begin(), selected_notes_.end(), chosen);
+    if (!toggle) selected_notes_ = {chosen};
+    else if (found != selected_notes_.end()) selected_notes_.erase(found);
+    else selected_notes_.push_back(chosen);
+    noteSelectionMoved();
+}
+
+int PatternModel::selectNotesIn(int fromStep, int toStep, int lowKey, int highKey, bool add) {
+    if (fromStep > toStep) std::swap(fromStep, toStep);
+    if (lowKey > highKey) std::swap(lowKey, highKey);
+    if (!add || song_ == nullptr || selected_notes_part_ != song_->currentPattern()) selected_notes_.clear();
+    for (const auto& event : pattern().events()) {
+        const auto step = static_cast<int>(event.start / ticks_per_step);
+        if (step < fromStep || step > toStep) continue;
+        for (const auto& key : voice_keys(event)) {
+            const auto chosen = std::pair{step, key.toInt()};
+            if (chosen.second < lowKey || chosen.second > highKey) continue;
+            if (std::find(selected_notes_.begin(), selected_notes_.end(), chosen) == selected_notes_.end())
+                selected_notes_.push_back(chosen);
+        }
+    }
+    noteSelectionMoved();
+    return noteSelectionCount();
+}
+
+int PatternModel::selectAllNotes() {
+    return selectNotesIn(0, std::max(0, stepCount() - 1), 0, 127, false);
+}
+
+void PatternModel::clearNoteSelection() {
+    if (selected_notes_.empty()) return;
+    selected_notes_.clear();
+    noteSelectionMoved();
+}
+
+std::optional<blokkily::Trigger> PatternModel::rollNoteTrigger(int step, int key) const {
+    const auto* existing = triggerAt(step);
+    if (existing == nullptr) return std::nullopt;
+    const int voice = roll_voice(*existing, key);
+    if (voice < 0) return std::nullopt;
+    auto note_trigger = *existing;
+    blokkily::Note note;
+    if (const auto* single = std::get_if<blokkily::Note>(&existing->musical_data)) {
+        note = *single;
+    } else {
+        const auto& chord = std::get<blokkily::Chord>(existing->musical_data);
+        note.velocity = blokkily::voice_velocity(chord, static_cast<std::size_t>(voice));
+        note.cents = voice < static_cast<int>(chord.cents.size()) ? chord.cents[static_cast<std::size_t>(voice)] : 0.0;
+    }
+    note.key = static_cast<std::int16_t>(key);
+    note_trigger.musical_data = note;
+    note_trigger.duration = rollNoteDuration(step, key);
+    std::erase_if(note_trigger.expression, [voice](const auto& e) {
+        return e.voice != static_cast<std::size_t>(voice);
+    });
+    for (auto& e : note_trigger.expression) e.voice = 0;
+    return note_trigger;
+}
+
+bool PatternModel::insertRollNote(int step, const blokkily::Trigger& note) {
+    if (step < 0 || step >= stepCount()) return false;
+    const auto key = std::get<blokkily::Note>(note.musical_data).key;
+    if (rollNoteDuration(step, key) > 0) return false;
+    if (triggerAt(step) != nullptr) {
+        mutate(step, [&note](auto& trigger) { append_roll_voice(trigger, note); });
+        return true;
+    }
+    auto placed = note;
+    placed.start = step * ticks_per_step;
+    song_->checkpoint();
+    beginResetModel();
+    (void)pattern().add(placed);
+    endResetModel();
+    emit patternChanged();
+    emit contentChanged();
+    return true;
+}
+
+int PatternModel::deleteSelectedNotes() {
+    if (song_ == nullptr || selected_notes_part_ != song_->currentPattern()) return 0;
+    int removed = 0;
+    const bool own = !song_->gestureOpen();
+    if (own) song_->beginGesture();
+    moving_notes_ = true;
+    for (const auto& [step, key] : selected_notes_) {
+        if (rollNoteDuration(step, key) <= 0) continue;
+        eraseRollNote(step, key);
+        ++removed;
+    }
+    moving_notes_ = false;
+    if (own) song_->endGesture();
+    selected_notes_.clear();
+    noteSelectionMoved();
+    return removed;
+}
+
+bool PatternModel::moveSelectedNotes(int steps, int keys) {
+    if (song_ == nullptr || selected_notes_part_ != song_->currentPattern() || selected_notes_.empty())
+        return false;
+    if (steps == 0 && keys == 0) return true;
+    // Every note lands inside the pattern, on a place that is free or that a
+    // note being moved is leaving.
+    for (const auto& [step, key] : selected_notes_) {
+        const int to = step + steps;
+        const int pitch = key + keys;
+        if (to < 0 || to >= stepCount() || pitch < 0 || pitch > 127) return false;
+        if (rollNoteDuration(to, pitch) > 0 && !isNoteSelected(to, pitch)) return false;
+    }
+    // The note furthest along the move goes first, so each lands on a place
+    // the one before it has already left.
+    auto order = selected_notes_;
+    std::sort(order.begin(), order.end(), [steps, keys](const auto& a, const auto& b) {
+        return a.first * steps + a.second * keys > b.first * steps + b.second * keys;
+    });
+    const bool own = !song_->gestureOpen();
+    if (own) song_->beginGesture();
+    moving_notes_ = true;
+    for (const auto& [step, key] : order) (void)moveRollNote(step, key, step + steps, key + keys);
+    moving_notes_ = false;
+    if (own) song_->endGesture();
+    for (auto& [step, key] : selected_notes_) {
+        step += steps;
+        key += keys;
+    }
+    noteSelectionMoved();
+    return true;
+}
+
+void PatternModel::copySelectedNotes() {
+    if (song_ == nullptr || selected_notes_part_ != song_->currentPattern() || selected_notes_.empty())
+        return;
+    int first = stepCount();
+    for (const auto& [step, key] : selected_notes_) first = std::min(first, step);
+    note_clipboard_.clear();
+    for (const auto& [step, key] : selected_notes_)
+        if (auto note = rollNoteTrigger(step, key)) note_clipboard_.emplace_back(step - first, *note);
+    ++note_selection_revision_;
+    emit noteSelectionChanged();
+}
+
+int PatternModel::pasteNotes(int step) {
+    if (note_clipboard_.empty() || step < 0) return 0;
+    std::vector<std::pair<int, int>> placed;
+    const bool own = !song_->gestureOpen();
+    if (own) song_->beginGesture();
+    for (const auto& [offset, note] : note_clipboard_) {
+        const int to = step + offset;
+        if (insertRollNote(to, note))
+            placed.emplace_back(to, std::get<blokkily::Note>(note.musical_data).key);
+    }
+    if (own) song_->endGesture();
+    // What was pasted is what is chosen, to move or paste again.
+    selected_notes_ = placed;
+    noteSelectionMoved();
+    return static_cast<int>(placed.size());
 }

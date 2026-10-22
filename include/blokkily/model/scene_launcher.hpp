@@ -88,6 +88,9 @@ public:
     // Track `track_index` was removed: its column goes and later ones move
     // left.
     void remove_track(std::size_t track_index);
+    // Puts every scene's cells in the tracks' new order: `old_of[new]` is the
+    // track that is now at `new`.
+    void reorder_tracks(const std::vector<std::size_t>& old_of);
     // Pattern `pattern_index` was removed from the song: cells that played it
     // are emptied, and cells of later patterns follow them down one.
     void remove_pattern(std::size_t pattern_index);

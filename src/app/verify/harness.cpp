@@ -77,11 +77,11 @@ void VerifyContext::click_at(QQuickItem* item, QPointF local, Qt::MouseButton bu
 }
 
 void VerifyContext::mouse_at(QQuickItem* target, QPointF local, QEvent::Type type,
-                             Qt::MouseButton button, Qt::MouseButtons held) const {
+                             Qt::MouseButton button, Qt::MouseButtons held,
+                             Qt::KeyboardModifiers modifiers) const {
     if (target == nullptr) return;
     const QPointF scene = target->mapToScene(local);
-    QMouseEvent event(type, scene, scene, window->mapToGlobal(scene), button, held,
-                      Qt::NoModifier);
+    QMouseEvent event(type, scene, scene, window->mapToGlobal(scene), button, held, modifiers);
     QCoreApplication::sendEvent(window, &event);
 }
 

@@ -66,6 +66,32 @@ ColumnLayout {
         if (entry === undefined) return 1
         return Math.max(1, (entry.x1 - entry.x0) * laneRoom)
     }
+    // A clip pressed and perhaps being dragged ({track, bar, startBar, bars,
+    // dragging, x}), and the bar it would start at if let go now.
+    property var grab: null
+    property int dropStart: -1
+    property int dropBars: 1
+    property int clipDropTrack: -1
+    // A clip was opened, moved or copied by the pointer: the window's Ctrl+C
+    // then copies it.
+    signal clipChosen(int track, int bar)
+    // The bar under x in the scrolled content (the rows' coordinates).
+    function barAtX(x) {
+        const count = songModel.bars
+        if (count <= 0) return 0
+        let low = 0, high = count - 1
+        while (low < high) {
+            const middle = Math.ceil((low + high) / 2)
+            if (barX(middle) <= x) low = middle
+            else high = middle - 1
+        }
+        return low
+    }
+    // A track header being dragged to a new place, and where it would land.
+    property int dragTrack: -1
+    property int dropTrack: -1
+    // A track's row and the gap under it.
+    readonly property real trackPitch: 24
     // Where the keyboard goes back to after a click on the timeline.
     property Item focusHome: null
     // Naming and the context menus belong to the window, which owns them.
@@ -414,11 +440,52 @@ ColumnLayout {
                         }
                         // Click selects, double-click names,
                         // the right button offers the rest.
+                        // Where a header dragged up or down will land: a
+                        // line along the edge of the track it goes before
+                        // or after.
+                        Rectangle {
+                            objectName: "trackDropMark" + trackIndex
+                            visible: root.dropTrack === trackIndex && root.dragTrack !== trackIndex
+                            width: parent.width; height: 2; radius: 1
+                            y: root.dropTrack > root.dragTrack ? parent.height - 1 : -1
+                            color: Theme.acid
+                        }
+                        opacity: root.dragTrack === trackIndex ? 0.5 : 1
                         MouseArea {
+                            id: headerMouse
+                            objectName: "trackHeaderMouse" + trackIndex
                             anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
+                            cursorShape: dragged ? Qt.ClosedHandCursor : Qt.PointingHandCursor
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            preventStealing: true
+                            // Dragged up or down by more than a few pixels,
+                            // the header moves its track to where it is let go.
+                            property real pressY: 0
+                            property bool dragged: false
+                            onPressed: function(mouse) { pressY = mouse.y; dragged = false }
+                            onPositionChanged: function(mouse) {
+                                if (!(pressedButtons & Qt.LeftButton)) return
+                                if (!dragged && Math.abs(mouse.y - pressY) > 6) {
+                                    dragged = true
+                                    root.dragTrack = trackIndex
+                                }
+                                if (dragged)
+                                    root.dropTrack = Math.max(0, Math.min(songModel.trackCount - 1,
+                                        trackIndex + Math.round((mouse.y - pressY) / root.trackPitch)))
+                            }
+                            onReleased: {
+                                if (!dragged) return
+                                const from = trackIndex
+                                const to = root.dropTrack
+                                root.dragTrack = -1
+                                root.dropTrack = -1
+                                // After this press has finished with the row
+                                // the move rebuilds.
+                                if (to >= 0 && to !== from) Qt.callLater(songModel.moveTrack, from, to)
+                            }
+                            onCanceled: { dragged = false; root.dragTrack = -1; root.dropTrack = -1 }
                             onClicked: function(mouse) {
+                                if (dragged) return
                                 // Selecting rebuilds this row, so read what
                                 // the menu needs before selecting.
                                 const view = root
@@ -447,6 +514,16 @@ ColumnLayout {
                             Layout.preferredHeight: 22
                             radius: 3
                             readonly property bool atPlayhead: transport.bar === index
+                            // Where the clip being dragged would land.
+                            Rectangle {
+                                objectName: "clipDropMark" + trackIndex + "-" + index
+                                z: 3
+                                anchors.fill: parent
+                                visible: root.clipDropTrack === trackIndex && root.dropStart >= 0
+                                         && index >= root.dropStart && index < root.dropStart + root.dropBars
+                                color: "transparent"; radius: 3
+                                border.color: Theme.acid; border.width: 2
+                            }
                             readonly property color tone: Theme.trackColour(track.colour)
                             color: hollow ? Theme.hollow
                                  : filled ? (track.audible ? tone : Theme.line)
@@ -507,6 +584,55 @@ ColumnLayout {
                                 // onPressed rather than onClicked: a synthetic
                                 // right-button event reaches the press handler
                                 // even when the composed click does not.
+                                // A plain press on a clip waits for its
+                                // release: let go where it was it opens the
+                                // clip, dragged along the lane it moves it,
+                                // and dragged with Ctrl held it copies it.
+                                onPositionChanged: function(mouse) {
+                                    if (root.grab === null || root.grab.track !== trackIndex) return
+                                    const at = mapToItem(arrangementRows, mouse.x, mouse.y)
+                                    if (!root.grab.dragging && Math.abs(at.x - root.grab.x) < 6) return
+                                    const hover = root.barAtX(at.x)
+                                    const grab = root.grab
+                                    grab.dragging = true
+                                    root.dropBars = grab.bars
+                                    root.clipDropTrack = grab.track
+                                    root.dropStart = Math.max(0, grab.startBar + hover - grab.bar)
+                                }
+                                onReleased: function(mouse) {
+                                    const grab = root.grab
+                                    if (grab === null || grab.track !== trackIndex) return
+                                    root.grab = null
+                                    const to = root.dropStart
+                                    root.dropStart = -1
+                                    root.clipDropTrack = -1
+                                    const model = songModel
+                                    const controller = appController
+                                    const view = root
+                                    // After this press has finished with the
+                                    // row each of these rebuilds.
+                                    if (grab.dragging) {
+                                        if (to >= 0 && to !== grab.startBar)
+                                            Qt.callLater(function() {
+                                                model.selectTrack(grab.track)
+                                                const copied = (mouse.modifiers & Qt.ControlModifier)
+                                                    ? model.copyClip(grab.track, grab.bar, to)
+                                                    : model.moveClip(grab.track, grab.bar, to)
+                                                if (copied) view.clipChosen(grab.track, to)
+                                            })
+                                        return
+                                    }
+                                    // Opening a clip puts its pattern in
+                                    // every editor and puts the playhead
+                                    // where that clip starts sounding.
+                                    Qt.callLater(function() {
+                                        model.selectTrack(grab.track)
+                                        model.openClip(grab.track, grab.bar)
+                                        controller.seekToBar(grab.bar)
+                                        view.clipChosen(grab.track, grab.bar)
+                                    })
+                                }
+                                onCanceled: { root.grab = null; root.dropStart = -1; root.clipDropTrack = -1 }
                                 onPressed: function(mouse) {
                                     root.focusHome.forceActiveFocus()
                                     // Selecting the track changes the song, and
@@ -522,6 +648,18 @@ ColumnLayout {
                                     const lane = model.lanes[track]
                                     const playhead = transport.bar
                                     mouse.accepted = true
+                                    // A plain press on a clip: held until it
+                                    // is let go or dragged.
+                                    if (mouse.button === Qt.LeftButton && filled && cell
+                                        && !(mouse.modifiers & (Qt.ShiftModifier | Qt.AltModifier))) {
+                                        let bars = 0
+                                        for (let b = cell.startBar; lane[b] !== undefined && lane[b].filled
+                                             && lane[b].startBar === cell.startBar; ++b) ++bars
+                                        root.grab = { track: track, bar: bar, startBar: cell.startBar,
+                                                      bars: Math.max(1, bars), dragging: false,
+                                                      x: mapToItem(arrangementRows, mouse.x, mouse.y).x }
+                                        return
+                                    }
                                     model.selectTrack(track)
                                     if (mouse.button === Qt.RightButton) {
                                         // The right button takes a clip away;

@@ -802,7 +802,7 @@ ColumnLayout {
                     // The hint gives way to the roll: at its full length it
                     // made the header wider than the panel, which pushed the
                     // last columns of the roll out of sight and out of reach.
-                    Label { text: qsTr("drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases"); color: Theme.muted
+                    Label { text: qsTr("drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases  |  Shift chooses several"); color: Theme.muted
                         font.pixelSize: 9
                         Layout.fillWidth: true; Layout.minimumWidth: 0
                         horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
@@ -1056,8 +1056,15 @@ ColumnLayout {
                                     opacity: 0.45 + 0.55 * voiceVelocity
                                     height: Math.max(3, rollArea.laneHeight - 1)
                                     radius: 2
-                                    color: patternModel.selectedStep === rollNote.step
+                                    // Chosen with others (Shift, or a band
+                                    // dragged with Shift): outlined as well.
+                                    readonly property bool chosen: patternModel.noteSelectionRevision >= 0
+                                        && patternModel.noteSelectionCount > 1
+                                        && patternModel.isNoteSelected(rollNote.step, modelData)
+                                    color: chosen || patternModel.selectedStep === rollNote.step
                                            ? Theme.amber : Theme.acid
+                                    border.color: chosen ? Theme.ink : "transparent"
+                                    border.width: chosen ? 1 : 0
                                 }
                             }
                         }
@@ -1091,8 +1098,13 @@ ColumnLayout {
                         // The lane the pointer is over, so the roll
                         // can show which pitch a press would write.
                         property int hoverKey: keyAt(mouseY)
-                        // 0 draws a phrase, 1 moves a note, 2 lengthens it.
+                        // 0 draws a phrase, 1 moves a note, 2 lengthens it,
+                        // 3 moves every chosen note, 4 does nothing (a
+                        // Shift-click chose a note), 5 drags a band that
+                        // chooses the notes it covers.
                         property int dragMode: 0
+                        property int movedSteps: 0
+                        property int movedKeys: 0
                         property int dragStep: -1
                         property int grabKey: 0
                         property int dragKey: 0
@@ -1100,6 +1112,9 @@ ColumnLayout {
                         property real pressX: 0
                         property real pressY: 0
                         property bool moved: false
+                        // Where the band being dragged reaches.
+                        property real bandX: 0
+                        property real bandY: 0
 
                         function stepAt(px) {
                             return Math.max(0, Math.min(rollArea.columns - 1,
@@ -1149,12 +1164,37 @@ ColumnLayout {
                             moved = false
                             pressX = mouse.x
                             pressY = mouse.y
+                            bandX = mouse.x
+                            bandY = mouse.y
                             var key = keyAt(mouse.y)
                             var hit = coveringNote(mouse.x, mouse.y)
                             if (mouse.button === Qt.RightButton) {
                                 paint(mouse)
                                 return
                             }
+                            // Shift chooses notes: a click adds or takes away
+                            // the one under it, a drag from an empty place
+                            // chooses those inside the band.
+                            if (mouse.modifiers & Qt.ShiftModifier) {
+                                if (hit >= 0) {
+                                    patternModel.selectNote(hit, key, true)
+                                    dragMode = 4
+                                } else {
+                                    dragMode = 5
+                                }
+                                return
+                            }
+                            // A press on one of several chosen notes drags
+                            // them all.
+                            if (hit >= 0 && patternModel.noteSelectionCount > 1
+                                    && patternModel.isNoteSelected(hit, key)) {
+                                dragMode = 3
+                                movedSteps = 0
+                                movedKeys = 0
+                                return
+                            }
+                            if (hit >= 0) patternModel.selectNote(hit, key, false)
+                            else patternModel.clearNoteSelection()
                             if (hit >= 0) {
                                 var dur = patternModel.rollNoteDuration(hit, key)
                                 var end = hit + dur / 120
@@ -1177,6 +1217,22 @@ ColumnLayout {
                                         < Qt.styleHints.startDragDistance) return
                                 moved = true
                             }
+                            if (dragMode === 4) return
+                            if (dragMode === 5) {
+                                bandX = mouse.x
+                                bandY = mouse.y
+                                return
+                            }
+                            if (dragMode === 3) {
+                                const steps = Math.round((mouse.x - pressX) / rollArea.laneWidth)
+                                const keys = keyAt(mouse.y) - keyAt(pressY)
+                                if (steps === movedSteps && keys === movedKeys) return
+                                if (patternModel.moveSelectedNotes(steps - movedSteps, keys - movedKeys)) {
+                                    movedSteps = steps
+                                    movedKeys = keys
+                                }
+                                return
+                            }
                             if (dragMode === 2 && dragStep >= 0) {
                                 var ticks = Math.round(
                                     ((mouse.x + rollArea.scrollX) / rollArea.laneWidth - dragStep) * 120)
@@ -1197,7 +1253,10 @@ ColumnLayout {
                             }
                             paint(mouse)
                         }
-                        onReleased: {
+                        onReleased: function(mouse) {
+                            if (dragMode === 5)
+                                patternModel.selectNotesIn(stepAt(pressX), stepAt(mouse.x),
+                                                           keyAt(pressY), keyAt(mouse.y), true)
                             lastStep = -1; lastKey = -1
                             dragMode = 0; dragStep = -1
                             songModel.endGesture()
@@ -1209,6 +1268,17 @@ ColumnLayout {
                         }
                     }
 
+                    // The band a Shift-drag chooses notes with.
+                    Rectangle {
+                        objectName: "rollBand"
+                        visible: rollInput.pressed && rollInput.dragMode === 5
+                        x: rollArea.gutter + Math.min(rollInput.pressX, rollInput.bandX)
+                        y: Math.min(rollInput.pressY, rollInput.bandY)
+                        width: Math.abs(rollInput.bandX - rollInput.pressX)
+                        height: Math.abs(rollInput.bandY - rollInput.pressY)
+                        color: Theme.amber; opacity: 0.15
+                        border.color: Theme.amber; border.width: 1
+                    }
                     // Where a press would land, so the pitch under
                     // the pointer is known before it is written.
                     Rectangle {

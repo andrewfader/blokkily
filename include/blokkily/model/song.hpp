@@ -483,6 +483,13 @@ struct Song {
     // every track (nothing for the removed one), or an empty vector, changing
     // nothing, when `index` does not exist or is the only track.
     std::vector<std::optional<std::size_t>> remove_track(std::size_t index);
+    // Moves track `from` to position `to`, the tracks between shifting over,
+    // and re-indexes everything that names a track (clips, parts, audio
+    // clips, launcher cells, lanes, keys, channels, modulators, controller
+    // bindings). Returns the old-to-new index of every track, or an empty
+    // vector, changing nothing, when either index does not exist or they are
+    // the same.
+    std::vector<std::optional<std::size_t>> move_track(std::size_t from, std::size_t to);
     // Removes insert `slot` of the bus `kind`/`bus` names, with the automation
     // lanes and modulation targets that drive it; lanes and targets on the
     // inserts after it follow them to their new slots. False, changing

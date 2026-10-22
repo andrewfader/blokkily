@@ -59,6 +59,18 @@ void SceneMatrix::remove_track(std::size_t track_index) {
     }
 }
 
+void SceneMatrix::reorder_tracks(const std::vector<std::size_t>& old_of) {
+    for (auto& scene : scenes) {
+        auto cells = scene.cells;
+        cells.resize(std::max(cells.size(), old_of.size()));
+        std::vector<std::optional<SceneSlot>> moved(old_of.size());
+        for (std::size_t now = 0; now < old_of.size(); ++now) moved[now] = cells[old_of[now]];
+        // A scene that named no cell past the last track keeps that length.
+        while (!moved.empty() && !moved.back() && moved.size() > scene.cells.size()) moved.pop_back();
+        scene.cells = std::move(moved);
+    }
+}
+
 void SceneMatrix::remove_pattern(std::size_t pattern_index) {
     for (auto& scene : scenes)
         for (auto& cell : scene.cells) {

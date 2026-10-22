@@ -205,6 +205,21 @@
     </message>
 </context>
 <context>
+    <name>HistoryPanel</name>
+    <message>
+        <source>HISTORY</source>
+        <translation>VERLAUF</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Schließen</translation>
+    </message>
+    <message>
+        <source>Click a step to go back or forward to it. An edit after an undo starts a branch; the steps undone stay here.</source>
+        <translation>Einen Schritt anklicken, um zu ihm zu gehen. Eine Änderung nach einem Rückgängig beginnt einen Zweig; die rückgängig gemachten Schritte bleiben hier.</translation>
+    </message>
+</context>
+<context>
     <name>Inspector</name>
     <message>
         <source>STEP </source>
@@ -560,6 +575,10 @@
         <translation>Rückgängig / wiederholen</translation>
     </message>
     <message>
+        <source>Every step of history, branches too</source>
+        <translation>Jeder Schritt des Verlaufs, auch Zweige</translation>
+    </message>
+    <message>
         <source>WINDOW</source>
         <translation>FENSTER</translation>
     </message>
@@ -766,6 +785,14 @@
     <message>
         <source>Solo</source>
         <translation>Solo</translation>
+    </message>
+    <message>
+        <source>Move up</source>
+        <translation>Nach oben</translation>
+    </message>
+    <message>
+        <source>Move down</source>
+        <translation>Nach unten</translation>
     </message>
     <message>
         <source>Colour</source>
@@ -1705,8 +1732,8 @@
         <translation>PIANOROLLE</translation>
     </message>
     <message>
-        <source>drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases</source>
-        <translation>Ziehen zeichnet  |  Note ziehen verschiebt  |  ihr Ende ziehen verlängert  |  Rechtsklick löscht</translation>
+        <source>drag draws  |  drag a note to move  |  drag its end to lengthen  |  right-click erases  |  Shift chooses several</source>
+        <translation>Ziehen zeichnet  |  Note ziehen verschiebt  |  ihr Ende ziehen verlängert  |  Rechtsklick löscht  |  Umschalt wählt mehrere</translation>
     </message>
     <message>
         <source> KEYS</source>
@@ -1783,8 +1810,8 @@
         <translation>RÜCK</translation>
     </message>
     <message>
-        <source>Undo (Ctrl+Z)</source>
-        <translation>Rückgängig (Strg+Z)</translation>
+        <source>Undo (Ctrl+Z). Right-click: every step, branches too (Ctrl+H)</source>
+        <translation>Rückgängig (Strg+Z). Rechtsklick: jeder Schritt, auch Zweige (Strg+H)</translation>
     </message>
     <message>
         <source>REDO</source>

@@ -120,6 +120,14 @@ keys are let go, until a new chord is played. It runs before the
 instrument, so it works with any of them, and it plays in exports. See
 [the scenarios](../features/arpeggiator.feature).
 
+Several notes can be edited at once in the piano roll. Shift-click adds a
+note to the notes chosen (or takes it away), Shift-drag from an empty place
+draws a band that chooses the notes inside it, and Ctrl+A chooses every note.
+Dragging one chosen note moves them all, Delete removes them, Shift+Up/Down
+(Ctrl for octaves) transposes them, and Ctrl+C / Ctrl+V copies them to the
+cursor's step. Each is one undo step. See
+[the scenarios](../features/note_selection.feature).
+
 The piano roll's CTRL lane also edits expression. NOTE PITCH, NOTE TIMBRE
 and NOTE PRESS draw the selected note's own bend (-12 to +12 semitones),
 timbre and pressure across its length; POLY draws one key's poly pressure
@@ -140,6 +148,10 @@ per bar. Patterns can have different lengths.
 | Shift-click a filled bar | Set that clip's repeat count so it ends at the clicked bar |
 | Shift-click an empty bar | Extend the preceding clip on that lane to cover the clicked bar |
 | Alt-click an empty bar | Move the clip under the playhead on that lane to the clicked bar |
+| Drag a clip along its lane | Move it to where it is let go |
+| Ctrl-drag a clip | Copy it to where it is let go |
+| Click a clip, then Ctrl+C | Copy it; Ctrl+V pastes it at the playhead's bar on the selected track, as that track's part of the pattern |
+| Drag a track's name up or down | Move the track there (also Move up / Move down in its menu) |
 | Click a bar number on the ruler | Locate the audio engine on that bar |
 
 Shift-click uses whole pattern repeats, so a clip may end beyond the clicked

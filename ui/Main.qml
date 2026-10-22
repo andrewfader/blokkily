@@ -338,6 +338,11 @@ ApplicationWindow {
         MenuItem { objectName: "trackMenuSolo"; text: qsTr("Solo"); checkable: true
             checked: songModel.tracks[trackMenu.target] !== undefined && songModel.tracks[trackMenu.target].solo === true
             onTriggered: songModel.toggleSolo(trackMenu.target) }
+        MenuItem { objectName: "trackMoveUp"; text: qsTr("Move up"); enabled: trackMenu.target > 0
+            onTriggered: songModel.moveTrack(trackMenu.target, trackMenu.target - 1) }
+        MenuItem { objectName: "trackMoveDown"; text: qsTr("Move down")
+            enabled: trackMenu.target >= 0 && trackMenu.target < songModel.trackCount - 1
+            onTriggered: songModel.moveTrack(trackMenu.target, trackMenu.target + 1) }
         MenuItem { text: qsTr("Delete"); enabled: songModel.trackCount > 1
             onTriggered: songModel.deleteTrack(trackMenu.target) }
         // The track's colour, on its clips, its header and its strip.
@@ -511,30 +516,68 @@ ApplicationWindow {
         onActivated: patternModel.selectStep(Math.max(0, patternModel.selectedStep - 1)) }
     Shortcut { sequence: "Down"; enabled: !root.typing && !root.staffEditing
         onActivated: patternModel.selectStep(Math.min(patternModel.stepCount - 1, patternModel.selectedStep + 1)) }
+    // Several notes chosen in the piano roll are edited together; otherwise
+    // the step under the cursor is.
+    readonly property bool notesChosen: patternModel.noteSelectionCount > 1
+    function transpose(semitones) {
+        if (notesChosen) patternModel.moveSelectedNotes(0, semitones)
+        else patternModel.transposeSelected(semitones)
+    }
     Shortcut { sequence: "Shift+Up"; enabled: !root.typing && !root.staffEditing
-               onActivated: patternModel.transposeSelected(1) }
+               onActivated: root.transpose(1) }
     Shortcut { sequence: "Shift+Down"; enabled: !root.typing && !root.staffEditing
-               onActivated: patternModel.transposeSelected(-1) }
+               onActivated: root.transpose(-1) }
     Shortcut { sequence: "Ctrl+Up"; enabled: !root.typing && !root.staffEditing
-               onActivated: patternModel.transposeSelected(12) }
+               onActivated: root.transpose(12) }
     Shortcut { sequence: "Ctrl+Down"; enabled: !root.typing && !root.staffEditing
-               onActivated: patternModel.transposeSelected(-12) }
+               onActivated: root.transpose(-12) }
+    // Every note of the open part, chosen.
+    Shortcut { sequence: StandardKey.SelectAll; enabled: !root.typing && !root.staffEditing
+               onActivated: patternModel.selectAllNotes() }
     // The tracker's own octave, moved without leaving the letter keys.
     Shortcut { sequence: "Ctrl+Left"; enabled: !root.typing
         onActivated: root.entryOctave = Math.max(0, root.entryOctave - 1) }
     Shortcut { sequence: "Ctrl+Right"; enabled: !root.typing
         onActivated: root.entryOctave = Math.min(8, root.entryOctave + 1) }
     Shortcut { sequences: ["Backspace", "Delete"]; enabled: !root.typing && !root.staffEditing
-        onActivated: patternModel.clearStep(patternModel.selectedStep) }
+        onActivated: root.notesChosen ? patternModel.deleteSelectedNotes()
+                                      : patternModel.clearStep(patternModel.selectedStep) }
     // Insert pushes later rows down; Shift+Backspace pulls them up.
     Shortcut { sequence: "Insert"; enabled: !root.typing
         onActivated: patternModel.insertStep(patternModel.selectedStep) }
     Shortcut { sequence: "Shift+Backspace"; enabled: !root.typing
         onActivated: patternModel.deleteAndShift(patternModel.selectedStep) }
-    Shortcut { sequence: StandardKey.Copy; enabled: !root.typing
-               onActivated: patternModel.copySelected() }
-    Shortcut { sequence: StandardKey.Paste; enabled: !root.typing
-               onActivated: patternModel.pasteSelected() }
+    // Copy and paste act on what was last chosen: a clip on the arrangement
+    // (pasted at the playhead's bar on the selected track), or the step.
+    property var clipSource: null
+    Connections {
+        target: patternModel
+        function onSelectionChanged() { root.clipSource = null }
+    }
+    // What the last copy took, so a paste puts back the same kind of thing:
+    // "clip", "notes" or "step".
+    property string copied: ""
+    function copy() {
+        if (root.clipSource !== null) {
+            if (songModel.copyClipToClipboard(root.clipSource.track, root.clipSource.bar)) copied = "clip"
+        } else if (notesChosen) {
+            patternModel.copySelectedNotes()
+            copied = "notes"
+        } else {
+            patternModel.copySelected()
+            copied = "step"
+        }
+    }
+    function paste() {
+        if (copied === "clip" && songModel.clipCopied)
+            songModel.pasteClip(songModel.selectedTrack, transport.bar)
+        else if (copied === "notes" && patternModel.notesCopied)
+            patternModel.pasteNotes(Math.max(0, patternModel.selectedStep))
+        else
+            patternModel.pasteSelected()
+    }
+    Shortcut { sequence: StandardKey.Copy; enabled: !root.typing; onActivated: root.copy() }
+    Shortcut { sequence: StandardKey.Paste; enabled: !root.typing; onActivated: root.paste() }
     Shortcut { sequence: "Ctrl+D"; enabled: !root.typing
                onActivated: patternModel.duplicateSelected() }
     // Mute and solo the selected mixer track. Ctrl+S is Save, so solo is Ctrl+L
@@ -1060,6 +1103,7 @@ ApplicationWindow {
                             patternMenu.popup()
                         }
                         onTrackMenuRequested: (index, name) => root.showTrackMenu(index, name)
+                        onClipChosen: (track, bar) => root.clipSource = { track: track, bar: bar }
                     }
 
                     LauncherView {

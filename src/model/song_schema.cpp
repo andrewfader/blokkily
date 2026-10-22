@@ -422,6 +422,54 @@ std::vector<std::optional<std::size_t>> Song::remove_track(std::size_t index) {
     return map;
 }
 
+std::vector<std::optional<std::size_t>> Song::move_track(std::size_t from, std::size_t to) {
+    if (from >= tracks.size() || to >= tracks.size() || from == to) return {};
+    // old_of[new] is the track now at `new`; map[old] is where it went.
+    std::vector<std::size_t> old_of(tracks.size());
+    for (std::size_t index = 0; index < old_of.size(); ++index) old_of[index] = index;
+    old_of.erase(old_of.begin() + static_cast<std::ptrdiff_t>(from));
+    old_of.insert(old_of.begin() + static_cast<std::ptrdiff_t>(to), from);
+    std::vector<std::optional<std::size_t>> map(tracks.size());
+    for (std::size_t now = 0; now < old_of.size(); ++now) map[old_of[now]] = now;
+    const auto moved = [&map](std::size_t old) {
+        return old < map.size() && map[old] ? *map[old] : old;
+    };
+
+    std::vector<Track> reordered;
+    reordered.reserve(tracks.size());
+    for (const auto old : old_of) reordered.push_back(std::move(tracks[old]));
+    tracks = std::move(reordered);
+    launcher.reorder_tracks(old_of);
+    for (auto& binding : midi_bindings)
+        if (binding.target != MidiBinding::Target::master_gain &&
+            binding.target != MidiBinding::Target::macro)
+            binding.index = static_cast<std::uint32_t>(moved(binding.index));
+    for (auto& clip : clips) clip.track = moved(clip.track);
+    for (auto& slot : patterns) slot.track = moved(slot.track);
+    for (auto& clip : audio_clips) clip.track = moved(clip.track);
+    for (auto& track : tracks)
+        for (auto& lane : track.automation)
+            if (lane.target.processor.kind == BusKind::track)
+                lane.target.processor.bus = static_cast<std::uint32_t>(moved(lane.target.processor.bus));
+    const auto rekey = [&](std::vector<EffectSlot>& slots) {
+        for (auto& slot : slots)
+            if (slot.sidechain) slot.sidechain = static_cast<std::uint32_t>(moved(*slot.sidechain));
+    };
+    for (auto& track : tracks) rekey(track.inserts);
+    for (auto& bus : returns) rekey(bus.inserts);
+    rekey(master_inserts);
+    for (auto& track : tracks)
+        if (track.source) track.source->track = static_cast<std::uint32_t>(moved(track.source->track));
+    for (auto& modulator : modulators) {
+        if (modulator.kind == Modulator::Kind::follower)
+            modulator.source_track = static_cast<std::uint32_t>(moved(modulator.source_track));
+        for (auto& target : modulator.targets)
+            if (target.processor.kind == BusKind::track)
+                target.processor.bus = static_cast<std::uint32_t>(moved(target.processor.bus));
+    }
+    return map;
+}
+
 namespace {
 // Hands every step's locks, in every pattern, to `edit`, which says whether
 // it changed them; a changed step is written back.

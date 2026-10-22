@@ -180,6 +180,66 @@ bool SongModel::extendClipToBar(int track, int startBar, int bar) {
     return setClipRepeats(track, startBar, static_cast<int>(std::min<blokkily::Tick>(wanted, 64)));
 }
 
+bool SongModel::spanFree(int track, blokkily::Tick start, blokkily::Tick span,
+                         const blokkily::Clip* ignore) const {
+    for (const auto& clip : song_.clips) {
+        if (&clip == ignore || clip.track != static_cast<std::size_t>(track) || clip.comped_out ||
+            clip.pattern >= song_.patterns.size())
+            continue;
+        const auto other = clip.span(song_.patterns[clip.pattern].pattern.length());
+        if (clip.start < start + span && start < clip.start + other) return false;
+    }
+    return true;
+}
+
+bool SongModel::copyClip(int track, int bar, int newBar) {
+    const auto* covering = clipAt(track, bar);
+    if (covering == nullptr || newBar < 0) return false;
+    const auto span = covering->span(song_.patterns[covering->pattern].pattern.length());
+    const auto start = barStart(newBar);
+    if (!spanFree(track, start, span)) return false;
+    auto copy = *covering;
+    copy.start = start;
+    copy.comped_out = false;
+    checkpoint();
+    song_.clips.push_back(copy);
+    notifyStructureChanged();
+    return true;
+}
+
+bool SongModel::copyClipToClipboard(int track, int bar) {
+    const auto* covering = clipAt(track, bar);
+    if (covering == nullptr) return false;
+    clip_clipboard_ = *covering;
+    clip_clipboard_->comped_out = false;
+    clip_clipboard_section_.reset();
+    if (!song_.sections.empty())
+        clip_clipboard_section_ = song_.patterns[covering->pattern].section;
+    emit clipboardChanged();
+    return true;
+}
+
+bool SongModel::pasteClip(int track, int bar) {
+    if (!clip_clipboard_ || !validTrack(track) || bar < 0) return false;
+    auto copy = *clip_clipboard_;
+    if (clip_clipboard_section_) {
+        // The pasting track's own part of the copied pattern.
+        const auto part = song_.part(*clip_clipboard_section_, static_cast<std::size_t>(track));
+        if (!part) return false;
+        copy.pattern = *part;
+    } else if (copy.track != static_cast<std::size_t>(track) || copy.pattern >= song_.patterns.size()) {
+        return false;
+    }
+    copy.track = static_cast<std::size_t>(track);
+    copy.start = barStart(bar);
+    const auto span = copy.span(song_.patterns[copy.pattern].pattern.length());
+    if (!spanFree(track, copy.start, span)) return false;
+    checkpoint();
+    song_.clips.push_back(copy);
+    notifyStructureChanged();
+    return true;
+}
+
 bool SongModel::moveClip(int track, int bar, int newBar) {
     auto* covering = clipAt(track, bar);
     if (covering == nullptr || newBar < 0) return false;
