@@ -80,6 +80,10 @@ Feature: A session can be worked on without fear of losing it
     When the fader is double-clicked
     Then it is at 0 dB, and one undo takes it back to -12 dB
 
+  Scenario: The arrangement's playhead stands where it is in its bar
+    When the playhead is put half way into bar 2
+    Then a line over the arrangement's lanes stands half way across bar 2
+
   Scenario: A muted track says so outside the mixer
     When a track is muted
     Then its header on the arrangement shows M, and its menu's Mute is ticked

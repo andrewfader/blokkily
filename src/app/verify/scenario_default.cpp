@@ -1490,6 +1490,26 @@ struct DefaultScenario {
             }
             reached("workflow: a track's colour is chosen from its menu and undone");
 
+            // The arrangement's playhead stands where it is inside its bar.
+            {
+                controller.seekToTick(static_cast<double>(song.barStart(1) + song.barTicks(1) / 2));
+                lay_out();
+                auto* head = named("arrangePlayhead");
+                auto* bar = named("rulerBar1");
+                if (head != nullptr && bar != nullptr) {
+                    const double middle = head->mapToScene({head->width() / 2, 0}).x();
+                    const double left = bar->mapToScene({0, 0}).x();
+                    std::cerr << "arrangement playhead at " << middle << ", bar 2 from " << left
+                              << " +" << bar->width() << '\n';
+                    valid = valid && head->isVisible()
+                                  && std::abs(middle - (left + bar->width() / 2)) <= bar->width() * 0.1;
+                } else {
+                    valid = false;
+                }
+                controller.seekToTick(0.0);
+                lay_out();
+            }
+            reached("workflow: the arrangement's playhead stands inside its bar");
 
             // However many tracks the song has, every strip can be reached
             // and the master stays inside the window.

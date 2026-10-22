@@ -202,6 +202,23 @@ ColumnLayout {
                 }
             }
 
+        // The playhead where it is in its bar, over every lane: the bar it
+        // is in is lit too, but on a long bar or zoomed in that says little.
+        Rectangle {
+            id: arrangePlayhead
+            objectName: "arrangePlayhead"
+            z: 10
+            readonly property var entry: root.layout[transport.bar]
+            readonly property real into: entry === undefined || entry.ticks <= 0 ? 0
+                : Math.max(0, Math.min(1, (transport.tick - entry.start) / entry.ticks))
+            visible: entry !== undefined
+            x: root.barX(transport.bar) + into * root.barWidth(transport.bar) - width / 2
+            y: 0
+            width: 2; height: arrangementRows.height
+            color: Theme.acid
+            opacity: transport.playing ? 0.9 : 0.6
+        }
+
         ColumnLayout {
             id: arrangementRows
             objectName: "arrangementRows"
