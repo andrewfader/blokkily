@@ -168,12 +168,16 @@ SoundFontSynth::SoundFontSynth() {
 
 SoundFontSynth::~SoundFontSynth() = default;
 
-bool SoundFontSynth::rebuild(double sample_rate) {
+bool SoundFontSynth::rebuild(double sample_rate, std::vector<SynthPtr>* retired) {
     sample_rate_ = sample_rate;
     activated_ = false;
     fresh_ = false;
-    // The synths are destroyed before the settings they were made from.
-    for (auto& renderer : renderers_) renderer.synth.reset();
+    // The synths are destroyed before the settings they were made from
+    // (which are made once and outlive every synth).
+    for (auto& renderer : renderers_) {
+        if (retired != nullptr && renderer.synth) retired->push_back(std::move(renderer.synth));
+        renderer.synth.reset();
+    }
     if (!settings_) {
         settings_ = SettingsPtr(new_fluid_settings(), delete_fluid_settings);
         if (!settings_) return false;
@@ -333,7 +337,9 @@ bool SoundFontSynth::activate(double sample_rate, std::uint32_t, std::uint32_t m
     // made and loaded) are already as a rebuild would leave them.
     if (!fresh_ || sample_rate != sample_rate_) {
         const auto previous_path = path_;
-        if (!rebuild(sample_rate)) return false;
+        // Let go of once the bank is in the new synths.
+        std::vector<SynthPtr> retired;
+        if (!rebuild(sample_rate, &retired)) return false;
         forget_notes();
         path_.clear();
         if (!previous_path.empty() && !load(previous_path)) return false;

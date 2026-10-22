@@ -70,7 +70,11 @@ private:
         bool running = false;
     };
 
-    bool rebuild(double sample_rate);
+    // Builds the renderers afresh. With `retired`, the old synths are handed
+    // over rather than destroyed: kept alive while the bank is loaded into the
+    // new ones, they keep FluidSynth's sample cache holding the bank, so it is
+    // not read from disk again.
+    bool rebuild(double sample_rate, std::vector<SynthPtr>* retired = nullptr);
     bool load_into(Renderer& renderer, const std::filesystem::path& path);
     bool select_in(Renderer& renderer, int bank, int program);
     void forget_notes() noexcept;
