@@ -49,6 +49,10 @@ Feature: The window's bars auto-hide, and its panels move and size
     Then the keyboard is laid out first, the arrangement follows it, and the order is remembered
     When the gap under the keyboard is dragged down
     Then the keyboard is taller by as much, and a double-click gives it back the height its keys want
+    When the gap under the step grid is dragged down
+    Then the step grid is taller by as much and the tracker and roll have the rest, and the height is remembered
+    When the step grid's grip is dragged under the tracker and the roll
+    Then the tracker and the roll are laid out first, the step grid under them, and the order is remembered
     When the docked mixer's inner edge is dragged
     Then the mixer is wider by as much and the width is remembered
     When RESET is pressed in SETTINGS

@@ -16,7 +16,10 @@ Item {
     // The order asked for; keys it lacks follow in the shipped order, and
     // keys it does not know are ignored.
     property var order: []
-    readonly property var shippedOrder: ["arrangement", "editors", "keyboard", "inspector", "modulation"]
+    property var shippedOrder: ["arrangement", "editors", "keyboard", "inspector", "modulation"]
+    // Where a grip sits below its panel's top: a dock inside another dock's
+    // panel puts its grips under the outer grip.
+    property real gripOffsetY: 2
     readonly property var effectiveOrder: {
         var known = []
         for (var index = 0; index < order.length; ++index)
@@ -120,7 +123,7 @@ Item {
                 objectName: "grip_" + handles.modelData
                 visible: handles.shown
                 x: -12; width: 11
-                y: handles.shown ? handles.panel.y + 2 : 0
+                y: handles.shown ? handles.panel.y + dock.gripOffsetY : 0
                 height: 22
                 Grid {
                     anchors.centerIn: parent
