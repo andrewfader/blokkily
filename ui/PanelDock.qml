@@ -176,8 +176,18 @@ Item {
                 objectName: "sizer_" + handles.modelData
                 visible: handles.shown && dock.resizable.indexOf(handles.modelData) >= 0
                          && !handles.panel.Layout.fillHeight
+                // A panel laid out last (moved under the others) is sized by
+                // the gap above it, which stays between it and its neighbour:
+                // dragging that gap down shrinks it, up grows it.
+                readonly property bool last: {
+                    void (dock.effectiveOrder)
+                    void (handles.shown ? handles.panel.y : 0)
+                    var keys = dock.shownKeys()
+                    return keys.length > 1 && keys.indexOf(handles.modelData) === keys.length - 1
+                }
                 x: 0; width: dock.width
-                y: handles.shown ? handles.panel.y + handles.panel.height : 0
+                y: !handles.shown ? 0
+                   : (last ? handles.panel.y - dock.spacing : handles.panel.y + handles.panel.height)
                 height: dock.spacing
                 Rectangle {
                     anchors.centerIn: parent
@@ -203,6 +213,7 @@ Item {
                     onPositionChanged: function(mouse) {
                         if (!pressed) return
                         var delta = mapToItem(dock, mouse.x, mouse.y).y - pressY
+                        if (sizer.last) delta = -delta
                         moved = moved || Math.abs(delta) >= 2
                         if (moved) sizing.height = Math.max(40, sizing.height0 + delta)
                     }

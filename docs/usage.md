@@ -197,10 +197,12 @@ recording is on, when it is captured into the take where it was played. A key
 sounds on press and is released when you let go, including with the
 transport stopped.
 
-After a key is played, the next note of the scale above it is ringed in blue,
-so a hand grooving up the scale sees what to press next (past the top it
-wraps to the lowest key in the scale). While the song plays, the keys the
-open pattern sounds light up and the surface flashes on every beat. NOTE FX
+After a key is played it is ringed amber, the next note of the scale above
+it is ringed blue (breathing) and the one after that violet, so a hand
+grooving up the scale sees where it is and what to press next (past the top
+the rings wrap to the lowest keys in the scale). While the song plays, the keys the
+open pattern sounds light up, and with BEAT FLASH on under NOTE FX in
+SETTINGS (off as it ships) the surface flashes faintly on every beat. NOTE FX
 in SETTINGS draws a burst over every key played: fire, lightning, water, a
 tornado or an 8-bit star, with knobs for how many particles, how far they
 reach and how long they last.
@@ -399,8 +401,9 @@ far they reach and how long it lasts.
 
 AUDIO · SYSTEM chooses the audio system: ALSA, PulseAudio, or
 JACK - which is also how PipeWire is reached through its JACK interface, as
-a client called Blokkily that any patchbay can route - or AUTO, RtAudio's own
-choice. A Windows build offers WASAPI, DirectSound and ASIO, a Mac build
+a client called Blokkily that any patchbay can route - or AUTO, as it ships,
+which plays through PipeWire's JACK interface when a PipeWire or JACK server
+answers, else PulseAudio where it has devices, else where RtAudio chooses. A Windows build offers WASAPI, DirectSound and ASIO, a Mac build
 Core Audio; only the systems the build can open are listed.
 `BLOKKILY_AUDIO_API=jack` (or `alsa`, `pulse`) overrides the choice for one
 run. OUTPUT and INPUT choose the devices on that system (DEFAULT follows the
@@ -465,7 +468,9 @@ the height its keys want), and drag a bar's inner edge to widen it. Inside
 the editors, the step grid and the tracker-and-roll row have grips of their
 own (under the editors' grip) to swap their order, and the gap under the step
 grid sizes it: drag it down for a taller grid, up for more tracker and roll
-(double-click for the height it wants). The
+(double-click for the height it wants). A panel moved to the bottom is sized
+by the gap above it instead, so the gap between two areas always sets where
+they meet. The
 layout is remembered; LAYOUT · RESET puts everything back. See
 [the settings scenarios](../features/audio_settings.feature) and
 [the layout scenarios](../features/window_layout.feature).
@@ -922,6 +927,9 @@ and two armed tracks receiving deterministic MIDI input. See
 [verification](verification.md) for the scenario and its artifacts.
 
 ## Scores and lyrics
+
+The SCORE view draws a playhead on the staff where the song is in the open
+part, and keeps it in view as the song plays or when the playhead jumps.
 
 The SCORE view (the SCORE chip in the view switcher) draws the open part as
 staff notation in its clef, key and meter, which the view's pickers and CHANT

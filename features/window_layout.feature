@@ -53,6 +53,7 @@ Feature: The window's bars auto-hide, and its panels move and size
     Then the step grid is taller by as much and the tracker and roll have the rest, and the height is remembered
     When the step grid's grip is dragged under the tracker and the roll
     Then the tracker and the roll are laid out first, the step grid under them, and the order is remembered
+    And the step grid is still sized, by the gap above it now: dragging it down makes the grid shorter
     When the docked mixer's inner edge is dragged
     Then the mixer is wider by as much and the width is remembered
     When RESET is pressed in SETTINGS

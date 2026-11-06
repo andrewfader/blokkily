@@ -259,6 +259,23 @@ void run_window_layout(VerifyContext& ctx) {
                       << " grid y " << grid_section->y() << " split y " << split->y() << '\n';
             check(c.uiSettings().value("ui/stepEditorOrder").toString() == "split,grid");
             check(grid_section->y() > split->y());
+            // Moved under the tracker and roll, the step grid is still sized:
+            // by the gap above it now, which dragging down shrinks it by.
+            layout();
+            // The dock lays its handles out anew for the new order: the gap
+            // is a new item.
+            grid_sizer = ctx.named("sizer_grid");
+            check(grid_sizer != nullptr);
+            if (grid_sizer == nullptr) return;
+            const double sized = grid_section->height();
+            check(grid_sizer->isVisible() && grid_sizer->y() + grid_sizer->height() <= grid_section->y() + 0.5);
+            drag(grid_sizer, QPointF(0, 40));
+            settle(50);
+            std::cerr << "step grid moved last: " << sized << " -> " << grid_section->height() << '\n';
+            if (std::abs(grid_section->height() - (sized - 40)) > 2.0)
+                std::cerr << "REGRESSION: the step grid cannot be sized after it was moved\n";
+            check(std::abs(grid_section->height() - (sized - 40)) <= 2.0);
+            check(std::abs(c.uiSettings().value("ui/gridHeight").toDouble() - (sized - 40)) <= 2.0);
         }
         if (scroll) scroll->setProperty("contentY", 0);
         layout();
@@ -322,6 +339,7 @@ void run_window_layout(VerifyContext& ctx) {
     }
     // The note effects' picker and knobs are on the page, big enough to use.
     check(VerifyContext::usable(ctx.named("fxStylePicker"), 50, 18));
+    check(VerifyContext::usable(ctx.named("beatPulseChip"), 40, 18));
     for (const char* knob : {"fxIntensity", "fxSize", "fxDecay"}) {
         auto* dial = ctx.named(QString::fromLatin1(knob));
         if (dial != nullptr)
