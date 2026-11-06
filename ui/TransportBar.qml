@@ -106,12 +106,12 @@ ToolBar {
                     color: parent.armed ? Theme.onAccent : Theme.record }
                 MouseArea { id: recordMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                     hoverEnabled: true
-                    onClicked: appController.toggleRecord() }
+                    onClicked: appController.pressRecord() }
                 ToolTip.visible: recordMouse.containsMouse; ToolTip.delay: 600
-                ToolTip.text: qsTr("Arm recording (Ctrl+R)")
+                ToolTip.text: qsTr("Record (Ctrl+R): arms and plays; again to disarm")
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("Arm recording (Ctrl+R)")
-                Accessible.onPressAction: appController.toggleRecord()
+                Accessible.onPressAction: appController.pressRecord()
             }
             Rectangle {
                 objectName: "rewindButton"

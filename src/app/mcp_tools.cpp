@@ -562,7 +562,28 @@ QJsonObject McpTools::runTransport(const QJsonObject& arguments) {
     } else if (action == "rewind") {
         controller_.rewindPlayback();
     } else if (action == "record") {
-        controller_.toggleRecord();
+        if (!arguments.contains("bar")) {
+            controller_.toggleRecord();
+            return jsonResult(transportState());
+        }
+        const int bar = arguments.value("bar").toInt();
+        if (bar < 0 || bar >= std::max(1, song_.bars()))
+            return failure(QStringLiteral("There is no bar %1; the song has %2 bars.")
+                               .arg(bar).arg(song_.bars()));
+        if (arguments.contains("toBar")) {
+            const int to = arguments.value("toBar").toInt();
+            if (to <= bar || to > song_.bars())
+                return failure(QStringLiteral("toBar must be after bar %1 and within the song's %2 bars.")
+                                   .arg(bar).arg(song_.bars()));
+            song_.setLoopStartBar(bar);
+            song_.setLoopEndBar(to);
+            song_.setPunch(true);
+        }
+        // Stopped first, so the seek lands and the pass starts at the bar.
+        if (transport_.playing()) controller_.togglePlayback();
+        controller_.seekToBar(bar);
+        if (!controller_.recordArmed()) controller_.toggleRecord();
+        controller_.togglePlayback();
     } else if (action == "seek") {
         if (!arguments.contains("bar")) return failure(QStringLiteral("seek needs a bar."));
         controller_.seekToBar(arguments.value("bar").toInt());

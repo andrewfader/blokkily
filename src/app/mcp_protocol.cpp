@@ -178,11 +178,17 @@ QJsonArray toolDefinitions() {
                      {"track", integer("Only this track's part.")}},
                     {"section", "bar"})),
         tool("transport",
-             "Plays, stops, rewinds, arms recording, or moves the playhead to a bar.",
+             "Plays, stops, rewinds, arms recording, or moves the playhead to a bar. "
+             "record alone arms or disarms; record with a bar moves the playhead there, "
+             "arms and plays, so the song is recorded from that bar (with toBar, only "
+             "the bars before toBar are kept: a punch).",
              schema({{"action", QJsonObject{{"type", "string"},
                                             {"enum", QJsonArray{"play", "stop", "rewind",
                                                                 "record", "seek"}}}},
-                     {"bar", integer("For seek: the bar, from 0.")}},
+                     {"bar", integer("For seek: the bar, from 0. For record: the bar "
+                                     "recording starts at.")},
+                     {"toBar", integer("For record with a bar: the bar recording stops "
+                                       "before (punch out).")}},
                     {"action"})),
         tool("list_plugins",
              "The instruments and effects the plugin browser lists, each with the index "

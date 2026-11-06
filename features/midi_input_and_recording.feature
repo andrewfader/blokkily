@@ -41,8 +41,9 @@ Feature: A MIDI keyboard plays the song and records into it
     And with the song playing and armed it is captured with its position
 
   Scenario: Recording is armed from the transport
-    When the producer clicks the record button
-    Then it shows armed
+    When the producer clicks the record button on a stopped song
+    Then it shows armed and the song plays, so one press records
+    And clicked while the song plays it arms or disarms; clicked again on a stopped song it disarms
 
   Scenario: A take is written where it was played and heard back
     Given recording is armed and a step of the open pattern is empty

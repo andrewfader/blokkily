@@ -258,6 +258,31 @@ void run_mcp(VerifyContext& ctx) {
               .value("structuredContent").toObject().value("playing") == QJsonValue(false));
 
     // ---------------------------------------------------------------------
+    ctx.reached("mcp: record from a bar arms recording and plays from there");
+    {
+        check(!ctx.controller.recordArmed() && !ctx.transport.playing());
+        const auto from = agent.tool("transport", {{"action", "record"}, {"bar", 0}});
+        const auto state = from.value("structuredContent").toObject();
+        check(!isError(from) && state.value("recordArmed").toBool() && state.value("playing").toBool() &&
+              state.value("bar").toInt() == 0);
+        check(ctx.controller.recordArmed() && ctx.transport.playing() && ctx.transport.bar() == 0);
+        check(!isError(agent.tool("transport", {{"action", "stop"}})) && !ctx.transport.playing());
+        // record alone still toggles the arm.
+        check(!isError(agent.tool("transport", {{"action", "record"}})) && !ctx.controller.recordArmed());
+        // With toBar the pass is a punch over those bars.
+        const auto punched = agent.tool("transport", {{"action", "record"}, {"bar", 0}, {"toBar", 1}});
+        check(!isError(punched) && ctx.song.punch() && ctx.song.loopStartBar() == 0 &&
+              ctx.song.loopEndBar() == 1 && ctx.transport.playing() && ctx.controller.recordArmed());
+        check(!isError(agent.tool("transport", {{"action", "stop"}})));
+        check(!isError(agent.tool("transport", {{"action", "record"}})) && !ctx.controller.recordArmed());
+        ctx.song.setPunch(false);
+        ctx.song.setLoopEnabled(false);
+        check(isError(agent.tool("transport", {{"action", "record"}, {"bar", 999}})));
+        check(isError(agent.tool("transport", {{"action", "record"}, {"bar", 0}, {"toBar", 0}})));
+        check(!ctx.controller.recordArmed() && !ctx.transport.playing());
+    }
+
+    // ---------------------------------------------------------------------
     ctx.reached("mcp: the agent calls the window's own methods, and UNDO takes them back");
     const auto described = agent.tool("describe", {{"object", "songModel"}});
     check(textOf(described).contains("setTrackGain"));

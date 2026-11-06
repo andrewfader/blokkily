@@ -127,6 +127,14 @@ Feature: A metronome and a count-in to play along to
     When "+ CLICK" is clicked, lights, and the song is bounced again
     Then the second file less the first is the click, on every beat
 
+  # bdd_metronome "metronome: one press of the record button arms and plays"
+  Scenario: The record button records through the count-in
+    Given the song stopped, recording off, and a two-bar count-in
+    When the record button is pressed once
+    Then recording is armed and the song is playing, counting in first
+    When the song is stopped and the record button is pressed again
+    Then recording is off
+
   # bdd_metronome "metronome: the click and count-in are saved and loaded with the project"
   Scenario: The metronome is saved with the project
     When the project is saved

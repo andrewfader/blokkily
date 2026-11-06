@@ -144,6 +144,10 @@ void run_midi(VerifyContext& ctx) {
         lay_out();
         check(controller.recordArmed()
            && button != nullptr && button->property("armed").toBool());
+        // On a stopped song the button also starts it, so one press records.
+        check(transport.playing());
+        controller.togglePlayback();
+        check(!transport.playing() && controller.recordArmed());
     }
     reached("midi: recording is armed from the rendered button");
 

@@ -487,7 +487,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+O"; onActivated: root.openProject(true) }
     Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
     Shortcut { sequence: "Ctrl+R"; enabled: !root.typing
-               onActivated: appController.toggleRecord() }
+               onActivated: appController.pressRecord() }
     Shortcut { sequence: "Ctrl+Shift+S"; onActivated: saveProjectDialog.open() }
     Shortcut { sequence: "Ctrl+E"; onActivated: exportDialog.open() }
     Shortcut { sequence: "Escape"; enabled: appController.midiLearning
@@ -1141,6 +1141,12 @@ ApplicationWindow {
                         view: root.view
                         entryOctave: root.entryOctave
                         focusHome: noteEntry
+                        editorOrder: root.ui["ui/stepEditorOrder"] !== undefined
+                                     ? String(root.ui["ui/stepEditorOrder"]).split(",") : []
+                        gridHeight: root.uiNumber("ui/gridHeight", 0)
+                        onEditorOrderPicked: order => appController.setUiSetting("ui/stepEditorOrder", order.join(","))
+                        onGridHeightPicked: height => appController.setUiSetting(
+                            "ui/gridHeight", height > 0 ? Math.round(height) : undefined)
                         onNoteWritten: (step, key) => root.writeNote(step, key)
                         onOctavePicked: octave => root.entryOctave = octave
                     }

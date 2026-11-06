@@ -245,6 +245,17 @@ Feature: An agent drives Blokkily over MCP
     Then the other window takes MCP over, and the agent's next call is answered there
     And the bridge neither gives up nor starts a window of its own
 
+  # bdd_mcp "mcp: record from a bar arms recording and plays from there"
+  Scenario: The agent records from a bar
+    Given the song stopped with recording off
+    When it calls transport with action record and bar 0
+    Then recording is armed and the song plays from bar 1
+    When it stops the song and calls transport with action record alone
+    Then recording is disarmed
+    When it calls transport with action record, bar 0 and toBar 1
+    Then PUNCH is on over the first bar, recording is armed and the song plays
+    And a bar past the song, or a toBar not after the bar, is refused
+
   Scenario: A call leaves the narration's attribution as it found it
     Given the guide is stamping what happens, as during a lesson
     When the agent calls a tool

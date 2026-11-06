@@ -266,7 +266,7 @@ void run_metronome(VerifyContext& ctx) {
     check(press("countInButton", Qt::RightButton));
     lay_out();
     check(song.countInBars() == 2 && text_of("countInButton") == "CI 2");
-    check(press("recordButton"));
+    controller.toggleRecord();
     check(controller.recordArmed());
     controller.seekToBar(1);
     check(transport.position() == "2.1.1");
@@ -401,7 +401,7 @@ void run_metronome(VerifyContext& ctx) {
     // --------------------------------------------------- screenshot
     // Recording armed and counting in: CLICK lit, the count-in chip lit red.
     song.selectPattern(0);
-    check(press("recordButton"));
+    controller.toggleRecord();
     controller.seekToBar(1);
     check(press("playButton"));
     (void)listen(8, {});
@@ -414,6 +414,24 @@ void run_metronome(VerifyContext& ctx) {
     reached("screenshot");
     check(press("playButton"));
     check(press("recordButton"));
+    (void)listen(2, {});
+    check(!controller.recordArmed() && !transport.playing());
+    // One press of the record button on a stopped song records: it arms and
+    // plays, counting in first since CI is set; a second press, once stopped,
+    // disarms.
+    reached("metronome: one press of the record button arms and plays");
+    check(press("recordButton"));
+    controller.pollCountIn();
+    check(controller.recordArmed() && transport.playing());
+    (void)listen(2, {});
+    controller.pollCountIn();
+    if (!controller.countingIn())
+        std::cerr << "REGRESSION: the record button started the song without its count-in\n";
+    check(controller.countingIn());
+    check(press("playButton"));
+    check(!transport.playing() && controller.recordArmed());
+    check(press("recordButton"));
+    check(!controller.recordArmed() && !transport.playing());
     (void)listen(2, {});
     std::ostringstream details;
     details << " | clicks on beats=" << on_beats << " | count-in=" << counted_in

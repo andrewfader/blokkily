@@ -36,7 +36,7 @@ Blokkily can connect.
 | `set_lyrics` | Lay a line of lyrics on a part, one syllable per note, in any script |
 | `place_section` | Place a pattern's clips at a bar, on every track or one |
 | `set_meter` | Set the song's time signature from a bar on: how long its bars are and where clips land |
-| `transport` | Control playback |
+| `transport` | Control playback: play, stop, rewind, seek to a bar, arm recording, or record from a bar (`record` with `bar`, and `toBar` for a punch) |
 | `list_plugins` | List plugins |
 | `set_instrument` | Assign an instrument |
 | `list_parameters` | List the parameters of a track's instrument or effect, or of an effect on a `return` or the `master`, with each one's current value |

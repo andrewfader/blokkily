@@ -160,6 +160,20 @@ void AppController::toggleRecord() {
     emitBusEvent(blokkily::guide::EventKind::recording_toggled, "");
 }
 
+void AppController::pressRecord() {
+    const bool playing = transport_ != nullptr && transport_->playing();
+    if (playing || record_armed_) {
+        toggleRecord();
+        return;
+    }
+    toggleRecord();
+    togglePlayback();
+}
+
+bool AppController::transportPlaying() const noexcept {
+    return engine_ != nullptr && engine_->is_playing();
+}
+
 bool AppController::recordingLive() const noexcept {
     return record_armed_ && engine_ != nullptr && engine_->is_playing();
 }
