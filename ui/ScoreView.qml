@@ -473,6 +473,25 @@ Rectangle {
                 onXChanged: requestPaint()
             }
 
+            // The playhead, where the song is in the open part, drawn over
+            // the staves and kept in view while the song plays or jumps.
+            Rectangle {
+                id: scorePlayhead
+                objectName: "scorePlayhead"
+                readonly property real playStep: appController.patternPlayStep
+                // In the part's pixels; the layout's time map moves when the
+                // score is laid out again, which contentWidth announces.
+                readonly property real xPx: scoreModel.contentWidth >= 0
+                    ? scoreCanvas.headerWidth + scoreModel.xForTick(Math.round(playStep * 120)) * scoreCanvas.sp
+                    : 0
+                visible: playStep >= 0
+                x: xPx - 1; y: 0; width: 2
+                height: Math.max(scroller.height, scoreCanvas.totalHeight)
+                z: 3
+                color: transport.playing ? Theme.acid : Theme.ink
+                opacity: 0.85
+            }
+
             // A full score's other staves: a press on one makes its track the
             // one written on.
             Repeater {
@@ -529,6 +548,24 @@ Rectangle {
         }
     }
 
+    // Keeps the playhead in view: as the song plays it past the right edge
+    // the staff scrolls a third of a page ahead, and a jump of the playhead
+    // (rewind, a seek to a bar) brings it on screen.
+    function revealPlayhead() {
+        if (!scorePlayhead.visible || scroller.width <= 0) return
+        var px = scorePlayhead.xPx
+        var head = scoreCanvas.headerWidth
+        var most = Math.max(0, scroller.contentWidth - scroller.width)
+        if (px < scroller.contentX + head)
+            scroller.contentX = Math.max(0, Math.min(most, px - head - 8))
+        else if (px > scroller.contentX + scroller.width - 24)
+            scroller.contentX = Math.max(0, Math.min(most, px - scroller.width / 3))
+    }
+    Connections {
+        target: appController
+        function onPatternPlayheadChanged() { if (transport.playing && root.visible) root.revealPlayhead() }
+        function onPlayheadJumped() { if (appController.followPlayback && root.visible) root.revealPlayhead() }
+    }
     Connections {
         target: scoreModel
         function onScoreChanged() { scoreCanvas.requestPaint(); }

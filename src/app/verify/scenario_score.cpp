@@ -253,6 +253,47 @@ void run_score(VerifyContext& ctx) {
     shot("long-part");
 
     // ---------------------------------------------------------------------
+    ctx.reached("score: the playhead is drawn on the staff and kept in view");
+    {
+        auto* playhead = ctx.named("scorePlayhead");
+        check(playhead != nullptr && canvas != nullptr && scroller != nullptr);
+        if (playhead != nullptr && canvas != nullptr && scroller != nullptr) {
+            // The open part placed under the playhead, so the song's position
+            // is a position in it.
+            const int track = song.selectedTrack();
+            song.placeClip(track, 0);
+            scroller->setProperty("contentX", 0.0);
+            ctx.controller.seekToBar(0);
+            settle();
+            const double head = canvas->property("headerWidth").toDouble();
+            check(playhead->isVisible() && playhead->x() + 1.0 >= head - 0.5 && playhead->height() >= scroller->height() - 0.5);
+            const double first = playhead->x();
+            // A seek to the last bar: the playhead moves right and the staff
+            // scrolls to keep it on screen.
+            ctx.controller.seekToBar(7);
+            settle();
+            const double content_x = scroller->property("contentX").toDouble();
+            std::cerr << "score playhead " << first << " -> " << playhead->x() << " scrolled to " << content_x << '\n';
+            if (!(playhead->x() > first + 100.0 && content_x > 0.0))
+                std::cerr << "REGRESSION: a seek did not move the score's playhead into view\n";
+            check(playhead->x() > first + 100.0 && content_x > 0.0);
+            check(playhead->x() >= content_x && playhead->x() <= content_x + scroller->width());
+            // Playing from the start, it is kept in view as well.
+            ctx.controller.seekToBar(0);
+            ctx.controller.togglePlayback();
+            settle();
+            check(ctx.transport.playing() && playhead->isVisible() &&
+                  playhead->x() >= scroller->property("contentX").toDouble() - 0.5);
+            ctx.controller.togglePlayback();
+            ctx.controller.seekToBar(0);
+            settle();
+            check(song.removeClip(track, 0));
+            scroller->setProperty("contentX", 0.0);
+            settle();
+        }
+    }
+
+    // ---------------------------------------------------------------------
     ctx.reached("score: a tuplet is bracketed over the notes it counts");
     if (scroller != nullptr) scroller->setProperty("contentX", 0.0);
     clear();

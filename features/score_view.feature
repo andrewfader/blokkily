@@ -88,6 +88,16 @@ Feature: The pattern is also shown as true staff notation
     And the piano roll's lookups find every note the staff wrote
 
   # bdd_full_score
+  # bdd_score "score: the playhead is drawn on the staff and kept in view"
+  Scenario: The playhead moves on the staff
+    Given an eight-bar part placed under the playhead, longer than the SCORE view is wide
+    When the song is at its first bar
+    Then a playhead is drawn on the staff at the first column
+    When the producer seeks to the last bar
+    Then the playhead is drawn there and the staff has scrolled to show it
+    When the song plays
+    Then the playhead moves along the staff and is kept in view
+
   Scenario: The full score of the section
     Given the lead in eighths over the first two beats and the bass in quarters
     When FULL is pressed in the SCORE view
