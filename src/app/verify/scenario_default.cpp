@@ -2296,15 +2296,31 @@ struct DefaultScenario {
                 if (!(next > played && next_in_scale && none_between))
                     std::cerr << "REGRESSION: after " << played << " the surface suggests " << next << '\n';
                 valid = valid && next > played && next_in_scale && none_between;
-                int marks = 0;
-                QQuickItem* marked = nullptr;
-                for (std::size_t index = 0; index < keyboard.layout().size(); ++index) {
-                    auto* cell = childNamed(item("keyboardSurface"), "keyboardCell" + QString::number(index));
-                    auto* mark = cell == nullptr ? nullptr : childNamed(cell, "suggestedMark");
-                    if (mark != nullptr && mark->isVisible()) { ++marks; marked = cell; }
+                // The key played, the next note and the one after it each
+                // wear a ring of their own, on exactly one key each.
+                const int after = keyboard.suggestedDegree2();
+                bool after_in_scale = false;
+                bool none_between_after = true;
+                for (const auto& cell : keyboard.layout()) {
+                    if (cell.chord.size() > 1) continue;
+                    if (cell.degree == after) after_in_scale = after_in_scale || cell.in_scale;
+                    if (cell.degree > next && cell.degree < after && cell.in_scale) none_between_after = false;
                 }
-                valid = valid && marks == 1 && marked != nullptr && marked->property("suggested").toBool() &&
-                        VerifyContext::usable(marked, 8, 12);
+                valid = valid && keyboard.playedDegree() == played && after > next && after_in_scale && none_between_after;
+                for (const char* mark_name : {"playedMark", "suggestedMark", "suggestedMark2"}) {
+                    int marks = 0;
+                    QQuickItem* marked = nullptr;
+                    for (std::size_t index = 0; index < keyboard.layout().size(); ++index) {
+                        auto* cell = childNamed(item("keyboardSurface"), "keyboardCell" + QString::number(index));
+                        auto* mark = cell == nullptr ? nullptr : childNamed(cell, mark_name);
+                        if (mark != nullptr && mark->isVisible()) { ++marks; marked = cell; }
+                    }
+                    if (marks != 1) std::cerr << "REGRESSION: " << mark_name << " drawn on " << marks << " keys\n";
+                    valid = valid && marks == 1 && marked != nullptr && VerifyContext::usable(marked, 8, 12);
+                    const int want = QString::fromLatin1(mark_name) == "playedMark" ? played
+                                     : QString::fromLatin1(mark_name) == "suggestedMark" ? next : after;
+                    valid = valid && marked != nullptr && marked->property("modelData").toMap().value("degree").toInt() == want;
+                }
                 // Playing from the step just written, its key is lit.
                 controller.seekToStep(9);
                 controller.togglePlayback();

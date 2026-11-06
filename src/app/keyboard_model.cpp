@@ -259,13 +259,15 @@ bool KeyboardModel::sound(int index, bool held) {
     }
 
     const int next = degrees.size() == 1 ? nextScaleDegree(degrees.front()) : suggested_degree_;
+    const int after = next == -1000 ? -1000 : nextScaleDegree(next);
+    const int played_now = degrees.size() == 1 ? degrees.front() : played_degree_;
 
     // Against a running transport that is recording, a press is performed into
     // the take - on every armed track, where and how long it was played - and
     // the take writes it, so no step is written here.
     if (controller_ != nullptr && controller_->performPitches(pitches, 0.9, held)) {
         last_played_ = names.isEmpty() ? QString::fromStdString(cell.label) : names.join(' ');
-        suggest(next);
+        suggest(played_now, next, after);
         emit played(degrees.front());
         return true;
     }
@@ -319,7 +321,7 @@ bool KeyboardModel::sound(int index, bool held) {
     if (controller_ != nullptr) (void)controller_->auditionPitches(pitches, 0.9, held);
 
     last_played_ = names.isEmpty() ? QString::fromStdString(cell.label) : names.join(' ');
-    suggest(next);
+    suggest(played_now, next, after);
     emit played(degrees.front());
     return true;
 }
@@ -335,8 +337,10 @@ int KeyboardModel::nextScaleDegree(int degree) const {
     return above != -1000 ? above : lowest;
 }
 
-void KeyboardModel::suggest(int degree) {
-    if (degree == suggested_degree_) return;
-    suggested_degree_ = degree;
+void KeyboardModel::suggest(int played, int next, int after) {
+    if (played == played_degree_ && next == suggested_degree_ && after == suggested_degree2_) return;
+    played_degree_ = played;
+    suggested_degree_ = next;
+    suggested_degree2_ = after;
     emit suggestionChanged();
 }

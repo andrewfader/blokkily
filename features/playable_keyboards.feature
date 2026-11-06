@@ -77,18 +77,18 @@ Feature: Play the song in the tuning it is written in
     And no note of the pattern and no pitch of a cell has changed
 
   # bdd_default "keyboards"
-  Scenario: The surface suggests the next note of the scale
+  Scenario: The surface marks the key played and the next two notes of the scale
     Given a piano surface in the song's scale
     When a key is played
-    Then the lowest in-scale key above it is ringed, breathing, and no other key is
-    And past the top of the surface the suggestion wraps to its lowest in-scale key
+    Then that key is ringed amber, the lowest in-scale key above it blue and breathing, and the in-scale key after that violet
+    And each ring is on exactly one key, and past the top of the surface the suggestions wrap to the lowest in-scale keys
 
   # bdd_default "keyboards"
   Scenario: The surface pulses with the music
     Given the open pattern placed under the playhead
     When the song plays a step that holds a key
     Then that key is lit on the surface while it sounds
-    And the surface flashes on every beat
+    And with BEAT FLASH on in SETTINGS (off as it ships) the surface flashes faintly on every beat
 
   # bdd_default "keyboards"; bdd_window_layout (the knobs)
   Scenario: A note effect bursts over every key played

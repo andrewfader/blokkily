@@ -386,6 +386,17 @@ Rectangle {
                 }
                 Hint { text: qsTr("how many, how far, how long") }
             }
+            SettingRow {
+                label: qsTr("PULSE")
+                Chip {
+                    objectName: "beatPulseChip"
+                    text: qsTr("BEAT FLASH"); implicitHeight: 24
+                    accessibleLabel: "Flash the keyboard faintly on every beat"
+                    on: root.uiFlag("ui/beatPulse", false)
+                    onClicked: appController.setUiSetting("ui/beatPulse", !on)
+                }
+                Hint { text: qsTr("a faint flash over the keys on every beat while the song plays; off as it ships") }
+            }
 
             Item { Layout.fillHeight: true }
         }

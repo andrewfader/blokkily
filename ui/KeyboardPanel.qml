@@ -33,9 +33,11 @@ Rectangle {
         if (!row.active) return []
         return row.voiceKeys && row.voiceKeys.length > 0 ? row.voiceKeys : [row.key]
     }
-    // A flash over the surface on every beat the song plays.
+    // A faint flash over the surface on every beat the song plays, when
+    // BEAT FLASH is on in SETTINGS (off as it ships).
     readonly property int beat: Math.floor(transport.barStepFraction / 4)
-    onBeatChanged: if (transport.playing) beatFlash.restart()
+    readonly property bool beatPulseOn: ui["ui/beatPulse"] === true || ui["ui/beatPulse"] === "true"
+    onBeatChanged: if (transport.playing && beatPulseOn) beatFlash.restart()
     // The note effects (SETTINGS · NOTE FX): a burst over the key each note
     // is played on.
     readonly property var ui: appController.uiSettings
@@ -281,7 +283,7 @@ Rectangle {
                 z: 5
                 color: Theme.acid
                 opacity: 0
-                NumberAnimation on opacity { id: beatFlash; from: 0.22; to: 0; duration: 260; running: false }
+                NumberAnimation on opacity { id: beatFlash; from: 0.08; to: 0; duration: 420; running: false }
             }
             NoteFx {
                 id: noteFx
@@ -313,8 +315,12 @@ Rectangle {
                     // key on the open pattern's step; ringed in blue when it
                     // is the next note of the scale above the last key played.
                     readonly property bool sounding: keyboardPanel.soundingKeys.indexOf(modelData.key) >= 0
+                    readonly property bool played: modelData.voices <= 1
+                                                   && modelData.degree === keyboardModel.playedDegree
                     readonly property bool suggested: modelData.voices <= 1
                                                       && modelData.degree === keyboardModel.suggestedDegree
+                    readonly property bool suggested2: modelData.voices <= 1
+                                                       && modelData.degree === keyboardModel.suggestedDegree2
                     readonly property color fill: keyInput.pressed || sounding ? Theme.amber
                            : modelData.root ? Theme.acid
                            : (modelData.accidental ? Theme.blackKey
@@ -355,8 +361,18 @@ Rectangle {
                         }
                     }
 
-                    // The next note of the scale above the last key played:
-                    // a ring (a disc's outline on a honeycomb) that breathes.
+                    // Rings (a disc's outline on a honeycomb): amber on the
+                    // key just played, blue breathing on the next note of the
+                    // scale, violet on the one after it.
+                    Rectangle {
+                        objectName: "playedMark"
+                        visible: cellItem.played
+                        anchors.fill: parent; anchors.margins: -1
+                        radius: keyboardSurface.hex ? width / 2 : 4
+                        color: "transparent"
+                        border.width: 2; border.color: Theme.amber
+                        z: 3
+                    }
                     Rectangle {
                         objectName: "suggestedMark"
                         visible: cellItem.suggested
@@ -370,6 +386,16 @@ Rectangle {
                             NumberAnimation { from: 1; to: 0.3; duration: 450 }
                             NumberAnimation { from: 0.3; to: 1; duration: 450 }
                         }
+                    }
+                    Rectangle {
+                        objectName: "suggestedMark2"
+                        visible: cellItem.suggested2
+                        anchors.fill: parent; anchors.margins: -1
+                        radius: keyboardSurface.hex ? width / 2 : 4
+                        color: "transparent"
+                        border.width: 2; border.color: Theme.violet
+                        opacity: 0.8
+                        z: 3
                     }
 
                     ColumnLayout {
