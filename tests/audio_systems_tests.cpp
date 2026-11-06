@@ -43,6 +43,27 @@ void missing() {
     output.close();
 }
 
+// AUTO plays through PipeWire's JACK when a server answers, else PulseAudio
+// where it has devices, else what RtAudio chooses; what it resolves to is a
+// system this build can open, and an output made on AUTO is on it.
+void auto_system() {
+    const auto chosen = RtAudioOutput::auto_system();
+    std::cout << "AUTO -> " << (chosen.empty() ? "RtAudio's choice" : chosen) << '\n';
+    bool known = chosen.empty();
+    for (const auto& system : RtAudioOutput::audio_systems()) known = known || system.name == chosen;
+    require(known, "AUTO resolves to a system this build can open, or leaves the choice to RtAudio");
+    RtAudioOutput output(RtAudioOutput::Mode::device, "");
+    require(output.system() == chosen, "an output made on AUTO is on the system AUTO resolves to");
+    RtAudioOutput named(RtAudioOutput::Mode::device, "alsa");
+    require(named.system() == "alsa", "a system asked for by name is kept");
+    if (chosen == "jack")
+        require(RtAudioOutput::devices("").empty(), "on JACK the patchbay routes, so AUTO lists no devices");
+    else if (chosen == "pulse")
+        require(!RtAudioOutput::devices("").empty(), "AUTO on PulseAudio lists its devices");
+    RtAudioOutput deterministic(RtAudioOutput::Mode::deterministic, "");
+    require(deterministic.system().empty(), "a gate's deterministic device resolves nothing");
+}
+
 void devices() {
     require(RtAudioOutput::devices("no-such-system").empty(),
             "a system the build lacks offers no devices");
@@ -68,6 +89,7 @@ int main(int argc, char** argv) {
         if (which == "listed") listed();
         else if (which == "missing") missing();
         else if (which == "devices") devices();
+        else if (which == "auto") auto_system();
         else throw std::runtime_error("unknown case");
         std::cout << "PASS " << which << '\n';
     } catch (const std::exception& e) {

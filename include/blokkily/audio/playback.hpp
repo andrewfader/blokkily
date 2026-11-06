@@ -77,6 +77,13 @@ public:
     // The audio systems this build can open, in RtAudio's order of
     // preference.
     [[nodiscard]] static std::vector<AudioSystem> audio_systems();
+    // What AUTO (an empty system name) plays through: "jack" when a JACK or
+    // PipeWire server answers, else "pulse" where PulseAudio has devices,
+    // else "" for RtAudio's own choice (features/audio_systems.feature).
+    [[nodiscard]] static std::string auto_system();
+    // The system this output was made on: the name asked for, or what AUTO
+    // resolved to.
+    [[nodiscard]] const std::string& system() const noexcept;
     // A device one audio system offers (features/audio_settings.feature): its
     // name, how many channels it plays and records, and the rates it takes.
     struct AudioDevice {

@@ -7,6 +7,8 @@
 
 #include "app_controller.hpp"
 
+#include <RtAudio.h>
+
 #include <QSettings>
 #include <QVariantMap>
 
@@ -124,7 +126,11 @@ int AppController::audioBufferFrames() const {
 }
 
 bool AppController::serverClocked() const {
-    return !deterministicAudio() && audioSystem() == QStringLiteral("jack");
+    if (deterministicAudio()) return false;
+    if (audioSystem() == QStringLiteral("jack")) return true;
+    // AUTO that landed on PipeWire's JACK is clocked by the server as well.
+    return audioSystem().isEmpty() && audio_output_ &&
+           audio_output_->system() == std::string(RtAudio::getApiName(RtAudio::UNIX_JACK));
 }
 
 QVariantList AppController::audioBufferSizes() const {

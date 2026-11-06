@@ -121,6 +121,8 @@ struct RtAudioOutput::Impl {
     // block is rendered through.
     bool loopback = false;
     std::uint64_t pumped_frames = 0;
+    // The system asked for, or what AUTO resolved to.
+    std::string resolved_api;
     std::array<std::vector<float>, 2> played;
     std::vector<float> input;
     std::vector<float> piece;
@@ -339,6 +341,38 @@ std::uint64_t RtAudioOutput::dropouts() const noexcept {
     return impl_->dropouts.load(std::memory_order_relaxed);
 }
 
+namespace {
+void silent(RtAudioErrorType, const std::string&) {}
+
+#if BLOKKILY_HAVE_JACK
+// Whether a JACK server - PipeWire's JACK interface on a PipeWire desktop -
+// answers, without starting one.
+bool jack_server_answers() {
+    jack_status_t status{};
+    jack_client_t* probe = jack_client_open("blokkily-probe", JackNoStartServer, &status);
+    if (probe == nullptr) return false;
+    jack_client_close(probe);
+    return true;
+}
+#endif
+
+bool api_has_devices(RtAudio::Api api) {
+    RtAudio audio(api, &silent);
+    return audio.getDeviceCount() > 0;
+}
+} // namespace
+
+std::string RtAudioOutput::auto_system() {
+#if BLOKKILY_HAVE_JACK
+    if (jack_server_answers()) return RtAudio::getApiName(RtAudio::UNIX_JACK);
+#endif
+    std::vector<RtAudio::Api> apis;
+    RtAudio::getCompiledApi(apis);
+    for (const auto api : apis)
+        if (api == RtAudio::LINUX_PULSE && api_has_devices(api)) return RtAudio::getApiName(api);
+    return std::string();
+}
+
 RtAudioOutput::RtAudioOutput(Mode mode, unsigned int negotiated_rate)
     : impl_(std::make_unique<Impl>()) {
     impl_->deterministic = mode == Mode::deterministic;
@@ -348,23 +382,29 @@ RtAudioOutput::RtAudioOutput(Mode mode, unsigned int negotiated_rate)
 RtAudioOutput::RtAudioOutput(Mode mode, const std::string& api) : impl_(std::make_unique<Impl>()) {
     impl_->deterministic = mode == Mode::deterministic;
     if (impl_->deterministic) return;
+    // AUTO plays through PipeWire (its JACK interface) when it answers, so a
+    // PipeWire desktop is not left on ALSA by RtAudio's own order.
+    const std::string resolved = api.empty() ? auto_system() : api;
+    impl_->resolved_api = resolved;
 #if BLOKKILY_HAVE_JACK
-    if (api == RtAudio::getApiName(RtAudio::UNIX_JACK)) {
+    if (resolved == RtAudio::getApiName(RtAudio::UNIX_JACK)) {
         impl_->use_jack = true;
         return;
     }
 #endif
-    if (api.empty()) {
+    if (resolved.empty()) {
         impl_->audio = std::make_unique<RtAudio>();
         return;
     }
-    const auto chosen = RtAudio::getCompiledApiByName(api);
+    const auto chosen = RtAudio::getCompiledApiByName(resolved);
     if (chosen == RtAudio::UNSPECIFIED) {
-        impl_->missing_api = api;
+        impl_->missing_api = resolved;
         return;
     }
     impl_->audio = std::make_unique<RtAudio>(chosen);
 }
+
+const std::string& RtAudioOutput::system() const noexcept { return impl_->resolved_api; }
 
 RtAudioOutput::Mode RtAudioOutput::mode() const noexcept {
     return impl_->deterministic ? Mode::deterministic : Mode::device;
@@ -401,11 +441,12 @@ unsigned int device_named(RtAudio& audio, const std::string& name, unsigned int 
 
 std::vector<RtAudioOutput::AudioDevice> RtAudioOutput::devices(const std::string& api) {
     std::vector<AudioDevice> found;
+    const std::string resolved = api.empty() ? auto_system() : api;
 #if BLOKKILY_HAVE_JACK
-    if (api == RtAudio::getApiName(RtAudio::UNIX_JACK)) return found;
+    if (resolved == RtAudio::getApiName(RtAudio::UNIX_JACK)) return found;
 #endif
-    const auto chosen = api.empty() ? RtAudio::UNSPECIFIED : RtAudio::getCompiledApiByName(api);
-    if (!api.empty() && chosen == RtAudio::UNSPECIFIED) return found;
+    const auto chosen = resolved.empty() ? RtAudio::UNSPECIFIED : RtAudio::getCompiledApiByName(resolved);
+    if (!resolved.empty() && chosen == RtAudio::UNSPECIFIED) return found;
     RtAudio audio(chosen, &quiet);
     for (const auto id : audio.getDeviceIds()) {
         const auto info = audio.getDeviceInfo(id);
