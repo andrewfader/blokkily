@@ -134,9 +134,11 @@ void run_long_song(VerifyContext& ctx) {
         Song two;
         two.patterns.clear();
         two.sections = {{"A"}, {"B"}};
+        // B is eight bars long, so the step grid, the tracker and the roll
+        // have to scroll through it.
         for (std::size_t section = 0; section < 2; ++section) {
-            Pattern part(1920, 480);
-            for (Tick step = 0; step < 16; step += 2) {
+            Pattern part(section == 0 ? 1920 : 8 * 1920, 480);
+            for (Tick step = 0; step < (section == 0 ? 16 : 128); step += 2) {
                 Trigger trigger;
                 trigger.start = step * 120;
                 trigger.duration = 120;
@@ -198,7 +200,84 @@ void run_long_song(VerifyContext& ctx) {
     lay_out();
     check(ctx.controller.followPlayback() && song.currentSection() == 0 && drawn());
     check(ctx.save_screenshot());
+
+    // ---------------------------------------------------------------------
+    ctx.reached("long_song: stopped in B, one press of rewind shows the start in every view");
+    check(play_until(2) && song.currentSection() == 1);
     ctx.controller.togglePlayback();
+    VerifyContext::settle(5);
+    lay_out();
+    check(!ctx.transport.playing());
+    auto* arrangement = ctx.named("arrangementView");
+    auto* arrange_scroll = ctx.named("arrangeScroll");
+    auto* tracker_scroll = ctx.named("trackerScroll");
+    auto* grid = ctx.named("stepGrid");
+    auto* roll = ctx.named("rollArea");
+    check(arrangement != nullptr && arrange_scroll != nullptr && tracker_scroll != nullptr &&
+          grid != nullptr && roll != nullptr);
+    if (arrangement != nullptr) arrangement->setProperty("zoom", 8);
+    lay_out();
+    const auto scroll_away = [&] {
+        if (arrange_scroll != nullptr)
+            arrange_scroll->setProperty("contentX", arrange_scroll->property("contentWidth").toDouble()
+                                                        - arrange_scroll->width());
+        if (tracker_scroll != nullptr)
+            tracker_scroll->setProperty("contentY", tracker_scroll->property("contentHeight").toDouble()
+                                                        - tracker_scroll->height());
+        if (grid != nullptr) grid->setProperty("scrollX", grid->property("maxScroll"));
+        if (roll != nullptr) roll->setProperty("scrollX", roll->property("maxScroll"));
+        lay_out();
+    };
+    const auto scrolled = [](QObject* object, const char* property) {
+        return object != nullptr && object->property(property).toDouble() > 0.5;
+    };
+    const auto at_start = [](QObject* object, const char* property) {
+        return object != nullptr && std::abs(object->property(property).toDouble()) < 0.5;
+    };
+    scroll_away();
+    check(scrolled(arrange_scroll, "contentX") && scrolled(tracker_scroll, "contentY") &&
+          scrolled(grid, "scrollX") && scrolled(roll, "scrollX"));
+    // A seek to a bar of B while stopped: the editors scroll to the step it landed on.
+    ctx.controller.seekToBar(2);
+    lay_out();
+    check(song.currentSection() == 1 && ctx.controller.patternPlayStep() == 0.0 && drawn());
+    if (!at_start(tracker_scroll, "contentY") || !at_start(grid, "scrollX") || !at_start(roll, "scrollX"))
+        std::cerr << "REGRESSION: a seek on a stopped song left the editors scrolled away from the playhead\n";
+    check(at_start(tracker_scroll, "contentY") && at_start(grid, "scrollX") && at_start(roll, "scrollX"));
+    check(at_start(arrange_scroll, "contentX") || arrange_scroll->property("contentX").toDouble() <
+                                                     arrange_scroll->property("contentWidth").toDouble() / 2);
+    // One press of the rewind button: pattern A opens on its first step and the
+    // arrangement shows bar 1, from wherever the views were.
+    scroll_away();
+    auto* rewind = ctx.named("rewindButton");
+    check(rewind != nullptr);
+    if (rewind != nullptr) ctx.click_at(rewind, {rewind->width() / 2, rewind->height() / 2}, Qt::LeftButton);
+    lay_out();
+    if (song.currentSection() != 0)
+        std::cerr << "REGRESSION: rewind on a stopped song left the editors on pattern "
+                  << song.currentSection() << '\n';
+    check(song.currentSection() == 0 && ctx.transport.tick() == 0.0 && ctx.transport.bar() == 0 &&
+          ctx.controller.patternPlayStep() == 0.0 && drawn());
+    if (!at_start(arrange_scroll, "contentX"))
+        std::cerr << "REGRESSION: rewind on a stopped song left the arrangement scrolled to "
+                  << arrange_scroll->property("contentX").toDouble() << '\n';
+    check(at_start(arrange_scroll, "contentX"));
+    // FOLLOW off: the arrangement still shows the start; the editors stay where they were.
+    ctx.controller.seekToBar(2);
+    lay_out();
+    check(song.currentSection() == 1);
+    if (auto* follow = ctx.named("followButton"))
+        ctx.click_at(follow, {follow->width() / 2, follow->height() / 2}, Qt::LeftButton);
+    check(!ctx.controller.followPlayback());
+    scroll_away();
+    if (rewind != nullptr) ctx.click_at(rewind, {rewind->width() / 2, rewind->height() / 2}, Qt::LeftButton);
+    lay_out();
+    check(song.currentSection() == 1 && ctx.transport.tick() == 0.0 && at_start(arrange_scroll, "contentX") &&
+          scrolled(tracker_scroll, "contentY") && scrolled(grid, "scrollX"));
+    if (auto* follow = ctx.named("followButton"))
+        ctx.click_at(follow, {follow->width() / 2, follow->height() / 2}, Qt::LeftButton);
+    check(ctx.controller.followPlayback());
+    if (arrangement != nullptr) arrangement->setProperty("zoom", 1);
     std::ostringstream details;
     details << " | " << tracks << " tracks x " << bars << " bars | memory " << before << " -> " << after
             << " MiB over five mixer moves";

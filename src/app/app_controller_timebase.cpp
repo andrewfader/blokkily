@@ -37,6 +37,17 @@ void AppController::setFollowPlayback(bool follow) {
 
 void AppController::followPlayhead() {
     if (!follow_playback_ || !song_ || !transport_ || !transport_->playing()) return;
+    openPatternUnderPlayhead();
+}
+
+// A rewind or a seek to a bar is a move the producer made, so the editors
+// show where it landed even on a stopped song, and every view is told.
+void AppController::followJump() {
+    if (follow_playback_ && song_ && transport_) openPatternUnderPlayhead();
+    emit playheadJumped();
+}
+
+void AppController::openPatternUnderPlayhead() {
     const auto& song = song_->song();
     const auto track = static_cast<std::size_t>(std::max(0, song_->selectedTrack()));
     const auto at = static_cast<blokkily::Tick>(std::floor(transport_->tick()));

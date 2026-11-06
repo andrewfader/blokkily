@@ -56,10 +56,15 @@ ColumnLayout {
             arrangeScroll.contentX = Math.min(arrangementRows.width - arrangeScroll.width,
                                               right - arrangeScroll.width)
     }
-    // A playing song is followed: the playhead's bar is kept in view.
+    // A playing song is followed: the playhead's bar is kept in view. So is
+    // a jump of the playhead (rewind, a seek to a bar) on a stopped song.
     Connections {
         target: transport
         function onChanged() { if (transport.playing) root.reveal(transport.bar) }
+    }
+    Connections {
+        target: appController
+        function onPlayheadJumped() { root.reveal(transport.bar) }
     }
     function barWidth(bar) {
         var entry = root.layout[bar]

@@ -983,12 +983,14 @@ void AppController::togglePlayback() {
 void AppController::rewindPlayback() {
     if (engine_) engine_->rewind();
     if (transport_) transport_->rewind();
+    followJump();
 }
 
 void AppController::seekToBar(int bar) {
     if (bar < 0 || song_ == nullptr) return;
     // A bar starts where the meter map says, whatever the bars before it hold.
     seekToTick(static_cast<double>(song_->barStart(bar)));
+    followJump();
 }
 
 void AppController::seekToStep(double step) {

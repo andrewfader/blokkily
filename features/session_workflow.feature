@@ -187,3 +187,14 @@ Feature: A session can be worked on without fear of losing it
     Then the editors stay on B and draw no playhead while A plays
     When FOLLOW is turned on again
     Then they open A, where the song is
+
+  # Exercised by the bdd_long_song gate (src/app/verify/scenario_long_song.cpp),
+  # "stopped in B, one press of rewind shows the start in every view".
+  Scenario: Going back to the start shows the start in every view, stopped or playing
+    Given the song stopped in pattern B, with the arrangement, the step grid, the tracker and the roll scrolled away from the playhead
+    When the producer seeks to a bar of B
+    Then the step grid, the tracker and the roll scroll to the step the playhead landed on
+    When the views are scrolled away again and the go-to-start button is pressed once
+    Then pattern A opens with the playhead on its first step, and the arrangement shows bar 1
+    When FOLLOW is turned off and the song is rewound again from pattern B
+    Then the arrangement still shows bar 1, and the editors stay on B where they were scrolled

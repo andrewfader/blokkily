@@ -7,7 +7,10 @@ import "Format.js" as Format
 // step: the step grid, the tracker and the piano roll. Each one writes
 // through the same pattern model, and a note typed or drawn in any of them
 // updates that shared pattern; the roll addresses individual chord voices.
-ColumnLayout {
+// The step grid and the tracker/roll row are panels of a dock of their own
+// (features/window_layout.feature): each has a grip to move it above or
+// below the other, and the step grid has a gap under it that sizes it.
+Item {
     id: root
     // Which editors the window is showing: ALL, STEP, TRACKER, PIANO, KEYS or
     // LAUNCH (the scene launcher, which shows none of them).
@@ -28,6 +31,12 @@ ColumnLayout {
     readonly property bool showScore: view === "SCORE"
     // Where the keyboard goes back to after a click in an editor.
     property Item focusHome: null
+    // The order of the grid and the tracker/roll row, and the grid's height
+    // (0: what it wants): the window's settings, picked here.
+    property var editorOrder: []
+    property real gridHeight: 0
+    signal editorOrderPicked(var order)
+    signal gridHeightPicked(real height)
     // A pitch written onto a step: the window writes and sounds it.
     signal noteWritten(int step, int key)
     signal octavePicked(int octave)
@@ -37,17 +46,46 @@ ColumnLayout {
     objectName: "stepEditors"
     visible: view !== "KEYS" && view !== "LAUNCH" && view !== "VERSIONS" && view !== "NOTES"
              && view !== "SETTINGS"
-    spacing: 10
+    implicitHeight: editorStack.implicitHeight
+    implicitWidth: editorStack.implicitWidth
+
+    // Over the stack: each area's grip and the gap under the step grid.
+    PanelDock {
+        id: editorDock
+        objectName: "stepEditorDock"
+        anchors.fill: editorStack
+        z: 5
+        rowBase: 0
+        spacing: editorStack.rowSpacing
+        gripOffsetY: 26
+        shippedOrder: ["grid", "split"]
+        order: root.editorOrder
+        heights: ({ "grid": root.gridHeight })
+        panels: ({ "grid": gridSection, "split": editorSplit })
+        resizable: ["grid"]
+        onOrderPicked: order => root.editorOrderPicked(order)
+        onHeightPicked: (key, height) => root.gridHeightPicked(height)
+    }
+
+    GridLayout {
+    id: editorStack
+    anchors.fill: parent
+    columns: 1
+    rowSpacing: 10; columnSpacing: 0
 
     // ------------------------------------------------------ step grid
     ColumnLayout {
         id: gridSection
+        objectName: "gridSection"
+        Layout.row: editorDock.rowOf("grid")
         Layout.fillWidth: true
         Layout.fillHeight: root.view === "STEP"
-        // The detailed grid's 104, plus a row of the stem rack per track.
-        Layout.preferredHeight: 104 + stemRack.implicitHeight + spacing
-        Layout.maximumHeight: root.view === "STEP" ? 100000
-                                                   : 104 + stemRack.implicitHeight + spacing
+        // The detailed grid's 104, plus a row of the stem rack per track,
+        // unless the gap under it was dragged to another height.
+        readonly property real wantedHeight: 104 + stemRack.implicitHeight + spacing
+        readonly property real pickedHeight: editorDock.heightOf("grid")
+        Layout.preferredHeight: pickedHeight > 0 ? pickedHeight : wantedHeight
+        Layout.maximumHeight: root.view === "STEP" || pickedHeight > 0 ? 100000 : wantedHeight
         spacing: 5
         visible: root.view === "ALL" || root.view === "STEP"
         RowLayout {
@@ -207,6 +245,13 @@ ColumnLayout {
                 target: root
                 function onPlayRowChanged() { if (transport.playing) stepGrid.reveal(root.playRow) }
             }
+            // A rewind or a seek while stopped lands the editors on the step too.
+            Connections {
+                target: appController
+                function onPlayheadJumped() {
+                    if (appController.followPlayback) stepGrid.reveal(root.playRow)
+                }
+            }
             WheelHandler {
                 enabled: stepGrid.maxScroll > 0
                 onWheel: function(event) {
@@ -345,6 +390,9 @@ ColumnLayout {
 
     // -------------------------------------------- tracker + piano roll
     SplitView {
+        id: editorSplit
+        objectName: "editorSplit"
+        Layout.row: editorDock.rowOf("split")
         // Enough height that every tracker row is readable rather than a
         // sliver.
         Layout.fillWidth: true; Layout.fillHeight: true
@@ -412,6 +460,10 @@ ColumnLayout {
                 target: appController
                 function onPatternPlayheadChanged() {
                     if (transport.playing)
+                        trackerPanel.reveal(Math.floor(appController.patternPlayStep))
+                }
+                function onPlayheadJumped() {
+                    if (appController.followPlayback)
                         trackerPanel.reveal(Math.floor(appController.patternPlayStep))
                 }
             }
@@ -862,6 +914,7 @@ ColumnLayout {
                 }
                 Item {
                     id: rollArea
+                    objectName: "rollArea"
                     Layout.fillWidth: true; Layout.fillHeight: true
                     readonly property int lowKey: patternModel.lowKey
                     readonly property int keyCount:
@@ -911,6 +964,12 @@ ColumnLayout {
                         target: root
                         function onPlayRowChanged() {
                             if (transport.playing) rollArea.reveal(root.playRow)
+                        }
+                    }
+                    Connections {
+                        target: appController
+                        function onPlayheadJumped() {
+                            if (appController.followPlayback) rollArea.reveal(root.playRow)
                         }
                     }
                     function isBlack(key) {
@@ -1585,5 +1644,6 @@ ColumnLayout {
             SplitView.preferredWidth: 420
             SplitView.minimumWidth: 300
         }
+    }
     }
 }

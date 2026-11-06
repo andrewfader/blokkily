@@ -146,7 +146,9 @@ class AppController final : public QObject {
     Q_PROPERTY(double patternPlayStep READ patternPlayStep NOTIFY patternPlayheadChanged)
     // While the song plays, the editors open whichever pattern the selected
     // track is playing, so the step grid, tracker and roll move with the song
-    // all the way through it. Off, they stay on the pattern being edited.
+    // all the way through it, and a jump of the playhead (rewind, a seek to a
+    // bar) opens the pattern it landed in, playing or stopped. Off, they stay
+    // on the pattern being edited.
     Q_PROPERTY(bool followPlayback READ followPlayback WRITE setFollowPlayback
                NOTIFY followPlaybackChanged)
     // The scene launcher (phase 2, wave 6.1; app_controller_launcher.cpp):
@@ -274,6 +276,13 @@ public:
     // Plays from the port at `index` of midiPorts; -1 closes the input.
     Q_INVOKABLE bool selectMidiPort(int index);
     Q_INVOKABLE void toggleRecord();
+    // Whether the engine is playing the song: what the surfaces ask before
+    // deciding whether a press is written or only sounded.
+    [[nodiscard]] bool transportPlaying() const noexcept;
+    // The transport's record button (Ctrl+R): on a stopped song it arms and
+    // starts playing, count-in and all, so one press records; pressed again
+    // while stopped it disarms; while the song plays it arms or disarms.
+    Q_INVOKABLE void pressRecord();
     // A strip control of `track` ("gain", "pan" or "mute") taken hold of or
     // let go in the interface (item 3.1). While held, a move of it overrides
     // its automation lane in touch mode and is recorded as one pass.
@@ -857,6 +866,9 @@ signals:
     void engineHealthChanged();
     void patternPlayheadChanged();
     void followPlaybackChanged();
+    // The playhead was moved on purpose (rewind, a seek to a bar) rather than
+    // by playback: every view shows where it landed, stopped or playing.
+    void playheadJumped();
     void statusChanged();
     void audioDevicesChanged();
     void pluginIsolationChanged();
@@ -1241,8 +1253,12 @@ private:
                      bool dither, int fromBar, int toBar);
     std::function<bool()> render_cancel_;
     bool follow_playback_ = true;
-    // Opens the pattern under the playhead on the selected track (followPlayback).
+    // Opens the pattern under the playhead on the selected track (followPlayback)
+    // while the song plays; followJump does it for a deliberate move of the
+    // playhead, stopped or not, and announces the jump to the views.
     void followPlayhead();
+    void followJump();
+    void openPatternUnderPlayhead();
     int adopted_processors_ = 0;
     std::unique_ptr<blokkily::RtAudioOutput> audio_output_;
     QTimer meter_timer_;
