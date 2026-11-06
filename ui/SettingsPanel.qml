@@ -27,6 +27,11 @@ Rectangle {
     readonly property var inputs: devices.filter(function(device) { return device.inputs > 0 })
     readonly property var ui: appController.uiSettings
     function uiFlag(key, fallback) { return ui[key] === undefined ? fallback : ui[key] === true || ui[key] === "true" }
+    function uiNumber(key, fallback) {
+        var value = Number(ui[key])
+        return ui[key] === undefined || isNaN(value) ? fallback : value
+    }
+    function uiText(key, fallback) { return ui[key] === undefined ? fallback : String(ui[key]) }
 
     // The devices are read when the page opens (not at launch: probing them
     // takes a moment), so one plugged in since is there.
@@ -339,6 +344,49 @@ Rectangle {
                           : qsTr("unsaved work is copied aside this often, and offered back after a crash")
                 }
             }
+            // --------------------------------------------------- note effects
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
+            SectionLabel { text: qsTr("NOTE FX"); color: Theme.acid }
+            SettingRow {
+                label: qsTr("STYLE")
+                // A burst over the key each note is played on (ui/NoteFx.qml).
+                Picker {
+                    objectName: "fxStylePicker"
+                    choices: ["NONE", "FIRE", "LIGHTNING", "WATER", "TORNADO", "STARMAN"]
+                    value: root.uiText("ui/fxStyle", "NONE")
+                    onPicked: name => appController.setUiSetting("ui/fxStyle", name)
+                }
+                Hint { text: qsTr("fire, lightning, water, a tornado, or an 8-bit star over every key you play") }
+            }
+            SettingRow {
+                label: qsTr("KNOBS")
+                ValueDial {
+                    objectName: "fxIntensity"
+                    Layout.preferredWidth: 130; grip: 18
+                    label: qsTr("INTENSITY"); from: 0; to: 100; defaultValue: 60
+                    value: root.uiNumber("ui/fxIntensity", 60)
+                    readout: Math.round(value) + "%"
+                    onMoved: amount => appController.setUiSetting("ui/fxIntensity", Math.round(amount))
+                }
+                ValueDial {
+                    objectName: "fxSize"
+                    Layout.preferredWidth: 130; grip: 18
+                    label: qsTr("SIZE"); from: 0; to: 100; defaultValue: 50
+                    value: root.uiNumber("ui/fxSize", 50)
+                    readout: Math.round(value) + "%"
+                    onMoved: amount => appController.setUiSetting("ui/fxSize", Math.round(amount))
+                }
+                ValueDial {
+                    objectName: "fxDecay"
+                    Layout.preferredWidth: 130; grip: 18
+                    label: qsTr("DECAY"); from: 150; to: 2500; defaultValue: 700
+                    value: root.uiNumber("ui/fxDecay", 700)
+                    readout: Math.round(value) + " ms"
+                    onMoved: amount => appController.setUiSetting("ui/fxDecay", Math.round(amount))
+                }
+                Hint { text: qsTr("how many, how far, how long") }
+            }
+
             Item { Layout.fillHeight: true }
         }
     }

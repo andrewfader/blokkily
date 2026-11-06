@@ -76,6 +76,28 @@ Feature: Play the song in the tuning it is written in
     And the surface asks for the room its turned layout needs
     And no note of the pattern and no pitch of a cell has changed
 
+  # bdd_default "keyboards"
+  Scenario: The surface suggests the next note of the scale
+    Given a piano surface in the song's scale
+    When a key is played
+    Then the lowest in-scale key above it is ringed, breathing, and no other key is
+    And past the top of the surface the suggestion wraps to its lowest in-scale key
+
+  # bdd_default "keyboards"
+  Scenario: The surface pulses with the music
+    Given the open pattern placed under the playhead
+    When the song plays a step that holds a key
+    Then that key is lit on the surface while it sounds
+    And the surface flashes on every beat
+
+  # bdd_default "keyboards"; bdd_window_layout (the knobs)
+  Scenario: A note effect bursts over every key played
+    Given NOTE FX in SETTINGS set to FIRE
+    When a key is played
+    Then a burst of embers rises from that key and is gone once it has faded
+    And LIGHTNING, WATER, TORNADO and STARMAN each burst in their own way, and NONE draws nothing
+    And the INTENSITY, SIZE and DECAY knobs beside the picker set how many particles, how far and how long
+
   Scenario: A surface too large for its panel scrolls instead of shrinking
     Given a surface whose rows do not fit the keyboard panel
     Then its keys keep a size that can be hit

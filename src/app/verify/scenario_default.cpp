@@ -2277,6 +2277,81 @@ struct DefaultScenario {
             keyboard.setRegister("Full");
             keyboard.setSurface("PIANO");
 
+            // After a press, the next note of the scale is ringed on the
+            // surface; while the song plays, the keys it sounds are lit; a
+            // press bursts the note effect chosen in SETTINGS, which fades.
+            {
+                const int played = 67;
+                pattern.selectStep(9);
+                valid = valid && keyboard.pressDegree(played);
+                (void)window->grabWindow();
+                const int next = keyboard.suggestedDegree();
+                bool next_in_scale = false;
+                bool none_between = true;
+                for (const auto& cell : keyboard.layout()) {
+                    if (cell.chord.size() > 1) continue;
+                    if (cell.degree == next) next_in_scale = next_in_scale || cell.in_scale;
+                    if (cell.degree > played && cell.degree < next && cell.in_scale) none_between = false;
+                }
+                if (!(next > played && next_in_scale && none_between))
+                    std::cerr << "REGRESSION: after " << played << " the surface suggests " << next << '\n';
+                valid = valid && next > played && next_in_scale && none_between;
+                int marks = 0;
+                QQuickItem* marked = nullptr;
+                for (std::size_t index = 0; index < keyboard.layout().size(); ++index) {
+                    auto* cell = childNamed(item("keyboardSurface"), "keyboardCell" + QString::number(index));
+                    auto* mark = cell == nullptr ? nullptr : childNamed(cell, "suggestedMark");
+                    if (mark != nullptr && mark->isVisible()) { ++marks; marked = cell; }
+                }
+                valid = valid && marks == 1 && marked != nullptr && marked->property("suggested").toBool() &&
+                        VerifyContext::usable(marked, 8, 12);
+                // Playing from the step just written, its key is lit.
+                controller.seekToStep(9);
+                controller.togglePlayback();
+                (void)window->grabWindow();
+                if (controller.patternPlayStep() >= 0) {
+                    QQuickItem* lit = nullptr;
+                    for (std::size_t index = 0; index < keyboard.layout().size(); ++index)
+                        if (keyboard.layout()[index].pitch.key == 67 && keyboard.layout()[index].chord.size() <= 1) {
+                            lit = childNamed(item("keyboardSurface"), "keyboardCell" + QString::number(index));
+                            break;
+                        }
+                    if (lit == nullptr || !lit->property("sounding").toBool())
+                        std::cerr << "REGRESSION: the key the song sounds is not lit on the surface\n";
+                    valid = valid && lit != nullptr && lit->property("sounding").toBool();
+                } else {
+                    std::cerr << "note: the open pattern is not placed under the playhead, the pulse was not checked\n";
+                }
+                controller.togglePlayback();
+                (void)window->grabWindow();
+                auto* effects = item("noteFx");
+                valid = valid && effects != nullptr && effects->childItems().isEmpty();
+                controller.setUiSetting("ui/fxStyle", "FIRE");
+                controller.setUiSetting("ui/fxDecay", 300);
+                valid = valid && keyboard.pressDegree(played);
+                (void)window->grabWindow();
+                const bool burst = effects != nullptr && !effects->childItems().isEmpty();
+                if (!burst) std::cerr << "REGRESSION: no fire burst after a key was played\n";
+                valid = valid && burst && VerifyContext::usable(effects, 100, 40);
+                VerifyContext::settle(600);
+                (void)window->grabWindow();
+                valid = valid && effects != nullptr && effects->childItems().isEmpty();
+                for (const char* style : {"LIGHTNING", "WATER", "TORNADO", "STARMAN"}) {
+                    controller.setUiSetting("ui/fxStyle", QString::fromLatin1(style));
+                    valid = valid && keyboard.pressDegree(played);
+                    (void)window->grabWindow();
+                    if (effects == nullptr || effects->childItems().isEmpty())
+                        std::cerr << "REGRESSION: no " << style << " burst after a key was played\n";
+                    valid = valid && effects != nullptr && !effects->childItems().isEmpty();
+                    VerifyContext::settle(600);
+                }
+                controller.setUiSetting("ui/fxStyle", "NONE");
+                controller.setUiSetting("ui/fxDecay", QVariant());
+                valid = valid && keyboard.pressDegree(played);
+                (void)window->grabWindow();
+                valid = valid && effects != nullptr && effects->childItems().isEmpty();
+            }
+
             // The chip that turns the surface is a control, not a caption:
             // clicking the rendered one has to reach the model.
             {

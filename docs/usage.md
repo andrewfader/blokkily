@@ -189,9 +189,21 @@ chord voices carry a twelve-tone key plus a retune offset, so CLAP, VST3 and
 SoundFont instruments receive the intended microtonal pitch. Every editor names
 notes in the song's tuning.
 
-Playing a surface auditions the selected track's instrument and writes onto
-the selected pattern step. A key sounds on press and is released when you let
-go, including with the transport stopped.
+Playing a surface auditions the selected track's instrument. With the song
+stopped a key also writes the selected pattern step (WRITING STEP; AUDITION
+ONLY turns that off), or, with recording armed, joins the step beside the
+notes it already holds. While the song plays, a key is only heard unless
+recording is on, when it is captured into the take where it was played. A key
+sounds on press and is released when you let go, including with the
+transport stopped.
+
+After a key is played, the next note of the scale above it is ringed in blue,
+so a hand grooving up the scale sees what to press next (past the top it
+wraps to the lowest key in the scale). While the song plays, the keys the
+open pattern sounds light up and the surface flashes on every beat. NOTE FX
+in SETTINGS draws a burst over every key played: fire, lightning, water, a
+tornado or an 8-bit star, with knobs for how many particles, how far they
+reach and how long they last.
 
 The isomorphic grid has seven layouts:
 
@@ -316,7 +328,9 @@ To record a take:
 
 1. Choose the input and arm the track with R. With no track armed, the
    selected audio track records.
-2. Arm the transport's record button (Ctrl+R) and press Play.
+2. Press the transport's record button (Ctrl+R): on a stopped song it arms
+   recording and starts playing, after the count-in if one is set. While the
+   song plays it arms or disarms; pressed again on a stopped song it disarms.
 3. Press Stop. The take becomes a clip on the track.
 
 The clip is placed where you heard the song, not where the input received it.
@@ -377,6 +391,11 @@ SETTINGS, the gear beside HELP above the editors, opens what belongs to the
 machine rather than to the song in the editors' place; a second press goes
 back to the view it was opened from. Everything on it is remembered between
 launches and none of it is saved with a song.
+
+NOTE FX · STYLE picks the burst drawn over every key played on the
+keyboard panel's surfaces (NONE, FIRE, LIGHTNING, WATER, TORNADO, STARMAN),
+and the INTENSITY, SIZE and DECAY knobs set how many particles it has, how
+far they reach and how long it lasts.
 
 AUDIO · SYSTEM chooses the audio system: ALSA, PulseAudio, or
 JACK - which is also how PipeWire is reached through its JACK interface, as
@@ -442,7 +461,11 @@ The window's panels can be rearranged and sized. Each editor panel (the
 arrangement, the editors, the keyboard, the inspector and the modulators) has
 a grip of six dots in the margin to its left: drag it up or down to move the
 panel. Drag the gap under the keyboard to size it (double-click the gap for
-the height its keys want), and drag a bar's inner edge to widen it. The
+the height its keys want), and drag a bar's inner edge to widen it. Inside
+the editors, the step grid and the tracker-and-roll row have grips of their
+own (under the editors' grip) to swap their order, and the gap under the step
+grid sizes it: drag it down for a taller grid, up for more tracker and roll
+(double-click for the height it wants). The
 layout is remembered; LAYOUT · RESET puts everything back. See
 [the settings scenarios](../features/audio_settings.feature) and
 [the layout scenarios](../features/window_layout.feature).
@@ -858,7 +881,7 @@ or transport shortcuts.
 | Ctrl+Shift+1..6 | Toggle a step in the second half of the bar |
 | Ctrl+M | Mute the selected track |
 | Ctrl+L | Solo the selected track |
-| Ctrl+R | Arm recording |
+| Ctrl+R | Record: arm and play; again to disarm |
 | Ctrl+E | Bounce the arrangement to disk |
 | Ctrl+F | Focus the plugin browser search (bringing the left bar out) |
 | Ctrl+[ / Ctrl+] | Bring the auto-hidden left / right bar out, or send it back |

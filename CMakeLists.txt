@@ -217,6 +217,7 @@ if(BLOKKILY_BUILD_GUI)
         ui/ArrangementView.qml
         ui/StepEditors.qml
         ui/KeyboardPanel.qml
+        ui/NoteFx.qml
         ui/Inspector.qml
         ui/MixerPanel.qml
         ui/MixerStrip.qml

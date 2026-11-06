@@ -43,6 +43,10 @@ class KeyboardModel final : public QObject {
     // What the last press produced, so the interface can say what was heard
     // even when no instrument was loaded to hear it through.
     Q_PROPERTY(QString lastPlayed READ lastPlayed NOTIFY played)
+    // The next note of the scale above the last key played: what a hand
+    // grooving up the scale presses next, lit on the surface. None (-1000)
+    // until a key is played.
+    Q_PROPERTY(int suggestedDegree READ suggestedDegree NOTIFY suggestionChanged)
 
 public:
     KeyboardModel(SongModel* song, PatternModel* pattern, AppController* controller,
@@ -84,6 +88,7 @@ public:
     // Presses whichever cell sounds a degree, which is how a computer key or a
     // test drives the surface without knowing how it is laid out.
     Q_INVOKABLE bool pressDegree(int degree);
+    int suggestedDegree() const noexcept { return suggested_degree_; }
 
     // The cell list as the model sees it, for the verification gate.
     [[nodiscard]] const std::vector<blokkily::KeyboardCell>& layout() const { return cells_; }
@@ -94,9 +99,14 @@ signals:
     // A cell was pressed. Carries the degree so a listener need not re-read the
     // layout to know what was played.
     void played(int degree);
+    void suggestionChanged();
 
 private:
     bool sound(int index, bool held);
+    // The lowest in-scale degree of the surface above `degree`, wrapping to
+    // its lowest in-scale degree past the top.
+    [[nodiscard]] int nextScaleDegree(int degree) const;
+    void suggest(int degree);
     // Re-reads the tuning and scale from the song and rebuilds the layout.
     void rebuild();
     [[nodiscard]] const blokkily::KeyboardCell* cellForDegree(int degree) const;
@@ -107,5 +117,6 @@ private:
     blokkily::KeyboardSpec spec_;
     std::vector<blokkily::KeyboardCell> cells_;
     bool recording_ = true;
+    int suggested_degree_ = -1000;
     QString last_played_ = QStringLiteral("—");
 };

@@ -25,6 +25,41 @@ Rectangle {
     // for a readable pitch name and a usable pointer target.
     // Both orientations scroll once those dimensions are met.
     readonly property real keyExtent: keyboardModel.surface === "PIANO" ? 14 : 60
+    // The keys the open pattern sounds on the playhead's step while the song
+    // plays: the surface lights them, so it pulses with the music.
+    readonly property var soundingKeys: {
+        if (!transport.playing || appController.patternPlayStep < 0) return []
+        var row = patternModel.stepRow(Math.floor(appController.patternPlayStep))
+        if (!row.active) return []
+        return row.voiceKeys && row.voiceKeys.length > 0 ? row.voiceKeys : [row.key]
+    }
+    // A flash over the surface on every beat the song plays.
+    readonly property int beat: Math.floor(transport.barStepFraction / 4)
+    onBeatChanged: if (transport.playing) beatFlash.restart()
+    // The note effects (SETTINGS · NOTE FX): a burst over the key each note
+    // is played on.
+    readonly property var ui: appController.uiSettings
+    function uiNumber(key, fallback) {
+        var value = Number(ui[key])
+        return ui[key] === undefined || isNaN(value) ? fallback : value
+    }
+    readonly property string fxStyle: ui["ui/fxStyle"] === undefined ? "NONE" : String(ui["ui/fxStyle"])
+    // Where a degree's key is drawn, in the surface's pixels.
+    function cellCentre(degree) {
+        var cells = keyboardModel.cells
+        for (var i = 0; i < cells.length; ++i)
+            if (cells[i].degree === degree && cells[i].voices <= 1)
+                return Qt.point(keyboardSurface.originX + (cells[i].x + 0.5) * keyboardSurface.cellWidth,
+                                keyboardSurface.originY + (cells[i].y + 0.5) * keyboardSurface.cellHeight)
+        return null
+    }
+    Connections {
+        target: keyboardModel
+        function onPlayed(degree) {
+            var at = keyboardPanel.cellCentre(degree)
+            if (at !== null) noteFx.burst(at.x, at.y, degree)
+        }
+    }
     readonly property real wantedSurface:
         Math.min(360, keyboardModel.spanY * keyExtent)
     readonly property real wantedHeight: Math.max(168, wantedSurface + 104)
@@ -237,6 +272,28 @@ Rectangle {
                 return flatTop ? (2 * dx + dy <= 1) : (2 * dy + dx <= 1)
             }
 
+            // The beat's flash and the note effects lie over the keys and
+            // take no presses.
+            Rectangle {
+                id: beatPulse
+                objectName: "beatPulse"
+                anchors.fill: parent
+                z: 5
+                color: Theme.acid
+                opacity: 0
+                NumberAnimation on opacity { id: beatFlash; from: 0.22; to: 0; duration: 260; running: false }
+            }
+            NoteFx {
+                id: noteFx
+                objectName: "noteFx"
+                anchors.fill: parent
+                z: 6
+                style: keyboardPanel.fxStyle
+                intensity: keyboardPanel.uiNumber("ui/fxIntensity", 60) / 100
+                size: keyboardPanel.uiNumber("ui/fxSize", 50) / 100
+                decay: keyboardPanel.uiNumber("ui/fxDecay", 700)
+            }
+
             Repeater {
                 model: keyboardModel.cells
                 Item {
@@ -252,7 +309,13 @@ Rectangle {
                     // A key says three things at once: whether
                     // it is raised, whether the scale holds it,
                     // and whether it is the root of that scale.
-                    readonly property color fill: keyInput.pressed ? Theme.amber
+                    // Lit amber while pressed, and while the song sounds its
+                    // key on the open pattern's step; ringed in blue when it
+                    // is the next note of the scale above the last key played.
+                    readonly property bool sounding: keyboardPanel.soundingKeys.indexOf(modelData.key) >= 0
+                    readonly property bool suggested: modelData.voices <= 1
+                                                      && modelData.degree === keyboardModel.suggestedDegree
+                    readonly property color fill: keyInput.pressed || sounding ? Theme.amber
                            : modelData.root ? Theme.acid
                            : (modelData.accidental ? Theme.blackKey
                               : (modelData.inScale ? Theme.scaleKey : Theme.raised))
@@ -289,6 +352,23 @@ Rectangle {
                                 path: keyboardSurface.hexCorners(
                                     cellItem.width, cellItem.height)
                             }
+                        }
+                    }
+
+                    // The next note of the scale above the last key played:
+                    // a ring (a disc's outline on a honeycomb) that breathes.
+                    Rectangle {
+                        objectName: "suggestedMark"
+                        visible: cellItem.suggested
+                        anchors.fill: parent; anchors.margins: -1
+                        radius: keyboardSurface.hex ? width / 2 : 4
+                        color: "transparent"
+                        border.width: 2; border.color: Theme.blue
+                        z: 3
+                        SequentialAnimation on opacity {
+                            running: cellItem.suggested; loops: Animation.Infinite
+                            NumberAnimation { from: 1; to: 0.3; duration: 450 }
+                            NumberAnimation { from: 0.3; to: 1; duration: 450 }
                         }
                     }
 

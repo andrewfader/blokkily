@@ -116,6 +116,15 @@ Feature: Record everything, part 1 - armed tracks and on-screen surfaces
     And off the grid by exactly as much as it was played off it
     And the tracker cursor has not moved and its step is still empty
 
+  # gate step "record: armed and stopped a piano key joins the step; playing unarmed it only sounds"
+  Scenario: A surface press joins a step while armed, and only sounds while the song plays unarmed
+    Given the song is stopped, recording armed, and the selected step holds C4
+    When the producer clicks the piano's E4
+    Then the step holds C4 and E4: the note it had is kept and the new one is added
+    When recording is disarmed and the song plays
+    And the producer clicks the piano's G4
+    Then it is heard and nothing in the pattern changes
+
   # gate step "record: stopped, a tracker key writes the step and advances"
   Scenario: Stopped, the tracker's keys still write steps
     Given the song is stopped

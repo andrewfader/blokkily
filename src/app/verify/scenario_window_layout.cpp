@@ -218,6 +218,53 @@ void run_window_layout(VerifyContext& ctx) {
     }
     ctx.reached("window layout: the gap under the keyboard sizes it, a double-click resets it");
 
+    // ----------------------------- the editors' own areas move and size
+    {
+        auto* editors = ctx.named("stepEditors");
+        auto* grid_section = ctx.named("gridSection");
+        auto* split = ctx.named("editorSplit");
+        auto* grid_grip = ctx.named("grip_grid");
+        auto* grid_sizer = ctx.named("sizer_grid");
+        auto* scroll = ctx.named("editorScroll");
+        if (scroll && editors) {
+            // Within the column's range, or the Flickable bounces back under the drag.
+            const double most = std::max(0.0, scroll->property("contentHeight").toDouble() - scroll->height());
+            scroll->setProperty("contentY", std::max(0.0, std::min(most, editors->y() - 10)));
+        }
+        settle(50);
+        layout();
+        if (editors && grid_section && split)
+            std::cerr << "editors " << editors->y() << " h " << editors->height() << " grid h " << grid_section->height()
+                      << " split h " << split->height() << " scroll y " << (scroll ? scroll->property("contentY").toDouble() : -1) << '\n';
+        check(editors && grid_section && split && grid_grip && grid_grip->isVisible() &&
+              grid_sizer && grid_sizer->isVisible());
+        check(VerifyContext::usable(grid_grip, 8, 16) && VerifyContext::usable(grid_sizer, 200, 8));
+        if (grid_section && split && grid_grip && grid_sizer) {
+            check(grid_section->y() < split->y());
+            const double natural = grid_section->height();
+            drag(grid_sizer, QPointF(0, 60));
+            settle(50);
+            std::cerr << "step grid " << natural << " -> " << grid_section->height() << " picked "
+                      << c.uiSettings().value("ui/gridHeight").toDouble() << " editors h " << editors->height()
+                      << " split h " << split->height() << " scroll y " << (scroll ? scroll->property("contentY").toDouble() : -1) << '\n';
+            if (std::abs(grid_section->height() - (natural + 60)) > 2.0)
+                std::cerr << "REGRESSION: the gap under the step grid did not size it\n";
+            check(std::abs(grid_section->height() - (natural + 60)) <= 2.0);
+            check(std::abs(c.uiSettings().value("ui/gridHeight").toDouble() - (natural + 60)) <= 2.0);
+            // Its grip drags it under the tracker and the roll.
+            const QPointF target = grid_grip->mapFromItem(split, QPointF(0, split->height() - 4));
+            drag(grid_grip, QPointF(0, target.y() - grid_grip->height() / 2));
+            settle(50);
+            std::cerr << "editor order: " << c.uiSettings().value("ui/stepEditorOrder").toString().toStdString()
+                      << " grid y " << grid_section->y() << " split y " << split->y() << '\n';
+            check(c.uiSettings().value("ui/stepEditorOrder").toString() == "split,grid");
+            check(grid_section->y() > split->y());
+        }
+        if (scroll) scroll->setProperty("contentY", 0);
+        layout();
+    }
+    ctx.reached("window layout: the step grid's gap sizes it and its grip moves it under the tracker and roll");
+
     // ------------------------------------------------- a bar widens
     check(click("viewSETTINGS"));
     check(click("autoHideMixer"));
@@ -273,7 +320,17 @@ void run_window_layout(VerifyContext& ctx) {
         if (below > 0) scroll->setProperty("contentY", scroll->property("contentY").toDouble() + below + 8);
         layout();
     }
+    // The note effects' picker and knobs are on the page, big enough to use.
+    check(VerifyContext::usable(ctx.named("fxStylePicker"), 50, 18));
+    for (const char* knob : {"fxIntensity", "fxSize", "fxDecay"}) {
+        auto* dial = ctx.named(QString::fromLatin1(knob));
+        if (dial != nullptr)
+            std::cerr << knob << ' ' << dial->width() << 'x' << dial->height() << " visible " << dial->isVisible() << '\n';
+        check(VerifyContext::usable(dial, 60, 24));
+    }
     check(click("resetLayout"));
+    settle(50);
+    check(!c.uiSettings().contains("ui/stepEditorOrder") && !c.uiSettings().contains("ui/gridHeight"));
     check(click("viewALL"));
     settle(50);
     // Only the language the gate reads the window in is left: RESET is the

@@ -258,19 +258,40 @@ bool KeyboardModel::sound(int index, bool held) {
         if (song_ != nullptr) names << song_->degreeName(degree);
     }
 
+    const int next = degrees.size() == 1 ? nextScaleDegree(degrees.front()) : suggested_degree_;
+
     // Against a running transport that is recording, a press is performed into
     // the take - on every armed track, where and how long it was played - and
     // the take writes it, so no step is written here.
     if (controller_ != nullptr && controller_->performPitches(pitches, 0.9, held)) {
         last_played_ = names.isEmpty() ? QString::fromStdString(cell.label) : names.join(' ');
+        suggest(next);
         emit played(degrees.front());
         return true;
     }
 
+    const bool playing = controller_ != nullptr && controller_->transportPlaying();
+    const bool armed = controller_ != nullptr && controller_->recordArmed();
+    const bool at_step = pattern_ != nullptr && pattern_->selectedStep() >= 0;
     // The step is written before the press is sounded. Editing the pattern
     // recompiles the arrangement, and a note sent to the engine that the edit
     // replaces is a note nobody hears.
-    if (recording_ && pattern_ != nullptr && pattern_->selectedStep() >= 0) {
+    if (playing) {
+        // Playing without recording, a press is only heard: nothing of the
+        // song changes under a hand that is jamming along.
+    } else if (armed && at_step) {
+        // Stopped with recording armed, the press joins the selected step
+        // beside what it already holds, as a new note.
+        const int step = pattern_->selectedStep();
+        if (!pattern_->hasStep(step)) {
+            pattern_->placeNote(step, blokkily::Note{pitches.front().key, 0.9F, 0.0F,
+                                                     pitches.front().cents});
+            for (std::size_t voice = 1; voice < pitches.size(); ++voice)
+                pattern_->addRollNote(step, pitches[voice].key);
+        } else {
+            for (const auto& pitch : pitches) pattern_->addRollNote(step, pitch.key);
+        }
+    } else if (recording_ && at_step) {
         if (pitches.size() == 1) {
             pattern_->placeNote(pattern_->selectedStep(),
                                 blokkily::Note{pitches.front().key, 0.9F, 0.0F,
@@ -298,6 +319,24 @@ bool KeyboardModel::sound(int index, bool held) {
     if (controller_ != nullptr) (void)controller_->auditionPitches(pitches, 0.9, held);
 
     last_played_ = names.isEmpty() ? QString::fromStdString(cell.label) : names.join(' ');
+    suggest(next);
     emit played(degrees.front());
     return true;
+}
+
+int KeyboardModel::nextScaleDegree(int degree) const {
+    int above = -1000;
+    int lowest = -1000;
+    for (const auto& cell : cells_) {
+        if (!cell.in_scale || cell.chord.size() > 1) continue;
+        if (cell.degree > degree && (above == -1000 || cell.degree < above)) above = cell.degree;
+        if (lowest == -1000 || cell.degree < lowest) lowest = cell.degree;
+    }
+    return above != -1000 ? above : lowest;
+}
+
+void KeyboardModel::suggest(int degree) {
+    if (degree == suggested_degree_) return;
+    suggested_degree_ = degree;
+    emit suggestionChanged();
 }

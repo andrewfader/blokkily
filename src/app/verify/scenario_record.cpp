@@ -368,6 +368,63 @@ void run_record(VerifyContext& ctx) {
     check(routes[0] == track_bit(0) && routes[1] == (track_bit(0) | track_bit(1)));
     reached("record: arm and channel are saved and loaded");
 
+    // Stopped with recording armed, a press on the piano joins the selected
+    // step beside what it holds; playing without recording, a press only
+    // sounds and nothing of the song changes.
+    {
+        song.selectTrack(1);
+        song.selectPattern(static_cast<int>(chorus));
+        int spot = -1;
+        for (int s = 0; s < pattern.stepCount(); ++s)
+            if (!pattern.hasStep(s)) { spot = s; break; }
+        check(spot >= 0);
+        pattern.toggleStep(spot, 60);
+        pattern.selectStep(spot);
+        lay_out();
+        check(pattern.hasStep(spot) && pattern.stepKey(spot) == 60);
+        const auto& layout = ctx.keyboard.layout();
+        const auto key_of = [&](int key) -> QQuickItem* {
+            for (std::size_t index = 0; index < layout.size(); ++index)
+                if (layout[index].pitch.key == key && layout[index].chord.size() <= 1) {
+                    auto* found = VerifyContext::child_named(ctx.item("keyboardSurface"),
+                                                             QString("keyboardCell%1").arg(index));
+                    return found == nullptr ? nullptr : VerifyContext::child_named(found, "keyInput");
+                }
+            return nullptr;
+        };
+        const auto press = [&](QQuickItem* input) {
+            if (input != nullptr) ctx.click_at(input, {input->width() / 2, input->height() / 2}, Qt::LeftButton);
+        };
+        const auto at_spot = [&] { return trigger_on(song.song().patterns.at(chorus).pattern, spot); };
+        auto* e4 = key_of(64);
+        auto* g4 = key_of(67);
+        check(e4 != nullptr && g4 != nullptr);
+        controller.toggleRecord();
+        check(controller.recordArmed() && !ctx.transport.playing());
+        press(e4);
+        settle(20);
+        lay_out();
+        if (!(holds_key(at_spot(), 60) && holds_key(at_spot(), 64)))
+            std::cerr << "REGRESSION: with recording armed, a piano key replaced the step's note instead of joining it\n";
+        check(holds_key(at_spot(), 60) && holds_key(at_spot(), 64));
+        controller.toggleRecord();
+        check(!controller.recordArmed());
+        const int rows = pattern.rowCount();
+        controller.togglePlayback();
+        (void)pump_sides();
+        press(g4);
+        (void)pump_sides();
+        settle(20);
+        lay_out();
+        if (pattern.rowCount() != rows || holds_key(at_spot(), 67))
+            std::cerr << "REGRESSION: playing without recording, a piano key wrote into the pattern\n";
+        check(pattern.rowCount() == rows && holds_key(at_spot(), 60) && !holds_key(at_spot(), 67));
+        controller.togglePlayback();
+        (void)pump_sides();
+        settle(20);
+        reached("record: armed and stopped a piano key joins the step; playing unarmed it only sounds");
+    }
+
     // Left with the take in the editors and both strips armed.
     song.selectPattern(static_cast<int>(chorus));
     pattern.selectStep(piano_at.step);
