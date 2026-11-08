@@ -14,6 +14,7 @@ endif()
 if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
     target_sources(blokkily PRIVATE
         src/app/verify/scenario_settings.cpp
+        src/app/verify/scenario_track_list.cpp
         src/app/verify/scenario_window_layout.cpp)
     # The SETTINGS view in the rendered window: its pickers, and another rate
     # and block reaching the device and heard through the production callback.
@@ -30,6 +31,14 @@ if(BLOKKILY_BUILD_GUI AND BLOKKILY_BUILD_TESTS)
         --screenshot ${CMAKE_BINARY_DIR}/artifacts/window-layout.png)
     set_tests_properties(bdd_window_layout PROPERTIES
         LABELS "bdd;e2e;integration;screenshot;clap"
+        ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 90)
+    # The arrangement's track list sized by its edge, and muted from the
+    # keyboard and its menu, heard through the production callback.
+    add_test(NAME bdd_track_list COMMAND blokkily --verify --scenario track_list
+        --clap-fixture $<TARGET_FILE:blokkily_test_clap>
+        --screenshot ${CMAKE_BINARY_DIR}/artifacts/track-list.png)
+    set_tests_properties(bdd_track_list PROPERTIES
+        LABELS "bdd;e2e;integration;screenshot;audio;clap"
         ENVIRONMENT "${BLOKKILY_OFFSCREEN_GATE_ENV}" TIMEOUT 90)
     # THEME · LIGHT in the rendered window: light, its text reading, and back.
     add_test(NAME bdd_theme COMMAND blokkily --verify --scenario theme

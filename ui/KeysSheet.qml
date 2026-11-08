@@ -30,6 +30,7 @@ Popup {
             [QT_TR_NOOP("Return or Home"), QT_TR_NOOP("Go to the start of the song")],
             ["Ctrl+R", QT_TR_NOOP("Arm recording")],
             ["Ctrl+M", QT_TR_NOOP("Mute the selected track")],
+            ["M", QT_TR_NOOP("Mute a track whose name was just clicked (otherwise a note)")],
             ["Ctrl+L", QT_TR_NOOP("Solo the selected track")] ] },
         { title: QT_TR_NOOP("STEPS AND TRACKER"), keys: [
             [QT_TR_NOOP("Arrow keys"), QT_TR_NOOP("Move the step cursor")],

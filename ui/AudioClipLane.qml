@@ -20,9 +20,9 @@ Item {
     objectName: "audioClipLane"
     // The arrangement's rows (arrangeRow<i>); the lane covers the same area.
     property Item rows: null
-    // The bar cells start after the 64-pixel track header and the 2-pixel
-    // spacing of each row.
-    readonly property real cellsX: 66
+    // The bar cells start after the track names' column and the 2-pixel
+    // spacing of each row: the arrangement says where that is.
+    property real cellsX: 66
     readonly property real cellsWidth: Math.max(1, width - cellsX)
     readonly property real rowPitch: 24
     // Sixteenths: where a dragged clip or a trimmed edge lands.

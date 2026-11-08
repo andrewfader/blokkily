@@ -329,15 +329,16 @@ ApplicationWindow {
         objectName: "trackMenu"
         property int target: -1
         property string name: ""
-        MenuItem { text: qsTr("Rename…")
-            onTriggered: renamePopup.ask("TRACK", trackMenu.target, trackMenu.name) }
         // Ticked when the track is muted or soloed, so the menu says how it is.
+        // First, so a right click opens with Mute under the pointer.
         MenuItem { objectName: "trackMenuMute"; text: qsTr("Mute"); checkable: true
             checked: songModel.tracks[trackMenu.target] !== undefined && songModel.tracks[trackMenu.target].mute === true
             onTriggered: songModel.toggleMute(trackMenu.target) }
         MenuItem { objectName: "trackMenuSolo"; text: qsTr("Solo"); checkable: true
             checked: songModel.tracks[trackMenu.target] !== undefined && songModel.tracks[trackMenu.target].solo === true
             onTriggered: songModel.toggleSolo(trackMenu.target) }
+        MenuItem { objectName: "trackMenuRename"; text: qsTr("Rename…")
+            onTriggered: renamePopup.ask("TRACK", trackMenu.target, trackMenu.name) }
         MenuItem { objectName: "trackMoveUp"; text: qsTr("Move up"); enabled: trackMenu.target > 0
             onTriggered: songModel.moveTrack(trackMenu.target, trackMenu.target - 1) }
         MenuItem { objectName: "trackMoveDown"; text: qsTr("Move down")
@@ -552,7 +553,10 @@ ApplicationWindow {
     property var clipSource: null
     Connections {
         target: patternModel
-        function onSelectionChanged() { root.clipSource = null }
+        function onSelectionChanged() {
+            root.clipSource = null
+            arrangementView.headerHasKeys = false
+        }
     }
     // What the last copy took, so a paste puts back the same kind of thing:
     // "clip", "notes" or "step".
@@ -724,11 +728,23 @@ ApplicationWindow {
                 patternModel.selectChannelStep(
                     (songModel.selectedTrack + (backwards ? count - 1 : 1)) % count,
                     Math.max(0, patternModel.selectedStep))
+                arrangementView.headerHasKeys = false
+                event.accepted = true
+                return
+            }
+            // M is a note, except straight after a track's name was clicked:
+            // then it mutes that track (features/track_list.feature). Any other
+            // note ends that, so a phrase typed after choosing a track keeps
+            // its Ms.
+            if (arrangementView.headerHasKeys && event.text.toUpperCase() === "M"
+                && !(event.modifiers & Qt.ShiftModifier)) {
+                songModel.toggleMute(songModel.selectedTrack)
                 event.accepted = true
                 return
             }
             var semitone = semitoneFor(event.text)
             if (semitone < 0) return
+            arrangementView.headerHasKeys = false
             // Recording against the running transport, a key is played into
             // the take - on every armed track, when and for as long as it is
             // held - and the cursor stays where it is.
@@ -782,6 +798,19 @@ ApplicationWindow {
         id: workspace
         objectName: "workspace"
         anchors.fill: parent
+        // A press anywhere takes the keyboard back from the track list, and a
+        // click on a track's name gives it back on release. It notes the press
+        // and refuses it, so the press goes on to whatever is under it: a
+        // pointer handler here is declined a press a MouseArea has taken.
+        MouseArea {
+            z: 1000
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            onPressed: function(mouse) {
+                arrangementView.headerHasKeys = false
+                mouse.accepted = false
+            }
+        }
         // The editors at the width they are designed for, beside both bars:
         // a window that wide docks the bars whether or not they auto-hide,
         // when WINDOW · DOCK · WHEN WIDE says so. As it ships they auto-hide
@@ -1101,6 +1130,9 @@ ApplicationWindow {
                         objectName: "arrangementView"
                         Layout.row: panelDock.rowOf("arrangement")
                         focusHome: noteEntry
+                        storedHeaderWidth: root.uiNumber("ui/trackListWidth", defaultHeaderWidth)
+                        onHeaderWidthPicked: width => appController.setUiSetting(
+                            "ui/trackListWidth", width > 0 ? width : undefined)
                         onRenameRequested: (kind, index, name) => renamePopup.ask(kind, index, name)
                         onPatternMenuRequested: (index, name) => {
                             patternMenu.target = index

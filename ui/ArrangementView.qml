@@ -5,7 +5,8 @@ import QtQuick.Layouts
 // The song timeline: one lane per mixer track, one cell per bar. A long song
 // keeps every bar wide enough to read and to hit: the lanes scroll sideways
 // (Shift+wheel, or the bar under them) and Ctrl+wheel or the zoom chips
-// widen the bars, while the lane names stay where they are.
+// widen the bars, while the lane names stay where they are. The names' column
+// is as wide as its right edge was dragged (features/track_list.feature).
 // Clicking a cell places the pattern that is currently open, so
 // arranging and editing are the same two clicks. Each bar is drawn as
 // wide as it lasts (a 7/8 bar is 7/8 of a 4/4 one), from the song's bar
@@ -20,7 +21,25 @@ ColumnLayout {
     readonly property real minimumBarWidth: 44
     // 1 shows the whole song when it fits; larger values widen every bar.
     property real zoom: 1
-    readonly property real fitRoom: Math.max(1, arrangeScroll.width - 64 - barGap
+    // The track names' column: what the window remembers, or while its edge is
+    // dragged the width under the pointer. Half the view is the most it takes,
+    // so the bars are never squeezed out by it.
+    property real storedHeaderWidth: defaultHeaderWidth
+    readonly property real defaultHeaderWidth: 64
+    readonly property real headerWidth: Math.max(44, Math.min(320, arrangeScroll.width / 2,
+        headerSizer.sizing ? headerSizer.dragged : storedHeaderWidth))
+    // The edge was let go at a width; 0 asks for the width it ships with.
+    signal headerWidthPicked(real width)
+    onHeaderWidthChanged: Qt.callLater(root.keepScrollInside)
+    function keepScrollInside() {
+        arrangeScroll.contentX = Math.max(0, Math.min(arrangementRows.width - arrangeScroll.width,
+                                                      arrangeScroll.contentX))
+    }
+    // A click on a track's name gives the list the keyboard: M then mutes that
+    // track. The window takes it back at the next press anywhere, step moved or
+    // note typed, so M goes on being a note everywhere else.
+    property bool headerHasKeys: false
+    readonly property real fitRoom: Math.max(1, arrangeScroll.width - headerWidth - barGap
                                                 - Math.max(0, songModel.bars - 1) * barGap)
     readonly property real laneRoom:
         Math.max(fitRoom, songModel.bars * minimumBarWidth) * zoom
@@ -43,15 +62,15 @@ ColumnLayout {
     function barX(bar) {
         var entry = root.layout[bar]
         if (entry === undefined) return 0
-        return 64 + barGap + entry.x0 * laneRoom + bar * barGap
+        return headerWidth + barGap + entry.x0 * laneRoom + bar * barGap
     }
     // Scrolls just enough to show bar `bar`.
     function reveal(bar) {
         var left = barX(bar)
         var right = left + barWidth(bar)
-        var visibleLeft = arrangeScroll.contentX + 64 + barGap
+        var visibleLeft = arrangeScroll.contentX + headerWidth + barGap
         if (left < visibleLeft)
-            arrangeScroll.contentX = Math.max(0, left - 64 - barGap)
+            arrangeScroll.contentX = Math.max(0, left - headerWidth - barGap)
         else if (right > arrangeScroll.contentX + arrangeScroll.width)
             arrangeScroll.contentX = Math.min(arrangementRows.width - arrangeScroll.width,
                                               right - arrangeScroll.width)
@@ -119,7 +138,10 @@ ColumnLayout {
             onClicked: root.setZoom(root.zoom * 1.5) }
         // The hint gives way first: it elides before anything is pushed off.
         Label {
-            text: qsTr("click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes")
+            objectName: "arrangementHint"
+            text: root.headerHasKeys
+                  ? qsTr("M mutes this track  |  right-click for its menu  |  drag the list's edge to size it")
+                  : qsTr("click places on every stem  |  ctrl-click one stem  |  shift-click lengthens  |  alt-click moves  |  right-click removes")
             color: Theme.muted; font.pixelSize: 9
             Layout.fillWidth: true; Layout.minimumWidth: 0
             horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft
@@ -253,7 +275,7 @@ ColumnLayout {
         ColumnLayout {
             id: arrangementRows
             objectName: "arrangementRows"
-            width: 64 + root.barGap + root.laneRoom
+            width: root.headerWidth + root.barGap + root.laneRoom
                    + Math.max(0, songModel.bars - 1) * root.barGap
             height: arrangeScroll.height
             spacing: 2
@@ -265,7 +287,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 14
                 spacing: 2
-                Rectangle { Layout.preferredWidth: 64; Layout.preferredHeight: 14
+                Rectangle { Layout.preferredWidth: root.headerWidth; Layout.preferredHeight: 14
                     color: Theme.panel; z: 2
                     transform: Translate { x: arrangeScroll.contentX } }
                 Repeater {
@@ -342,7 +364,7 @@ ColumnLayout {
                 Layout.preferredHeight: 40
                 spacing: 2
                 Rectangle {
-                    Layout.preferredWidth: 64; Layout.preferredHeight: 40
+                    Layout.preferredWidth: root.headerWidth; Layout.preferredHeight: 40
                     // The lane names stay put while the bars scroll under them.
                     z: 2; transform: Translate { x: arrangeScroll.contentX }
                     radius: 3; color: Theme.panel; border.color: Theme.line
@@ -391,11 +413,13 @@ ColumnLayout {
                     spacing: 2
 
                     Rectangle {
-                        Layout.preferredWidth: 64; Layout.preferredHeight: 22
+                        Layout.preferredWidth: root.headerWidth; Layout.preferredHeight: 22
                         z: 2; transform: Translate { x: arrangeScroll.contentX }
                         radius: 3
                         color: track.selected ? Theme.raised : Theme.panel
                         border.color: track.selected ? Theme.acid : Theme.line
+                        // Thicker while M is this track's mute.
+                        border.width: track.selected && root.headerHasKeys ? 2 : 1
                         objectName: "trackHeader" + trackIndex
                         // The track's colour, down the header's leading edge.
                         Rectangle {
@@ -497,6 +521,8 @@ ColumnLayout {
                                 const index = trackIndex
                                 const name = track.name
                                 songModel.selectTrack(index)
+                                view.focusHome.forceActiveFocus()
+                                view.headerHasKeys = true
                                 if (mouse.button !== Qt.RightButton) return
                                 view.trackMenuRequested(index, name)
                             }
@@ -727,7 +753,7 @@ ColumnLayout {
                 spacing: 2
                 Rectangle {
                     objectName: "automationHeader"
-                    Layout.preferredWidth: 64; Layout.preferredHeight: 48
+                    Layout.preferredWidth: root.headerWidth; Layout.preferredHeight: 48
                     z: 2; transform: Translate { x: arrangeScroll.contentX }
                     radius: 3; color: Theme.panel; border.color: Theme.line
                     readonly property var lanes: songModel.automationLanes
@@ -771,7 +797,59 @@ ColumnLayout {
                 }
             }
         }
-        AudioClipLane { id: audioClipLane; anchors.fill: arrangementRows; rows: arrangementRows }
+        AudioClipLane {
+            id: audioClipLane
+            anchors.fill: arrangementRows
+            rows: arrangementRows
+            cellsX: root.headerWidth + root.barGap
+        }
+        }
+
+        // The names' column's right edge, over the gap before the bars so a
+        // press on a bar stays the bar's. It sits outside the scrolled content,
+        // where the column stays while the bars scroll under it.
+        MouseArea {
+            id: headerSizer
+            objectName: "trackListSizer"
+            x: arrangeScroll.x + root.headerWidth + root.barGap - width
+            y: arrangeScroll.y
+            z: 20
+            width: 6
+            height: arrangeScroll.height - (arrangeScroll.contentWidth > arrangeScroll.width + 1 ? 8 : 0)
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.SizeHorCursor
+            property bool sizing: false
+            property real dragged: 0
+            property real pressX: 0
+            property real pressWidth: 0
+            // Measured from the frame: this edge moves with what it sizes.
+            function pointerX(mouse) { return mapToItem(parent, mouse.x, 0).x }
+            onPressed: function(mouse) {
+                pressX = pointerX(mouse)
+                pressWidth = root.headerWidth
+                dragged = pressWidth
+                sizing = true
+            }
+            onPositionChanged: function(mouse) {
+                if (sizing) dragged = pressWidth + pointerX(mouse) - pressX
+            }
+            onReleased: {
+                const moved = dragged !== pressWidth
+                const width = Math.round(root.headerWidth)
+                sizing = false
+                if (moved) root.headerWidthPicked(width)
+            }
+            onCanceled: sizing = false
+            onDoubleClicked: root.headerWidthPicked(0)
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 2; height: parent.height
+                color: Theme.acid
+                opacity: headerSizer.sizing ? 0.8 : headerSizer.containsMouse ? 0.45 : 0
+            }
+            Accessible.role: Accessible.Separator
+            Accessible.name: "Size the track list"
         }
     }
 

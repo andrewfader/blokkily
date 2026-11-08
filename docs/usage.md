@@ -152,6 +152,9 @@ per bar. Patterns can have different lengths.
 | Ctrl-drag a clip | Copy it to where it is let go |
 | Click a clip, then Ctrl+C | Copy it; Ctrl+V pastes it at the playhead's bar on the selected track, as that track's part of the pattern |
 | Drag a track's name up or down | Move the track there (also Move up / Move down in its menu) |
+| Drag the right edge of the track names | Size the list, remembered; double-click the edge for its first width |
+| Click a track's name, then M | Mute or unmute it; M again brings it back. Any other note typed, step moved or click elsewhere makes M a note again |
+| Right-click a track's name | Its menu, with Mute first |
 | Click a bar number on the ruler | Locate the audio engine on that bar |
 
 Shift-click uses whole pattern repeats, so a clip may end beyond the clicked
@@ -885,6 +888,7 @@ or transport shortcuts.
 | Ctrl+1..0 | Toggle a step |
 | Ctrl+Shift+1..6 | Toggle a step in the second half of the bar |
 | Ctrl+M | Mute the selected track |
+| M | Straight after clicking a track's name on the arrangement, mute that track; otherwise a tracker note |
 | Ctrl+L | Solo the selected track |
 | Ctrl+R | Record: arm and play; again to disarm |
 | Ctrl+E | Bounce the arrangement to disk |
