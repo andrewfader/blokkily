@@ -9,6 +9,7 @@
 #include "verify/harness.hpp"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 
 #include <cmath>
 #include <functional>
@@ -27,6 +28,18 @@ void run_window_layout(VerifyContext& ctx) {
     };
     const auto layout = [&] { QCoreApplication::processEvents(); (void)window->grabWindow(); };
     const auto settle = [&](int ms) { VerifyContext::settle(ms); layout(); };
+    // Waiting for something that is to happen: up to `ms`, so a slow runner is not failed by a
+    // fixed pause (macOS arm64 missed a 450 ms reveal). What must stay, or must not happen, keeps
+    // its fixed pause.
+    const auto settle_until = [&](const std::function<bool()>& ready, int ms) {
+        QElapsedTimer clock;
+        clock.start();
+        // Only the event loop between looks: laying out again would move the pointer's item under
+        // it and restart the bar's resting timer.
+        while (!ready() && clock.elapsed() < ms) VerifyContext::settle(20);
+        layout();
+        return ready();
+    };
     const auto centre = [](QQuickItem* item) {
         return item ? QPointF(item->width() / 2, item->height() / 2) : QPointF();
     };
@@ -90,9 +103,11 @@ void run_window_layout(VerifyContext& ctx) {
 
     // ------------------------------------ resting on the edge brings it out
     hover(rail_strip);
-    settle(450);
-    check(flag(rail, "revealed") && rail_panel->isVisible());
-    check(VerifyContext::usable(rail_panel, 200, 600) && std::abs(scene_x(rail_panel)) < 0.5);
+    // Out, and done sliding in.
+    check(settle_until([&] {
+        return flag(rail, "revealed") && rail_panel->isVisible() && VerifyContext::usable(rail_panel, 200, 600) &&
+               std::abs(scene_x(rail_panel)) < 0.5;
+    }, 3000));
     check(VerifyContext::usable(ctx.named("instrumentPanel"), 180, 200));
     // Over the editors, not moving them.
     check(scene_x(editors) == editors_x && editors->width() == 1280 - 28);
@@ -113,8 +128,7 @@ void run_window_layout(VerifyContext& ctx) {
     ctx.reached("window layout: the left bar is out while pointed at and while its search is typed in");
     // Escape hands the keyboard back; with nothing to hold it, it goes.
     ctx.type_key(Qt::Key_Escape, QString());
-    settle(1000);
-    check(!flag(rail, "revealed") && !rail_panel->isVisible());
+    check(settle_until([&] { return !flag(rail, "revealed") && !rail_panel->isVisible(); }, 3000));
     // Passing over the strip on the way somewhere does not bring it out.
     hover(rail_strip);
     VerifyContext::settle(60);
@@ -125,27 +139,23 @@ void run_window_layout(VerifyContext& ctx) {
 
     // ------------------------------------------ keys and the tour bring them
     ctx.chord_key(Qt::Key_BracketRight, Qt::ControlModifier);
-    settle(900);
-    check(flag(mixer, "revealed") && VerifyContext::usable(mixer_panel, 200, 600));
-    check(std::abs(scene_x(mixer_panel) + mixer_panel->width() - 1280) < 0.5);
+    check(settle_until([&] {
+        return flag(mixer, "revealed") && VerifyContext::usable(mixer_panel, 200, 600) &&
+               std::abs(scene_x(mixer_panel) + mixer_panel->width() - 1280) < 0.5;
+    }, 3000));
     hover(mixer_panel);
     hover(editors);
-    settle(1000);
-    check(!flag(mixer, "revealed"));
+    check(settle_until([&] { return !flag(mixer, "revealed"); }, 3000));
     ctx.chord_key(Qt::Key_F, Qt::ControlModifier);
-    settle(300);
-    check(flag(rail, "revealed") && filter && filter->hasActiveFocus());
+    check(settle_until([&] { return flag(rail, "revealed") && filter && filter->hasActiveFocus(); }, 3000));
     ctx.type_key(Qt::Key_Escape, QString());
-    settle(1000);
-    check(!flag(rail, "revealed"));
+    check(settle_until([&] { return !flag(rail, "revealed"); }, 3000));
     auto* tutorial = ctx.named("tutorial");
     check(tutorial != nullptr);
     if (tutorial) QMetaObject::invokeMethod(tutorial, "start");
-    settle(400);
-    check(flag(rail, "revealed") && flag(mixer, "revealed"));
+    check(settle_until([&] { return flag(rail, "revealed") && flag(mixer, "revealed"); }, 3000));
     if (tutorial) QMetaObject::invokeMethod(tutorial, "finish");
-    settle(1100);
-    check(!flag(rail, "revealed") && !flag(mixer, "revealed"));
+    check(settle_until([&] { return !flag(rail, "revealed") && !flag(mixer, "revealed"); }, 3000));
     ctx.reached("window layout: Ctrl+], Ctrl+F and the tour bring the bars out");
 
     // ---------------------------- room docks the bars only when asked to
