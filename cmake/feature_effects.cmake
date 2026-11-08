@@ -56,6 +56,7 @@ if(BLOKKILY_BUILD_TESTS)
             bounce_trims_latency
             tempo_synced_delay
             transport_per_chunk
+            restore_failure_named
             graph_signature
             insert_adoption
             state_capture

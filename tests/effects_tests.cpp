@@ -593,6 +593,34 @@ void transport_per_chunk() {
             "each block's edit is in the ring, from track 0 slot 0, at its sample");
 }
 
+// An insert that keeps a state but refuses it back.
+class RefusingInsert final : public PluginInstance {
+public:
+    bool activate(double, std::uint32_t, std::uint32_t) override { return true; }
+    void process(StereoBlock, std::span<const PluginEvent>) noexcept override {}
+    std::vector<std::byte> save_state() override { return {std::byte{1}}; }
+    bool load_state(std::span<const std::byte>) override { return false; }
+    std::string format() const override { return "Refuser"; }
+    PluginPorts ports() const override { return {2, false}; }
+};
+
+// Scenario: An export names the processor that could not take its state back
+void restore_failure_named() {
+    auto song = song_of(2, 4800);
+    song.tracks[1].inserts = {insert(builtin("eq3"))}; // replaced by the refusing insert below
+    SongEngine engine;
+    engine.set_processor({BusKind::track, 1, 0}, std::make_unique<RefusingInsert>());
+    std::string prepared;
+    require(engine.prepare(song, rate, block, 0, &prepared), "prepares: " + prepared);
+    const auto file = std::filesystem::path(BLOKKILY_TEST_ARTIFACTS) / "effects-restore-failure.wav";
+    std::filesystem::create_directories(file.parent_path());
+    std::string error;
+    require(!bounce_song(engine, file, WaveFormat::float32, 0, &error).has_value(),
+            "the export reports the state it could not put back");
+    require(error.find("Refuser") != std::string::npos && error.find("track 2's insert 1") != std::string::npos,
+            "the error names the processor and where it sits: " + error);
+}
+
 // Scenario: Inserts and returns are part of the graph; mixer moves are not
 void graph_signature_rules() {
     auto song = song_of(1);
@@ -782,6 +810,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"master_limiter", master_limiter},
     {"tempo_synced_delay", tempo_synced_delay},
     {"transport_per_chunk", transport_per_chunk},
+    {"restore_failure_named", restore_failure_named},
     {"graph_signature", graph_signature_rules},
     {"insert_adoption", insert_adoption},
     {"state_capture", state_capture},

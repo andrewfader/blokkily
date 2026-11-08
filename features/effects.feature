@@ -97,6 +97,12 @@ Feature: Effects process tracks, returns and the master, in time with one anothe
     And the stopped block says the song is stopped
     And an edit the insert reports is stamped with its own address and sample
 
+  # effects_restore_failure_named
+  Scenario: An export names the processor that could not take its state back
+    Given an insert on the second track that keeps a state but refuses it back
+    When the song is exported
+    Then the export fails, and its error names the insert and that it sits in track 2's insert 1
+
   # effects_graph_signature
   Scenario: Inserts and returns are part of the graph; mixer moves are not
     Given a song with inserts on a track, a return and the master

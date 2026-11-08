@@ -71,10 +71,15 @@ bool render(SongEngine& engine, std::vector<Target>& targets, WaveFormat format,
     // Timeline locks and automation change plugin parameters while rendering.
     // Keep the producer's state so an export cannot change the next playback
     // or the next export. State streams run with the device stopped.
-    std::vector<std::pair<PluginInstance*, std::vector<std::byte>>> states;
+    struct Kept {
+        ProcessorAddress where;
+        PluginInstance* instance;
+        std::vector<std::byte> state;
+    };
+    std::vector<Kept> states;
     for (const auto where : engine.processor_addresses())
         if (auto* instance = engine.processor(where))
-            states.emplace_back(instance, instance->save_state());
+            states.push_back({where, instance, instance->save_state()});
     const auto previous_tap = engine.bounce_tap();
     engine.set_bounce_tap(std::nullopt);
     engine.set_stem_taps(taps);
@@ -210,9 +215,22 @@ bool render(SongEngine& engine, std::vector<Target>& targets, WaveFormat format,
     // The export's own tail is not left ringing into the session: playback
     // resumes from silence at the place, and in the state, it was left in.
     engine.reset_processing();
-    bool restored = true;
-    for (auto& [instance, state] : states)
-        if (!state.empty()) restored = instance->load_state(state) && restored;
+    // Which processor refused its own state, named, so a failure says where
+    // to look instead of only that something somewhere failed.
+    std::string unrestored;
+    for (auto& kept : states)
+        if (!kept.state.empty() && !kept.instance->load_state(kept.state)) {
+            const auto portable = kept.instance->portable_state();
+            const auto name = portable && !portable->device_name.empty() ? portable->device_name
+                                                                         : kept.instance->format();
+            const auto bus = kept.where.kind == BusKind::master ? std::string("the master")
+                             : (kept.where.kind == BusKind::track ? "track " : "return ") +
+                                   std::to_string(kept.where.bus + 1);
+            const auto place = kept.where.instrument()
+                                   ? bus + "'s instrument"
+                                   : bus + "'s insert " + std::to_string(kept.where.slot + 1);
+            unrestored += (unrestored.empty() ? "" : ", ") + name + " (" + place + ")";
+        }
     engine.set_stem_taps({});
     engine.set_bounce_tap(previous_tap);
     engine.set_blocking_disk_reads(was_blocking);
@@ -232,7 +250,7 @@ bool render(SongEngine& engine, std::vector<Target>& targets, WaveFormat format,
         }
         return fail(cancelled ? std::string("cancelled") : writer_error);
     }
-    if (!restored) return fail("a processor could not restore its state after export");
+    if (!unrestored.empty()) return fail(unrestored + " could not restore its state after export");
     for (auto& target : targets) target.report.clipped = target.report.peak > 1.0F;
     return true;
 }
