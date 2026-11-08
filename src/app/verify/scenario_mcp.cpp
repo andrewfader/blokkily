@@ -413,10 +413,14 @@ void run_mcp(VerifyContext& ctx) {
             if (entry.toObject().value("name").toString() == "Level") return entry.toObject().value("value");
         return QJsonValue{};
     };
+    // Read back at once, before the engine has rendered the lane's value into
+    // the processor: an idle window used to report the processor's old value.
+    check(level_now().isDouble() && level_now().toDouble() == 0.0);
     const float set_to_zero = play_bar();
     check(set_to_zero == 0.0F);
     check(level_now().isDouble() && level_now().toDouble() == 0.0);
     check(!isError(agent.tool("set_parameter", {{"track", 0}, {"parameter", 0}, {"value", 0.25}})));
+    check(level_now().isDouble() && std::abs(level_now().toDouble() - 0.25) < 1e-6);
     const float set_up = play_bar();
     check(set_up > 0.001F);
     check(level_now().isDouble() && std::abs(level_now().toDouble() - 0.25) < 1e-6);

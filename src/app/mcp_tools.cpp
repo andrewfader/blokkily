@@ -655,8 +655,26 @@ QJsonObject McpTools::listParameters(const QJsonObject& arguments) const {
     if (rows.isEmpty())
         return failure(slot < 0 ? QStringLiteral("%1's instrument has no parameters to set (or none is loaded).").arg(busName(bus))
                                 : QStringLiteral("%1 has no effect in slot %2 with parameters.").arg(busName(bus)).arg(slot));
+    // A parameter set_parameter has set holds one value for the whole song in
+    // its lane. The processor only takes it when the engine next renders, so
+    // until then it still reports its old value: report the lane's instead.
+    const blokkily::ProcessorAddress where{bus.address_kind, static_cast<std::uint32_t>(bus.bus), slot};
+    const auto held_value = [&](int id) -> std::optional<double> {
+        for (int track = 0; track < song_.trackCount(); ++track) {
+            if (bus.kind == "track" && track != bus.bus) continue;
+            for (const auto& lane : song_.song().tracks.at(static_cast<std::size_t>(track)).automation)
+                if (lane.target.kind == blokkily::AutomationTarget::Kind::parameter && lane.target.processor == where &&
+                    lane.target.parameter_index == id && lane.points.size() == 1)
+                    return lane.points.front().value;
+        }
+        return std::nullopt;
+    };
     QJsonArray parameters;
-    for (const auto& row : rows) parameters.append(QJsonObject::fromVariantMap(row.toMap()));
+    for (const auto& row : rows) {
+        auto parameter = QJsonObject::fromVariantMap(row.toMap());
+        if (const auto held = held_value(parameter.value("id").toInt())) parameter.insert("value", *held);
+        parameters.append(parameter);
+    }
     QJsonObject result{{"slot", slot}, {"parameters", parameters}};
     nameBus(result, bus);
     return jsonResult(result);

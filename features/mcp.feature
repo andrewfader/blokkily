@@ -56,7 +56,7 @@ Feature: An agent drives Blokkily over MCP
     Then it reads Level with its range
     When it sets "level" to 0 with set_parameter
     Then the song renders silent, and set to 0.25 it is heard again
-    And list_parameters reads Level's value as 0, then as 0.25
+    And list_parameters reads Level's value as 0, then as 0.25, each at once, before the song has played
     And a value out of range, or a parameter that does not exist, is refused
 
   Scenario: The agent locks a parameter on one step, by its address
