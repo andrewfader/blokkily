@@ -395,6 +395,31 @@ void compensated() {
     std::filesystem::remove_all(folder);
 }
 
+// Scenario: An offline render keeps every isolated plugin busy at once
+void concurrent() {
+    const ScopedSandboxWait waits;
+    auto there = isolated(faulty_slot());
+    require(there->activate(rate, 1, block), "activates");
+    // Key 126 hangs the helper on the block it is handed. Offline, that
+    // block's sound is not due until a period later, so handing it over does
+    // not wait: the engine goes on to the next track's plugin meanwhile.
+    std::vector<float> left(block), right(block);
+    const PluginEvent hang_key{PluginEvent::Type::note_on, 0, 126, 0.8};
+    const auto started = std::chrono::steady_clock::now();
+    there->process({left, right}, std::span{&hang_key, 1});
+    require(std::chrono::steady_clock::now() - started < 1s, "handing a block over does not wait for it");
+    require(!there->failed(), "and the helper is not yet late");
+    // When its sound is due the render waits for it, as for a punctual
+    // helper, and a helper that never answers is stopped.
+    std::vector<float> heard;
+    for (int index = 0; index < 64 && !there->failed(); ++index) {
+        there->process({left, right}, {});
+        heard.insert(heard.end(), left.begin(), left.end());
+    }
+    require(there->failed(), "the block is waited for when it is due, and a hung helper is stopped");
+    require(probe::peak(heard) == 0.0F, "what it never made is heard as silence");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -413,6 +438,7 @@ int main(int argc, char** argv) {
         else if (which == "effect") effect();
         else if (which == "macro") macro();
         else if (which == "period") period();
+        else if (which == "concurrent") concurrent();
         else throw std::runtime_error("unknown case");
         std::cout << "PASS " << which << '\n';
     } catch (const std::exception& e) {

@@ -52,7 +52,7 @@ if(BLOKKILY_BUILD_TESTS)
             $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
         add_dependencies(blokkily_plugin_isolation_tests blokkily_plugin_host
             blokkily_test_clap blokkily_faulty_clap blokkily_test_clap_effect blokkily_test_vst3_VST3)
-        foreach(isolation_case clap vst3 state crash hang refused compensated editor effect macro period)
+        foreach(isolation_case clap vst3 state crash hang refused compensated editor effect macro period concurrent)
             add_test(NAME plugin_isolation_${isolation_case}
                 COMMAND blokkily_plugin_isolation_tests ${isolation_case})
             set_tests_properties(plugin_isolation_${isolation_case} PROPERTIES

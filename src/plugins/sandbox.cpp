@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <mutex>
 #include <thread>
 
@@ -310,7 +311,16 @@ public:
             silence(audio, frames);
             return;
         }
-        collect();
+        // Offline, what is collected and when depends only on the blocks, not
+        // on how fast the helper ran, so a render's edits land alike every time.
+        const bool offline = sandbox_waits();
+        if (!offline) {
+            collect();
+        } else {
+            // Every slot of the ring in flight: the oldest must finish first.
+            while (shared_->posted.load(std::memory_order_relaxed) - collected_ >= sandbox::ring)
+                if (!wait_for(collected_ + 1)) break;
+        }
         // A region of the output for this block, silent until the helper fills it.
         clear_fifo(write_, frames);
         const auto posted = shared_->posted.load(std::memory_order_relaxed);
@@ -336,19 +346,17 @@ public:
             late_.fetch_add(1, std::memory_order_relaxed);
         }
         write_ += frames;
-        if (sandbox_waits()) {
-            // Offline: every block handed over is waited for, so the render
-            // hears what a punctual helper would have made.
-            const auto wanted = shared_->posted.load(std::memory_order_relaxed);
-            const auto deadline = std::chrono::steady_clock::now() + offline_deadline;
-            while (shared_->done.load(std::memory_order_acquire) < wanted) {
-                if (std::chrono::steady_clock::now() > deadline) {
-                    failed_.store(true, std::memory_order_release);
-                    break;
-                }
-                std::this_thread::sleep_for(20us);
-            }
-            collect();
+        if (offline) {
+            // Offline, the render hears what a punctual helper would have made:
+            // every block this read takes from is waited for. The output runs
+            // delay_ (at least a whole block) behind, so that is never the
+            // block just handed over; it is left to the helper while the
+            // engine goes on to the other tracks, and every sandboxed plug-in
+            // of a song renders at once instead of one after another.
+            const auto posted_now = shared_->posted.load(std::memory_order_relaxed);
+            auto wanted = collected_;
+            while (wanted < posted_now && job_at_[wanted % sandbox::ring] < read_ + frames) ++wanted;
+            (void)wait_for(wanted);
         }
         read_fifo(audio, frames);
         sidechain_ = {};
@@ -608,9 +616,26 @@ private:
         std::fill_n(audio.right.begin(), frames, 0.0F);
     }
 
-    // Moves what the helper has finished into the output it is waiting in.
-    void collect() noexcept {
-        const auto done = shared_->done.load(std::memory_order_acquire);
+    // Offline: waits until the helper has finished jobs up to (not
+    // including) `upto`, then collects exactly those. A helper that misses
+    // the deadline is failed and the rest of the render is silent.
+    bool wait_for(std::uint64_t upto) noexcept {
+        const auto deadline = std::chrono::steady_clock::now() + offline_deadline;
+        while (shared_->done.load(std::memory_order_acquire) < upto) {
+            if (failed_.load(std::memory_order_acquire) || std::chrono::steady_clock::now() > deadline) {
+                failed_.store(true, std::memory_order_release);
+                return false;
+            }
+            std::this_thread::sleep_for(20us);
+        }
+        collect(upto);
+        return true;
+    }
+
+    // Moves what the helper has finished (up to job `upto`) into the output
+    // it is waiting in.
+    void collect(std::uint64_t upto = std::numeric_limits<std::uint64_t>::max()) noexcept {
+        const auto done = std::min<std::uint64_t>(shared_->done.load(std::memory_order_acquire), upto);
         while (collected_ < done) {
             const auto slot = collected_ % sandbox::ring;
             const Job& job = shared_->jobs[slot];

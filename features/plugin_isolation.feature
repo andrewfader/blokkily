@@ -7,7 +7,9 @@ Feature: Each plugin in a process of its own
   Audio crosses in shared memory one device period behind, so the audio
   thread never waits on another process; that period is reported as the
   plugin's latency and compensated like any other. An offline render waits
-  for the helper, so a bounce is exactly what a punctual helper plays. On by
+  for the helper, so a bounce is exactly what a punctual helper plays, but
+  only when a block's sound is due: every isolated plugin of a song renders at
+  once, each in its own process. On by
   default where the platform supports it (Linux); SETTINGS ·
   PLUGINS · ISOLATE turns it off.
 
@@ -18,6 +20,13 @@ Feature: Each plugin in a process of its own
   # plugin_isolation_period
   Scenario: Behind a device that asks for long periods, a whole period behind
     Then with a 2048-frame period the plugin reports 2048 more latency and plays a period later, sample for sample
+
+  # plugin_isolation_concurrent
+  Scenario: An offline render keeps every isolated plugin busy at once
+    Given an offline render of an isolated plugin
+    When the engine hands it a block that hangs its helper
+    Then the call returns at once, the helper not yet late, so the engine goes on to the other tracks
+    And when that block's sound is due the render waits for it, stops the hung helper, and hears silence
 
   # plugin_isolation_effect, plugin_isolation_macro
   Scenario: Parameters and modulation reach an isolated plugin in time
