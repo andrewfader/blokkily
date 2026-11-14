@@ -148,6 +148,11 @@ the file back and reports what an engineer would read off meters:
   3 s and where that 3 s starts, and the loudness range (EBU Tech 3342)
 - sample peak, true peak (4x oversampled), RMS, crest factor and clipped samples
 - left/right correlation and the spectral centroid
+- the tuning of the pitched sound: `tuningCents` (-50 to +50) is where the
+  spectral peaks between 70 Hz and 1.5 kHz sit against A440 equal temperament,
+  and `tuningConfidence` (0 to 1) how well they agree. Measure one track at a
+  time: a part that reads +8 with a confidence near 1 wants its fine tune at -8;
+  drums and noise read a low confidence and their tuning means nothing
 - each band's level and share of the energy: `sub` 20-60 Hz, `bass` 60-250,
   `lowMid` 250-500, `mid` 500-2k, `highMid` 2-4k, `presence` 4-6k, `air` 6-20k
 

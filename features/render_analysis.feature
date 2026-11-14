@@ -49,3 +49,9 @@ Feature: Measuring a render the way an engineer listens to it
     When each is measured
     Then the correlation reads +1, then -1
     And silence, or nothing at all, has no loudness, level, correlation or centroid
+
+  Scenario: A tuner's reading of the pitched sound (analysis_tuning)
+    Given a harmonic tone 12 cents sharp of A3, and a C major triad of pure sines 20 cents flat, at 48 and 44.1 kHz
+    When each is measured
+    Then the tuning reads +12 and -20 cents within 1 cent, with the peaks agreeing (confidence over 0.95)
+    And white noise reads a confidence under 0.3, and silence has no tuning

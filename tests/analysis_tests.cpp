@@ -184,6 +184,44 @@ void stereo_image_and_silence() {
     require(nothing.seconds == 0.0 && std::isinf(nothing.integrated_lufs), "an empty render");
 }
 
+// A tuner's reading: a harmonic tone 12 cents sharp of A3 reads +12, a chord
+// of pure sines 20 cents flat reads -20, both with their peaks agreeing;
+// noise has no agreed tuning and silence none at all.
+void tuning_reads_the_offset() {
+    for (const double rate : {48000.0, 44100.0}) {
+        const auto frames = static_cast<std::size_t>(rate * 3.0);
+        std::vector<float> tone(frames * 2, 0.0F), chord(frames * 2, 0.0F);
+        const double a3 = 220.0 * std::pow(2.0, 12.0 / 1200.0);
+        const double flat = std::pow(2.0, -20.0 / 1200.0);
+        for (std::size_t frame = 0; frame < frames; ++frame) {
+            const double t = static_cast<double>(frame) / rate;
+            double harmonic = 0.0;
+            for (int k = 1; k <= 4; k *= 2) harmonic += 0.3 / k * std::sin(2.0 * std::numbers::pi * a3 * k * t);
+            tone[frame * 2] = tone[frame * 2 + 1] = static_cast<float>(harmonic);
+            double triad = 0.0;
+            for (const int key : {60, 64, 67})
+                triad += 0.2 * std::sin(2.0 * std::numbers::pi * 440.0 * std::pow(2.0, (key - 69) / 12.0) * flat * t);
+            chord[frame * 2] = chord[frame * 2 + 1] = static_cast<float>(triad);
+        }
+        const auto sharp = analyze_audio(tone, 2, rate);
+        near(sharp.tuning_cents, 12.0, 1.0, "a harmonic A3 12 cents sharp");
+        require(sharp.tuning_confidence > 0.95, "the tone's peaks agree");
+        const auto low = analyze_audio(chord, 2, rate);
+        near(low.tuning_cents, -20.0, 1.0, "a C major triad 20 cents flat");
+        require(low.tuning_confidence > 0.95, "the chord's peaks agree");
+    }
+    const double rate = 48000.0;
+    std::vector<float> noise(static_cast<std::size_t>(rate * 3.0) * 2);
+    std::uint32_t state = 1;
+    for (auto& sample : noise) {
+        state = state * 1664525U + 1013904223U;
+        sample = static_cast<float>((static_cast<double>(state >> 8) / 16777216.0 - 0.5) * 0.5);
+    }
+    require(analyze_audio(noise, 2, rate).tuning_confidence < 0.3, "noise has no agreed tuning");
+    const std::vector<float> silence(static_cast<std::size_t>(rate) * 4, 0.0F);
+    require(std::isnan(analyze_audio(silence, 2, rate).tuning_cents), "silence has no tuning");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -194,6 +232,7 @@ int main(int argc, char** argv) {
         {"true_peak", true_peak_finds_the_crest_between_samples},
         {"bands", energy_sits_in_its_band},
         {"stereo_and_silence", stereo_image_and_silence},
+        {"tuning", tuning_reads_the_offset},
     };
     if (argc != 2 || !cases.contains(argv[1])) {
         std::cerr << "usage: blokkily_analysis_tests <case>\n";

@@ -48,6 +48,15 @@ struct AudioAnalysis {
     double correlation = 0.0;  // left against right, -1 to 1; NaN for mono or silence
     double spectral_centroid_hz = 0.0;
     std::vector<BandEnergy> bands;
+
+    // Where the pitched sound sits against A440 equal temperament, -50 to +50
+    // cents: the magnitude-weighted circular mean of every spectral peak
+    // between 70 Hz and 1.5 kHz, as a tuner hears a held chord. A part that
+    // reads +8 wants its instrument's fine tune at -8. NaN with no peaks.
+    double tuning_cents = 0.0;
+    // How well those peaks agree, 0 to 1: near 1 for in-tune pitched parts,
+    // low for drums and noise, whose tuning reading means nothing.
+    double tuning_confidence = 0.0;
 };
 
 // Measures interleaved audio of `channels` channels (1 or 2 are weighted as

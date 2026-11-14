@@ -212,6 +212,77 @@ std::vector<double> power_spectrum(std::span<const float> interleaved, std::size
     return spectrum;
 }
 
+// The tuning of the pitched sound, as tune.py-style tuners take it: fine
+// spectra (about 1.5 Hz a bin) of the channels' mean, every local peak
+// between 70 Hz and 1.5 kHz louder than a tenth of its frame's loudest,
+// placed between bins by a parabola through the log magnitudes, its offset
+// from the nearest A440 semitone taken as an angle, and the angles averaged
+// weighted by magnitude. At most 48 frames, spread over the render, are
+// read, so a long song costs about what a short one does.
+void measure_tuning(std::span<const float> interleaved, std::size_t channels, double sample_rate,
+                    AudioAnalysis& result) {
+    result.tuning_cents = not_a_number;
+    result.tuning_confidence = 0.0;
+    std::size_t size = 4096;
+    while (size < sample_rate / 1.5) size *= 2;
+    const std::size_t frames = interleaved.size() / channels;
+    if (frames == 0) return;
+    std::vector<double> window(size), cos_table(size / 2), sin_table(size / 2), re(size), im(size);
+    for (std::size_t i = 0; i < size; ++i)
+        window[i] = 0.5 - 0.5 * std::cos(2.0 * std::numbers::pi * static_cast<double>(i) / static_cast<double>(size));
+    for (std::size_t k = 0; k < size / 2; ++k) {
+        const double angle = -2.0 * std::numbers::pi * static_cast<double>(k) / static_cast<double>(size);
+        cos_table[k] = std::cos(angle);
+        sin_table[k] = std::sin(angle);
+    }
+    const double bin_hz = sample_rate / static_cast<double>(size);
+    const auto low = static_cast<std::size_t>(std::ceil(70.0 / bin_hz));
+    const auto high = std::min(size / 2 - 1, static_cast<std::size_t>(1500.0 / bin_hz));
+    constexpr std::size_t most_frames = 48;
+    const std::size_t span = frames > size ? frames - size : 0;
+    const std::size_t count = std::min(most_frames, span / (size / 2) + 1);
+    double sum_x = 0.0, sum_y = 0.0, sum_weight = 0.0;
+    std::vector<double> magnitude(high + 2, 0.0);
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::size_t start = count > 1 ? span * index / (count - 1) : 0;
+        for (std::size_t i = 0; i < size; ++i) {
+            const std::size_t frame = start + i;
+            double sample = 0.0;
+            if (frame < frames)
+                for (std::size_t channel = 0; channel < channels; ++channel)
+                    sample += interleaved[frame * channels + channel];
+            re[i] = sample / static_cast<double>(channels) * window[i];
+            im[i] = 0.0;
+        }
+        fft(re.data(), im.data(), size, cos_table.data(), sin_table.data());
+        double loudest = 0.0;
+        for (std::size_t k = low - 1; k <= high + 1; ++k) {
+            magnitude[k] = std::sqrt(re[k] * re[k] + im[k] * im[k]);
+            if (k >= low && k <= high) loudest = std::max(loudest, magnitude[k]);
+        }
+        // Silence and dither carry no pitch.
+        if (loudest < 1e-4 * static_cast<double>(size) / 4.0) continue;
+        for (std::size_t k = low; k <= high; ++k) {
+            const double here = magnitude[k];
+            if (here < 0.1 * loudest || here <= magnitude[k - 1] || here <= magnitude[k + 1]) continue;
+            const double a = std::log(magnitude[k - 1] + 1e-12);
+            const double b = std::log(here + 1e-12);
+            const double c = std::log(magnitude[k + 1] + 1e-12);
+            const double bend = a - 2.0 * b + c;
+            const double shift = bend != 0.0 ? 0.5 * (a - c) / bend : 0.0;
+            const double hz = (static_cast<double>(k) + shift) * bin_hz;
+            const double cents = 1200.0 * std::log2(hz / 440.0);
+            const double angle = cents / 100.0 * 2.0 * std::numbers::pi;
+            sum_x += here * std::cos(angle);
+            sum_y += here * std::sin(angle);
+            sum_weight += here;
+        }
+    }
+    if (sum_weight <= 0.0) return;
+    result.tuning_cents = std::atan2(sum_y, sum_x) / (2.0 * std::numbers::pi) * 100.0;
+    result.tuning_confidence = std::hypot(sum_x, sum_y) / sum_weight;
+}
+
 struct BandEdges {
     const char* name;
     double low;
@@ -263,7 +334,9 @@ AudioAnalysis analyze_audio(std::span<const float> interleaved, std::uint16_t ch
     result.sample_peak_dbfs = result.true_peak_dbtp = result.rms_dbfs = minus_infinity;
     result.crest_db = result.correlation = not_a_number;
     result.spectral_centroid_hz = not_a_number;
+    result.tuning_cents = not_a_number;
     if (frames == 0 || sample_rate <= 0.0) return result;
+    measure_tuning(interleaved, channels, sample_rate, result);
 
     // Levels of the samples themselves.
     double peak = 0.0;

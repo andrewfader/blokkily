@@ -13,7 +13,7 @@ if(BLOKKILY_BUILD_TESTS)
     target_link_libraries(blokkily_analysis_tests PRIVATE blokkily_core)
     target_compile_options(blokkily_analysis_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    foreach(analysis_case loudness gating loudness_range true_peak bands stereo_and_silence)
+    foreach(analysis_case loudness gating loudness_range true_peak bands stereo_and_silence tuning)
         add_test(NAME analysis_${analysis_case} COMMAND blokkily_analysis_tests ${analysis_case})
         set_tests_properties(analysis_${analysis_case} PROPERTIES
             LABELS "unit;bdd;audio;render_analysis" TIMEOUT 120)

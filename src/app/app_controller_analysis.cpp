@@ -45,6 +45,8 @@ QVariantMap describe(const blokkily::AudioAnalysis& analysis) {
             {"clippedSamples", static_cast<qulonglong>(analysis.clipped_samples)},
             {"correlation", level(analysis.correlation, 1000.0)},
             {"spectralCentroidHz", level(analysis.spectral_centroid_hz, 1.0)},
+            {"tuningCents", level(analysis.tuning_cents, 10.0)},
+            {"tuningConfidence", level(analysis.tuning_confidence, 100.0)},
             {"bands", bands}};
 }
 

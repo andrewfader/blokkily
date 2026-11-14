@@ -81,6 +81,7 @@ Feature: An agent drives Blokkily over MCP
     And the render runs the song's length plus the export's half second of tail
     When it calls analyze_render for track 0
     Then the low-mid band holds most of that track's energy and the centroid sits near its notes
+    And a tuner's reading of that track is within 2 cents of A440, its peaks agreeing
     When it exports the song and calls analyze_render with that file
     Then the file measures as the render did, because both came from the one engine
     When it lowers track 0's fader by 6 dB and measures the track again

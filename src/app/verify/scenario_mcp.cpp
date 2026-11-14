@@ -575,6 +575,9 @@ void run_mcp(VerifyContext& ctx) {
     check(lead_low_mid > 0.8);
     check(lead.value("spectralCentroidHz").toDouble() > 200.0 &&
           lead.value("spectralCentroidHz").toDouble() < 700.0);
+    // The fixture's sines sit on equal-tempered C4 and G4: a tuner reads them in tune.
+    check(std::abs(lead.value("tuningCents").toDouble(99.0)) < 2.0 &&
+          lead.value("tuningConfidence").toDouble() > 0.9);
     // A file the agent exported reads as the render it measured: one engine.
     const QTemporaryDir exports;
     const QString exported = exports.filePath("measured.wav");
