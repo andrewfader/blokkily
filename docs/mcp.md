@@ -112,7 +112,10 @@ section with a track per staff - and `appController.exportMusicXmlFile(path)`
 or one track's - to an absolute `.musicxml` or `.xml` path, refusing to replace
 a file unless `overwrite` is given. It reads the file back and compares what
 it plays with each part; `matches` is false where a part holds what notation
-cannot say, such as timing off the 128th-note grid. `import_musicxml` reads a
+cannot say, such as timing off the 128th-note grid, and that part then carries
+`differences`: how many notes differ in each field (`step`, `key`, `length`,
+`cents`, `velocity`) and the first few, each with the part's value and the
+value read back, in steps. `import_musicxml` reads a
 MusicXML partwise score (`xml` or `path`) into a pattern as one step of undo:
 part *i* lands on track *i* from `track`, every staff of it at its sounding
 pitch, and the part takes the score's clef, key and meter. With `replace` each

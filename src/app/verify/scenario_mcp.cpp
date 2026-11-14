@@ -1054,6 +1054,23 @@ void run_mcp(VerifyContext& ctx) {
                               {{"section", 0}, {"track", 0}, {"path", score_file}, {"overwrite", true}})));
     check(isError(agent.tool("export_musicxml", {{"section", 0}, {"path", "relative.musicxml"}})));
     check(isError(agent.tool("export_musicxml", {{"section", 0}, {"path", exports.filePath("score.wav")}})));
+    // A length notation cannot say (1.76 steps is off the 128th-note grid)
+    // reads back rounded: the export says which note and field moved.
+    check(!isError(agent.tool("write_notes", {{"track", 0}, {"section", 0}, {"replace", true},
+                                              {"notes", QJsonArray{QJsonObject{{"step", 0}, {"key", 60}, {"length", 1.76}},
+                                                                   QJsonObject{{"step", 4}, {"key", 62}, {"length", 2}}}}})));
+    const auto rounded = agent.tool("export_musicxml", {{"section", 0}, {"track", 0}, {"overwrite", true},
+                                                        {"path", exports.filePath("mcp-rounded.musicxml")}})
+                             .value("structuredContent").toObject();
+    const auto rounded_part = rounded.value("parts").toArray().at(0).toObject();
+    const auto differences = rounded_part.value("differences").toObject();
+    const auto first_difference = differences.value("first").toArray().at(0).toObject();
+    check(!rounded.value("matches").toBool() && rounded_part.value("readBackNotes").toInt() == 2);
+    check(differences.value("differingNotes").toObject() == QJsonObject{{"length", 1}});
+    check(first_difference.value("field").toString() == "length" && first_difference.value("key").toInt() == 60 &&
+          first_difference.value("step").toDouble() == 0.0 &&
+          std::abs(first_difference.value("part").toDouble() - 1.76) < 0.01 &&
+          first_difference.value("readBack").toDouble() != first_difference.value("part").toDouble());
     // Back to treble, C major and the song's meter, so the import can be
     // seen to bring the file's own.
     check(!isError(agent.tool("set_clef", {{"track", 0}, {"section", 0}, {"clef", "Treble"}})));

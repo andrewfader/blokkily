@@ -320,7 +320,9 @@ QJsonArray toolDefinitions() {
              "Writes a pattern as a MusicXML 4.0 partwise file: one part per track that "
              "has a part of it (or one track's with track). The file is read back and "
              "what it plays is compared with each part: matches is false when a part "
-             "holds what notation cannot say, such as timing off the 128th-note grid.",
+             "holds what notation cannot say, such as timing off the 128th-note grid; that "
+             "part's differences then count the notes differing in each field and list "
+             "the first few with the part's value and the value read back.",
              schema({{"section", section},
                      {"track", track},
                      {"path",

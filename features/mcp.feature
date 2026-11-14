@@ -189,6 +189,8 @@ Feature: An agent drives Blokkily over MCP
     When the agent exports the part to a MusicXML file
     Then the file is read back from disk and plays the part's three notes as the part does
     And exporting over it again is refused unless overwrite is given, as are a relative path and a .wav name
+    When the agent exports a part holding a C4 1.76 steps long, a length off the 128th-note grid
+    Then the export does not match, and names the C4 on step 0 and its length as the one difference
     When the agent clears the part, sets it back to treble in C, and imports the file with replace
     Then get_pattern reads the C4 and the dyad at their steps and lengths again
     And the part takes the file's bass clef, two flats and 3/4

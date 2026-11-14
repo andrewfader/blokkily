@@ -1038,6 +1038,52 @@ std::vector<Played> played(const blokkily::Pattern& pattern) {
     return notes;
 }
 
+// Where a part and what its MusicXML plays back part company: how many
+// notes differ in each field, and the first few of them, in steps, so an
+// agent can see what notation could not say (most often a length off the
+// 128th-note grid) instead of only a false "matches".
+QJsonObject playedDifferences(const std::vector<Played>& part, const std::vector<Played>& heard, double step) {
+    static const char* const fields[] = {"step", "key", "length", "cents", "velocity"};
+    auto value = [step](const Played& note, int field) -> QJsonValue {
+        switch (field) {
+        case 0: return static_cast<double>(std::get<0>(note)) / step;
+        case 1: return std::get<1>(note);
+        case 2: return static_cast<double>(std::get<2>(note)) / step;
+        case 3: return static_cast<double>(std::get<3>(note)) / 1000.0;
+        default: return static_cast<double>(std::get<4>(note)) / 1000.0;
+        }
+    };
+    auto differs = [](const Played& a, const Played& b, int field) {
+        switch (field) {
+        case 0: return std::get<0>(a) != std::get<0>(b);
+        case 1: return std::get<1>(a) != std::get<1>(b);
+        case 2: return std::get<2>(a) != std::get<2>(b);
+        case 3: return std::get<3>(a) != std::get<3>(b);
+        default: return std::get<4>(a) != std::get<4>(b);
+        }
+    };
+    QJsonObject counts;
+    QJsonArray first;
+    const std::size_t paired = std::min(part.size(), heard.size());
+    for (std::size_t i = 0; i < paired; ++i) {
+        for (int field = 0; field < 5; ++field) {
+            if (!differs(part[i], heard[i], field)) continue;
+            counts[fields[field]] = counts.value(fields[field]).toInt() + 1;
+            if (first.size() < 5)
+                first.append(QJsonObject{{"note", static_cast<int>(i)},
+                                         {"step", value(part[i], 0)},
+                                         {"key", std::get<1>(part[i])},
+                                         {"field", fields[field]},
+                                         {"part", value(part[i], field)},
+                                         {"readBack", value(heard[i], field)}});
+        }
+    }
+    QJsonObject out{{"differingNotes", counts}, {"first", first}};
+    if (part.size() != heard.size())
+        out["missingOrExtra"] = static_cast<int>(heard.size()) - static_cast<int>(part.size());
+    return out;
+}
+
 } // namespace
 
 QJsonObject McpTools::setClef(const QJsonObject& arguments) {
@@ -1191,10 +1237,14 @@ QJsonObject McpTools::exportMusicXml(const QJsonObject& arguments) {
             const bool matches = heard == original;
             all_match = all_match && matches;
             notes += static_cast<int>(original.size());
-            parts.append(QJsonObject{{"track", tracks[p]},
-                                     {"notes", static_cast<int>(original.size())},
-                                     {"readBackNotes", static_cast<int>(heard.size())},
-                                     {"matches", matches}});
+            QJsonObject part{{"track", tracks[p]},
+                             {"notes", static_cast<int>(original.size())},
+                             {"readBackNotes", static_cast<int>(heard.size())},
+                             {"matches", matches}};
+            if (!matches)
+                part["differences"] =
+                    playedDifferences(original, heard, static_cast<double>(pattern.ticks_per_beat()) / 4.0);
+            parts.append(part);
         }
         return jsonResult(QJsonObject{{"path", path},
                                       {"bytes", static_cast<int>(xml.size())},
