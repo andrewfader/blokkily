@@ -20,6 +20,7 @@
 #include "blokkily/audio/wave_file.hpp"
 #include "blokkily/effects/builtin.hpp"
 #include "blokkily/plugins/plugin_scan.hpp"
+#include "blokkily/plugins/sandbox.hpp"
 #include "blokkily/project/project.hpp"
 
 #include <algorithm>
@@ -90,6 +91,10 @@ void dc_source(void* context, StereoBlock track, std::uint64_t) noexcept {
     const float level = *static_cast<const float*>(context);
     for (auto& sample : track.left) sample += level;
     for (auto& sample : track.right) sample += level;
+}
+void left_source(void* context, StereoBlock track, std::uint64_t) noexcept {
+    const float level = *static_cast<const float*>(context);
+    for (auto& sample : track.left) sample += level;
 }
 struct Impulses {
     std::vector<std::uint64_t> at;
@@ -798,6 +803,63 @@ void builtin_catalog() {
             "an unknown built-in is refused with a reason");
 }
 
+// Scenario: A mono effect is heard on both sides, wherever it is inserted
+// (regression: a VST3 effect with a mono main bus, ZamAutoSat on the master,
+// left the right channel silent, in the window and in its own process)
+void mono_effect_feeds_both_channels() {
+    // A track heard on the left only: the effect hears both sides as one,
+    // halves that, and is heard on both. A send is taken before pan, so the
+    // return hears the track's left side too.
+    struct Where {
+        const char* name;
+        void (*place)(Song&, EffectSlot);
+        float left, right;
+    };
+    const Where places[] = {
+        {"a track", [](Song& song, EffectSlot effect) { song.tracks[0].inserts = {std::move(effect)}; },
+         0.25F * centre, 0.25F * centre},
+        {"a return",
+         [](Song& song, EffectSlot effect) {
+             song.returns = {ReturnBus{"MONO", {std::move(effect)}, {}}};
+             song.tracks[0].sends = {{0, 0.0, false}};
+         },
+         1.25F * centre, 0.25F * centre},
+        {"the master", [](Song& song, EffectSlot effect) { song.master_inserts = {std::move(effect)}; },
+         0.25F * centre, 0.25F * centre},
+    };
+    const std::pair<const char*, PluginSlot> effects[] = {
+        {"CLAP", {"CLAP", BLOKKILY_TEST_CLAP_MONO_PATH, "dev.blokkily.test.mono", {}}},
+        {"VST3", {"VST3", BLOKKILY_TEST_VST3_MONO_PATH, "", {}}},
+    };
+    std::vector<std::filesystem::path> hosts{{}};
+    if (sandbox_supported()) hosts.emplace_back(BLOKKILY_PLUGIN_HOST_PATH);
+    for (const auto& host : hosts) {
+        set_plugin_isolation(host);
+        const ScopedSandboxWait waits;
+        const std::string how = host.empty() ? " in process" : " isolated";
+        for (const auto& [format, plugin] : effects)
+            for (const auto& where : places) {
+                const auto what = std::string("the ") + format + " mono effect on " + where.name + how;
+                auto song = song_of(1);
+                where.place(song, insert(plugin));
+                SongEngine engine;
+                float level = 1.0F;
+                build(engine, song);
+                engine::TestAccess::set_test_source(engine, 0, left_source, &level);
+                require(engine.output_latency() == (host.empty() ? 0U : block),
+                        what + " is " + (host.empty() ? "in this process" : "a block behind, in a helper"));
+                engine.set_playing(true);
+                const auto out = render(engine, 4096);
+                std::cout << what << ": left " << out.left.back() << ", right " << out.right.back() << '\n';
+                require(span_is(std::span(out.left).last(block), where.left) &&
+                            span_is(std::span(out.right).last(block), where.right),
+                        what + " is heard at left " + show(where.left) + ", right " + show(where.right) +
+                            ", not left " + show(out.left.back()) + ", right " + show(out.right.back()));
+            }
+    }
+    set_plugin_isolation({});
+}
+
 const std::map<std::string, std::function<void()>> cases{
     {"insert_chain", insert_chain},
     {"bypass_live", bypass_live},
@@ -816,6 +878,7 @@ const std::map<std::string, std::function<void()>> cases{
     {"state_capture", state_capture},
     {"scan_kind", scan_kind},
     {"builtin_catalog", builtin_catalog},
+    {"mono_effect_feeds_both_channels", mono_effect_feeds_both_channels},
 };
 
 } // namespace

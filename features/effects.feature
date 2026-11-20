@@ -65,6 +65,12 @@ Feature: Effects process tracks, returns and the master, in time with one anothe
     When it is bypassed and the master gain lowered, live
     Then the mix passes at the master gain
 
+  # effects_mono_effect_feeds_both_channels
+  Scenario: A mono effect is heard on both sides, wherever it is inserted
+    Given a CLAP and a VST3 effect whose only layout is one mono input and one mono output, halving it
+    When either is inserted on a track, a return or the master, in the window or in a process of its own
+    Then its output is heard on the left and the right alike, at half the level it was given
+
   # effects_project_records
   Scenario: A saved project plays its effects the same after loading
     Given a song with inserts on a track, a return and the master, sends pre and post,

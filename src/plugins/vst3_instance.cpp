@@ -308,6 +308,7 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
         });
     }
     std::uint32_t input_channels = 0;
+    std::uint32_t output_channels = 2;
     TransportPlayHead play_head;
 
     // The buses beyond the main ones (wave 5.2), as JUCE lays them out in
@@ -451,6 +452,8 @@ struct Vst3PluginInstance::Impl final : private juce::AudioProcessorParameter::L
         layout = plugin->getBusesLayout();
         input_channels = static_cast<std::uint32_t>(
             std::clamp(plugin->getMainBusNumInputChannels(), 0, 2));
+        output_channels = static_cast<std::uint32_t>(
+            std::clamp(plugin->getMainBusNumOutputChannels(), 0, 2));
         if (layout.inputBuses.size() > 1 && layout.inputBuses[0] == stereo &&
             layout.inputBuses[1].size() > 0) {
             sidechain_channels = static_cast<std::uint32_t>(std::min(layout.inputBuses[1].size(), 2));
@@ -920,9 +923,13 @@ void Vst3PluginInstance::process(StereoBlock audio,
                     std::copy_n(impl.sidechain.right.data() + rendered, length, pointers[first + 1]);
                 }
             }
+            if (impl.input_channels == 1)
+                for (std::size_t frame = 0; frame < length; ++frame)
+                    pointers[0][frame] = 0.5F * (pointers[0][frame] + pointers[1][frame]);
             juce::AudioBuffer<float> buffer(pointers.data(), impl.block_channels,
                                             static_cast<int>(length));
             impl.plugin->processBlock(buffer, impl.midi);
+            if (impl.output_channels == 1) std::copy_n(pointers[0], length, pointers[1]);
             // Each aux output to where it was sent; one sent nowhere is dropped.
             for (std::size_t aux = 0; aux < impl.aux_outputs.size(); ++aux) {
                 const auto& target = impl.aux_targets[aux];

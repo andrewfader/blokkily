@@ -2,7 +2,8 @@
 // the output being the input at half level. It proves that the host wires the
 // block it is given into the plugin's audio input, through the official ABI.
 // It is built into a directory of its own, so scans of the instrument fixture
-// directory never meet it.
+// directory never meet it. Built with BLOKKILY_MONO_FIXTURE, both ports are
+// mono, as a DPF effect with one input and one output declares them.
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -14,9 +15,17 @@
 
 namespace {
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr};
+#ifdef BLOKKILY_MONO_FIXTURE
+constexpr std::uint32_t channels = 1;
+constexpr clap_plugin_descriptor_t descriptor{
+    CLAP_VERSION, "dev.blokkily.test.mono", "Blokkily Test Mono", "Blokkily",
+    "https://blokkily.invalid", "", "", "0.1.0", "Test fixture: halves its mono input", features};
+#else
+constexpr std::uint32_t channels = 2;
 constexpr clap_plugin_descriptor_t descriptor{
     CLAP_VERSION, "dev.blokkily.test.input", "Blokkily Test Input", "Blokkily",
     "https://blokkily.invalid", "", "", "0.1.0", "Test fixture: halves its input", features};
+#endif
 
 // Whether any process() call was handed an input buffer that is the output
 // buffer: the ports do not pair for in-place use, so a host must not do that.
@@ -32,12 +41,14 @@ void plugin_reset(const clap_plugin_t*) {}
 
 clap_process_status plugin_process(const clap_plugin_t*, const clap_process_t* process) {
     if (process->audio_inputs_count != 1 || process->audio_outputs_count != 1 ||
-        process->audio_inputs[0].channel_count != 2 || process->audio_outputs[0].channel_count != 2)
+        process->audio_inputs[0].channel_count != channels ||
+        process->audio_outputs[0].channel_count != channels)
         return CLAP_PROCESS_ERROR;
     auto** in = process->audio_inputs[0].data32;
     auto** out = process->audio_outputs[0].data32;
-    if (in[0] == out[0] || in[1] == out[1]) aliased = true;
-    for (std::uint32_t channel = 0; channel < 2; ++channel)
+    for (std::uint32_t channel = 0; channel < channels; ++channel)
+        if (in[channel] == out[channel]) aliased = true;
+    for (std::uint32_t channel = 0; channel < channels; ++channel)
         for (std::uint32_t frame = 0; frame < process->frames_count; ++frame)
             out[channel][frame] = 0.5F * in[channel][frame];
     return CLAP_PROCESS_CONTINUE;
@@ -51,8 +62,8 @@ bool ports_get(const clap_plugin_t*, std::uint32_t index, bool is_input,
     info->id = 0;
     std::snprintf(info->name, sizeof info->name, "%s", is_input ? "Input" : "Output");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = 2;
-    info->port_type = CLAP_PORT_STEREO;
+    info->channel_count = channels;
+    info->port_type = channels == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
 }

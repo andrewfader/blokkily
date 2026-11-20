@@ -27,6 +27,28 @@ if(BLOKKILY_BUILD_GUI)
 endif()
 
 if(BLOKKILY_BUILD_TESTS)
+    # Effects with a mono input and a mono output and no other layout, one
+    # of each format, in directories of their own.
+    add_library(blokkily_test_clap_mono MODULE tests/fixtures/test_clap_input.cpp)
+    target_include_directories(blokkily_test_clap_mono PRIVATE third_party/clap/include)
+    target_compile_definitions(blokkily_test_clap_mono PRIVATE BLOKKILY_MONO_FIXTURE=1)
+    set_target_properties(blokkily_test_clap_mono PROPERTIES
+        PREFIX "" SUFFIX ".clap" OUTPUT_NAME "blokkily-test-mono"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/clap-mono-fixture")
+    juce_add_plugin(blokkily_test_vst3_mono
+        COMPANY_NAME Blokkily
+        PLUGIN_MANUFACTURER_CODE Blok
+        PLUGIN_CODE Bmo1
+        FORMATS VST3
+        PRODUCT_NAME "Blokkily Test VST3 Mono"
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        VST3_CATEGORIES Fx)
+    target_sources(blokkily_test_vst3_mono PRIVATE tests/fixtures/test_vst3_mono.cpp)
+    target_compile_definitions(blokkily_test_vst3_mono PRIVATE JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_link_libraries(blokkily_test_vst3_mono PRIVATE
+        juce::juce_audio_utils juce::juce_recommended_config_flags)
+
     add_executable(blokkily_effects_tests
         tests/effects_tests.cpp
         ${BLOKKILY_ENGINE_SEAMS_APP_SOURCES}
@@ -38,12 +60,16 @@ if(BLOKKILY_BUILD_TESTS)
         ${BLOKKILY_EFFECT_FIXTURE_DEFINITIONS}
         BLOKKILY_TEST_CLAP_PATH="$<TARGET_FILE:blokkily_test_clap>"
         BLOKKILY_TEST_VST3_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_VST3>/../.."
+        BLOKKILY_TEST_CLAP_MONO_PATH="$<TARGET_FILE:blokkily_test_clap_mono>"
+        BLOKKILY_TEST_VST3_MONO_PATH="$<TARGET_FILE_DIR:blokkily_test_vst3_mono_VST3>/../.."
+        BLOKKILY_PLUGIN_HOST_PATH="$<TARGET_FILE:blokkily_plugin_host>"
         BLOKKILY_TEST_ARTIFACTS="${CMAKE_BINARY_DIR}/artifacts")
     target_compile_options(blokkily_effects_tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_dependencies(blokkily_effects_tests
         blokkily_test_clap blokkily_test_vst3_VST3
-        blokkily_test_clap_effect blokkily_test_vst3_effect_VST3)
+        blokkily_test_clap_effect blokkily_test_vst3_effect_VST3
+        blokkily_test_clap_mono blokkily_test_vst3_mono_VST3 blokkily_plugin_host)
     foreach(effects_case
             insert_chain
             master_limiter
@@ -61,7 +87,8 @@ if(BLOKKILY_BUILD_TESTS)
             insert_adoption
             state_capture
             scan_kind
-            builtin_catalog)
+            builtin_catalog
+            mono_effect_feeds_both_channels)
         add_test(NAME effects_${effects_case} COMMAND blokkily_effects_tests ${effects_case})
         set_tests_properties(effects_${effects_case} PROPERTIES
             LABELS "unit;integration;audio;effects"
@@ -69,7 +96,10 @@ if(BLOKKILY_BUILD_TESTS)
     endforeach()
     set_property(TEST effects_insert_chain effects_bypass_live effects_delay_compensation
                       effects_master_insert effects_bounce_trims_latency effects_scan_kind
+                      effects_mono_effect_feeds_both_channels
                  APPEND PROPERTY LABELS "plugins;clap;vst3")
+    set_property(TEST effects_mono_effect_feeds_both_channels
+                 APPEND PROPERTY LABELS "isolation;regression")
     set_property(TEST effects_sends_and_returns effects_solo_safe_returns
                  APPEND PROPERTY LABELS "mixer")
     set_property(TEST effects_project_records effects_bounce_trims_latency
