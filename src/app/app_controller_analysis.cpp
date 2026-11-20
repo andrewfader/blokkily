@@ -22,7 +22,21 @@ QVariant level(double value, double places = 100.0) {
     return std::round(value * places) / places;
 }
 
+QString channel_name(std::size_t channel, std::size_t channels) {
+    if (channels == 1) return QStringLiteral("mono");
+    if (channels == 2) return channel == 0 ? QStringLiteral("left") : QStringLiteral("right");
+    return QString::number(channel + 1);
+}
+
 QVariantMap describe(const blokkily::AudioAnalysis& analysis) {
+    const auto channels = analysis.channel_levels.size();
+    QVariantList levels;
+    for (std::size_t channel = 0; channel < channels; ++channel)
+        levels.append(QVariantMap{{"channel", channel_name(channel, channels)},
+                                  {"samplePeakDbfs", level(analysis.channel_levels[channel].sample_peak_dbfs)},
+                                  {"rmsDbfs", level(analysis.channel_levels[channel].rms_dbfs)}});
+    QVariantList silent;
+    for (const auto channel : analysis.silent_channels) silent.append(channel_name(channel, channels));
     QVariantList bands;
     for (const auto& band : analysis.bands)
         bands.append(QVariantMap{{"name", QString::fromStdString(band.name)},
@@ -43,6 +57,8 @@ QVariantMap describe(const blokkily::AudioAnalysis& analysis) {
             {"rmsDbfs", level(analysis.rms_dbfs)},
             {"crestDb", level(analysis.crest_db)},
             {"clippedSamples", static_cast<qulonglong>(analysis.clipped_samples)},
+            {"channelLevels", levels},
+            {"silentChannels", silent},
             {"correlation", level(analysis.correlation, 1000.0)},
             {"spectralCentroidHz", level(analysis.spectral_centroid_hz, 1.0)},
             {"tuningCents", level(analysis.tuning_cents, 10.0)},

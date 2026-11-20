@@ -86,6 +86,9 @@ Feature: An agent drives Blokkily over MCP
     Then the file measures as the render did, because both came from the one engine
     When it lowers track 0's fader by 6 dB and measures the track again
     Then the track reads 6 LU quieter and its true peak 6 dB lower, and UNDO puts the fader back
+    And each side of the track reads its own level, and no side is named silent
+    When it pans track 0 hard left and measures the track again
+    Then the right side has no level, silentChannels names "right", and UNDO puts the pan back
     And a track or return that does not exist, a track and a file together, or a missing file is refused
     And measuring leaves the transport stopped where it was
 

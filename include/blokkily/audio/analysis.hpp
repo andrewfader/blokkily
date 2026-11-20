@@ -28,6 +28,11 @@ struct BandEnergy {
     double share = 0.0;
 };
 
+struct ChannelLevel {
+    double sample_peak_dbfs = 0.0;
+    double rms_dbfs = 0.0;
+};
+
 struct AudioAnalysis {
     double seconds = 0.0;
     double sample_rate = 0.0;
@@ -44,6 +49,12 @@ struct AudioAnalysis {
     double rms_dbfs = 0.0;        // mean square over every channel and sample
     double crest_db = 0.0;        // sample peak over RMS
     std::uint64_t clipped_samples = 0;  // samples at or past full scale
+
+    // Each channel's own levels, in order: left, then right.
+    std::vector<ChannelLevel> channel_levels;
+    // The channels that peak under -120 dBFS while another does not: a side
+    // lost on the way out. Empty when every channel sounds, or none does.
+    std::vector<std::uint16_t> silent_channels;
 
     double correlation = 0.0;  // left against right, -1 to 1; NaN for mono or silence
     double spectral_centroid_hz = 0.0;

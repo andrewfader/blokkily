@@ -12,6 +12,7 @@ namespace {
 
 constexpr double minus_infinity = -std::numeric_limits<double>::infinity();
 constexpr double not_a_number = std::numeric_limits<double>::quiet_NaN();
+constexpr double silent_below_dbfs = -120.0;
 
 double power_db(double mean_square) {
     return mean_square > 0.0 ? 10.0 * std::log10(mean_square) : minus_infinity;
@@ -342,13 +343,26 @@ AudioAnalysis analyze_audio(std::span<const float> interleaved, std::uint16_t ch
     double peak = 0.0;
     double sum_square = 0.0;
     double left_square = 0.0, right_square = 0.0, cross = 0.0;
+    std::vector<double> channel_peak(channels, 0.0), channel_square(channels, 0.0);
     for (std::size_t frame = 0; frame < frames; ++frame)
         for (std::size_t channel = 0; channel < channels; ++channel) {
             const double sample = interleaved[frame * channels + channel];
-            peak = std::max(peak, std::abs(sample));
-            sum_square += sample * sample;
+            channel_peak[channel] = std::max(channel_peak[channel], std::abs(sample));
+            channel_square[channel] += sample * sample;
             if (std::abs(sample) >= 1.0) ++result.clipped_samples;
         }
+    for (std::size_t channel = 0; channel < channels; ++channel) {
+        peak = std::max(peak, channel_peak[channel]);
+        sum_square += channel_square[channel];
+        result.channel_levels.push_back(
+            {channel_peak[channel] > 0.0 ? 20.0 * std::log10(channel_peak[channel]) : minus_infinity,
+             power_db(channel_square[channel] / static_cast<double>(frames))});
+    }
+    const auto silent = [&](const ChannelLevel& level) { return level.sample_peak_dbfs < silent_below_dbfs; };
+    if (!std::all_of(result.channel_levels.begin(), result.channel_levels.end(), silent))
+        for (std::size_t channel = 0; channel < channels; ++channel)
+            if (silent(result.channel_levels[channel]))
+                result.silent_channels.push_back(static_cast<std::uint16_t>(channel));
     if (channels >= 2)
         for (std::size_t frame = 0; frame < frames; ++frame) {
             const double left = interleaved[frame * channels];

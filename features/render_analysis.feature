@@ -5,7 +5,8 @@ Feature: Measuring a render the way an engineer listens to it
   boom in the bass, harshness in the presence band). Blokkily measures a
   render the same way, so an agent can print, read what it hears, and fix the
   mix: integrated loudness and loudness range as ITU-R BS.1770-4 and EBU Tech
-  3342 define them, sample and true peak, RMS and crest factor, left/right
+  3342 define them, sample and true peak, RMS and crest factor, each channel's
+  own level and which side is silent beside one that sounds, left/right
   correlation, the spectral centroid, and each band's level and share of the
   energy.
 
@@ -49,6 +50,12 @@ Feature: Measuring a render the way an engineer listens to it
     When each is measured
     Then the correlation reads +1, then -1
     And silence, or nothing at all, has no loudness, level, correlation or centroid
+
+  Scenario: A side with nothing on it is named (analysis_one_side_silent)
+    Given a sine on the left with the right silent, and with the right 140 dB down
+    When each is measured
+    Then each channel reads its own peak and RMS, the right side none
+    And the right side is named silent, while a sine on both sides, or silence on both, names none
 
   Scenario: A tuner's reading of the pitched sound (analysis_tuning)
     Given a harmonic tone 12 cents sharp of A3, and a C major triad of pure sines 20 cents flat, at 48 and 44.1 kHz

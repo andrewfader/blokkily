@@ -598,6 +598,24 @@ void run_mcp(VerifyContext& ctx) {
     check(std::abs(lead.value("truePeakDbtp").toDouble() - quieter.value("truePeakDbtp").toDouble() - 6.0) < 0.1);
     check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
     check(std::abs(song.song().tracks.at(0).mix.gain_db) < 1e-9);
+    // Each side reads its own level, and a side that is lost is named.
+    const auto sides = lead.value("channelLevels").toArray();
+    check(sides.size() == 2 && sides.at(0).toObject().value("channel").toString() == "left" &&
+          sides.at(1).toObject().value("channel").toString() == "right" &&
+          sides.at(1).toObject().value("rmsDbfs").isDouble());
+    check(lead.value("silentChannels").toArray().isEmpty());
+    check(!isError(agent.tool("call", {{"object", "songModel"},
+                                       {"method", "setTrackPan"},
+                                       {"args", QJsonArray{0, -1}}})));
+    const auto left_only = analyze({{"track", 0}});
+    const auto one_side = left_only.value("channelLevels").toArray();
+    check(one_side.size() == 2 && one_side.at(0).toObject().value("rmsDbfs").isDouble() &&
+          one_side.at(1).toObject().value("rmsDbfs").isNull() &&
+          one_side.at(1).toObject().value("samplePeakDbfs").isNull());
+    check(left_only.value("silentChannels").toArray() == QJsonArray{"right"});
+    check(left_only.value("correlation").isNull());
+    check(textOf(agent.tool("call", {{"object", "songModel"}, {"method", "undo"}})) == "true");
+    check(std::abs(song.song().tracks.at(0).mix.pan) < 1e-9);
     // Measuring changes nothing: the transport stays where it was.
     check(!ctx.transport.playing());
     // Refusals.

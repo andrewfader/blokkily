@@ -228,7 +228,9 @@ QJsonArray toolDefinitions() {
         tool("analyze_render",
              "Renders the song through the same engine as an export and measures what it hears: "
              "integrated loudness (LUFS, BS.1770 gated), loudest 400 ms and 3 s, loudness range, "
-             "sample and true peak, RMS, crest factor, clipped samples, left/right correlation, "
+             "sample and true peak, RMS, crest factor, clipped samples, each channel's own peak and RMS "
+             "(channelLevels), the channels silent while another sounds (silentChannels, e.g. "
+             "[\"right\"] for a dead side), left/right correlation, "
              "spectral centroid, tuning (tuningCents from A440 equal temperament and how well the "
              "spectral peaks agree, tuningConfidence 0-1: a pitched part reading +8 wants fine tune -8), "
              "and each band's level and share of the energy (sub 20-60 Hz, "

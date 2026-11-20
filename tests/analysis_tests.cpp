@@ -184,6 +184,32 @@ void stereo_image_and_silence() {
     require(nothing.seconds == 0.0 && std::isinf(nothing.integrated_lufs), "an empty render");
 }
 
+// Each channel reads its own level, and a channel with nothing on it beside
+// one that sounds is named: a side lost on the way out.
+void one_side_silent_is_named() {
+    const double rate = 48000.0;
+    std::vector<float> left_only;
+    sine(left_only, rate, 440.0, -12.0, 2.0, 0.0, 0.0);
+    const auto lost = analyze_audio(left_only, 2, rate);
+    require(lost.channel_levels.size() == 2, "a level for each channel");
+    near(lost.channel_levels[0].sample_peak_dbfs, -12.0, 0.01, "the left side's peak");
+    near(lost.channel_levels[0].rms_dbfs, -15.01, 0.01, "the left side's RMS");
+    require(std::isinf(lost.channel_levels[1].sample_peak_dbfs) &&
+                std::isinf(lost.channel_levels[1].rms_dbfs),
+            "the right side has no level");
+    require(lost.silent_channels == std::vector<std::uint16_t>{1}, "the right side is named silent");
+    std::vector<float> faint;
+    sine(faint, rate, 440.0, -12.0, 2.0, 0.0, 1e-7);
+    require(analyze_audio(faint, 2, rate).silent_channels == std::vector<std::uint16_t>{1},
+            "a side 140 dB down is silent too");
+    std::vector<float> both;
+    sine(both, rate, 440.0, -12.0, 2.0);
+    require(analyze_audio(both, 2, rate).silent_channels.empty(), "both sides sound");
+    const std::vector<float> silence(static_cast<std::size_t>(rate) * 2, 0.0F);
+    require(analyze_audio(silence, 2, rate).silent_channels.empty(),
+            "all silence is silence, not a lost side");
+}
+
 // A tuner's reading: a harmonic tone 12 cents sharp of A3 reads +12, a chord
 // of pure sines 20 cents flat reads -20, both with their peaks agreeing;
 // noise has no agreed tuning and silence none at all.
@@ -233,6 +259,7 @@ int main(int argc, char** argv) {
         {"bands", energy_sits_in_its_band},
         {"stereo_and_silence", stereo_image_and_silence},
         {"tuning", tuning_reads_the_offset},
+        {"one_side_silent", one_side_silent_is_named},
     };
     if (argc != 2 || !cases.contains(argv[1])) {
         std::cerr << "usage: blokkily_analysis_tests <case>\n";

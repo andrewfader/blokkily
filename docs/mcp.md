@@ -147,7 +147,14 @@ the file back and reports what an engineer would read off meters:
 - integrated loudness in LUFS (ITU-R BS.1770-4, gated), the loudest 400 ms and
   3 s and where that 3 s starts, and the loudness range (EBU Tech 3342)
 - sample peak, true peak (4x oversampled), RMS, crest factor and clipped samples
-- left/right correlation and the spectral centroid
+- each channel's own level: `channelLevels` lists `left` and `right` (`mono`
+  for a one-channel file), each with its `samplePeakDbfs` and `rmsDbfs`
+- `silentChannels` names the channels with nothing on them (peaking under
+  -120 dBFS) while another channel sounds, such as `["right"]` when a mono
+  effect or a lost cable leaves one side dead. It is empty when every channel
+  sounds, or when the whole render is silent
+- left/right correlation and the spectral centroid. Correlation is `null` when
+  either side is silent, so read `silentChannels` to tell why
 - the tuning of the pitched sound: `tuningCents` (-50 to +50) is where the
   spectral peaks between 70 Hz and 1.5 kHz sit against A440 equal temperament,
   and `tuningConfidence` (0 to 1) how well they agree. Measure one track at a
