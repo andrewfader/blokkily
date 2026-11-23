@@ -84,6 +84,9 @@ private:
 // unreadable, or a modulator linked onward to one that may be a send, is
 // taken to send, so the effects stay on.
 bool bank_may_send_to_effects(const std::filesystem::path& path) {
+    std::error_code size_error;
+    const auto file_size = std::filesystem::file_size(path, size_error);
+    if (size_error) return true;
     std::ifstream file(path, std::ios::binary);
     const auto read_u32 = [&](std::uint32_t& value) {
         std::array<unsigned char, 4> bytes{};
@@ -99,11 +102,16 @@ bool bank_may_send_to_effects(const std::filesystem::path& path) {
         return true;
     std::vector<unsigned char> pdta;
     while (pdta.empty() && file.read(id.data(), 4) && read_u32(size)) {
-        const auto next = static_cast<std::streamoff>(file.tellg()) + size + (size & 1U);
+        const auto chunk_start = static_cast<std::streamoff>(file.tellg());
+        if (chunk_start < 0) return true;
+        const auto next = chunk_start + static_cast<std::streamoff>(size) + (size & 1U);
         std::array<char, 4> kind{};
         if (std::memcmp(id.data(), "LIST", 4) == 0 && size >= 4 && file.read(kind.data(), 4) &&
             std::memcmp(kind.data(), "pdta", 4) == 0) {
-            pdta.resize(size - 4);
+            const auto payload = static_cast<std::uint64_t>(size - 4);
+            const auto pos = static_cast<std::uint64_t>(chunk_start) + 4;
+            if (pos > file_size || payload > file_size - pos) return true;
+            pdta.resize(static_cast<std::size_t>(payload));
             if (!file.read(reinterpret_cast<char*>(pdta.data()),
                            static_cast<std::streamsize>(pdta.size())))
                 return true;

@@ -457,6 +457,16 @@ int main() {
         check(throws<std::runtime_error>(document("<divisions>1</divisions>",
                                                   "<forward><duration>1000000000000</duration></forward>" + quarter + "</note>")),
               "refused: a forward a trillion quarters long");
+        check(throws<std::runtime_error>(document("<divisions>1</divisions>",
+                                                  "<forward><duration>-1</duration></forward>" + quarter + "</note>")),
+              "refused: a negative forward duration");
+        check(throws<std::runtime_error>(document("<divisions>1</divisions>",
+                                                  "<backup><duration>-1</duration></backup>" + quarter + "</note>")),
+              "refused: a negative backup duration");
+        check(throws<std::runtime_error>(document("<divisions>1</divisions>",
+                                                  "<forward><duration>3000</duration></forward>"
+                                                  "<forward><duration>3000</duration></forward>" + quarter + "</note>")),
+              "refused: repeated forwards running past 1024 whole notes");
         {
             // Elements nested a million deep, inside a note and around the
             // score: read without overflowing the stack, as pugixml parses

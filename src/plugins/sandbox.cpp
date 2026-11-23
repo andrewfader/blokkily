@@ -144,10 +144,12 @@ std::optional<std::vector<std::byte>> receive_message(int fd, std::chrono::milli
         pollfd watch{fd, POLLIN, 0};
         if (::poll(&watch, 1, 0) <= 0) return std::nullopt;
     }
+    constexpr std::uint32_t max_message_bytes = 64U * 1024U * 1024U;
     std::uint32_t size = 0;
     if (!read_exactly(fd, reinterpret_cast<std::byte*>(&size), sizeof(size),
                       deadline + std::chrono::seconds(1)))
         return std::nullopt;
+    if (size > max_message_bytes) return std::nullopt;
     std::vector<std::byte> message(size);
     // A message once begun is read to its end.
     if (size > 0 && !read_exactly(fd, message.data(), size, deadline + std::chrono::seconds(10)))

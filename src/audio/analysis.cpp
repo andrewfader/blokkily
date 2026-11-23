@@ -336,7 +336,8 @@ AudioAnalysis analyze_audio(std::span<const float> interleaved, std::uint16_t ch
     result.crest_db = result.correlation = not_a_number;
     result.spectral_centroid_hz = not_a_number;
     result.tuning_cents = not_a_number;
-    if (frames == 0 || sample_rate <= 0.0) return result;
+    if (frames == 0 || !std::isfinite(sample_rate) || sample_rate <= 0.0 || sample_rate > 1'000'000.0)
+        return result;
     measure_tuning(interleaved, channels, sample_rate, result);
 
     // Levels of the samples themselves.

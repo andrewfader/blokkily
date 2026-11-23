@@ -284,6 +284,22 @@ void soundfont_without_the_first_general_midi_preset_opens() {
         SoundFontSynth missing;
         assert(!missing.load_state(state_for(0, 0)));
     }
+    {
+        // A corrupt SF2 declaring a 4 GiB pdta chunk must fail cleanly without
+        // attempting to allocate gigabytes of RAM.
+        const auto corrupt = std::filesystem::temp_directory_path() / "blokkily_corrupt_pdta.sf2";
+        {
+            std::ofstream out(corrupt, std::ios::binary);
+            const unsigned char header[] = {
+                'R', 'I', 'F', 'F', 20, 0, 0, 0, 's', 'f', 'b', 'k',
+                'L', 'I', 'S', 'T', 0xFF, 0xFF, 0xFF, 0xFF, 'p', 'd', 't', 'a'
+            };
+            out.write(reinterpret_cast<const char*>(header), sizeof(header));
+        }
+        SoundFontSynth bad;
+        assert(!bad.load(corrupt));
+        std::filesystem::remove(corrupt);
+    }
     std::filesystem::remove(bank);
 }
 #endif

@@ -878,6 +878,13 @@ void import_foreign() {
             </Lanes>
           </Clip>
         </Clips>
+        <Points id="vol-auto" unit="linear">
+          <Target parameter="v1"/>
+          <RealPoint time="0" value="0.5"/>
+          <RealPoint time="1" value="0.8"/>
+          <RealPoint time="0" value="0.6"/>
+          <RealPoint time="0" value="0.7"/>
+        </Points>
       </Lanes>
     </Lanes>
   </Arrangement>
@@ -902,6 +909,12 @@ void import_foreign() {
             "its notes where they play");
     require(song.arrange(0, 0).continuous.size() == 1 && song.arrange(0, 0).continuous[0].event.controller == 74,
             "and its controller");
+    // Out-of-order automation points with >2 points at tick 0 must keep the
+    // point at beat 1 (tick 480) and leave at most 2 points at tick 0.
+    require(song.tracks[0].automation.size() == 1, "the track's gain automation lane");
+    const auto& vol_points = song.tracks[0].automation[0].points;
+    require(vol_points.size() == 3 && vol_points[0].at == 0 && vol_points[1].at == 0 && vol_points[2].at == 480,
+            "out-of-order duplicate tick drops the duplicate at tick 0, not the point at beat 1");
     // Played: the first note sounds at beat 6 of 128 BPM, 2.8125 s in.
     auto engine = prepare(song);
     const auto heard = bounce(engine->engine, "foreign.wav");

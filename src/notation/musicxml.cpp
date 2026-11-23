@@ -751,11 +751,17 @@ Score parse(const std::string& xml) {
                     continue;
                 }
                 if (name == "backup") {
-                    now = std::max<long long>(0, now - to_units(whole_number(child.child("duration"), "duration")));
+                    const long long step = to_units(whole_number(child.child("duration"), "duration"));
+                    if (step < 0) throw std::runtime_error("musicxml: <backup> <duration> is negative");
+                    now = std::max<long long>(0, now - step);
                     continue;
                 }
                 if (name == "forward") {
-                    now += to_units(whole_number(child.child("duration"), "duration"));
+                    const long long step = to_units(whole_number(child.child("duration"), "duration"));
+                    if (step < 0) throw std::runtime_error("musicxml: <forward> <duration> is negative");
+                    if (now + step > 1024LL * 4 * kDivisions)
+                        throw std::runtime_error("musicxml: <forward> runs past 1024 whole notes");
+                    now += step;
                     continue;
                 }
                 if (!score.tempo_bpm) {

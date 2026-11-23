@@ -570,6 +570,15 @@ void backend_parses_reply_case(const Vendor& vendor) {
     require(parsed.response.triggers.size() == 1 &&
                 as_note(parsed.response.triggers[0]).key == 60,
             "the model-chosen key must reach the parser");
+    // An HTTP 200 with an empty choices/candidates array must fail cleanly
+    // rather than indexing into an empty QJsonArray.
+    if (vendor.dialect == Dialect::chat) {
+        nam->capture.response_body = QJsonDocument(QJsonObject{{"choices", QJsonArray{}}}).toJson();
+        Reply empty_reply;
+        runBackend(backend.get(), sampleRequest(), empty_reply);
+        require(!empty_reply.ok && empty_reply.error.contains("no content"),
+                "empty choices array must report no content without crashing");
+    }
 }
 
 // Scenario: no key means a readable error naming the variable to set.

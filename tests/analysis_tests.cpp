@@ -182,6 +182,12 @@ void stereo_image_and_silence() {
             "silence has no image or centroid");
     const auto nothing = analyze_audio({}, 2, rate);
     require(nothing.seconds == 0.0 && std::isinf(nothing.integrated_lufs), "an empty render");
+    for (const double bad_rate : {0.0, -48000.0, std::numeric_limits<double>::quiet_NaN(),
+                                  std::numeric_limits<double>::infinity(), 1e9}) {
+        const auto bad = analyze_audio(same, 2, bad_rate);
+        require(std::isinf(bad.integrated_lufs) && bad.integrated_lufs < 0,
+                "invalid sample rate returns empty analysis safely");
+    }
 }
 
 // Each channel reads its own level, and a channel with nothing on it beside

@@ -98,12 +98,14 @@ public:
                     } else {
                         const auto choices =
                             QJsonDocument::fromJson(bytes).object().value("choices").toArray();
-                        answer.text = choices.first()
-                                          .toObject()
-                                          .value("message")
-                                          .toObject()
-                                          .value("content")
-                                          .toString();
+                        if (!choices.isEmpty()) {
+                            answer.text = choices.first()
+                                              .toObject()
+                                              .value("message")
+                                              .toObject()
+                                              .value("content")
+                                              .toString();
+                        }
                         answer.ok = !answer.text.isEmpty();
                         if (!answer.ok)
                             answer.error = QStringLiteral("%1 answered with no content").arg(label);

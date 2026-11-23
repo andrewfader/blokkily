@@ -422,12 +422,14 @@ private:
         juce::ZipFile zip(source);
         const auto index = zip.getIndexOfFileName(juce::String::fromUTF8(entry.c_str()));
         if (index < 0) return std::nullopt;
+        const auto name = std::filesystem::path(entry).filename();
+        if (name.empty() || name == "." || name == "..") return std::nullopt;
         std::error_code ignored;
         std::filesystem::create_directories(audio_dir_, ignored);
-        auto target = audio_dir_ / std::filesystem::path(entry).filename();
+        auto target = audio_dir_ / name;
         for (int copy = 2; std::filesystem::exists(target); ++copy)
-            target = audio_dir_ / (std::filesystem::path(entry).stem().string() + "-" + std::to_string(copy) +
-                                   std::filesystem::path(entry).extension().string());
+            target = audio_dir_ / (name.stem().string() + "-" + std::to_string(copy) +
+                                   name.extension().string());
         std::unique_ptr<juce::InputStream> stream(zip.createStreamForEntry(index));
         if (stream == nullptr) return std::nullopt;
         juce::File written(juce::String::fromUTF8(target.string().c_str()));
@@ -506,8 +508,13 @@ private:
                 points.push_back({at, points.back().value});
             // No tick holds more than two points.
             const auto same = std::count_if(points.begin(), points.end(), [at](const AutomationPoint& p) { return p.at == at; });
-            if (same >= 2) points.erase(std::find_if(points.begin(), points.end(),
-                                                     [at](const AutomationPoint& p) { return p.at == at; }) + 1);
+            if (same >= 2) {
+                const auto first = std::find_if(points.begin(), points.end(),
+                                                [at](const AutomationPoint& p) { return p.at == at; });
+                const auto second = std::find_if(first + 1, points.end(),
+                                                 [at](const AutomationPoint& p) { return p.at == at; });
+                if (second != points.end()) points.erase(second);
+            }
             points.push_back({at, value});
             ++result.automation_points;
         }
