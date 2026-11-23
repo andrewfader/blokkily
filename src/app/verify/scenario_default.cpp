@@ -1444,22 +1444,16 @@ struct DefaultScenario {
             {
                 song.toggleMute(added);
                 lay_out();
-                auto* flags = named(QString("trackFlags%1").arg(added));
-                const auto shown = [&] {
-                    int count = 0;
-                    if (flags != nullptr)
-                        for (auto* child : flags->childItems())
-                            count += child->isVisible() && !child->inherits("QQuickRepeater") ? 1 : 0;
-                    return count;
-                };
-                valid = valid && shown() == 1;
+                auto* mute_button = named(QString("trackMute%1").arg(added));
+                valid = valid && mute_button != nullptr && mute_button->property("on").toBool();
                 auto* menu = window->findChild<QObject*>("trackMenu");
                 auto* mute_item = window->findChild<QObject*>("trackMenuMute");
                 if (menu != nullptr) menu->setProperty("target", added);
                 valid = valid && mute_item != nullptr && mute_item->property("checked").toBool();
                 song.toggleMute(added);
                 lay_out();
-                valid = valid && shown() == 0 && mute_item != nullptr && !mute_item->property("checked").toBool();
+                valid = valid && !mute_button->property("on").toBool()
+                              && mute_item != nullptr && !mute_item->property("checked").toBool();
             }
             reached("workflow: a muted track says so on its header and in its menu");
 

@@ -44,3 +44,26 @@ Feature: The arrangement's track list is sized by hand, and mutes from the keybo
     Then its menu opens with Mute at the top
     When Mute is clicked
     Then the track is muted, nothing is heard, and the menu's Mute is ticked
+
+  # bdd_track_list
+  Scenario: Each arrangement track has a mute button
+    Given the first track is playing and the second track is selected
+    When I click M beside the first track's name
+    Then its M lights up, the first track goes silent and the second stays selected
+    When I click M there again
+    Then the first track sounds again without restarting playback
+
+  # bdd_track_list
+  Scenario Outline: A track name offers the same mute actions in every view
+    Given the first track is playing and another track is selected
+    When I right-click the first track's name in the <view> and choose Mute
+    Then the first track goes silent
+    When I click that name and press M
+    Then the track sounds again and the step cursor stays put
+
+    Examples:
+      | view           |
+      | step grid      |
+      | tracker        |
+      | mixer          |
+      | scene launcher |

@@ -25,8 +25,8 @@ ColumnLayout {
     // dragged the width under the pointer. Half the view is the most it takes,
     // so the bars are never squeezed out by it.
     property real storedHeaderWidth: defaultHeaderWidth
-    readonly property real defaultHeaderWidth: 64
-    readonly property real headerWidth: Math.max(44, Math.min(320, arrangeScroll.width / 2,
+    readonly property real defaultHeaderWidth: 88
+    readonly property real headerWidth: Math.max(64, Math.min(320, arrangeScroll.width / 2,
         headerSizer.sizing ? headerSizer.dragged : storedHeaderWidth))
     // The edge was let go at a width; 0 asks for the width it ships with.
     signal headerWidthPicked(real width)
@@ -121,7 +121,7 @@ ColumnLayout {
     // Naming and the context menus belong to the window, which owns them.
     signal renameRequested(string kind, int index, string name)
     signal patternMenuRequested(int index, string name)
-    signal trackMenuRequested(int index, string name)
+    required property var pickTrack
     Layout.fillWidth: true
     spacing: 6
 
@@ -432,7 +432,7 @@ ColumnLayout {
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             x: 3
-                            width: parent.width - 6 - (trackFlags.width > 0 ? trackFlags.width + 2 : 0)
+                            width: Math.max(0, trackFlags.x - x - 2)
                             horizontalAlignment: Text.AlignHCenter
                             elide: Text.ElideRight
                             text: track.name
@@ -440,18 +440,15 @@ ColumnLayout {
                             font.pixelSize: 9; font.bold: true
                             font.letterSpacing: 0.6
                         }
-                        // Muted, soloed and armed read here too, with the
-                        // mixer tucked away: a muted track and one silenced
-                        // by another's solo no longer look the same.
+                        // Solo and record-arm indicators sit beside the mute button.
                         Row {
                             id: trackFlags
                             objectName: "trackFlags" + trackIndex
-                            anchors.right: parent.right; anchors.rightMargin: 3
+                            anchors.right: trackMute.left; anchors.rightMargin: 2
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 1
                             Repeater {
-                                model: [{ on: track.mute === true, letter: "M", tone: Theme.amber },
-                                        { on: track.solo === true, letter: "S", tone: Theme.blue },
+                                model: [{ on: track.solo === true, letter: "S", tone: Theme.blue },
                                         { on: track.armed === true, letter: "R", tone: Theme.record }]
                                 Rectangle {
                                     required property var modelData
@@ -480,17 +477,16 @@ ColumnLayout {
                             color: Theme.acid
                         }
                         opacity: root.dragTrack === trackIndex ? 0.5 : 1
-                        MouseArea {
+                        TrackNameMouseArea {
                             id: headerMouse
                             objectName: "trackHeaderMouse" + trackIndex
-                            anchors.fill: parent
+                            track: trackIndex
+                            pickTrack: root.pickTrack
                             cursorShape: dragged ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             preventStealing: true
                             // Dragged up or down by more than a few pixels,
                             // the header moves its track to where it is let go.
                             property real pressY: 0
-                            property bool dragged: false
                             onPressed: function(mouse) { pressY = mouse.y; dragged = false }
                             onPositionChanged: function(mouse) {
                                 if (!(pressedButtons & Qt.LeftButton)) return
@@ -513,21 +509,21 @@ ColumnLayout {
                                 if (to >= 0 && to !== from) Qt.callLater(songModel.moveTrack, from, to)
                             }
                             onCanceled: { dragged = false; root.dragTrack = -1; root.dropTrack = -1 }
-                            onClicked: function(mouse) {
-                                if (dragged) return
-                                // Selecting rebuilds this row, so read what
-                                // the menu needs before selecting.
-                                const view = root
-                                const index = trackIndex
-                                const name = track.name
-                                songModel.selectTrack(index)
-                                view.focusHome.forceActiveFocus()
-                                view.headerHasKeys = true
-                                if (mouse.button !== Qt.RightButton) return
-                                view.trackMenuRequested(index, name)
-                            }
                             onDoubleClicked: root.renameRequested("TRACK", trackIndex,
-                                                                  track.name)
+                                                                  songModel.trackNames[trackIndex])
+                        }
+                        Chip {
+                            id: trackMute
+                            objectName: "trackMute" + trackIndex
+                            anchors.right: parent.right; anchors.rightMargin: 5
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 20; height: 18; labelPadding: 2
+                            text: "M"; accent: Theme.amber; on: track.mute === true
+                            accessibleLabel: qsTr("Mute %1").arg(track.name)
+                            Accessible.checkable: true
+                            Accessible.checked: on
+                            onClicked: songModel.toggleMute(trackIndex)
+                            onRightClicked: root.pickTrack(trackIndex, mapToItem(null, width / 2, height / 2))
                         }
                     }
 

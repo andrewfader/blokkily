@@ -9,7 +9,7 @@ Rectangle {
     id: root
     // Naming and the track menu belong to the window, which owns them.
     signal renameRequested(int index, string name)
-    signal menuRequested(int index, string name)
+    required property var pickTrack
     required property int index
     readonly property var modelData: songModel.tracks[index] !== undefined
         ? songModel.tracks[index]
@@ -39,14 +39,9 @@ Rectangle {
         color: Theme.trackColour(root.modelData.colour)
     }
 
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onClicked: function(mouse) {
-            songModel.selectTrack(trackIndex)
-            if (mouse.button !== Qt.RightButton) return
-            root.menuRequested(trackIndex, modelData.name)
-        }
+    TrackNameMouseArea {
+        track: root.trackIndex
+        pickTrack: root.pickTrack
         onDoubleClicked: root.renameRequested(trackIndex, modelData.name)
     }
 
@@ -58,6 +53,7 @@ Rectangle {
             ColumnLayout {
                 Layout.fillWidth: true; spacing: 0
                 Label {
+                    objectName: "mixerTrackName" + root.trackIndex
                     Layout.fillWidth: true
                     text: modelData.name
                     color: modelData.audible ? Theme.ink : Theme.muted

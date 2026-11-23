@@ -155,6 +155,7 @@ per bar. Patterns can have different lengths.
 | Drag the right edge of the track names | Size the list, remembered; double-click the edge for its first width |
 | Click a track's name, then M | Mute or unmute it; M again brings it back. Any other note typed, step moved or click elsewhere makes M a note again |
 | Right-click a track's name | Its menu, with Mute first |
+| Click M beside an arrangement track's name | Toggle mute for that track while keeping the current selection |
 | Click a bar number on the ruler | Locate the audio engine on that bar |
 
 Shift-click uses whole pattern repeats, so a clip may end beyond the clicked
@@ -888,7 +889,7 @@ or transport shortcuts.
 | Ctrl+1..0 | Toggle a step |
 | Ctrl+Shift+1..6 | Toggle a step in the second half of the bar |
 | Ctrl+M | Mute the selected track |
-| M | Straight after clicking a track's name on the arrangement, mute that track; otherwise a tracker note |
+| M | After clicking a track name in the arrangement, step grid, tracker, scene launcher or mixer, toggle mute. Clicking an editor cell returns M to note entry. Right-clicking the name opens the track menu. |
 | Ctrl+L | Solo the selected track |
 | Ctrl+R | Record: arm and play; again to disarm |
 | Ctrl+E | Bounce the arrangement to disk |

@@ -31,6 +31,7 @@ Item {
     readonly property bool showScore: view === "SCORE"
     // Where the keyboard goes back to after a click in an editor.
     property Item focusHome: null
+    required property var pickTrack
     // The order of the grid and the tracker/roll row, and the grid's height
     // (0: what it wants): the window's settings, picked here.
     property var editorOrder: []
@@ -140,16 +141,9 @@ Item {
                             color: rackRow.modelData.selected ? Theme.acid : Theme.ink
                             font.pixelSize: 9; font.bold: true; elide: Text.ElideRight
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                // Read before selecting: the rows are rebuilt.
-                                const track = rackRow.modelData.track
-                                const home = root.focusHome
-                                songModel.selectTrack(track)
-                                if (home) home.forceActiveFocus()
-                            }
+                        TrackNameMouseArea {
+                            track: rackRow.modelData.track
+                            pickTrack: root.pickTrack
                         }
                     }
                     // The row's steps scroll with the grid above, so the
@@ -816,14 +810,11 @@ Item {
                                            ? Theme.acid : Theme.muted
                                     font.family: Theme.mono; font.pixelSize: 10; font.bold: true
                                 }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        root.focusHome.forceActiveFocus()
-                                        patternModel.selectChannelStep(
-                                            channelHead.index,
-                                            Math.max(0, patternModel.selectedStep))
+                                TrackNameMouseArea {
+                                    track: channelHead.index
+                                    pickTrack: (track, menuAt) => {
+                                        if (patternModel.selectedStep < 0) patternModel.selectStep(0)
+                                        root.pickTrack(track, menuAt)
                                     }
                                 }
                             }

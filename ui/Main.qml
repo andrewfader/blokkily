@@ -318,10 +318,16 @@ ApplicationWindow {
             onTriggered: songModel.deletePattern(patternMenu.target) }
     }
 
-    function showTrackMenu(index, name) {
-        trackMenu.target = index
-        trackMenu.name = name
-        trackMenu.popup()
+    property bool trackNameHasKeys: false
+    function pickTrack(index, menuAt) {
+        songModel.selectTrack(index)
+        noteEntry.forceActiveFocus()
+        trackNameHasKeys = true
+        if (menuAt) {
+            trackMenu.target = index
+            trackMenu.name = songModel.trackNames[index]
+            trackMenu.popup(root.Overlay.overlay, menuAt.x, menuAt.y)
+        }
     }
 
     Menu {
@@ -555,7 +561,7 @@ ApplicationWindow {
         target: patternModel
         function onSelectionChanged() {
             root.clipSource = null
-            arrangementView.headerHasKeys = false
+            root.trackNameHasKeys = false
         }
     }
     // What the last copy took, so a paste puts back the same kind of thing:
@@ -728,7 +734,7 @@ ApplicationWindow {
                 patternModel.selectChannelStep(
                     (songModel.selectedTrack + (backwards ? count - 1 : 1)) % count,
                     Math.max(0, patternModel.selectedStep))
-                arrangementView.headerHasKeys = false
+                root.trackNameHasKeys = false
                 event.accepted = true
                 return
             }
@@ -736,7 +742,7 @@ ApplicationWindow {
             // then it mutes that track (features/track_list.feature). Any other
             // note ends that, so a phrase typed after choosing a track keeps
             // its Ms.
-            if (arrangementView.headerHasKeys && event.text.toUpperCase() === "M"
+            if (root.trackNameHasKeys && event.text.toUpperCase() === "M"
                 && !(event.modifiers & Qt.ShiftModifier)) {
                 songModel.toggleMute(songModel.selectedTrack)
                 event.accepted = true
@@ -744,7 +750,7 @@ ApplicationWindow {
             }
             var semitone = semitoneFor(event.text)
             if (semitone < 0) return
-            arrangementView.headerHasKeys = false
+            root.trackNameHasKeys = false
             // Recording against the running transport, a key is played into
             // the take - on every armed track, when and for as long as it is
             // held - and the cursor stays where it is.
@@ -807,7 +813,7 @@ ApplicationWindow {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons
             onPressed: function(mouse) {
-                arrangementView.headerHasKeys = false
+                root.trackNameHasKeys = false
                 mouse.accepted = false
             }
         }
@@ -1139,11 +1145,13 @@ ApplicationWindow {
                             patternMenu.name = name
                             patternMenu.popup()
                         }
-                        onTrackMenuRequested: (index, name) => root.showTrackMenu(index, name)
+                        headerHasKeys: root.trackNameHasKeys
+                        pickTrack: root.pickTrack
                         onClipChosen: (track, bar) => root.clipSource = { track: track, bar: bar }
                     }
 
                     LauncherView {
+                        pickTrack: root.pickTrack
                         Layout.row: panelDock.rowOf("editors")
                         view: root.view
                         focusHome: noteEntry
@@ -1168,6 +1176,7 @@ ApplicationWindow {
                     }
 
                     StepEditors {
+                        pickTrack: root.pickTrack
                         id: stepEditors
                         Layout.row: panelDock.rowOf("editors")
                         view: root.view
@@ -1248,7 +1257,7 @@ ApplicationWindow {
             MixerPanel {
                 anchors.fill: parent
                 onTrackRenameRequested: (index, name) => renamePopup.ask("TRACK", index, name)
-                onTrackMenuRequested: (index, name) => root.showTrackMenu(index, name)
+                pickTrack: root.pickTrack
             }
         }
     }

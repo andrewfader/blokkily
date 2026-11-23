@@ -8,7 +8,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     signal trackRenameRequested(int index, string name)
-    signal trackMenuRequested(int index, string name)
+    required property var pickTrack
     objectName: "mixerPanel"
     color: Theme.rail
     // Every track's meter, read once for all the strips.
@@ -68,7 +68,7 @@ Rectangle {
                     // not once per strip.
                     meterLevel: root.meterLevels[index] !== undefined ? root.meterLevels[index] : 0
                     onRenameRequested: (index, name) => root.trackRenameRequested(index, name)
-                    onMenuRequested: (index, name) => root.trackMenuRequested(index, name)
+                    pickTrack: root.pickTrack
                 }
             }
 

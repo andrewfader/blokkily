@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(blokkily VERSION 0.3.24 LANGUAGES C CXX)
+project(blokkily VERSION 0.4.0 LANGUAGES C CXX)
 
 # Rebuilds across many worktrees are dominated by JUCE and Qt, so use ccache
 # whenever it is installed; it is never required. An explicit launcher given
@@ -215,6 +215,7 @@ if(BLOKKILY_BUILD_GUI)
         ui/InstrumentPanel.qml
         ui/ProjectPanel.qml
         ui/ArrangementView.qml
+        ui/TrackNameMouseArea.qml
         ui/StepEditors.qml
         ui/KeyboardPanel.qml
         ui/NoteFx.qml

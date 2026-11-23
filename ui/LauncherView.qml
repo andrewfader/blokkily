@@ -14,6 +14,7 @@ Rectangle {
     objectName: "launcherView"
     property string view: "ALL"
     property Item focusHome
+    required property var pickTrack
     visible: view === "LAUNCH"
     Layout.fillWidth: true
     Layout.fillHeight: visible
@@ -114,12 +115,18 @@ Rectangle {
                         Label {
                             required property string modelData
                             required property int index
+                            objectName: "launcherTrackName" + index
                             width: root.columnWidth; height: 20
                             text: modelData
-                            color: Theme.muted; font.pixelSize: 10; font.bold: true
+                            color: index === songModel.selectedTrack ? Theme.acid : Theme.muted
+                            font.pixelSize: 10; font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
                             verticalAlignment: Text.AlignVCenter
+                            TrackNameMouseArea {
+                                track: index
+                                pickTrack: root.pickTrack
+                            }
                         }
                     }
                 }

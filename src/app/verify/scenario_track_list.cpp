@@ -106,7 +106,7 @@ void run_track_list(VerifyContext& ctx) {
     check(VerifyContext::usable(sizer, 4, 100) && view != nullptr && scroll != nullptr);
     check(VerifyContext::usable(header(0), 60, 20));
     const double shipped = header(0) ? header(0)->width() : 0;
-    check(shipped == 64);
+    check(shipped == 88);
     const auto bar = [&](int number) { return ctx.named(QStringLiteral("clip0-%1").arg(number)); };
     const double bar_shipped = bar(1) ? bar(1)->width() : 0;
 
@@ -114,7 +114,7 @@ void run_track_list(VerifyContext& ctx) {
     std::cerr << "list widened to " << (header(0) ? header(0)->width() : -1) << '\n';
     check(header(0) && header(0)->width() == shipped + 100);
     check(header(1) && header(1)->width() == shipped + 100);
-    check(c.uiSettings().value("ui/trackListWidth").toInt() == 164);
+    check(c.uiSettings().value("ui/trackListWidth").toInt() == shipped + 100);
     // The whole song still fits, in what the list has left it.
     check(bar(1) && bar(1)->width() < bar_shipped && VerifyContext::usable(bar(1), 40, 20));
     check(scroll && std::abs(scroll->property("contentWidth").toDouble() - scroll->width()) < 2);
@@ -135,7 +135,7 @@ void run_track_list(VerifyContext& ctx) {
         if (first != nullptr) ctx.click_at(first, {1.5, first->height() / 2}, Qt::LeftButton);
         VerifyContext::settle(20);
         layout();
-        check(ctx.transport.bar() == 0 && c.uiSettings().value("ui/trackListWidth").toInt() == 164);
+        check(ctx.transport.bar() == 0 && c.uiSettings().value("ui/trackListWidth").toInt() == shipped + 100);
     }
     check(ctx.save_screenshot());
     ctx.reached("track list: its edge widens it, and the bars and ruler follow");
@@ -145,7 +145,7 @@ void run_track_list(VerifyContext& ctx) {
     std::cerr << "list at most " << (header(0) ? header(0)->width() : -1) << " of " << scroll->width() << '\n';
     check(header(0) && header(0)->width() <= scroll->width() / 2 + 1 && header(0)->width() <= 320);
     drag(sizer, -2000);
-    check(header(0) && header(0)->width() >= 44);
+    check(header(0) && header(0)->width() == 64);
     {
         const QPointF middle = centre(sizer);
         ctx.mouse_at(sizer, middle, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
@@ -176,13 +176,15 @@ void run_track_list(VerifyContext& ctx) {
     layout();
     check(muted(0));
     check(notes_on_part() == notes_before);
-    auto* const flags = ctx.named("trackFlags0");
-    check(flags && flags->width() > 0);
+    auto* const button = ctx.named("trackMute0");
+    check(VerifyContext::usable(button, 18, 16) && button->property("on").toBool());
     const float silent = heard();
     std::cerr << "heard muted " << silent << '\n';
     check(silent < 1e-3F);
     if (ctx.parser.isSet("screenshot")) {
         const QString path = ctx.parser.value("screenshot");
+        // Capture the lit button after its colour transition.
+        VerifyContext::settle(120);
         check(ctx.save_screenshot_to(path.left(path.size() - 4) + QStringLiteral("-muted.png")));
     }
 
@@ -276,9 +278,43 @@ void run_track_list(VerifyContext& ctx) {
     layout();
     check(!muted(0) && mute_item && !mute_item->property("checked").toBool());
     check(heard() > 0.05F);
+    ctx.reached("track list: the right button's menu has Mute first, and it is heard");
+
+    song.selectTrack(1);
+    layout();
+    check(button && button->isVisible() && !button->property("on").toBool());
+    click(button);
+    check(button && button->property("on").toBool() && song.selectedTrack() == 1);
+    check(muted(0) && heard() < 1e-3F);
+    click(button);
+    check(!muted(0) && heard() > 0.05F);
+    ctx.reached("track list: the M button mutes its own row during playback");
+
+    for (const QString& name : {QStringLiteral("stemName0"), QStringLiteral("trackerChannelName0"),
+                                QStringLiteral("mixerTrackName0"), QStringLiteral("launcherTrackName0")}) {
+        if (name == "launcherTrackName0") check(window->setProperty("view", "LAUNCH"));
+        song.selectTrack(1);
+        layout();
+        const int cursor = pattern.selectedStep();
+        std::cerr << "track controls on " << name.toStdString() << '\n';
+        check(VerifyContext::usable(ctx.named(name), 24, 12));
+        click(ctx.named(name), Qt::RightButton);
+        VerifyContext::settle(50);
+        check(menu && menu->property("opened").toBool() && menu->property("target").toInt() == 0);
+        if (menu && menu->property("opened").toBool()) {
+            click(mute_item);
+            VerifyContext::settle(50);
+        }
+        check(muted(0) && heard() < 1e-3F);
+        click(ctx.named(name));
+        ctx.type_key(Qt::Key_M, QStringLiteral("m"));
+        layout();
+        check(song.selectedTrack() == 0 && !muted(0) && muted(1));
+        check(pattern.selectedStep() == cursor && heard() > 0.05F);
+    }
     c.togglePlayback();
     (void)ctx.pump();
-    ctx.reached("track list: the right button's menu has Mute first, and it is heard");
+    ctx.reached("track names in the step grid, tracker, mixer and launcher share M and the track menu");
 
     ctx.finish("track list sized by its edge, muted by M and by its menu");
 }

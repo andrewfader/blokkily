@@ -86,9 +86,9 @@ Feature: A session can be worked on without fear of losing it
 
   Scenario: A muted track says so outside the mixer
     When a track is muted
-    Then its header on the arrangement shows M, and its menu's Mute is ticked
+    Then M lights up on its arrangement header, and its menu's Mute is ticked
     When it is unmuted
-    Then neither does
+    Then the button goes dim and the menu's Mute is unticked
 
   Scenario: Any number of tracks fit the mixer
     Given the song has nine tracks

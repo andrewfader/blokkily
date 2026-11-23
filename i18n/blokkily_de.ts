@@ -4,6 +4,10 @@
 <context>
     <name>ArrangementView</name>
     <message>
+        <source>Mute %1</source>
+        <translation>%1 stummschalten</translation>
+    </message>
+    <message>
         <source>ARRANGEMENT</source>
         <translation>ARRANGEMENT</translation>
     </message>
