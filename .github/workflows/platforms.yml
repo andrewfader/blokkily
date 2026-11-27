@@ -167,7 +167,11 @@ jobs:
         shell: bash
     steps:
       - name: Install dependencies
-        run: brew install ninja pkgconf qt fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband ffmpeg
+        # fluidsynth.pc requires readline, which Homebrew keeps out of the
+        # pkg-config search path (keg-only).
+        run: |
+          brew install ninja pkgconf qt fluid-synth readline rtaudio rtmidi libsndfile libsamplerate rubberband ffmpeg
+          echo "PKG_CONFIG_PATH=$(brew --prefix readline)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
       - name: Check out repository
         uses: actions/checkout@v4

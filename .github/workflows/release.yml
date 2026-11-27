@@ -322,7 +322,11 @@ jobs:
       # copies whole QML import trees, so the qt meta-formula would put Qt 3D,
       # WebEngine's PDF and the rest of Qt into the bundle.
       - name: Install dependencies
-        run: brew install ninja pkgconf qtbase qtdeclarative qtshadertools qtsvg qttools fluid-synth rtaudio rtmidi libsndfile libsamplerate rubberband ffmpeg
+        # fluidsynth.pc requires readline, which Homebrew keeps out of the
+        # pkg-config search path (keg-only).
+        run: |
+          brew install ninja pkgconf qtbase qtdeclarative qtshadertools qtsvg qttools fluid-synth readline rtaudio rtmidi libsndfile libsamplerate rubberband ffmpeg
+          echo "PKG_CONFIG_PATH=$(brew --prefix readline)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
       - name: Check out repository
         uses: actions/checkout@v4
